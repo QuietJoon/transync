@@ -1,0 +1,618 @@
+# Machine-readable project state for transync.
+# Updated by /design-first-architecture and /implement-working-mvp phase transitions.
+
+schema_version: 1
+
+project:
+  name: transync
+  local_run_target: clean-checkout-local
+  active_scope_label: MVP-D
+  last_updated: 2026-08-16-post-0.3.0-roadmap-complete
+  notes: |
+    V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
+    CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
+    the four [workspace.dependencies] requirements, and the record updates).
+    The release ships the review-0001 hardening arc: 46 tickets closed across
+    waves C-H on 2026-08-06/07 (20 triaged from reviews/0001.md + 26
+    follow-ups), workspace tests 408 -> 583/0/3, CLI stub 77, Playwright 16.
+    THE SANCTIONED 0.3.0 BREAKING WINDOW IS USED AND CLOSED - exactly three
+    curated-surface changes rode it, each in contracts.md section-0 +
+    public_surface.rs lockstep: CacheKey.instruction_hash (cache identity =
+    the prompt bytes the unit was translated under),
+    transync::VALIDATION_REPORT_SCHEMA_VERSION (tier a, symmetric with
+    ALIGNMENT_SCHEMA_VERSION), ListTopologyEntry.depth u8 -> u32 (saturation
+    ceiling deleted). The next sanctioned breaking window is 0.4.0.
+    The DCR-0015 live gate was TRIGGERED BUT NOT RUN (no API key in the
+    release session; the owner's stated waves+smoke condition governed) - the
+    CHANGELOG 0.3.0 preamble records it and status.md carries the post-tag
+    action. Alignment schema stays 1.2.0; VALIDATION_SCHEMA_VERSION stays 2.
+    MSRV floor moved to the proven-exact 1.88 (transync-cli pins 1.89).
+    Cargo.lock and the docs/investigation + reviews bundles are committed by
+    owner decision. Post-0.3.0 roadmap: six commissioned tickets in recorded
+    order fc0304, 43cfb4, d3acc3, b791d6, bda471, f12b8b (docs/backlog.md
+    Type 1).
+    TRACK C WASM RENDER+EDIT DEMO LANDED 2026-08-05 (ADR-0019 + DCR-0020;
+    6 commits 94d7e39..1d04135, branch master). This is TRACK C PROPER - the
+    browser integration OI-0028/DCR-0017 deferred after delivering only the
+    compile path. OI-0028 STAYS RESOLVED and gains a dated "Track C proper
+    landed" note; OI-0020 STAYS OPEN by owner decision (pin over lock).
+    EVERYTHING IS ADDITIVE: the frozen set (web/index.html, web/js/sync.js,
+    crates/transync-cli/web/, ALL of crates/transync-syntax, and
+    crates/transync/tests/public_surface.rs) has an EMPTY
+    git diff 94d7e39..HEAD - that emptiness is the proof the wave added a
+    layer rather than moving one.
+    SIXTH WORKSPACE MEMBER crates/transync-wasm (crate-type cdylib+rlib,
+    publish = false) depends on transync-syntax ALONE among workspace crates.
+    Double rationale, both halves load-bearing: the crate charter, and the
+    getrandom trap - transync-core's wasm32 tree reaches getrandom via
+    tokio/tiktoken and syntax's does not, so a widening edge breaks the LINK,
+    discovered late. All logic lives in engine.rs with ZERO wasm-bindgen types
+    (host-testable); lib.rs holds three thin #[wasm_bindgen] wrappers.
+    transync-syntax's own manifest is UNTOUCHED - still no [features], still
+    no core dependency.
+    BOUNDARY = JSON strings in, one JSON string out (approach A1: no
+    serde-wasm-bindgen, no new dependency, one JSON.parse per call).
+    render_pair(source_md, translated_md, alignment_json) -> {source_html,
+    target_html} reproduces the CLI's pane fragments BYTE-IDENTICALLY.
+    rebuild(source_md, payloads_json, statuses_json, source_lang, target_lang,
+    detected?) -> {source_html, target_html, alignment_json, translated_md}
+    runs the WHOLE local loop (parse -> assign ids -> html_outcomes ->
+    regenerate -> build_alignment_map -> render both) and DELIBERATELY never
+    reuses the fetched map: the html/skipped render arms slice target_range
+    BYTES that an edit has shifted, which is a SILENT mis-render
+    (probe-confirmed). schema_version() is the lockstep leg, pinned host-side
+    to ALIGNMENT_SCHEMA_VERSION so a blob can never disagree with the crate it
+    was built from.
+    EDIT MODEL: per-block payloads (absence IS regen's fallback contract, so an
+    unedited document round-trips byte-identically); statuses PRESERVED not
+    rewritten across edits (fallback_status records LLM provenance, and a human
+    demo edit is not an LLM decision); html blocks READ-ONLY (their payload is
+    an extracted segment array per ADR-0018, not Markdown, so a Markdown slice
+    could not be spliced); unknown ids REJECTED with a sorted named list rather
+    than silently dropped. Identity comes from parsing the SOURCE document,
+    which the demo never edits, so the block set is structurally preserved and
+    the ID-stability wall (invariant 8 / draft NG4) is never approached.
+    BUILD PIPELINE scripts/build-wasm.sh: wasm-pack --target web --profile
+    wasm-release --no-opt --no-pack, then an EXPLICITLY RESOLVED binaryen
+    wasm-opt -Oz with five --enable-* proposal flags. Two traps handled by
+    construction: wasm-pack's CACHED BINARYEN 117 REJECTS current rustc output
+    ("Bulk memory operations require bulk memory"), so wasm-opt is resolved
+    ONCE by absolute path via command -v and can never drift back onto it; and
+    wasm-pack only honours package.metadata.wasm-pack.profile.{dev,release,
+    profiling} and SILENTLY IGNORES the key for a custom profile, so --no-opt
+    is mandatory rather than preferable. Every prereq failure is LOUD, never a
+    skip (missing wasm-pack, missing wasm-opt, wasm-opt < 121, unparseable
+    --version, non-zero wasm-opt, unsafe staging dir) - each TESTED, not
+    assumed. Never sets CARGO_TARGET_DIR or --target-dir.
+    BINARYEN INSTALL CHANNEL (recorded in ADR-0019 decision 3): the spec says
+    "brew binaryen (>= 131)"; on the implementing host brew was IMPOSSIBLE
+    (/opt/homebrew owned by another uid - a real filesystem permission,
+    reproduced with the sandbox disabled; Homebrew's own remedy is a chown of
+    the whole prefix, a far larger host mutation than the one approved).
+    Installed instead: the SAME version brew ships, from the upstream release
+    binaryen-version_131-arm64-macos.tar.gz, SHA-256 VERIFIED
+    (e441b48dc22163d209b4f05e44dc7210909b01237642b6c9ae48fd710a3ef83e; chain
+    re-verified independently at review), at /Volumes/Common/local/opt/
+    binaryen-131 with bin/wasm-opt symlinked into /Volumes/Common/local/bin
+    ahead of /opt/homebrew/bin on PATH. HOST-PORTABLE BY CONSTRUCTION: the
+    script names no prefix and resolves whatever wasm-opt >= 121 is on PATH, so
+    plain brew works elsewhere and the failure hints still say
+    "brew install binaryen". The spec's decision-2 bullet gained a dated
+    pointer at this record - annotate, do not rewrite.
+    SIZE BUDGET raw <= 1,950,000 B / gzip <= 810,000 B, ENFORCED by the script
+    (a breach fails the build), against a MEASURED 1,739,791 / 718,136
+    (1.66 MiB / 701 KiB), byte-reproducible across clean rebuilds. The spec's
+    original 1,400,000 / 500,000 was WRONG INPUT CORRECTED BY MEASUREMENT, not
+    size creep: the exploration probe compiled VIEW MODE ONLY. Full attribution
+    lives DURABLY in DCR-0020 (the spec's correction cites a scratch report):
+    control probe rebuilt today 1,148,050 (was 1,237,349 - the -89,299 drop is
+    Task A's comrak default-features=false landing exactly as predicted) ->
+    +42,127 JSON boundary -> +435,770 edit-mode Markdown RESERIALIZATION
+    (regen::regenerate + outcome::html_outcomes, which a render-only path never
+    touches - the dominant term) -> +113,844 fat-LTO scope lost to the rlib
+    crate-type beside the cdylib (ticket 92ac61b9, deliberately not spent) =
+    1,739,791 shipped.
+    [2026-08-05 RESOLUTION NOTE: ticket 92ac61b9 is CLOSED (commit 223535b) -
+    that last row was SPENT. crate-type is ["cdylib"] alone; re-measured A/B at
+    the crate's then-current size the drop is 101,228 B raw / 46,758 B gzip,
+    and MAX_RAW / MAX_GZ came down with it to 1,840,000 / 760,000 (same ~12%
+    headroom). The measurements above stand as the numbers of the day they were
+    taken.]
+    WEB-ONLY: the CLI --html-out bundle deliberately carries NO wasm. Two
+    independent arguments: PAYLOAD (~41x the entire 42 KB JS payload; the spec
+    argued 30x from the view-only probe, so the shipped measurement makes the
+    argument STRONGER - the bundle would have carried ~1.74 MB, not ~1.2 MB)
+    and REDUNDANCY (a bundle already ships RENDERED HTML, which is exactly what
+    view mode reproduces). HTML_BUNDLE_ENTRIES and the ADR-0006 six-file
+    contract are UNCHANGED. The non-redundant capability - local editing -
+    belongs to a demo, not to a published reader artifact.
+    DEMO web/demo-wasm.html + web/js/wasm-demo.js (ESM, framework-free,
+    importing only sync.js's mountSync/fetchOk); artifacts in the GITIGNORED
+    web/wasm/. Mounts through the shells' fail-closed DOMPurify path (checked
+    at boot AND re-checked inside mountPanes, so no innerHTML write can bypass
+    it) with THREE independent refusal gates: DOMPurify absent, module
+    schema_version() vs the demo's KNOWN_SCHEMA, and the FETCHED map's
+    schema_version (full x.y.z regex mirroring sync.js; major must match; newer
+    minor/patch warns and proceeds per OI-0024). Payloads sliced by UTF-8 BYTES
+    via TextEncoder/TextDecoder (target_range holds byte offsets and the SCN-14
+    fixture's em dashes already make byte != UTF-16 index). Scroll and
+    <details> restored BETWEEN the innerHTML writes and mountSync, not after:
+    restoring with the engine's listeners live reads as a USER scroll and the
+    panes drive each other away (measured 120/140 -> 131/131 versus an exact
+    347 -> 347); <details> before scrollTop within that window, because
+    re-opening a collapsed block changes scrollHeight and clamps the assignment.
+    <details> keyed syncId#index because the renderer attributes the WRAPPER.
+    A rebuild exception lands in a NON-FATAL error strip: nothing was mounted,
+    so the last good render stays up and data-demo-state stays "ready".
+    LAYOUT DECISION (Track C task 4): wasm artifacts stay in web/wasm/ and
+    wasm-demo.js imports ../wasm/transync_wasm.js; the Playwright fixture
+    MIRRORS web/'s directory shape verbatim so the same relative specifiers
+    resolve in both trees. Forced by the glue resolving its own module as a
+    SIBLING of itself (new URL('transync_wasm_bg.wasm', import.meta.url)) - only
+    the parent directory was ever in question. Documented in three places:
+    test-browser.sh's "WASM demo leg" block (with the path table), the
+    wasm-demo.js module header, and the commit message.
+    GATES: both pre-commit hook copies and smoke.sh now run
+    cargo check -p transync-syntax -p transync-wasm --target
+    wasm32-unknown-unknown (hook stays rustup-only); smoke.sh additionally runs
+    scripts/build-wasm.sh (carrying the size budget) and its rustdoc package
+    list gained -p transync-wasm; test-browser.sh owns the wasm spec and grew a
+    wasm leg (build + eight fixture copies + a SECOND assertion loop) that
+    touches nothing in HTML_BUNDLE_ENTRIES - the copies land in the scratch
+    fixture dir AFTER the CLI publish, so ensure_html_out_safe never sees them.
+    static-server.mjs gained .wasm (instantiateStreaming rejects any other MIME
+    and the glue's fallback logs a warning) and .md.
+    PLAYWRIGHT 8/8 -> 12/12 (8 SCN-13 + 4 wasm), one new file, config
+    untouched. (a) boots clean: ZERO console warnings/errors at any severity,
+    one forgiven entry matched on RESOURCE URL not text (the fixture's
+    logo.png 404, whose Chromium message carries no URL) - proven NON-VACUOUS
+    by a negative control that re-served the .wasm as application/octet-stream
+    and made the test fail with exactly the MIME warning it exists to catch.
+    (b) PARITY: the probe's byte-identity promoted to a STANDING GATE - fetches
+    the CLI-rendered source.html/target.html, digests both sides with DOMParser
+    into {id, data-block-kind, textContent} arrays, one toEqual per pane plus a
+    SYNC_IDS anti-vacuity guard; zero diffs across all 17 blocks in both panes.
+    Structural rather than an innerHTML byte diff because the demo mounts
+    through DOMPurify; pre-sanitize BYTE parity is proven HOST-side by the two
+    two-mode agreement tests, which the test names. (c) edit loop: html refuses
+    first, then a paragraph re-renders; target text changes, SOURCE text does
+    not, error strip stays hidden, both panes' id sequences still equal SYNC_IDS
+    (invariant 1 survives a rebuild), and sync still drives the counterpart
+    pane - landing asserted BLOCK-level, not exact scrollTop, because an edited
+    target no longer shares the source's line-for-line layout. (d) fail-closed,
+    two variants: DOMPurify emptied and the map mutated to 9.9.9, both asserting
+    ZERO anchors mounted. Four consecutive green 12/12 runs, zero retries.
+    GATE RUN: fmt/clippy clean; widened wasm gate green for BOTH crates;
+    cargo test --workspace -- --test-threads=4 393 passed / 0 failed /
+    3 ignored (pre-wave 385 - the delta is EXACTLY transync-wasm's eight new
+    host tests; zero removals, zero adaptations); CLI stub suite 34;
+    scripts/build-wasm.sh 1,739,791 / 718,136 in budget; scripts/smoke.sh green
+    incl. the standing rustdoc gate now covering transync-wasm;
+    scripts/test-browser.sh 12/12; public_surface.rs green and UNMODIFIED;
+    resp-translator cargo check --workspace green with NO migration.
+    INVARIANTS: alignment schema still 1.2.0 (the new crate RE-EXPORTS the
+    constant rather than defining a second one), VALIDATION_SCHEMA_VERSION
+    still 2, CacheKey untouched, both sync.js copies byte-identical, ADR-0006's
+    six-file bundle contract unchanged, curated facade surface unchanged.
+    DCR-0019's IR FREEZE RULE HELD and its open question is ANSWERED: the JS
+    boundary is NEITHER serde-on-the-IR nor a DTO layer - JSON strings cross it
+    and Document/Block/Section never leave Rust unchanged.
+    ADR-0003 gained a dated SIX-MEMBER amendment (transync-wasm ->
+    transync-syntax; the "five Cargo.toml files" tradeoff line becomes six).
+    TICKETS: 92ac61b9 (rlib fat-LTO cost) pre-existing; 0c6a5c8b NEWLY FILED for
+    the demo's non-fatal error-strip path, which is implemented and smoke-proven
+    (ghost source_block_id -> rebuild throws -> strip shown, panes stay mounted,
+    data-demo-state stays "ready") but has no committed Playwright coverage - it
+    would have been a 5th test against a brief that pinned the suite at 12.
+    [2026-08-05 RESOLUTION NOTE: BOTH tickets are CLOSED. 0c6a5c8b in eab1111 -
+    wasm.spec.js test 'e' runs exactly the filed recipe and the browser suite is
+    13/13 (8 SCN-13 + 5 wasm). 92ac61b9 in 223535b - cdylib only. A THIRD demo
+    ticket, 2a276cb4, was filed after this wave and closed in cc9fb8f: rebuild
+    now returns a nullable structure_warning when a payload edit changes the
+    normalized top-level block count, and the demo announces it non-fatally.]
+    FOLLOW-UPS LEFT OPEN: OI-0020 is sharper, not merely still open (the
+    =0.2.126 pin now sits on a critical build path and the seven-package
+    resolution satisfying it lives only in the gitignored lock; the binding edge
+    was js-sys via reqwest->transync-openai exact-pinning wasm-bindgen, NOT
+    slug->comrak as predicted, and a future wasm-bindgen release can move fresh
+    js-sys resolutions into conflict with our pin on a clean checkout); the
+    demo carries a THIRD KNOWN_SCHEMA mirror alongside both sync.js copies (a
+    standing lockstep obligation on any schema bump); console cleanliness is now
+    LOAD-BEARING (any console.warn on the happy path fails test a); bootDemo's
+    20 s readiness ceiling is sized for a cold 1.7 MB module and should be
+    revisited if the budget moves; Playwright test b depends on the bundle
+    emitting source.html/target.html, deliberately, since those are its oracle.
+    OI-0008 + OI-0033 INTERNAL-QUALITY WAVE LANDED 2026-08-05 (DCR-0019;
+    11 commits b1c3c7f..73fd331, branch master). OI-0008 RESOLVED (every
+    bullet group), OI-0033 RESOLVED (posture Support), OI-0034 FILED. First
+    wave after the v0.2.0 tag, so everything is internal: the curated facade
+    surface is untouched and crates/transync/tests/public_surface.rs is green
+    and BYTE-IDENTICAL to the tag (git diff v0.2.0..HEAD on that file is
+    empty - that emptiness is the proof).
+    Behavior-change budget was EXACTLY TWO.
+    (1) OI-0033 Support: LineOffsets::new gained ONE arm - a \r whose next
+    byte is not \n - naming comrak's strings::is_line_end_char as the
+    authority. Probe-verified that VT/FF/NEL/U+2028/U+2029/NUL are NOT line
+    endings (so str::lines() and Unicode line-break APIs are inadmissible),
+    and that CR-aware offsets are BYTE-IDENTICAL for every LF/CRLF document,
+    which makes the fix behavior-preserving by construction on the whole
+    current corpus. The two duplicated line-end-cap derivations collapsed into
+    one terminator-aware helper. Fixtures are inline &str constants, NEVER
+    checked-in .md files (no .gitattributes protects CR bytes; a fixture would
+    also create a .ko.md mirror obligation). A defensive parse warning now
+    fires when a translatable LIST ITEM has an empty computed range at a
+    non-degenerate sourcepos - scoped to list items because SCN-15's comment
+    block legitimately slices empty. DCR-0017's Guard-1 residual (a) is CLOSED
+    by direct assertion, not inference; DCR-0017's note and the full_reparse.rs
+    comment now read "void unqualified".
+    (2) ValidationReport.total_retries counts CONTENT retries only. The old
+    attempts.len() - 1 also counted batch-schema-fault rounds and rejected
+    cache-hit re-validations, contradicting doc text in BOTH pipeline.rs and
+    validate.rs. No test pinned the old value; the two discriminating new tests
+    were RED first. OBSERVABLE: a validation-report.json from a run with a
+    batch fault or a rejected cache hit now reports a LOWER total_retries.
+    batch_schema_faults and provider_retries unchanged; the three now sum
+    without double-counting.
+    Everything else is behavior-preserving motion, each task carrying its own
+    proof (normalized line-multiset diffs, identical test-name multisets,
+    byte-identical output trees).
+    RETRY/FALLBACK (R0001-0057, from the removed reviews/reviewed/0001.md -
+    see reviews/README.md) -> pipeline/policy.rs, a PURE decision core
+    (approach A1): its complete import list is TranslateOptions, BlockId,
+    AttemptOutcome, HashMap, Duration - no tokio, no Cache, no Translator,
+    nothing async. Twelve decision tests now run with NO mock translator.
+    Extraction surfaced that max_per_batch_provider_retries is charged per
+    DISPATCH ROUND despite its per-batch name - preserved verbatim (the budget
+    was spent) and ticketed 294ddabd; begin_dispatch_round() exists to make
+    that reset explicit rather than a silent third behavior change.
+    [2026-08-05 RESOLUTION NOTE: ticket 294ddabd is CLOSED (commit 1436304,
+    route (a)) - begin_dispatch_round no longer resets provider_attempts, so
+    max_per_batch_provider_retries is charged PER BATCH across the whole ladder
+    and the method now only opens the round and returns its 1-based ordinal. The
+    behavior change is recorded in CHANGELOG [Unreleased], ADR-0009's amendment,
+    contracts.md 5, and dated notes on DCR-0019.]
+    SIX CONCERN SPLITS: run_pipeline -> pipeline/{dispatch,finalize,report};
+    unit.rs -> structure{,/labels} (removing the inversion where
+    validate::per_kind imported its structural oracle from the unit builder)
+    plus unit/{payload,budget} (two of three sentinel copies collapsed into one
+    caller_wins helper); the OpenAI client -> client/{classify,transport,
+    endpoint,dispatch,chat,responses} + tokenizer.rs behind ONE surface
+    abstraction (SurfaceRequest + round_trip) shared by translation AND
+    glossary extraction, with the previously UNTESTED HTTP-status
+    classification table pinned TESTS-FIRST (29 unresolved-name compile errors
+    as the RED step) before being moved character-for-character; translate_cmd
+    -> translate_cmd/{args,input,provider,publish,report} behind an
+    execute(args, reporter) -> Result<RunSummary, CliFailure> seam that
+    collapses FIFTEEN exit-code sites into one table, plus one file-set builder
+    replacing two duplicated OutputTarget arms; and the parser walker
+    restructured onto a WalkState across parser/{options,classify,emit,
+    sections}, deleting three #[allow(clippy::too_many_arguments)] and the
+    emit_here! macro.
+    SUBTRACTIVE SLICE: Document::hierarchy (a whole extra pass plus a HashMap
+    and two Vec<BlockId> allocations on EVERY parse, read by nothing) and
+    Block::parent_id (provably always None) DELETED, simplifying SIX
+    tautological filter sites - the exploration digest listed five; walk.rs's
+    normalize_top_level was the sixth. One home each for emit, the
+    section-scope algorithm, and the heading_level mapping
+    (BlockKind::heading_level() in transync-syntax/src/id.rs, #[doc(hidden)]);
+    a fourth kind->level mapping survives in unit/payload.rs and is ticketed
+    69b9b3db. Section survives shape-frozen with no producer, documented as the
+    projection target for a future OI-0005 revision.
+    [2026-08-05 RESOLUTION NOTE: ticket 69b9b3db is CLOSED (commit 7572c45) -
+    that fourth mapping no longer survives. constraints_for seeds
+    must_preserve_heading_level from BlockKind::heading_level(), so id.rs is the
+    single kind->level home; the llm/prompt golden fixtures are byte-untouched.]
+    THE WIRE DID NOT MOVE: AlignmentBlock.parent_id stays at schema 1.2.0 as an
+    always-null RESERVED field; render/attrs' reads of it were removed as
+    contract-aligned (contracts.md section-4a: data-parent-id is never
+    emitted). Proven by regenerating 112 CLI output files from the pre-change
+    tree via stash-and-regenerate and diffing byte-for-byte: IDENTICAL.
+    transync_openai::pagination DELETED - the ONE deliberate crate-surface
+    removal outside the window (zero callers in-tree and in resp-translator;
+    contracts section-7 never covered it; the oversize-split deferral stays
+    tracked in stub-manifest.md / contracts section-5, where a deferral
+    belongs). The _unused_for_typing stub went with it.
+    IR FREEZE RULE HELD: beyond those two field deletions, Document/Block/
+    Section shapes are unchanged - Track C decides serde-vs-DTO for the JS
+    boundary and the IR must not be reshaped twice.
+    ZERO test removals with ONE sanctioned 1-for-1 swap, named in the plan's
+    Global Constraints before dispatch: id.rs's rekeying_remaps_section_path_
+    and_hierarchy -> rekeying_renumbers_the_id_sequence_and_remaps_section_path
+    (same fixture, same mutation, STRONGER on the surviving contract - it
+    asserts the whole assigned id sequence where the original asserted only its
+    two endpoints).
+    Gates: fmt/clippy clean, wasm gate green, cargo test --workspace --
+    --test-threads=4 385 passed / 0 failed / 3 ignored (pre-wave 340), CLI stub
+    suite 34, scripts/smoke.sh green incl. the standing rustdoc gate, Playwright
+    SCN-13 8/8, resp-translator cargo check --workspace green with NO migration.
+    Alignment schema still 1.2.0, VALIDATION_SCHEMA_VERSION still 2, CacheKey
+    and both sync.js copies untouched. DCR-0017 gained a dated residual-(a)
+    note; ADR-0016 a dated path note (resolve_profile now lives in
+    translate_cmd/input.rs). NEXT: Track C proper (wasm-bindgen entry points,
+    JS integration, browser demo) - this wave went first precisely so Track C
+    ships the shrunken path.
+    v0.2.0 RELEASED 2026-08-05 (annotated tag v0.2.0) - the sanctioned
+    breaking window is CLOSED. Release prep: CHANGELOG [Unreleased] ->
+    [0.2.0]; parked fixes landed (this file's drift-test part count and gate
+    tally corrected, smoke.sh's CLI test line gained the --test-threads=4
+    cap); owner pre-tag addendum: #[non_exhaustive] on the six read-only
+    output types (TranslationOutput, ValidationReport, AlignmentMap,
+    AlignmentBlock, ValidationSummary, GeneratorMeta - workspace count
+    11 -> 17; ByteRange stays exhaustive by policy, a byte range is
+    complete by definition); the OI-0030 live gate ran before tagging,
+    date + models recorded in the CHANGELOG 0.2.0 entry. From here,
+    surface changes follow
+    contracts.md section-0/section-1 stability rules; the next sanctioned
+    breaking window would be 0.3.0.
+    OI-0027 public-surface curation LANDED 2026-08-04 (DCR-0018); OI-0027
+    RESOLVED - the last item on the road to 0.2.0. crates/transync stopped
+    being `pub use transync_core::*;` + `pub use transync_syntax;` and became
+    an EXPLICIT curated re-export list (the facade's transync-syntax
+    dependency went with them); transync-core's tier-(c) modules (batch,
+    error, pipeline, validate) and the five re-exported syntax aliases
+    (align, id, parser, regen, render) went pub(crate), so the tier boundary
+    is a COMPILER fact, not a doc claim. One exception: `unit` is
+    #[doc(hidden)] pub because transync-openai's offline live_smoke
+    fixture-shape test reaches it cross-crate - that reach is now declared as
+    engine dev-dependencies. #[non_exhaustive] on nine items (workspace count
+    2 -> 11): TranslatorError/TransyncError/ParseError, ProfileMetadata/
+    ProfileConstraints/ProfileBatching/ProfileRender, TranslateOptions, and
+    TranslationUnit; construction is default-then-assign everywhere except
+    TranslationUnit, which got new(unit_id, block_kind, input_mode,
+    source_payload, source_hash) + with_context/with_constraints/
+    with_batch_id/with_retry (Default is meaningless for it; source_hash is a
+    CacheKey axis with no honest zero). Exhaustive-by-policy set unchanged
+    (UnitResult, TranslationBatchResult, TranslationBatch, GlossaryEntry).
+    pipeline::run_pipeline is unreachable; translate_with_cache is the
+    promoted entry point and is NOT a bare alias - it preflights an empty
+    target_language and fails fast. contracts.md gained "0. Public Rust
+    surface" (78 rows) and crates/transync/tests/public_surface.rs welds
+    table and code in six parts: compile-assertion re-export module,
+    DOCUMENTED mirror, table <-> DOCUMENTED scrape equality, first_class <->
+    DOCUMENTED self-scrape equality, segment-based negative test over the
+    hidden module names, and a DCR-0017 M6 generator.version guard. DCR-0017's handover list is closed: htmlseg::balance_fragment /
+    outcome::is_translatable / walk::label_for went pub(crate), and cargo doc
+    --no-deps is warning-free for all three library crates under a STANDING
+    RUSTDOCFLAGS="-D warnings" gate in scripts/smoke.sh. Closure fallout
+    resolved with ZERO test removals and zero new #[allow]s: retry's three
+    no-op hooks (retry_validation, oversize_split, fallback_to_source),
+    batch::group_by_unit_count (with its pre-existing #[allow(dead_code)]),
+    and ValidatedBatch::batch_id_str DELETED (greppable tombstone comment);
+    batch::estimate_unit_tokens + validate::schema::check_schema -> #[cfg(test)].
+    OI-0008 STILL owns the retry/fallback redesign - empty hooks are not the
+    policy fix. Owner-decision corrections recorded in DCR-0018: the
+    2026-08-03 decision's "construction via ..Default::default()" was UNSOUND
+    (FRU is illegal cross-crate on non_exhaustive structs; re-decided as
+    default-then-assign 2026-08-04), and tier (a)'s "TranslateOutput" is a
+    naming slip for TranslationOutput (no rename happened). Sibling repo
+    /Volumes/Common/QJoon/resp-translator migrated the same day (commit
+    8b6dbd5, branch main): run_pipeline -> translate_with_cache +
+    default-then-assign, with the behavioral delta that an empty profile
+    target_language now fails fast with stable_code "internal". DISCOVERY:
+    the tracked pre-commit hook was NOT live - core.hooksPath was unset, so
+    only .git/hooks/pre-commit ran; install-hooks.sh set
+    core.hooksPath=scripts/hooks and the .git/hooks copy is now inert but
+    kept byte-identical. Invariants held: alignment schema stays 1.2.0,
+    VALIDATION_SCHEMA_VERSION stays 2, CacheKey and both sync.js copies
+    untouched. Gates: 340 passed / 0 failed / 3 ignored workspace-wide at
+    --test-threads=4, Playwright SCN-13 8/8. Released as v0.2.0 (see top).
+    transync-syntax crate split + AST-direct renderer LANDED 2026-08-04
+    (DCR-0017); OI-0028 RESOLVED, OI-0008 narrowed. crates/transync-syntax is
+    the workspace's fifth member and owns parser (+ranges/refdefs), id, regen,
+    render (+attrs), align, htmlseg, error::ParseError, plus two new modules:
+    outcome (the per-block HtmlOutcome closure) and walk (ONE shared top-level
+    normalization + per-list item count, consumed by the render zip AND
+    validate::full_reparse). transync-core keeps pipeline/unit/batch/llm/
+    validate/cache/profile and re-exports the moved modules, so no consumer
+    path broke; the facade also gained `pub use transync_syntax;`. Standing
+    gate: cargo check -p transync-syntax --target wasm32-unknown-unknown, in
+    both pre-commit hook copies (fails loudly, never skips, when the rustup
+    target is missing) and scripts/smoke.sh. Dependency canary re-run for the
+    full set (comrak 0.27.0, serde 1.0.228, serde_json 1.0.149, siphasher
+    1.0.2, thiserror 1.0.69, lol_html 2.9.0, htmlize 1.1.0): COMPILES,
+    compile-only. Intentional breaks inside the open 0.2.0 window:
+    regen::regenerate(doc, &HashMap<BlockId, String>) with absence AS the
+    fallback contract (collect_translations deleted) and
+    align::build_alignment_map arity 6->7 with neutral statuses +
+    source_language/target_language. Renderer rewritten to whole-document
+    AST-direct: one comrak parse per pane instead of 2 x (N_blocks +
+    N_ol_runs), no per-fragment ref-defs append, strip_outer_wrapper /
+    block_inner_html / ordered_list_start DELETED; accepted shape changes are
+    loose source lists rendering loose in BOTH panes, comrak's loose-task-item
+    shape, and a BUGFIX (4-space-indented code blocks used to render as <p>).
+    Two guards: full_reparse per-list item count (defense in depth behind
+    per_kind::check_list; NO VALIDATION_SCHEMA_VERSION bump) and a render-side
+    degrade that never drops an anchor. Dialect trait deliberately NOT
+    instantiated - DCR-0005's deferral condition is still unmet. Alignment
+    schema stays 1.2.0; CacheKey and both sync.js copies untouched. Filed
+    OI-0033 (LineOffsets counts only \n, so lone-CR sources desync
+    sourcepos->byte mapping; pre-existing, found by the probe that DISPROVED
+    the spec's Guard-1 residual (a)). Next in sequence at that time: OI-0027
+    facade curation, which inherited this split's widened-surface inventory
+    (LANDED 2026-08-04, DCR-0018 - see above).
+    HTML-content translation feature LANDED 2026-08-04 (ADR-0018, DCR-0016):
+    block-level raw HTML is now the translatable kind BlockKind::Html. A shared
+    lol_html routine extracts entity-decoded text segments, the LLM sees only a
+    JSON array of strings (tags never leave the process), and a positional
+    splice with identity-skip preserves every non-text byte. Successful blocks
+    live-render in both panes with render-side fragment auto-balancing through
+    the shells' DOMPurify mount; the DCR-0013 escaped placeholder becomes the
+    failure-only presentation. Adds an always-on inline raw-HTML tag guard and
+    <details> toggle mirroring across panes. Alignment schema 1.1.0 -> 1.2.0
+    (additive "html" block_kind, full lockstep: const, both sync.js copies,
+    Playwright probe -> 1.3.0, 12 scenario pins + cli_smoke);
+    VALIDATION_SCHEMA_VERSION 1 -> 2. New deps lol_html 2.9.0 + htmlize 1.1.0,
+    canaried as COMPILING for wasm32-unknown-unknown (compile-only). New
+    scenario SCN-15; Playwright suite 8/8. ADR-0018 amends CLAUDE.md
+    invariant 7. (Its htmlseg/parser/id/regen/align/render paths moved to
+    crates/transync-syntax later the same day - see DCR-0017 above.)
+    Owner decisions (2026-08-03): road to 0.2.0 fixed as HTML-content
+    translation feature (now landed, see above) -> OI-0028
+    Option B crate split (transync-syntax base: parser/id/regen/render/align
+    + shared IR; renderer rework rides along, clearing OI-0008) -> OI-0027
+    facade curation + non_exhaustive + builders (window-closing ritual) ->
+    0.2.0 release. Track C (in-browser WASM rendering) confirmed as a real
+    goal; the split delivered its compile path and the standing gate, while
+    wasm-bindgen entry points and browser integration stay post-0.2.0.
+    Details in the OI-0027/OI-0028 ledger entries.
+    OI-2026-08 open-issue resolution wave (2026-08-03): auto-extracted
+    candidate glossary (OI-0026) + per-batch schema-fault fairness (OI-0031)
+    in DCR-0014; provider-neutral prompt lift into transync-core::llm::prompt
+    with golden byte-identity pins, TokenizerHint, and model_id demoted to
+    advisory (OI-0029), RTL pane direction (OI-0032), and double-gated
+    machine-asserted live smoke (OI-0030) in DCR-0015. ADR-0009 and ADR-0013
+    amended (dated 2026-08-03). Five of the seven DR-2026-07 issues resolved;
+    OI-0027 and OI-0028 remain open. Alignment schema stays 1.1.0; CacheKey
+    unchanged; all surface changes ride the still-open 0.2.0 window.
+    DR-2026-07 design-review wave (2026-07-27): output-aware batch packing +
+    5 CLI batching flags (DCR-0012), reader-honesty skipped-node placeholders +
+    refmap resolution + alignment schema 1.1.0 (DCR-0013), abort-all kept
+    (ADR-0017); opened OI-0026..OI-0032.
+    MVP track is D (Rust library + thin CLI + JS demo). Track C (WASM) is post-MVP.
+    Brainstorming spec (historical): docs/superpowers/specs/2026-05-01-transync-design.md.
+    Design draft (historical): references/draft.md.
+    Baseline: BL-2026-07-B (v0.2.0 steady state, external-review wave EXT-2026-07;
+    supersedes BL-2026-05-01-A, whose record is preserved in design-baseline.md).
+    SEVENTH WORKSPACE MEMBER crates/transync-anthropic LANDED 2026-08-10
+    (bda471 / DCR-0029, slices SL-115..SL-119) - the second in-tree Translator,
+    over the Anthropic Messages API, and the FIRST EXERCISE of ADR-0002's
+    "future providers are sibling crates, purely additive" promise. It PUBLISHES
+    (sixth published member; the roster in workspace_publication.rs and
+    release-checklist step 19 moved with it), and it has NO root
+    [workspace.dependencies] entry on purpose: that table is welded to the edges
+    members take on each other, in both directions, and nothing depends on this
+    crate yet, so an entry would fail as "declared but unused". The wasm gate is
+    untouched by construction - the crate's only workspace edges are transync
+    plus two dev-only ones, and transync-syntax's manifest is again UNCHANGED.
+    THE CORE TRAIT DID NOT MOVE. Exactly one thing reached the seam: a new
+    TranslatorError variant, ContextWindowExceeded / provider_context_window_
+    exceeded, riding the OPEN 0.4.0 breaking window (DCR-0029's owner fork,
+    resolved to Option A). It is a variant addition on a #[non_exhaustive] enum,
+    so consumers keeping the mandated wildcard arm are unaffected; what moves is
+    the vocabulary they may see. contracts.md gained a new section 8 for the
+    crate; section 0 and public_surface.rs are UNTOUCHED, because the facade
+    does not re-export provider crates.
+    STANDING GAP: the anthropic live leg has NEVER BEEN EXECUTED - there is no
+    ANTHROPIC_API_KEY in this environment. The test and the smoke-live-gate.sh
+    leg are written and double-gated; the shipped evidence until a key exists is
+    the crate's OFFLINE end-to-end test, which drives transync::translate over
+    the adapter against a loopback server that answers the request the adapter
+    actually sent. That proves everything between the pipeline and the socket;
+    it does NOT prove the provider accepts the request as written.
+    POST-0.3.0 ROADMAP: ALL SIX HAVE LANDED (corrected 2026-08-16; this line
+    previously read "four of six landed ... fc0304 and 43cfb4 remain", which
+    was wrong in both directions - it counted f12b8b as landed while status.md
+    counted it as pending, and it counted fc0304 and 43cfb4 as pending while
+    their records were already on disk). The full set, in recorded order:
+    fc0304 -> DCR-0026 (2026-08-09, SL-100..SL-105, packing-time row-window
+    split); 43cfb4 -> DCR-0027 (2026-08-09, SL-106..SL-109, section-coherent
+    batching + glossary section scope); d3acc3 (2026-08-09, no DCR);
+    b791d6 (2026-08-09, no DCR); bda471 -> DCR-0029 (2026-08-10,
+    SL-115..SL-119); f12b8b -> DCR-0028 (2026-08-09, SL-110..SL-114,
+    DiskCache + document metadata, which is what resolved OI-0017's last
+    item). BOTH LIMBS of the Type-3 provider-capability-set revisit condition
+    have therefore fired - the oversize split (fc0304) and a second in-tree
+    provider (bda471) - so docs/backlog.md marks that entry AWAKE with no block
+    left, needing a decision rather than resolved, and records that the evidence
+    points both ways.
+    RECORDS BEYOND DCR-0021 (added 2026-08-16 to closed_change_records, which
+    had stopped at DCR-0021 while ten more records existed on disk): DCR-0022
+    Review-0002 hardening (2026-08-08), DCR-0023 provider error taxonomy
+    (2026-08-08), DCR-0024 run cancellation (2026-08-08), DCR-0025 Review-0003
+    content loss + refusal precedence (2026-08-09), DCR-0026, DCR-0027,
+    DCR-0028, DCR-0029 (above), DCR-0030 Review-0004 credential + origin
+    hardening (2026-08-13), DCR-0031 indented-code normalize-on-translate
+    (2026-08-16). This blob does NOT yet narrate those waves; status.md and
+    each record are the detail.
+
+design:
+  current_phase: 5
+  highest_completed_phase: 5
+  active_baseline_id: BL-2026-07-B
+  superseded_baseline_id: BL-2026-05-01-A
+  baseline_status: approved
+  open_change_records: []
+  closed_change_records:
+    - DCR-0001-renderer-wrapper-div
+    - DCR-0002-recoverable-full-reparse-failure
+    - DCR-0003-wrapper-positioning-contract
+    - DCR-0004-fallback-per-block-widens-and-escalates
+    - DCR-0005-facade-and-core-crate-split
+    - DCR-0006-all-or-nothing-output-staging
+    - DCR-0007-grouped-list-rendering
+    - DCR-0008-scroll-listener-sync-engine
+    - DCR-0009-v02-provider-cache-boundary
+    - DCR-0010-inline-protection-layer
+    - DCR-0011-staged-commit-out-dir-and-limits
+    - DCR-0012-output-aware-batching-and-cli-knobs
+    - DCR-0013-reader-honesty-placeholders-and-refmap
+    - DCR-0014-auto-glossary-and-batch-fault-fairness
+    - DCR-0015-prompt-lift-tokenizer-hint-rtl-live-smoke
+    - DCR-0016-html-content-translation
+    - DCR-0017-transync-syntax-split
+    - DCR-0018-public-surface-curation
+    - DCR-0019-internal-quality-wave
+    - DCR-0020-track-c-wasm-demo
+    - DCR-0021-publication-lock-and-honest-replacement
+    - DCR-0022-review-0002-hardening
+    - DCR-0023-provider-error-taxonomy
+    - DCR-0024-run-cancellation
+    - DCR-0025-review-0003-content-loss-and-refusal-precedence
+    - DCR-0026-oversize-table-row-window-split
+    - DCR-0027-section-coherent-batching-and-glossary-section-scope
+    - DCR-0028-disk-backed-cache-and-document-metadata
+    - DCR-0029-transync-anthropic-second-provider
+    - DCR-0030-review-0004-credential-and-origin-hardening
+    - DCR-0031-indented-code-normalize-on-translate
+  rewind_required_to_phase: null
+  status: handoff_complete
+
+implementation:
+  current_phase: 5
+  highest_completed_phase: 5
+  mvp_complete: true
+  mvp_completion_date: 2026-05-01
+  synced_baseline_id: BL-2026-07-B  # originally synced to BL-2026-05-01-A at MVP completion
+  synced_stub_manifest_version: generated-2026-05-01
+  sync_status: synced
+  blocked_slices: []
+  allowed_parallel_slices: []
+  closed_slices:
+    - SL-00
+    - SL-01
+    - SL-02
+    - SL-03
+    - SL-04
+    - SL-05
+    - SL-06
+    - SL-07
+    - SL-08
+    - SL-09
+    - SL-10
+    - SL-11
+    - SL-12
+    - SL-13
+    - SL-14
+  active_impact_report: docs/project/implementation-impact-report.md
+  status: mvp_complete
+  next_slices: []
+
+artifacts:
+  intake: docs/project/intake.md
+  status: docs/project/status.md
+  brainstorming_spec: docs/superpowers/specs/2026-05-01-transync-design.md
+  architecture_readme: docs/architecture/README.md
+  mvp_scope: docs/architecture/mvp-scope.md
+  scenario_matrix: docs/architecture/scenario-matrix.md
+  source_of_truth_table: docs/architecture/source-of-truth-table.md
+  rough_schema: docs/architecture/rough-schema.md
+  persistence_and_files: docs/architecture/persistence-and-files.md
+  contracts: docs/architecture/contracts.md
+  module_map: docs/implementation/module-map.md
+  skeleton_plan: docs/project/skeleton-plan.md
+  implementation_slice_checklists: docs/project/implementation-slice-checklists.md
+  stub_manifest: docs/project/stub-manifest.md
+  design_baseline: docs/project/design-baseline-2026-07.md
+  design_baseline_superseded: docs/project/design-baseline.md
+  design_change_records: docs/project/design-change-records/
+  implementation_impact_report: docs/project/implementation-impact-report.md

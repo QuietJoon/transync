@@ -1,0 +1,34 @@
+# transync: public facade. Re-exports the curated public surface of
+# transync-core (which itself re-exports the transync-syntax types that are
+# part of that surface); once the dialect split lands it will select a
+# front-end (markdown / html) per TranslateOptions.
+# TRACE: ADR-0002
+# TRACE: ADR-0003
+
+[package]
+name         = "transync"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+description  = "GFM Markdown translation pipeline with block-level alignment maps."
+
+[features]
+default   = []
+# Forwarded to transync-core; exposes ::test_stub::EchoTranslator for downstream test bundles.
+test-stub = ["transync-core/test-stub"]
+
+[dependencies]
+transync-core = { workspace = true }
+
+[dev-dependencies]
+tokio       = { workspace = true }
+comrak      = { workspace = true }
+async-trait = { workspace = true }
+serde_json  = { workspace = true }
+# tests/workspace_publication.rs reads the root manifest and every member's,
+# and asserts the publication roster and the internal version requirements
+# against them. Manifest TOML is dotted keys and inline tables in one file, so
+# it is parsed, not scraped — a misread there would fail open.
+toml        = { workspace = true }

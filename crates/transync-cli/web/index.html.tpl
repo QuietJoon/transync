@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="{{TRANSYNC_DOC_LANG}}">
+  <head>
+    <meta charset="utf-8">{{TRANSYNC_CSP_META}}
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{{TRANSYNC_TITLE}}</title>
+    <style>
+      /* ------------------------------------------------------------------
+         Layout — unchanged across themes.
+         ------------------------------------------------------------------ */
+      :root {
+        --transync-gap: 12px;
+        /* Reader-honesty tints (D2): shared by the per-block rules and the
+           legend swatches so the two cannot drift. */
+        --transync-tint-fallback: rgba(255, 220, 0, 0.18);
+        --transync-tint-partial: rgba(56, 132, 255, 0.16);
+        --transync-skipped-bg: rgba(120, 120, 120, 0.10);
+        --transync-skipped-border: #9a9a9a;
+        --transync-skipped-fg: #555;
+      }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--transync-gap);
+        padding: var(--transync-gap);
+        box-sizing: border-box;
+        font-family: system-ui, sans-serif;
+        color: #111;
+        background: #fff;
+      }
+      /* position: relative makes the pane the offsetParent of its
+         rendered blocks, so sync.js can read each block's pane-
+         relative position via offsetTop/offsetHeight without paying
+         for a per-frame getBoundingClientRect. */
+      .pane { position: relative; overflow: auto; border: 1px solid #ddd; padding: 12px; }
+      /* Untranslated source carried over verbatim (fallback). */
+      [data-fallback="fallback_source"] { background: var(--transync-tint-fallback); }
+      /* Partially translated — distinct cool tint vs the warm fallback tint. */
+      [data-fallback="partially_translated"] { background: var(--transync-tint-partial); }
+      /* data-fallback="preserved" (code / thematic-break / image / skipped) is
+         normal non-translatable content and is intentionally left un-tinted. */
+
+      /* Theme picker — top-right, no layout impact. */
+      .transync-themer {
+        position: fixed;
+        top: 10px;
+        right: 14px;
+        z-index: 50;
+        font: 12px/1.2 system-ui, sans-serif;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 3px 6px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .transync-themer label { margin-right: 6px; color: #555; }
+
+      /* ------------------------------------------------------------------
+         Theme: document — table-focused (borders, zebra rows).
+         ------------------------------------------------------------------ */
+      body[data-theme="document"] .pane table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 12px 0;
+      }
+      body[data-theme="document"] .pane th,
+      body[data-theme="document"] .pane td {
+        border: 1px solid #ccc;
+        padding: 6px 10px;
+        vertical-align: top;
+      }
+      body[data-theme="document"] .pane thead { background: #f0f4f8; }
+      body[data-theme="document"] .pane tbody tr:nth-child(odd) { background: #fafbfc; }
+      body[data-theme="document"] .pane tbody tr:nth-child(even) { background: #fff; }
+      body[data-theme="document"] .pane code {
+        background: #f4f4f4;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.95em;
+      }
+      body[data-theme="document"] .pane pre {
+        background: #f7f7f7;
+        border: 1px solid #e3e3e3;
+        padding: 10px 12px;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+      body[data-theme="document"] .pane blockquote {
+        border-left: 3px solid #cbd5e0;
+        margin: 12px 0;
+        padding: 4px 12px;
+        color: #444;
+        background: #fafafa;
+      }
+
+      /* ------------------------------------------------------------------
+         Theme: book — serif, narrow column, justified prose, drop cap.
+         ------------------------------------------------------------------ */
+      body[data-theme="book"] {
+        background: #fbf7f0;
+        color: #2a241d;
+        font-family: "Iowan Old Style", "Palatino", Georgia, serif;
+      }
+      body[data-theme="book"] .pane {
+        border-color: #d8cfbf;
+        background: #fbf7f0;
+      }
+      body[data-theme="book"] .pane > main {
+        max-width: 38em;
+        margin: 0 auto;
+        line-height: 1.65;
+      }
+      body[data-theme="book"] .pane p {
+        text-align: justify;
+        hyphens: auto;
+        margin: 0 0 1em 0;
+      }
+      body[data-theme="book"] .pane h1,
+      body[data-theme="book"] .pane h2,
+      body[data-theme="book"] .pane h3 {
+        font-family: "Hoefler Text", "Garamond", Georgia, serif;
+        line-height: 1.2;
+      }
+      body[data-theme="book"] .pane > main > h1:first-child::first-letter {
+        float: left;
+        font-size: 3.6em;
+        line-height: 0.9;
+        padding: 4px 8px 0 0;
+        font-weight: 700;
+      }
+      body[data-theme="book"] .pane blockquote {
+        border-left: 2px solid #b3a78a;
+        margin: 12px 0;
+        padding: 4px 14px;
+        font-style: italic;
+        color: #4a3f30;
+      }
+      body[data-theme="book"] .pane code,
+      body[data-theme="book"] .pane pre {
+        font-family: "JetBrains Mono", "Menlo", monospace;
+        font-style: normal;
+      }
+      body[data-theme="book"] .pane pre {
+        background: #f1ead8;
+        border: 1px solid #ddd2b8;
+        padding: 10px 12px;
+        border-radius: 3px;
+      }
+
+      /* ------------------------------------------------------------------
+         Reader-honesty (D2): skipped-node placeholder marker + tint legend.
+         ------------------------------------------------------------------ */
+      /* Skipped-source placeholder (D2 `data-skipped` marker): I2 emits an inert,
+         HTML-escaped <pre data-skipped="…"> in both panes for raw-HTML / front-matter
+         / footnote nodes it does not translate. Scoped under `body .pane pre` and
+         declared after the theme blocks so the dashed marker survives the themed
+         `.pane pre` rules (equal specificity → later declaration wins). */
+      body .pane pre[data-skipped] {
+        background: var(--transync-skipped-bg);
+        border: 1px dashed var(--transync-skipped-border);
+        border-radius: 4px;
+        padding: 8px 10px;
+        color: var(--transync-skipped-fg);
+        white-space: pre-wrap;
+      }
+
+      /* Always-visible tint legend — fixed, unobtrusive, matches the themer chrome. */
+      .transync-legend {
+        position: fixed;
+        /* Purely informational: must never intercept clicks or wheel
+           events aimed at the pane beneath it. */
+        pointer-events: none;
+        left: 14px;
+        bottom: 12px;
+        z-index: 50;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 12px;
+        max-width: calc(50vw - 28px);
+        font: 11px/1.3 system-ui, sans-serif;
+        color: #555;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 5px 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .transync-legend-title { font-weight: 600; color: #333; margin-right: 2px; }
+      .transync-legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+      .transync-swatch {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        box-sizing: border-box;
+      }
+      .transync-swatch--translated { background: #fff; }
+      .transync-swatch--fallback { background: var(--transync-tint-fallback); }
+      .transync-swatch--partial { background: var(--transync-tint-partial); }
+      .transync-swatch--skipped { background: var(--transync-skipped-bg); border: 1px dashed var(--transync-skipped-border); }
+    </style>
+  </head>
+  <body data-theme="default">
+    <div class="transync-themer">
+      <label for="transync-theme">style</label>
+      <select id="transync-theme">
+        <option value="default">Default</option>
+        <option value="document">Document</option>
+        <option value="book">Book</option>
+      </select>
+    </div>
+    <div class="transync-legend" role="note" aria-label="block tint legend">
+      <span class="transync-legend-title">tints</span>
+      <span class="transync-legend-item"><span class="transync-swatch transync-swatch--translated"></span>translated</span>
+      <span class="transync-legend-item"><span class="transync-swatch transync-swatch--fallback"></span>untranslated (fallback)</span>
+      <span class="transync-legend-item"><span class="transync-swatch transync-swatch--partial"></span>partially translated</span>
+      <span class="transync-legend-item"><span class="transync-swatch transync-swatch--skipped"></span>skipped placeholder</span>
+    </div>
+    <div id="source" class="pane" role="region" tabindex="0" aria-label="source"{{TRANSYNC_SOURCE_LANG_ATTR}}{{TRANSYNC_SOURCE_DIR_ATTR}}></div>
+    <div id="target" class="pane" role="region" tabindex="0" aria-label="target"{{TRANSYNC_TARGET_LANG_ATTR}}{{TRANSYNC_TARGET_DIR_ATTR}}></div>
+    <!-- OI-0001: DOMPurify (vendored, UMD -> window.DOMPurify) must load
+         before the module script; mounting fails closed without it. -->
+    <script src="purify.min.js"></script>
+    <script type="module">
+      import { mountSync, safeStorage, fetchOk } from "./sync.js";
+
+      const THEME_KEY = "transync.theme";
+      const themeSelect = document.getElementById("transync-theme");
+      const stored = safeStorage.get(THEME_KEY);
+      if (stored) {
+        document.body.dataset.theme = stored;
+        themeSelect.value = stored;
+      }
+      themeSelect.addEventListener("change", () => {
+        const v = themeSelect.value;
+        document.body.dataset.theme = v;
+        safeStorage.set(THEME_KEY, v);
+      });
+
+      let src, tgt, align;
+      let loaded = false;
+      // R0002-0053: one controller for all three artifacts. `Promise.all`
+      // rejects on the first failure but leaves its siblings in flight, and
+      // this boot is already lost by then — aborting stops paying for
+      // downloads nothing will read. Each fetch is also independently
+      // time-bounded inside `fetchOk` (R0002-0052), so a server that
+      // accepts and stalls cannot pin the shell on a blank pane.
+      const artifacts = new AbortController();
+      try {
+        [src, tgt, align] = await Promise.all([
+          fetchOk("source.html", r => r.text(), { signal: artifacts.signal }),
+          fetchOk("target.html", r => r.text(), { signal: artifacts.signal }),
+          fetchOk("alignment.json", r => r.json(), { signal: artifacts.signal }),
+        ]);
+        loaded = true;
+      } catch (err) {
+        artifacts.abort();
+        const msg = `transync: ${err.message}`;
+        document.getElementById("source").textContent = msg;
+        document.getElementById("target").textContent = "";
+        console.error(msg);
+      }
+      if (loaded) {
+        // OI-0001: sanitize before mount, failing closed when DOMPurify
+        // is unavailable — never mount unsanitized fetched HTML. The
+        // default profile keeps data-* attributes (sync anchors) and
+        // task-list <input type="checkbox"> elements.
+        if (!window.DOMPurify) {
+          const msg = "transync: DOMPurify missing — refusing to mount unsanitized HTML";
+          document.getElementById("source").textContent = msg;
+          console.error(msg);
+        } else {
+          document.getElementById("source").innerHTML = window.DOMPurify.sanitize(src);
+          document.getElementById("target").innerHTML = window.DOMPurify.sanitize(tgt);
+          mountSync(document.getElementById("source"), document.getElementById("target"), align);
+        }
+      }
+    </script>
+  </body>
+</html>

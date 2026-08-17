@@ -1,0 +1,131 @@
+# Workspace manifest for transync.
+# TRACE: ADR-0003
+
+[workspace]
+resolver = "2"
+members  = [
+    "crates/transync-syntax",
+    "crates/transync-core",
+    "crates/transync",
+    "crates/transync-openai",
+    "crates/transync-anthropic",
+    "crates/transync-cli",
+    "crates/transync-wasm",
+]
+
+# Publication set (R0001-0040). Six members are ordinary crates.io packages,
+# and a first publication has to walk them in dependency order —
+# transync-syntax, transync-core, transync, transync-openai,
+# transync-anthropic, transync-cli — because each one's internal dependency
+# resolves from the registry once the
+# `path` key is stripped at package time. `crates/transync-wasm` is the single
+# exception and declares it in its own manifest with `publish = false`
+# (ADR-0019): a build target for a demo, not a library anyone depends on.
+# Nothing has been published to a registry yet; the ritual, and the reason
+# this set looks the way it does, live in docs/project/release-checklist.md.
+
+[workspace.package]
+version      = "0.3.0"
+edition      = "2024"
+# The floor the library members can actually be built on, which is not the
+# edition's floor. Edition 2024 alone would say 1.85, and 1.85 is what this key
+# said until 2026-08-07 — but `transync-syntax`, `transync-core` and
+# `transync-openai` use `if let … && …` let-chains, stabilized in 1.88, and a
+# 1.87 rustc rejects them outright (E0658). A floor nobody can build on is not
+# a compatibility promise, so the number moved to the one that holds.
+#
+# Deleting our own let-chains would not buy the floor back: `lol_html 2.9.0`
+# declares `rust-version = "1.85"` and uses let-chains anyway, so
+# `cargo +1.87 check --ignore-rust-version` dies inside that dependency before
+# it ever reaches this workspace's code. 1.88 is the graph's floor, not just
+# ours — which is also why a future style change here cannot lower this key on
+# its own.
+#
+# `transync-cli` declares a higher floor of its own (1.89, DCR-0021) and is the
+# only member that does; the library members stay here deliberately, so that
+# depending on the library does not cost a consumer the binary's toolchain
+# requirement.
+rust-version = "1.88"
+license      = "MIT"
+repository   = "https://github.com/QuietJoon/transync"
+
+[workspace.dependencies]
+# Internal members, declared here rather than crate-by-crate so the registry
+# version requirement lives beside the `[workspace.package]` version it has to
+# track. Both keys are load-bearing: `path` is what the workspace (and the
+# path-depending sibling consumer) builds against, and `version` is what
+# `cargo publish` demands — a path dependency with no version requirement
+# cannot be published at all (R0001-0040). Bumping `[workspace.package]
+# version` means bumping these four in the same edit; the release checklist's
+# version-bump step says so.
+#
+# `transync-anthropic` publishes too but has **no entry here**, and that is
+# deliberate: this table declares the edges members take *on each other*, and
+# nothing in the workspace depends on the Anthropic adapter (the reference CLI
+# stays OpenAI-backed by DCR-0029's scope). An entry naming a member nothing
+# depends on is a requirement that will never be exercised, and
+# `crates/transync/tests/workspace_publication.rs` fails it as
+# `declared but unused`. The crate is publishable regardless — what packaging
+# needs is a `version` on the edges it *has* (`transync`, and the two dev-only
+# ones), which it takes from this table via `workspace = true`. The day a
+# member depends on it, the entry lands in the same edit as that dependency.
+transync-syntax = { version = "0.3.0", path = "crates/transync-syntax" }
+transync-core   = { version = "0.3.0", path = "crates/transync-core" }
+transync        = { version = "0.3.0", path = "crates/transync" }
+transync-openai = { version = "0.3.0", path = "crates/transync-openai" }
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+thiserror   = "1"
+tracing     = "0.1"
+# Consumed by transync-cli ONLY. Installing a global subscriber is an
+# application decision, so no library member may depend on this (R0001-0032).
+# `fmt` + `env-filter`, no default features: no ANSI (stderr is often
+# redirected) and no `log` bridge (nothing in the tree emits `log` records).
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+async-trait = "0.1"
+tokio       = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+# Cancellation (ti 43331a / DCR-0024). `CancellationToken` alone — it lives in
+# tokio-util's unconditional `sync` module, so `default-features = false` is
+# enough and no codec/io/net surface is linked. The type is part of transync's
+# PUBLIC API (`transync::CancellationToken` re-exports it), so this version
+# requirement is a compatibility promise: a consumer constructing a token from
+# its own `tokio-util` must resolve to the same 0.7.x, and cargo unifies that
+# automatically because reqwest's h2 already pulls the crate in.
+tokio-util  = { version = "0.7", default-features = false }
+comrak      = { version = "0.27", default-features = false }
+clap        = { version = "4", features = ["derive", "env"] }
+url         = "2"
+secrecy     = "0.10"
+toml        = "0.8"
+siphasher   = "1"
+reqwest     = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
+futures     = "0.3"
+tiktoken-rs = "0.7"
+lol_html    = "2"
+htmlize     = { version = "1", features = ["unescape"] }
+# R0004-0080: canonical (NFC) normalization for the ONE comparison form
+# `profile::section_key` / `glossary_key` derive. Consumed by transync-core
+# only — `transync-syntax` compiles to wasm32 and takes nothing new (ADR-0019).
+# It is not a new crate in the graph: comrak already pulls it through
+# `caseless`, so this declares an edge onto a dependency the workspace
+# resolves and compiles either way.
+unicode-normalization = "0.1"
+# Track C (ADR-0019): exact pin, not a caret range. wasm-bindgen requires
+# crate<->CLI version identity. Cargo.lock is committed as of 2026-08-06
+# (OI-0020, reversing the 2026-08-05 deferral), but the pin is the defense
+# that does not depend on the lockfile being honored — `cargo update` and any
+# lock-less resolve would float a caret range straight past the CLI. comrak
+# ->slug already pulls wasm-bindgen on wasm32, so this unifies an existing
+# resolution rather than adding a dependency class.
+wasm-bindgen = "=0.2.126"
+
+# Track C (ADR-0019): profile for the wasm demo module only. Profiles must
+# live at the workspace root (cargo ignores non-root profiles); a custom
+# profile keeps transync-cli's stock `release` build untouched.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

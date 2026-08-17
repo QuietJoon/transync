@@ -1,0 +1,47 @@
+# transync-core: the translation pipeline — units, batching, the Translator
+# contract, layered validation, cache, profiles, orchestration. The Comrak GFM
+# front-end moved to transync-syntax (DCR-0017), which this crate depends on
+# and re-exports; the planned Dialect trait and markdown/html front-end crates
+# still have not landed (DCR-0005's deferral condition is unmet).
+# TRACE: ADR-0002
+# TRACE: ADR-0003
+# TRACE: DCR-0017
+
+[package]
+name         = "transync-core"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+description  = "GFM Markdown translation pipeline with block-level alignment maps."
+
+[features]
+default   = []
+test-stub = []  # exposes ::test_stub::EchoTranslator for downstream test bundles
+
+[dependencies]
+# Base crate: GFM parsing, block IR/IDs, and (progressively) the rest of the
+# syntax side. Core re-exports its modules so `crate::id::…`/`crate::parser::…`
+# keep resolving unchanged (spec 2026-08-04 §2.2, §6).
+transync-syntax = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+tracing     = { workspace = true }
+async-trait = { workspace = true }
+comrak      = { workspace = true }
+toml        = { workspace = true }
+futures     = { workspace = true }
+tiktoken-rs = { workspace = true }
+# R0004-0080: the canonical form `profile::section_key` / `glossary_key` fold
+# their input into. Already in the graph via comrak -> caseless, so the edge
+# costs no new compilation unit.
+unicode-normalization = { workspace = true }
+# R0006-0015: provider-retry backoff sleeps between transient failures.
+# Only the `time` primitive is used; the core stays HTTP-free (ADR-0002).
+tokio       = { workspace = true }
+# DCR-0024: `CancellationToken`, re-exported at this crate's root and through
+# the facade, so a caller and the engine name one token type. Still HTTP-free —
+# `tokio_util::sync` is a synchronization primitive, not transport.
+tokio-util  = { workspace = true }

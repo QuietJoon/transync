@@ -1,0 +1,180 @@
+<!doctype html>
+<!--
+  WASM render+edit demo shell (Track C, ADR-0019).
+
+  Structurally a clone of `web/index.html` — same two `.pane` divs, same
+  `position: relative` layout precondition, same DOMPurify-before-module
+  script order, same block-tint CSS — with one difference: nothing is
+  fetched pre-rendered. This page fetches `source.md`, `out.md` and
+  `alignment.json` and renders both panes in the browser through the Rust
+  renderer compiled to wasm, then lets you edit a target block and watch
+  the whole document regenerate locally.
+
+  `web/index.html` is the frozen engine-iteration harness and is NOT
+  modified by this page; the two shells are siblings.
+
+  Not servable from the repo root: like `index.html` it fetches payloads as
+  siblings of itself. `scripts/test-browser.sh` assembles a served copy
+  (page at the root, `js/`, `wasm/` and `vendor/` beside it — the same
+  relative shape as `web/`).
+
+  TRACE: SCN-13
+  TRACE: ADR-0019
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>transync — WASM render demo</title>
+    <style>
+      :root {
+        --transync-gap: 12px;
+        /* Reader-honesty tints (D2): shared by the per-block rules and the
+           legend swatches so the two cannot drift. */
+        --transync-tint-fallback: rgba(255, 220, 0, 0.18);
+        --transync-tint-partial: rgba(56, 132, 255, 0.16);
+        --transync-skipped-bg: rgba(120, 120, 120, 0.10);
+        --transync-skipped-border: #9a9a9a;
+        --transync-skipped-fg: #555;
+      }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        /* The panes take the slack; the edit panel is content-sized.
+           minmax(0, …) keeps a tall pane from pushing the panel off-screen. */
+        grid-template-rows: minmax(0, 1fr) auto;
+        gap: var(--transync-gap);
+        padding: var(--transync-gap);
+        box-sizing: border-box;
+        font-family: system-ui, sans-serif;
+        color: #111;
+        background: #fff;
+      }
+      /* position: relative makes the pane the offsetParent of its
+         rendered blocks, so sync.js can read each block's pane-
+         relative position via offsetTop/offsetHeight without paying
+         for a per-frame getBoundingClientRect. */
+      .pane { position: relative; overflow: auto; border: 1px solid #ddd; padding: 12px; }
+      /* Untranslated source carried over verbatim (fallback). */
+      [data-fallback="fallback_source"] { background: var(--transync-tint-fallback); }
+      /* Partially translated — distinct cool tint vs the warm fallback tint. */
+      [data-fallback="partially_translated"] { background: var(--transync-tint-partial); }
+      /* data-fallback="preserved" (code / thematic-break / image / skipped) is
+         normal non-translatable content and is intentionally left un-tinted. */
+
+      /* Skipped-source placeholder (D2 `data-skipped` marker): an inert,
+         HTML-escaped <pre data-skipped="…"> stands in for content the
+         pipeline did not translate. */
+      body .pane pre[data-skipped] {
+        background: var(--transync-skipped-bg);
+        border: 1px dashed var(--transync-skipped-border);
+        border-radius: 4px;
+        padding: 8px 10px;
+        color: var(--transync-skipped-fg);
+        white-space: pre-wrap;
+      }
+
+      /* The block currently open in the editor, in both panes. Re-applied
+         after every re-render (the class does not survive innerHTML). */
+      .is-editing { outline: 2px solid #3884ff; outline-offset: 2px; }
+
+      /* Edit panel — spans both columns, below the panes. */
+      .editor-panel {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font: 12px/1.4 system-ui, sans-serif;
+      }
+      .editor-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+      #editor-label { font-weight: 600; color: #333; }
+      #status-strip { color: #555; }
+      #editor {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 5.5em;
+        resize: vertical;
+        font: 12px/1.5 "JetBrains Mono", Menlo, monospace;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 8px;
+      }
+      #editor:disabled { background: #f6f6f6; color: #888; }
+      /* Non-fatal failures (a rejected rebuild): the panes keep their last
+         good render, the strip carries the reason. */
+      #error-strip {
+        border: 1px solid #d8a0a0;
+        background: rgba(220, 60, 60, 0.08);
+        border-radius: 4px;
+        padding: 6px 8px;
+        color: #8a1f1f;
+      }
+
+      /* Always-visible tint legend — fixed, unobtrusive. */
+      .transync-legend {
+        position: fixed;
+        /* Purely informational: must never intercept clicks or wheel
+           events aimed at the pane beneath it. */
+        pointer-events: none;
+        left: 14px;
+        bottom: 12px;
+        z-index: 50;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 12px;
+        max-width: calc(50vw - 28px);
+        font: 11px/1.3 system-ui, sans-serif;
+        color: #555;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 5px 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .transync-legend-title { font-weight: 600; color: #333; margin-right: 2px; }
+      .transync-legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+      .transync-swatch {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        box-sizing: border-box;
+      }
+      .transync-swatch--translated { background: #fff; }
+      .transync-swatch--fallback { background: var(--transync-tint-fallback); }
+      .transync-swatch--partial { background: var(--transync-tint-partial); }
+      .transync-swatch--skipped { background: var(--transync-skipped-bg); border: 1px dashed var(--transync-skipped-border); }
+    </style>
+  </head>
+  <body data-demo-state="booting">
+    <div class="transync-legend" role="note" aria-label="block tint legend">
+      <span class="transync-legend-title">tints</span>
+      <span class="transync-legend-item"><span class="transync-swatch transync-swatch--translated"></span>translated</span>
+      <span class="transync-legend-item"><span class="transync-swatch transync-swatch--fallback"></span>untranslated (fallback)</span>
+      <span class="transync-legend-item"><span class="transync-swatch transync-swatch--partial"></span>partially translated</span>
+      <span class="transync-legend-item"><span class="transync-swatch transync-swatch--skipped"></span>skipped placeholder</span>
+    </div>
+    <div id="source" class="pane" role="region" tabindex="0" aria-label="source"></div>
+    <div id="target" class="pane" role="region" tabindex="0" aria-label="target"></div>
+    <section class="editor-panel" aria-label="block editor">
+      <div class="editor-head">
+        <label id="editor-label" for="editor">no block selected</label>
+        <span id="status-strip" role="status"></span>
+      </div>
+      <textarea
+        id="editor"
+        disabled
+        spellcheck="false"
+        placeholder="Click an editable block in the right pane to load its Markdown here."
+      ></textarea>
+      <div id="error-strip" role="alert" hidden></div>
+    </section>
+    <!-- OI-0001: DOMPurify (vendored, UMD -> window.DOMPurify) must load
+         before the module script; mounting fails closed without it. -->
+    <script src="vendor/purify.min.js"></script>
+    <script type="module" src="./js/wasm-demo.js"></script>
+  </body>
+</html>

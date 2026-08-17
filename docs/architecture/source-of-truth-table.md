@@ -1,0 +1,65 @@
+# Source-of-Truth Table
+
+For each piece of state or contract, this table names the single owner. If two layers think they own the same thing, the design is broken.
+
+Owners are named by their **owning crate and module**. Since 2026-08-04 (DCR-0017) `align`, `htmlseg`, `id`, `outcome`, `parser`, `regen`, `render`, and `walk` live in `crates/transync-syntax`, and `batch`, `cache`, `llm`, `pipeline`, `profile`, `structure`, `unit`, and `validate` in `crates/transync-core`; `error` is the one module name both crates carry, for two different types (`ParseError`, `TransyncError`). That enumeration is **complete on purpose** and welded to both crates' `lib.rs` by `crates/transync/tests/docs_ownership_drift.rs` — a module this file never names is a module whose owner nobody wrote down, which is the failure this table exists to prevent. The naming convention changed the same day (DCR-0018): the `transync` facade re-exports an explicitly curated list, so only `transync::llm`, `transync::profile`, and `transync::cache` below are facade paths — every other module is an **engine internal** reachable only by depending on `transync-core` / `transync-syntax` directly, and is named that way. **No ownership in this table has ever moved**; see `docs/architecture/README.md` for the per-crate component table and `contracts.md` §0 for the curated surface.
+
+## Structural state (the document)
+
+| Concern                          | Owner                                       | Why it can't move |
+|----------------------------------|---------------------------------------------|-------------------|
+| GFM block boundaries             | `transync-syntax::parser` (Comrak AST)             | Browser-side parsing diverges; only Rust may decide where blocks begin and end. |
+| Block IDs (`BlockId` strings)    | `transync-syntax::id`                              | IDs must be deterministic and stable across the pipeline; assignment happens once, in one place. |
+| Source byte ranges per block     | `transync-syntax::parser`                          | The parser recovers each block's `source_range` from the Comrak AST and records it on the `Document` IR; the `id` module only *consumes* ranges (`source_hash_block` hashes the bytes within a range) and never decides where a range begins or ends. |
+| Section paths (heading hierarchy)| `transync-syntax::parser`                          | Recovered from AST, used by `unit::context`. |
+| Block-kind classification        | `transync-syntax::parser`                          | The renderer, validator, and unit builder all consume this; no other source. |
+| Top-level normalization (source IR → reparsed AST) + per-list direct item count | `transync-syntax::walk` | Consecutive `ListItem` rows sharing an `ast_path` prefix are the items of one Comrak `List` node and collapse to one top-level entry. The renderer and `transync-core::validate::full_reparse` both build on that rule from *different crates*; two copies would guarantee drift, so it lives here and both consumers import it. |
+| Which raw-HTML blocks become translation units | `transync-syntax::outcome`      | `html_outcomes` runs `htmlseg::extract` once per run and records each html block's `HtmlOutcome`. `unit::build_batches`, `align::build_alignment_map`, and the pipeline's `skipped_source_nodes` all read that one map, so a block's alignment row, its validation counters, and its presentation cannot disagree. (`regen` is deliberately not a consumer — it keys off the validated payloads.) |
+
+## Translation contract
+
+| Concern                                          | Owner                                          | Why it can't move |
+|--------------------------------------------------|------------------------------------------------|-------------------|
+| `Translator` trait shape                         | `transync::llm`                                | The boundary between core and provider crates. Breaking changes here cascade. |
+| Per-unit input payload + context                 | `transync-core::unit`                               | Built once from the IR; the LLM never sees raw source text without the unit envelope. |
+| Per-unit output validation rules                 | `transync-core::validate`                           | Layered checks (schema → IDs → per-kind → fragment reparse → full reparse). |
+| A block's structural fingerprint (the shape both sides compare) | `transync-core::structure`       | The shared "what shape is this block" oracle, and a *third* owner distinct from the two rows around it: `parser` classifies the block's kind, `validate` owns the checking rules, and this owns the fingerprint they compare. `unit::payload` records the **source** block's fingerprint into `BlockConstraints`; `validate::per_kind` re-derives it from the **translated** payload and compares. One implementation is what makes that comparison mean anything — a second copy would drift and silently disarm the check. Each inspector re-parses its fragment under `parser::comrak_options`, so the fingerprint is always taken with the pipeline's own parser. |
+| Retry / fallback policy                          | `transync-core::pipeline`                           | Orchestrates retries; per-unit fallback decisions are recorded here, not in the trait impl. |
+| LLM transport (HTTP, auth, network retries)      | Consumer's `Translator` impl                   | Core is HTTP-free per ADR-0002. Network retries are the consumer's concern. |
+| Token estimation + batching                      | `transync-core::batch` (via `tiktoken-rs`)         | Core estimates token counts and builds batches; provider crates keep only their optional page-splitting hooks (e.g. `transync-openai` oversize splitting) as a provider concern. |
+
+## Output artifacts
+
+| Concern                                  | Owner                                        | Why it can't move |
+|------------------------------------------|----------------------------------------------|-------------------|
+| Translated Markdown serialization        | `transync-syntax::regen`                            | Fence regeneration, table reserialization, AST splice all live here. |
+| `AlignmentMap` JSON shape (`schema_version` `1.2.0`) | `transync-syntax::align`                  | Renderer + JS sync engine + post-render consumers all read this; one writer. The wire types themselves are curated API — name them at the `transync` crate root. |
+| Annotated HTML attribute set             | `transync-syntax::render`                           | `data-sync-id`, `data-block-kind`, `data-order`, `data-fallback` are the whole emitted set, plus `data-skipped` on the `<pre>` placeholders. `data-parent-id` is **RESERVED and never emitted** — the parser is leaf-block, so no rendered block carries one (`contracts.md` §4, authoritative). |
+| HTML sanitization in the browser         | Demo shells via vendored DOMPurify 3.2.6 (`web/vendor/purify.min.js`; CLI bundle ships a byte-identical copy) | Both shells sanitize fetched fragments before `innerHTML` and fail closed when DOMPurify is absent (OI-0001 [archived], resolved 2026-07-10). External consumers mounting fragments still own their own sanitization. |
+
+## Configuration
+
+| Concern                                  | Owner                                        | Why it can't move |
+|------------------------------------------|----------------------------------------------|-------------------|
+| Profile TOML schema (`profile.slug` + `system.prompt` + `[[glossary]]` + `[batching]`) | `transync::profile` | Single parser; CLI and library both go through it. |
+| Canonical default profile                | `transync::profile` (embedded via `include_str!`) | Core embeds the canonical default (`crates/transync-core/profiles/default.toml`) and exposes it as `default_profile()`; the CLI resolves its default through core and carries no copy of its own (R0001-0041, 2026-08-06). |
+| Provider credential discovery (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) | The provider crate that needs it — `transync-openai`, and `transync-anthropic` since DCR-0029 | Provider-specific. Core does not know about API keys, and neither adapter knows about the other's: a second provider crate added a second environment variable and moved nothing. |
+| `--model` / `--base-url` flags           | `transync-cli` → `transync-openai`           | CLI passes them into the constructor; the OpenAI impl owns interpretation. |
+
+## Run state
+
+This section was called "In-process state" until 2026-08-10. `DiskCache` made that heading false along with the row beneath it: a cache the caller opens on disk outlives the process that filled it.
+
+| Concern                          | Owner                            | Lifetime | Why it can't move |
+|----------------------------------|----------------------------------|----------|-------------------|
+| Translation cache (composite key)| `transync::cache`                | The backend's to choose: process-lifetime (`InMemoryCache`, still the default) or durable (`DiskCache`) | One `Cache` trait, two shipped backends since DCR-0028 / ADR-0021. `InMemoryCache` dies with the process; `DiskCache` — which `transync translate --cache-dir <dir>` opens — replays a versioned JSON-lines log at open, so paid-for provider output survives the run that bought it. What a backend chooses is *where* entries live; what makes two units the same unit is `CacheKey`'s alone, and no backend may re-decide it. `DocumentMeta` (detected source language) and `GlossaryExtraction` (the auto-glossary preflight) ride the same trait for the same reason: one identity rule, one seam. |
+| Per-document `ValidationReport`  | `transync-core::pipeline`             | Per-call | Returned to caller; library does not write it to disk. |
+| Per-batch retry counter          | `transync-core::pipeline`             | Per-batch| Bounded by the policy in `contracts.md` §retry-policy. |
+
+## What `transync` does **not** own
+
+- The HTTP client and its retry / rate-limit / observability story — consumer's `Translator` impl.
+- The `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` values and their rotation — environment / consumer. One variable per provider crate, per the discovery row above: a new provider adds its own and takes nothing over.
+- Disk paths for input / output files — CLI flags supplied by the user. The library still opens no document file of its own; its one filesystem door since 2026-08-09 is the cache directory a caller hands `DiskCache::open` (DCR-0028), and that is the caller's path, never one the library picks or discovers. It has no XDG presence — see `persistence-and-files.md`.
+- The browser-side render lifecycle (CSS, layout, fonts) — JS demo.
+- Markdown dialects beyond GFM (MDX, frontmatter, math) — DEFERRED per draft NG2. **Raw HTML left this list on 2026-08-04:** block-level raw HTML is a translatable kind owned by `transync-syntax::{parser, htmlseg, regen, render}` (ADR-0018 / DCR-0016; those modules moved out of `transync-core` in the DCR-0017 crate split and stopped being reachable through the facade in the DCR-0018 curation); inline raw-HTML tags are guarded verbatim by `transync-core::validate::inline`.

@@ -1,0 +1,159 @@
+# STATUS: COMPLETED
+# CLAIM_TOKEN: 3799E55E-E43A-433B-9DB9-71C970E8C96D
+# CLAIMED_AT: 2026-07-15T02:10:25Z
+# COMPLETED_AT: 2026-07-15T02:23:22Z
+# SUMMARY: Inert proposal for the highest-confidence, low-coupling fixes; not applied.
+# AFFECTED_FILES: default profiles, destructive smoke scripts, pre-commit hook
+# ISSUE_MAPPING: R0001-0001 R0001-0002 R0001-0003 R0001-0037 R0001-0041
+diff --git a/crates/transync-core/profiles/default.toml b/crates/transync-core/profiles/default.toml
+--- a/crates/transync-core/profiles/default.toml
++++ b/crates/transync-core/profiles/default.toml
+@@ -24,20 +24,4 @@ default_table_strategy    = "whole-block"
+ target_output_tokens = 8000
+ max_units_per_batch  = 8
+ max_split_retries    = 3
+-
+-# Example glossary entries — neutral demonstration of the feature.
+-# Edit or remove these in your own profile via --profile <path>.
+-# `scope = "global"` applies the mapping document-wide; "section" is
+-# post-MVP and currently treated as global by the renderer.
+-[[glossary]]
+-source = "agent"
+-target = "에이전트"
+-note   = "AI agent (not insurance agent)"
+-scope  = "global"
+-
+-[[glossary]]
+-source = "tool use"
+-target = "도구 사용"
+-scope  = "global"
+diff --git a/crates/transync-cli/profiles/default.toml b/crates/transync-cli/profiles/default.toml
+--- a/crates/transync-cli/profiles/default.toml
++++ b/crates/transync-cli/profiles/default.toml
+@@ -24,17 +24,3 @@ default_table_strategy    = "whole-block"
+ target_output_tokens = 8000
+ max_units_per_batch  = 8
+ max_split_retries    = 3
+-
+-# Example glossary entries. Edit or remove via --profile <path>.
+-[[glossary]]
+-source = "agent"
+-target = "에이전트"
+-note   = "AI agent (not insurance agent)"
+-scope  = "global"
+-
+-[[glossary]]
+-source = "tool use"
+-target = "도구 사용"
+-scope  = "global"
+diff --git a/scripts/smoke-live.sh b/scripts/smoke-live.sh
+--- a/scripts/smoke-live.sh
++++ b/scripts/smoke-live.sh
+@@ -96,16 +96,15 @@ case "$WORKDIR" in
+     ;;
+ esac
++case "${WORKDIR%/}" in
++  /tmp|/private/tmp|/var/folders|/Volumes/Temp/claude)
++    echo "[smoke-live] refusing to rm -rf $WORKDIR — path must be a descendant, not a temp root" >&2
++    exit 1
++    ;;
++esac
+ case "$WORKDIR" in
+   /tmp/*|/private/tmp/*|/var/folders/*|/Volumes/Temp/claude/*) ;;
+   *)
+-    case "$(basename "$WORKDIR")" in
+-      transync-*) ;;
+-      *)
+-        echo "[smoke-live] refusing to rm -rf $WORKDIR — set TRANSYNC_LIVE_WORKDIR to a subdir of /tmp, TMPDIR, /Volumes/Temp/claude, or any path whose basename starts with 'transync-'." >&2
+-        exit 1
+-        ;;
+-    esac
++    echo "[smoke-live] refusing to rm -rf $WORKDIR — use a descendant of an approved temp root" >&2
++    exit 1
+     ;;
+ esac
+ rm -rf "$WORKDIR"
+diff --git a/scripts/smoke.sh b/scripts/smoke.sh
+--- a/scripts/smoke.sh
++++ b/scripts/smoke.sh
+@@ -39,16 +39,15 @@ case "$WORKDIR" in
+     ;;
+ esac
++case "${WORKDIR%/}" in
++  /tmp|/private/tmp|/var/folders|/Volumes/Temp/claude)
++    echo "[smoke] refusing to rm -rf $WORKDIR — path must be a descendant, not a temp root" >&2
++    exit 1
++    ;;
++esac
+ case "$WORKDIR" in
+   /tmp/*|/private/tmp/*|/var/folders/*|/Volumes/Temp/claude/*) ;;
+   *)
+-    case "$(basename "$WORKDIR")" in
+-      transync-*) ;;
+-      *)
+-        echo "[smoke] refusing to rm -rf $WORKDIR — set TRANSYNC_SMOKE_WORKDIR to a subdir of /tmp, TMPDIR, /Volumes/Temp/claude, or any path whose basename starts with 'transync-'." >&2
+-        exit 1
+-        ;;
+-    esac
++    echo "[smoke] refusing to rm -rf $WORKDIR — use a descendant of an approved temp root" >&2
++    exit 1
+     ;;
+ esac
+diff --git a/scripts/test-browser.sh b/scripts/test-browser.sh
+--- a/scripts/test-browser.sh
++++ b/scripts/test-browser.sh
+@@ -45,16 +45,15 @@ case "$WORKDIR" in
+     ;;
+ esac
++case "${WORKDIR%/}" in
++  /tmp|/private/tmp|/var/folders|/Volumes/Temp/claude)
++    echo "[test-browser] refusing to rm -rf $WORKDIR — path must be a descendant, not a temp root" >&2
++    exit 1
++    ;;
++esac
+ case "$WORKDIR" in
+   /tmp/*|/private/tmp/*|/var/folders/*|/Volumes/Temp/claude/*) ;;
+   *)
+-    case "$(basename "$WORKDIR")" in
+-      transync-*) ;;
+-      *)
+-        echo "[test-browser] refusing to rm -rf $WORKDIR — set TRANSYNC_FIXTURE_WORKDIR to a subdir of /tmp, TMPDIR, /Volumes/Temp/claude, or any path whose basename starts with 'transync-'." >&2
+-        exit 1
+-        ;;
+-    esac
++    echo "[test-browser] refusing to rm -rf $WORKDIR — use a descendant of an approved temp root" >&2
++    exit 1
+     ;;
+ esac
+diff --git a/scripts/hooks/pre-commit b/scripts/hooks/pre-commit
+--- a/scripts/hooks/pre-commit
++++ b/scripts/hooks/pre-commit
+@@ -21,20 +21,22 @@ if [ -f Cargo.toml ]; then
+ fi
+ 
+ # --- JavaScript / TypeScript --------------------------------------------------
+-if [ -f package.json ]; then
++if [ -f web/package.json ]; then
++  pushd web >/dev/null
+   pm=pnpm
+   if ! command -v "$pm" >/dev/null 2>&1; then
+     pm=npx
+   fi
+ 
+-  echo "[pre-commit] $pm exec prettier --check ."
++  echo "[pre-commit] (web) $pm exec prettier --check ."
+   "$pm" exec prettier --check . || fail=1
+ 
+-  echo "[pre-commit] $pm exec eslint ."
++  echo "[pre-commit] (web) $pm exec eslint ."
+   "$pm" exec eslint . || fail=1
+ 
+   if [ -f tsconfig.json ]; then
+-    echo "[pre-commit] $pm exec tsc --noEmit"
++    echo "[pre-commit] (web) $pm exec tsc --noEmit"
+     "$pm" exec tsc --noEmit || fail=1
+   fi
++  popd >/dev/null
+ fi
+ 
+ exit $fail

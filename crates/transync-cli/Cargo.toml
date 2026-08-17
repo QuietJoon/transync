@@ -1,0 +1,55 @@
+# transync command-line interface (translate, serve).
+# TRACE: SCN-12
+
+[package]
+name         = "transync-cli"
+version.workspace      = true
+edition.workspace      = true
+# Not the workspace value: publication takes an OS file lock through
+# `std::fs::File::{lock, try_lock}` (DCR-0021), stable since 1.89. The library
+# members keep the workspace floor.
+rust-version           = "1.89"
+license.workspace      = true
+repository.workspace   = true
+description  = "Command-line interface for transync."
+
+[[bin]]
+name = "transync"
+path = "src/main.rs"
+
+[features]
+default            = []
+# Swap the live OpenAI provider for an in-process echo translator. Used by the
+# CLI test suite (`tests/cli_smoke.rs`), `scripts/smoke.sh` and
+# `scripts/test-browser.sh` — every automated run this repo has; there is no CI.
+test-stub-provider = ["transync/test-stub"]
+
+[dependencies]
+# R0008-0060: the CLI uses serde_json, clap, tokio, url, and secrecy
+# directly; serde, thiserror, tracing, and toml were unused direct deps.
+# R0001-0032: tracing-subscriber is back, and only here. The library
+# members emit `tracing` events and install nothing; the reference binary
+# is the one process that gets to decide where those events go, so the
+# subscriber lives at the application boundary (src/logging.rs). Note the
+# asymmetry with the removed `tracing` dep above: the CLI *consumes* the
+# events, it does not emit them, so it needs the subscriber and not the
+# facade.
+transync           = { workspace = true }
+transync-openai    = { workspace = true }
+serde_json         = { workspace = true }
+clap               = { workspace = true }
+# Four features on top of the workspace set (`macros`, `rt-multi-thread`,
+# `time`), all four for `transync serve` (ti b791d6) and all four declared
+# HERE rather than in `[workspace.dependencies]`: the loopback server is an
+# application, not a library capability, and no library member may acquire a
+# socket or a signal handler by depending on transync. `net` is the listener,
+# `io-util` the request/response read+write, `fs` the non-blocking
+# canonicalize/open of the served file, `signal` the Ctrl-C / SIGTERM shutdown.
+# No HTTP crate joins them — `skeleton-plan.md` §2's locked invariant keeps
+# hyper and reqwest out of the library members, and the server is small enough
+# (GET/HEAD, no keep-alive, no ranges) that adding one to the binary would buy
+# parsing this crate can do in a page.
+tokio              = { workspace = true, features = ["net", "io-util", "fs", "signal"] }
+url                = { workspace = true }
+secrecy            = { workspace = true }
+tracing-subscriber = { workspace = true }

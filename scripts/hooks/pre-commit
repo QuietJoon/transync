@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# transync pre-commit hook (tracked under version control — R0008-0058).
+# Runs format-check + lint per detected language.
+# Skips silently if a language's manifest is not yet present.
+#
+# Install with: scripts/install-hooks.sh
+
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+fail=0
+
+# --- Rust ---------------------------------------------------------------------
+if [ -f Cargo.toml ]; then
+  echo "[pre-commit] cargo fmt --all -- --check"
+  cargo fmt --all -- --check || fail=1
+  echo "[pre-commit] cargo clippy --all-targets --all-features -- -D warnings"
+  cargo clippy --all-targets --all-features -- -D warnings || fail=1
+  if rustup target list --installed | grep -q '^wasm32-unknown-unknown$'; then
+    echo "[pre-commit] cargo check -p transync-syntax -p transync-wasm --target wasm32-unknown-unknown"
+    cargo check -p transync-syntax -p transync-wasm --target wasm32-unknown-unknown || fail=1
+  else
+    echo "[pre-commit] FAIL: wasm32-unknown-unknown target missing — run: rustup target add wasm32-unknown-unknown" >&2
+    fail=1
+  fi
+  # The standing rustdoc gate (DCR-0018). Its crate list is not repeated
+  # here: scripts/lib/rustdoc-gate.sh owns it, shared with scripts/smoke.sh,
+  # which also carries the completeness check that keeps the list total.
+  # Cheap next to the clippy run above (a warm re-document of the five
+  # crates measures ~1.4 s), and it catches the failure it exists for —
+  # a public item's intra-doc link to a private sibling — at the commit
+  # that writes it rather than at the next smoke run.
+  # Pre-declared so the emptiness check below is what decides, not `set -u`:
+  # bash expands an unset array to nothing without complaining, and `cargo
+  # doc` with no -p documents the WHOLE workspace — a different gate, not a
+  # smaller one.
+  RUSTDOC_GATE_ARGS=()
+  rustdoc_gate_lib="scripts/lib/rustdoc-gate.sh"
+  # shellcheck source-path=SCRIPTDIR/.. source=lib/rustdoc-gate.sh
+  [ -f "$rustdoc_gate_lib" ] && . "$rustdoc_gate_lib"
+  if ((${#RUSTDOC_GATE_ARGS[@]})); then
+    echo "[pre-commit] RUSTDOCFLAGS=\"-D warnings\" cargo doc --no-deps ${RUSTDOC_GATE_ARGS[*]}"
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps "${RUSTDOC_GATE_ARGS[@]}" || fail=1
+  else
+    echo "[pre-commit] FAIL: $rustdoc_gate_lib did not define the rustdoc gate's crate list" >&2
+    fail=1
+  fi
+fi
+
+# --- JavaScript / TypeScript --------------------------------------------------
+# There is no root package.json: the JS (browser demo + Playwright suite) lives
+# under web/. Use whichever package root exists so the checks actually run.
+js_dir=""
+for candidate in . web; do
+  if [ -f "$candidate/package.json" ]; then
+    js_dir="$candidate"
+    break
+  fi
+done
+
+if [ -n "$js_dir" ]; then
+  # Invoke the locally-installed binary directly — no `pnpm exec` / `npx exec`
+  # indirection (npx has no `exec` subcommand). A tool that is not installed is
+  # reported and skipped rather than failing the commit: no JS linter is a
+  # declared devDependency yet, so failing here would block every commit.
+  run_js_tool() {
+    tool="$1"
+    shift
+    if [ ! -x "$js_dir/node_modules/.bin/$tool" ]; then
+      echo "[pre-commit] SKIP: $tool not installed in $js_dir — run: (cd $js_dir && pnpm add -D $tool)" >&2
+      return 0
+    fi
+    echo "[pre-commit] ($js_dir) $tool $*"
+    ( cd "$js_dir" && "node_modules/.bin/$tool" "$@" ) || fail=1
+  }
+
+  if [ -x "$js_dir/node_modules/.bin/biome" ]; then
+    # biome check covers format-check + lint in a single pass.
+    run_js_tool biome check .
+  else
+    run_js_tool prettier --check .
+    run_js_tool eslint .
+  fi
+
+  if [ -f "$js_dir/tsconfig.json" ]; then
+    run_js_tool tsc --noEmit
+  fi
+fi
+
+exit $fail

@@ -1,0 +1,39 @@
+# Second Translator implementation, backed by the Anthropic Messages API.
+# TRACE: ADR-0002
+# TRACE: DCR-0029
+
+[package]
+name         = "transync-anthropic"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+description  = "Anthropic Messages API Translator implementation for transync."
+
+[dependencies]
+# Dependency set mirrors transync-openai's exactly (DCR-0029 *Packaging*): the
+# two adapters share the tier-(b) surface and the discipline, never code, so
+# what they have in common is the edge list, not a helper crate.
+transync    = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+tracing     = { workspace = true }
+async-trait = { workspace = true }
+secrecy     = { workspace = true }
+url         = { workspace = true }
+reqwest     = { workspace = true }
+# DCR-0024: `tokio::select!` races each round-trip against the run's
+# cancellation token, `biased` so an already-cancelled run never issues the
+# request. Not a new runtime dependency in substance — reqwest requires tokio.
+tokio       = { workspace = true }
+
+[dev-dependencies]
+# tests/live_smoke.rs pins the fixture's block/unit shape offline, which needs
+# engine internals (`parser::parse`, `unit::{build_batches, html_outcomes}`)
+# that the facade stops re-exporting. Test-only reach, declared honestly —
+# the same OI-0027 note transync-openai carries.
+# TRACE: OI-0027
+transync-core   = { workspace = true }
+transync-syntax = { workspace = true }

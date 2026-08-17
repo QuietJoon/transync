@@ -1,0 +1,44 @@
+# transync-wasm: the browser (wasm-bindgen) surface over transync-syntax.
+# Logic lives in `engine` (plain Rust, host-testable); `lib` holds only the
+# thin `#[wasm_bindgen]` wrappers. transync-syntax is the ONLY workspace
+# dependency — transync-core's wasm32 tree reaches getrandom via
+# tokio/tiktoken, syntax's does not, and the crate charter forbids widening
+# it. Gate: `cargo check -p transync-syntax -p transync-wasm
+# --target wasm32-unknown-unknown`.
+# TRACE: ADR-0003 (amended)
+# TRACE: ADR-0019
+
+[package]
+name         = "transync-wasm"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+description  = "Browser (wasm-bindgen) surface over transync-syntax: local pane rendering and the demo edit loop (Track C, ADR-0019)."
+publish      = false
+
+[lib]
+# `cdylib` alone, deliberately. The `rlib` that sat beside it until 2026-08-05
+# cost 101,228 B of the shipped module (1,740,748 -> 1,639,520 raw; 718,553 ->
+# 671,795 gzip, measured through scripts/build-wasm.sh, A/B on one commit):
+# keeping the crate available as a library artifact holds its codegen units
+# open, so fat LTO cannot inline across the whole graph the way it can for a
+# pure cdylib. Nothing consumes that artifact — this is a leaf demo crate, the
+# facade does not re-export it, and `publish = false`.
+#
+# Dropping it does NOT cost host-testability: `cargo test -p transync-wasm`
+# compiles the lib target into its own test harness regardless of crate-type,
+# so `engine`'s host tests still run (verified, not assumed), and
+# `cargo build/clippy --workspace --all-targets` still sweeps the member.
+# Re-adding `rlib` for a future in-workspace consumer is a ~100 KB decision,
+# not a free one.
+crate-type = ["cdylib"]
+
+[dependencies]
+transync-syntax = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+thiserror    = { workspace = true }
+# Exact pin lives in [workspace.dependencies]; see the rationale there.
+wasm-bindgen = { workspace = true }

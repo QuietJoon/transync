@@ -1,0 +1,37 @@
+# Default Translator implementation backed by OpenAI Responses API.
+# TRACE: ADR-0002
+
+[package]
+name         = "transync-openai"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+description  = "OpenAI-compatible Translator implementation for transync."
+
+[dependencies]
+transync    = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+thiserror   = { workspace = true }
+tracing     = { workspace = true }
+async-trait = { workspace = true }
+secrecy     = { workspace = true }
+url         = { workspace = true }
+reqwest     = { workspace = true }
+# DCR-0024: `tokio::select!` races each round-trip against the run's
+# cancellation token. `biased` is load-bearing — it polls the token first, so
+# an already-cancelled run never issues the request at all, which
+# `CancellationToken::run_until_cancelled` cannot promise (it is biased toward
+# the inner future and therefore polls it once). Not a new runtime dependency
+# in substance: reqwest already requires tokio.
+tokio       = { workspace = true }
+
+[dev-dependencies]
+# tests/live_smoke.rs pins the fixture's block/unit shape offline, which needs
+# engine internals (`parser::parse`, `unit::{build_batches, html_outcomes}`) that
+# the facade stops re-exporting. Test-only reach, declared honestly.
+# TRACE: OI-0027
+transync-core   = { workspace = true }
+transync-syntax = { workspace = true }

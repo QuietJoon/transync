@@ -1,0 +1,16 @@
+{
+  "name": "transync-web-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless Playwright suite that automates SCN-13 (block-level dual-pane scroll sync) against a real CLI-emitted bundle.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "install-browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

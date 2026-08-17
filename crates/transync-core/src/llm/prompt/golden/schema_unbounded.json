@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "detected_source_language": {
+      "description": "BCP-47 code of the detected source language, or null.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "units": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "output_kind": {
+            "enum": [
+              "translated",
+              "preserved",
+              "partially_translated",
+              "failed_needs_fallback"
+            ],
+            "type": "string"
+          },
+          "translated_payload": {
+            "description": "Empty string when output_kind=failed_needs_fallback.",
+            "type": "string"
+          },
+          "unit_id": {
+            "description": "Must equal the input unit_id byte-for-byte.",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "unit_id",
+          "output_kind",
+          "translated_payload",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "detected_source_language",
+    "units"
+  ],
+  "type": "object"
+}

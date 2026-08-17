@@ -1,0 +1,66 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# OpenAI / secrets. Keep this list broad: the whole `.env.*` family and the
+# direnv pair habitually carry OPENAI_API_KEY, and a new `.env.<stage>` must
+# be ignored the day someone creates it, not the day someone remembers to
+# add it here. Committed examples are un-ignored one by one below — extend
+# that allow-list, never narrow `.env.*`.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.*.example
+.envrc
+.direnv/
+*.api_key
+profiles/local-*.toml
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# Local Claude permission overrides
+.claude/settings.local.json
+
+# JS / web demo build artifacts
+node_modules/
+dist/
+.cache/
+# Track C wasm module — regenerate with scripts/build-wasm.sh (ADR-0019).
+web/wasm/
+# …and the siblings its staged publish renames through (.wasm.staging.*,
+# .wasm.backup.*, .wasm.publish.lock). They exist only for the length of one
+# build and are removed on every exit path, but a `kill -9` mid-build leaves
+# one behind, and residue from a build has no business showing up as an
+# untracked file in a concurrent session's status.
+web/.wasm.*
+
+# Test outputs
+out/
+*.tmp.md
+*.tmp.json
+
+# Korean translation sidecars (out of scope for the assistant; managed by
+# external translation tooling)
+*.ko.md
+
+# Committed lockfile — the known-good resolution satisfying the wasm-bindgen
+# exact pin (owner decision 2026-08-06, oi-0020); overrides the machine-global
+# ignore. CLAUDE.md stays ignored by the same owner decision.
+!Cargo.lock
+
+# Analysis bundles — generated snapshots of this tree, not authored docs.
+# `docs/investigation/` was committed on 2026-08-06 as a dated record (727d3bc,
+# owner decision A-4); the owner reversed that on 2026-08-08 and it is untracked
+# again. The files stay on disk — only their tracking is withdrawn — because
+# they are regenerated from the code rather than edited by hand, so every
+# regeneration produced a diff that carried no decision. `reviews/` is untracked
+# for the same reason.
+docs/investigation/
