@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-08-16-post-0.3.0-roadmap-complete
+  last_updated: 2026-08-20-v0.4.0-released
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -26,6 +26,25 @@ project:
     release session; the owner's stated waves+smoke condition governed) - the
     CHANGELOG 0.3.0 preamble records it and status.md carries the post-tag
     action. Alignment schema stays 1.2.0; VALIDATION_SCHEMA_VERSION stays 2.
+
+    V0.4.0 RELEASED 2026-08-20, UNTAGGED (owner decision 2026-08-13). THE
+    SANCTIONED 0.4.0 BREAKING WINDOW IS USED AND CLOSED - three changes rode
+    it: TranslationOutput.translated_markdown -> translated_document (ti
+    490d97), transync translate refusing an HTML document instead of
+    corrupting it (ti 13e145), and BlockKind::CodeBlock gaining fenced: bool
+    so an indented code block can be translated at all (ti 457e51, DCR-0031).
+    The next breaking change needs a new window. No tag exists: the
+    release-prep commit is the only anchor, because this repository's history
+    was restarted on 2026-08-10 and again on 2026-08-17
+    (docs/project/git-history-loss-2026-08-17.md). Schema constants did NOT
+    move - alignment stays 1.2.0, VALIDATION_SCHEMA_VERSION stays 2,
+    VALIDATION_REPORT_SCHEMA_VERSION stays 1.1.0, CacheKey keeps 13 fields.
+    The DCR-0015 live gate was TRIGGERED BUT NOT RUN again, same reason (no
+    API key in the release session); the CHANGELOG 0.4.0 preamble records it
+    explicitly rather than leaving the omission silent. Standing gates all
+    green: workspace 1066/0/5, CLI stub 208, browser 33, wasm within budget.
+    Sibling consumers: dynwebserver clean, resp-translator's copy-transfer-mcp
+    broken by the 490d97 rename and reported as ticket e502b0.
     MSRV floor moved to the proven-exact 1.88 (transync-cli pins 1.89).
     Cargo.lock and the docs/investigation + reviews bundles are committed by
     owner decision. Post-0.3.0 roadmap: six commissioned tickets in recorded

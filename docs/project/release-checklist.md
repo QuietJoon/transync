@@ -513,12 +513,29 @@ Run all of them on the exact commit from step 1, and keep the output.
     and compare against the new tag — for v0.4.0, against the release-prep
     commit that stands in for it (step 15).
 
-28. **Publishing the tag.** This clone has no configured git remote; the
-    CHANGELOG's compare URLs name `github.com/QuietJoon/transync`, the
-    `repository` field of the root manifest. Those links resolve only once
-    the commit and the tag reach that remote — if one is wired up, push both.
-    For v0.4.0 there is only the commit to push, and the `[0.4.0]` commit URL
-    from step 15 is what starts resolving when it lands.
+28. **Push, then publish.** Since 2026-08-19 this clone has one remote, named
+    **`backup`** — `/Volumes/Common/git-backup/transync.git`, a bare mirror on
+    the same machine, with `master` tracking `backup/master`. `git push backup
+    master` after the release-prep commit, and after the tag when there is one
+    (`git push backup vX.Y.Z`). That push is not publication; it is the
+    redundancy whose absence made the 2026-08-17 loss unrecoverable
+    (`docs/project/git-history-loss-2026-08-17.md`), and it is the reason the
+    2026-08-19 recurrence cost nothing.
+
+    **Publication is still unwired.** The CHANGELOG's compare URLs name
+    `github.com/QuietJoon/transync`, the `repository` field of the root
+    manifest, and no remote points there. Those links resolve only once the
+    commit — and the tag, when there is one — reach it. For v0.4.0 there is
+    only the commit, and the `[0.4.0]` commit URL from step 15 is what starts
+    resolving when it lands.
+
+    **Step 15's commit URL costs a second commit, by construction.** The URL
+    names the release-prep commit's own sha, which cannot be known before that
+    commit exists. v0.4.0 committed with a `RELEASE_PREP_SHA` placeholder and
+    substituted the real sha immediately afterward. There is no one-commit
+    form of this; a tag-based release does not have the problem, because the
+    tag name is known in advance. Expect two commits whenever a release ships
+    untagged.
 
 29. **Feed the checklist back.** If the release exposed a missing step, a
     gate that did not exist, or an ordering that bit, add it here in the same

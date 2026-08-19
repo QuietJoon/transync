@@ -7,11 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**BREAKING — the next release is v0.4.0 and carries the breaking changes
-below.** The 0.4.0 window is the sanctioned one; the entries beneath those
-sections are additive except where an entry says otherwise. v0.4.0 is tracked
-here and carries **no git tag** — owner decision 2026-08-13;
-`docs/project/release-checklist.md`, under *When it applies*, records why.
+Nothing yet — v0.4.0 closed the sanctioned breaking window opened after v0.3.0.
+The next breaking change needs a new window; additive changes land here as they
+come.
+
+## [0.4.0] - 2026-08-20
+
+**This release closes the sanctioned 0.4.0 breaking window.** Three breaking
+changes rode it: `TranslationOutput::translated_markdown` became
+`translated_document`, `transync translate` began refusing an HTML document
+instead of corrupting it, and `BlockKind::CodeBlock` gained a `fenced` field so
+an indented code block could be translated at all. Everything else here is
+additive. The next breaking change needs a new window.
+
+**v0.4.0 carries no git tag** — owner decision 2026-08-13;
+`docs/project/release-checklist.md`, under *When it applies*, records why: this
+repository's history was restarted twice, and a release tag on a commit that
+does not carry the release's history is worse than no tag. The release-prep
+commit is this release's only anchor.
+
+**Release gate (OI-0030): `scripts/smoke-live-gate.sh` TRIGGERED but NOT RUN.**
+The gate's conditions are met — this range changes `unit::payload` (an indented
+code block now reaches the model as an engine-synthesized fenced block, so the
+wire payload itself moved), `transync-openai`, and the batching surface. It was
+not run because no `OPENAI_API_KEY` was available to the session that prepared
+the release. This line exists so the omission is visible: an absent line is
+indistinguishable from a forgotten one. Run
+`OPENAI_API_KEY=… ./scripts/smoke-live-gate.sh` and append the result here.
+
+Standing gates, all green against the release-prep commit: `./scripts/smoke.sh`
+(workspace 1066 passed / 0 failed / 5 ignored; CLI stub 208 passed; rustdoc and
+wasm32 gates clean; wasm `raw=1,648,009B gzip=675,725B` inside the
+`1,840,000 / 760,000` budget), `./scripts/test-browser.sh` 33 passed,
+`cargo fmt --check`, `cargo clippy --all-targets --all-features -D warnings`.
+Sibling consumers: `dynwebserver` `cargo check --workspace` clean;
+`resp-translator` fails in `copy-transfer-mcp` on the `translated_markdown`
+rename — reported as ticket `e502b0`, not patched from this side.
 
 ### Docs — the object store is restarted a second time, and the cause is named and excluded (2026-08-17)
 
@@ -7247,7 +7278,8 @@ cargo clippy --workspace --all-targets -- -D warnings              # clean
 OPENAI_API_KEY=... ./scripts/smoke-live.sh                         # live API + browser demo
 ```
 
-[Unreleased]: https://github.com/QuietJoon/transync/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/QuietJoon/transync/compare/RELEASE_PREP_SHA...HEAD
+[0.4.0]: https://github.com/QuietJoon/transync/commit/RELEASE_PREP_SHA
 [0.3.0]: https://github.com/QuietJoon/transync/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/QuietJoon/transync/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/QuietJoon/transync/releases/tag/v0.1.0

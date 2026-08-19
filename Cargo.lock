@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "transync"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "comrak",
@@ -1830,7 +1830,7 @@ dependencies = [
 
 [[package]]
 name = "transync-anthropic"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "reqwest",
@@ -1848,7 +1848,7 @@ dependencies = [
 
 [[package]]
 name = "transync-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "secrecy",
@@ -1862,7 +1862,7 @@ dependencies = [
 
 [[package]]
 name = "transync-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "comrak",
@@ -1881,7 +1881,7 @@ dependencies = [
 
 [[package]]
 name = "transync-openai"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "reqwest",
@@ -1899,7 +1899,7 @@ dependencies = [
 
 [[package]]
 name = "transync-syntax"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "comrak",
  "htmlize",
@@ -1913,7 +1913,7 @@ dependencies = [
 
 [[package]]
 name = "transync-wasm"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
