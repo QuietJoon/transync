@@ -9,6 +9,15 @@ markers, `docs/investigation/` (untracked and git-ignored since 2026-08-08 — p
 disk and read as a source, but not version-controlled) and `reviews/` (partly tracked:
 round 0001 and `README.md` are committed, later rounds are left untracked until the gate
 archives them; see `untracked-analysis-bundles` below).
+
+**Note (2026-08-17):** the `git log` half of that source set no longer exists. This
+repository's object store was restarted for the second time on 2026-08-17
+(`docs/project/git-history-loss-2026-08-17.md`; the first was
+`docs/project/git-history-loss-2026-08-10.md`), so `git log` prints exactly one commit
+and **every commit hash quoted below names a commit outside this store**. The entries
+are dated records and stand as written — read the prose beside each hash rather than
+trying to resolve it. The next sweep's sources are `ti list --all`, `docs/`, and the
+code markers; a `git log` walk rejoins them only once this history has commits to walk.
 Every item currently found lives here, keyed by topic; the authoritative
 detail for OI-numbered items stays in `docs/project/open-issues.md` — this file is the
 cross-source index.

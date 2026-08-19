@@ -13,6 +13,59 @@ sections are additive except where an entry says otherwise. v0.4.0 is tracked
 here and carries **no git tag** — owner decision 2026-08-13;
 `docs/project/release-checklist.md`, under *When it applies*, records why.
 
+### Docs — the object store is restarted a second time, and the cause is named and excluded (2026-08-17)
+
+`git fsck` reported **33 missing objects** and 33 broken links. Seventeen were
+recovered by hash from sibling object stores; the other sixteen — seven blobs,
+eight trees and one commit — were not found anywhere on this machine, and the
+missing commit severed the chain. Of the **23 commits still reachable**, exactly
+**one** had a tree `git ls-tree -r` could walk to completion, so the repository
+restarted from the verified working tree at root commit **`59ce8df`**. This is
+the second restart (the first was 2026-08-10) and the third loss event in ten
+days. **No code changed**: all 342 tracked files came through byte-identical,
+and `cargo test --workspace -- --test-threads=4` reported **1066 passed / 0
+failed / 5 ignored** with the CLI stub suite at **208 passed / 0 failed**,
+measured identically on both sides of the restart.
+
+- **The record is `docs/project/git-history-loss-2026-08-17.md`**, indexed from
+  `docs/index.md`. It carries what the 2026-08-10 record could not: the cause
+  with physical evidence, and a recovery procedure that has been run.
+- **The cause is named and removed.** A cloud file-sync client was writing
+  conflict copies inside `.git` — 23 duplicated object *fanout directories*
+  (`0a (2)`, `6d (2)`, …), three duplicated object files, and a duplicated ref
+  file `refs/heads/master (2)` holding a null sha1; 27 collision paths inside
+  `.git` against **0** in the working tree. The directory form is why the
+  earlier events looked causeless: its contents carry ordinary 38-hex names, so
+  a `* (*` search misses them, and git never reads a fanout directory whose name
+  is not two hex characters. `.git` was added to the client's ignore list, and
+  **that did not work**: on 2026-08-19 the loss recurred with the line still in
+  place and the client still running — 13 objects gone, `git ls-tree -r HEAD`
+  aborting at 151 of 342 — and it left **no collision copies at all**, so the
+  census this entry once offered as the check read 0 throughout. `git fsck` is
+  the check. What repaired it in seconds was redundancy: all 13 objects came
+  back, hash-verified, from the salvaged store under `/Volumes/Common/git-backup/`.
+  `docs/Troubleshooting.md` and `docs/project/git-history-loss-2026-08-17.md`
+  carry the corrected account.
+- **The recovery is written down as a runbook**: sweep collision copies inside
+  `.git` (directories as well as files, verifying each by hash), sweep the
+  working tree, search sibling stores with `git cat-file -e` so packfiles count
+  rather than walking `objects/`, re-import with `git cat-file | git hash-object
+  -w` asserting the sha comes back unchanged, then re-measure. The record is
+  honest that the inside-`.git` sweep yielded **nothing** here and is
+  recommended on cost, not on demonstrated yield.
+- **Three live instructions were repaired**, not rewritten: `release-checklist.md`
+  named the 2026-08-10 restart commit in *When it applies* and in steps 3 and 10,
+  and that commit no longer exists. The root commit is now resolved with
+  `git rev-list --max-parents=0 HEAD` instead of quoted, and both audit steps say
+  what to do now that a `git log <range>` spans **zero** commits — read the
+  `[Unreleased]` entries against the tree, and run the live gate when in doubt.
+  **The v0.4.0-ships-untagged decision is unchanged**, and its reason is the same
+  one, now twice over.
+- **Dated records were left as written.** Every commit hash quoted in
+  `status.md`, `backlog.md`, the ADRs, the DCRs and this file names a commit that
+  is not in this object store; `status.md` and `backlog.md` gained one dated note
+  each saying so, rather than having their wave entries edited.
+
 ### Fixed — BREAKING: an indented code block is translated instead of mishandled, and comes back fenced (2026-08-16)
 
 Ticket `457e51`. **Every indented (four-space or tab) code block in every

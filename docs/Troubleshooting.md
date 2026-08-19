@@ -542,9 +542,9 @@ not a bypass.
 ## `.ko.md` files keep appearing in `git status`
 
 The repo has external translation tooling that materializes Korean
-sidecar files for every `.md`. They're `.gitignore`d as of `03365d9`,
-so they shouldn't show up as untracked. If they do, your `.gitignore`
-is stale:
+sidecar files for every `.md`. The tracked `.gitignore` carries a
+`*.ko.md` rule, so they shouldn't show up as untracked. If they do, your
+`.gitignore` is stale:
 
 ```bash
 git check-ignore -v scripts/test.sh.ko.md  # should print a hit
@@ -554,10 +554,15 @@ If not, sync `master` or add `*.ko.md` to your local `.gitignore`.
 
 ## `fatal: unable to read tree` / `git fsck` reports a missing object
 
-An object vanished from `.git/objects`. It has happened once here, on
-2026-08-07: the `docs/` subtree of commit `494bc9c` was gone minutes after
-the commit was written, so every `git show`, `git diff` and `git log -p`
-crossing that commit died with
+An object vanished from `.git/objects`. It has happened three times here —
+2026-08-07 (one tree, repaired), 2026-08-10 (30 objects, history restarted:
+`docs/project/git-history-loss-2026-08-10.md`) and 2026-08-17 (33 objects,
+history restarted again: `docs/project/git-history-loss-2026-08-17.md`, which
+carries the full recovery runbook). The worked example below is the first one,
+because it is the only one that ended in a repair rather than a restart: the
+`docs/` subtree of commit `494bc9c` was gone minutes after the commit was
+written, so every `git show`, `git diff` and `git log -p` crossing that commit
+died with
 
 ```
 fatal: unable to read tree (c8daa7a8aa53cbaed7e805c6db86023a8e052e70)
@@ -574,11 +579,29 @@ git fsck --no-progress --connectivity-only
 one names the parent that still points at the hole, which is how you find
 out *what* was lost.
 
-**Cause.** A file-sync client (Insync/Google Drive, here) re-materializing
-files under `.git/` while git is writing them — this worktree lives on a
-synced external volume. The tell is a pack whose `.pack` mtime is newer
-than its own `.idx`: git never rewrites a finished pack. Nothing in this
-repository prunes objects, and no `gc` had run.
+**Cause — confirmed 2026-08-17.** A file-sync client (Insync/Google Drive,
+here) re-materializing files under `.git/` while git is writing them — this
+worktree lives on a synced external volume. For the first two events this was
+an inference; on 2026-08-17 the client's conflict copies were found *inside*
+`.git`: 23 duplicated object **fanout directories** named `0a (2)`, `6d (2)`
+and so on, three duplicated object files, and a duplicated ref file
+`refs/heads/master (2)` holding a null sha1 — 27 collision paths inside `.git`
+against **0** in the working tree.
+
+The duplicated *directory* is the form that hides: the object files inside it
+carry ordinary 38-hex names, so a `find .git -name '* (*'` sweep walks past
+them, and git never opens the directory either, because a fanout name that is
+not exactly two hex characters is not part of the loose-object layout. Search
+for the directories, not only the files:
+
+```bash
+find .git -name '* (*'                                     # files AND directories
+find .git/objects -type d -name '* (*' -exec find {} -type f \;
+```
+
+Two older tells still apply: a pack whose `.pack` mtime is newer than its own
+`.idx` (git never rewrites a finished pack), and the fact that nothing in this
+repository prunes objects and no `gc` had run.
 
 **Repair, when the missing object is a tree.** Recovery is purely
 additive: never `reset`, `gc`, `prune` or rewrite history to make the
@@ -614,10 +637,30 @@ here than recovery technique.
   --no-progress --connectivity-only` as release preflight, so a loss
   surfaces the day it happens rather than at the next clone — while the
   neighbouring objects that make a tree rebuildable are still there.
+- **The cause is excluded from the sync client, since 2026-08-17.** `.git` is
+  now in the client's ignore list (`/Volumes/Common/GDrive/InsyncIgnore.txt`),
+  which had previously excluded only rebuildable directories like `target` and
+  `node_modules`. This **reverses** the earlier posture — excluding the
+  repository had been weighed and declined under ticket `7a7feb`, leaving
+  detection as the standing answer, and two restarts followed.
 
-Excluding the repository from the sync client would remove the cause
-rather than detect it; the owner has weighed that and declined (ticket
-`7a7feb`), so the preflight check is the standing answer.
+  **The exclusion did not work.** On 2026-08-19 the loss recurred with the line
+  still in the file and the client still running: 13 objects missing,
+  `git ls-tree -r HEAD` aborting at 151 of 342 paths. It also left **no
+  collision copies** — the census read 0 while objects were vanishing — so a
+  clean census is not evidence of anything. `git fsck` is the check.
+
+  What repaired it was **redundancy**: every one of the 13 objects was found in
+  the salvaged store at `/Volumes/Common/git-backup/transync-broken-git-20260817`
+  and re-imported hash-verified. Keep that directory, keep a bare mirror
+  pushed to, and treat any sync-client setting as unproven until an `fsck` after
+  a stretch of normal work says otherwise.
+
+The commit hashes in this section — `494bc9c` above among them — name commits
+that are **not in this object store**: the 2026-08-10 and 2026-08-17 restarts
+replaced the graph twice. They are kept because the story is what makes the
+repair legible, not because they can be checked out. See the two records named
+at the top of this section for the archived stores that may still hold them.
 
 ## Glossary entries don't appear to take effect
 

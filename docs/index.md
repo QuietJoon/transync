@@ -93,7 +93,8 @@ Three things sit outside the rule on purpose, because they are not this index's 
 - [Status](project/status.md) — current phase and open actions.
 - [Backlog](backlog.md) — the cross-source index of WIP / deferred / blocked items, maintained by the `/reopen` sweep; `status.md` names it as the index of open items, and the authoritative detail for `OI-`numbered entries stays in `open-issues.md`.
 - [Phase state](project/phase-state.yaml) — machine-readable phase tracker.
-- [Git history loss (2026-08-10)](project/git-history-loss-2026-08-10.md) — why this repository's commit graph begins on 2026-08-10, what survived, where the archived object store lives, and how to read a pre-2026-08-10 commit hash quoted in a ticket, ADR, DCR or CHANGELOG entry.
+- [Git history loss (2026-08-17)](project/git-history-loss-2026-08-17.md) — why this repository's commit graph begins on 2026-08-17: the cause named with physical evidence (a file-sync client writing conflict copies inside `.git`) and excluded — written, not yet proven — the recovery runbook that got 17 of 33 objects back, the 16 that were lost, where the archived object store lives, and what to do when a commit hash quoted in a ticket, ADR, DCR or CHANGELOG entry does not resolve.
+- [Git history loss (2026-08-10)](project/git-history-loss-2026-08-10.md) — the *first* restart: what the 2026-08-10 loss of 30 objects took, what survived it, and where its archives live. Superseded as "where this history begins" by the 2026-08-17 record above, and still the only record of that event.
 - [Release Checklist](project/release-checklist.md) — the tagged-release ritual: preflight, standing gates, the live-endpoint gate, CHANGELOG promotion, version bump, annotated tag.
 - [Intake](project/intake.md) — initial intake notes.
 - [Skeleton Plan](project/skeleton-plan.md) — Phase-3 plan governing Phase-4 generation.

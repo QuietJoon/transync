@@ -39,13 +39,25 @@ section F records, and **no `v0.4.0` tag is created for it**. Tagging resumes
 at the next release, which runs every step below exactly as written.
 
 The reason is a fact about this object store, not a preference. This
-repository's git history was restarted on 2026-08-10 — see
-`docs/project/git-history-loss-2026-08-10.md`, and the restart commit whose
-message begins "chore: the repository restarts from a verified working tree"
-(`6ab410d`, the root commit of this history). `git tag -l` returns **empty**:
-the three previously shipped tags did not survive, and the commits they
-pointed at are not in this clone. Tagging v0.4.0 here would put a release tag
-on a commit that does not carry the release's history.
+repository's git history has been restarted **twice** — on 2026-08-10
+(`docs/project/git-history-loss-2026-08-10.md`) and again on 2026-08-17
+(`docs/project/git-history-loss-2026-08-17.md`) — each time after the object
+store lost objects to a file-sync client writing inside `.git`, 30 the first
+time and 33 the second. Each restart replaced the whole graph, so **this
+history has exactly one commit below the work in progress**: the restart
+commit, whose message begins "chore: the repository restarts from a verified
+working tree". Name it by resolving it rather than by quoting a hash — an
+earlier revision of this file quoted the 2026-08-10 restart's hash, and the
+2026-08-17 restart made that instruction unfollowable:
+
+```bash
+git rev-list --max-parents=0 HEAD    # the root commit of whatever history this clone holds
+```
+
+`git tag -l` returns **empty**: the three previously shipped tags did not
+survive, and the commits they pointed at are not in this clone. Tagging v0.4.0
+here would put a release tag on a commit that does not carry the release's
+history.
 
 Nothing below is deleted for this — every step that needs a tag needs one
 again at the next release. Where a step cannot be followed without a tag
@@ -82,10 +94,18 @@ way.
    `.git/objects` minutes after the commit was written, and every `git
    show` or `git diff` crossing that commit failed with `fatal: unable to
    read tree` (ticket `7a7feb`; `docs/Troubleshooting.md` carries the
-   diagnosis and the repair). The identified cause — a file-sync client
-   re-materializing files under `.git/` while git writes them, on the
-   external volume this worktree lives on — is parked rather than removed,
-   so it can recur. A release is the worst place to find out: the released
+   diagnosis and the repair), and twice more since — 30 objects on
+   2026-08-10 and 33 on 2026-08-17, each costing the whole history. The
+   cause — a file-sync client re-materializing files under `.git/` while git
+   writes them, on the external volume this worktree lives on — was
+   **confirmed with physical evidence on 2026-08-17, and excluded on paper
+   the same day** by adding `.git` to the client's ignore list — written, not
+   yet proven, since nobody has confirmed the client re-read that list
+   (`docs/project/git-history-loss-2026-08-17.md`). It had been parked since
+   2026-08-07, which is how the second and third events happened. This check
+   stays anyway, and not as a formality: `git fsck` is what established the
+   damage in all three, and a removed cause is a claim that has to keep being
+   true. A release is the worst place to find out: the released
    commit would name a history nobody can clone, and for v0.4.0 — which
    ships untagged — that commit is the only anchor the release has.
    Same-day detection is also what keeps the damage cheap, because the lost
@@ -126,12 +146,20 @@ way.
    per wave and some waves never write one — the v0.2.0 prep restored 19
    entries this audit found missing.
 
-   **For v0.4.0 there is no `v0.3.0` to name.** The range this clone can
-   express is the whole history: `git log --oneline 6ab410d..HEAD`, the
-   restart commit onward. v0.4.0 work that landed before the 2026-08-10
-   restart is not in this object store at all, so for that part the audit is
-   a reading of the `[Unreleased]` entries against the tree, not a `git log`
-   walk.
+   **For v0.4.0 there is no `v0.3.0` to name, and after the 2026-08-17
+   restart there is no range to walk either.** This clone's history is the
+   root commit and nothing else, so `git log --oneline <root>..HEAD` spans
+   **zero** commits — an empty audit that would read as a clean one. Do not
+   run it and do not read its silence as completeness. **Audit the
+   `[Unreleased]` entries against the tree instead**: take each entry and
+   confirm the code, tests and records it claims are present; then sweep the
+   surfaces step 4 names, plus `CHANGELOG.md`'s own `[Unreleased]` heading
+   set, for anything the tree has that no entry mentions. The TicGit board —
+   `ti list --all`, whose resolution comments name what each ticket closed —
+   is the closest thing to a commit log this repository still has, and it is
+   the second source to read the entries against. From the next release on,
+   the range is
+   `git log --oneline <this release's prep commit>..HEAD` again.
 
 4. **Check the identity set for silent movement.** The alignment-map
    `schema_version` (contracts.md §3), the validation-report
@@ -223,12 +251,17 @@ Run all of them on the exact commit from step 1, and keep the output.
     `llm::prompt` change was doc text, on the reasoning that the tag itself
     was the trigger.
 
-    **For v0.4.0 substitute the restart commit for `v<prev>`** —
-    `git diff --stat 6ab410d..HEAD -- …` over the same paths. That range
-    **under**-reports: v0.4.0 work predating the 2026-08-10 restart is not in
-    this history, so an empty diff is not evidence the gate is untriggered.
-    Read the `[Unreleased]` entries for the same four surfaces, and when the
-    two disagree, run the gate.
+    **For v0.4.0 the `git diff` above cannot be run at all.** After the
+    2026-08-17 restart there is no `v<prev>` and no earlier commit to
+    substitute for one — the history is a single root commit, so every range
+    is empty and an empty diff would be an artifact of the object store
+    rather than evidence about the release. **Decide by reading the
+    `[Unreleased]` entries** for the same four surfaces (`transync-openai`,
+    `transync-core::llm::prompt`, the output schema, batching) and, where an
+    entry is ambiguous, the files themselves. **When in doubt, run the
+    gate** — that instruction now carries the weight the diff used to. From
+    the next release on, the `git diff --stat v<prev>..HEAD` form above
+    applies again as written.
 
 11. **Run it:** `OPENAI_API_KEY=… ./scripts/smoke-live-gate.sh` (default
     `all` — two tiny mini-model calls, one per API surface; `chat` /
