@@ -7278,8 +7278,8 @@ cargo clippy --workspace --all-targets -- -D warnings              # clean
 OPENAI_API_KEY=... ./scripts/smoke-live.sh                         # live API + browser demo
 ```
 
-[Unreleased]: https://github.com/QuietJoon/transync/compare/RELEASE_PREP_SHA...HEAD
-[0.4.0]: https://github.com/QuietJoon/transync/commit/RELEASE_PREP_SHA
+[Unreleased]: https://github.com/QuietJoon/transync/compare/6fa4e8866300b4afb989f82ab4da5d1ae5350cfc...HEAD
+[0.4.0]: https://github.com/QuietJoon/transync/commit/6fa4e8866300b4afb989f82ab4da5d1ae5350cfc
 [0.3.0]: https://github.com/QuietJoon/transync/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/QuietJoon/transync/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/QuietJoon/transync/releases/tag/v0.1.0
