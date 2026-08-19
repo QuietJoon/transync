@@ -434,3 +434,17 @@ changes is the balance between its two named practices:
    `/Volumes/Common/git-backup/`, the same class of event was a **complete
    repair in seconds** — 13 of 13 objects restored and hash-verified. The
    difference between a restart and a repair was one redundant copy.
+
+   **Acted on, the same day.** The repository now has a mirror: a bare clone at
+   `/Volumes/Common/git-backup/transync.git`, registered as the remote
+   **`backup`** — named that rather than `origin` because it is a mirror of
+   record, not an upstream anyone develops against — with `master` tracking
+   `backup/master`. Push after every commit. Verified end to end on creation: a
+   fresh `git clone` of it produced 343 files, two commits, and a silent
+   `fsck --full`.
+
+   Its limit, stated so nobody mistakes it for a solution: it sits on the same
+   synced volume as the repository, so the same cause can reach it. It is
+   redundancy, not immunity. A mirror on a volume the sync client does not
+   touch — or a real off-machine remote — is the version of this that would
+   also survive the volume.

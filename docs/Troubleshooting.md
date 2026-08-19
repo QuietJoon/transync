@@ -652,9 +652,21 @@ here than recovery technique.
 
   What repaired it was **redundancy**: every one of the 13 objects was found in
   the salvaged store at `/Volumes/Common/git-backup/transync-broken-git-20260817`
-  and re-imported hash-verified. Keep that directory, keep a bare mirror
-  pushed to, and treat any sync-client setting as unproven until an `fsck` after
-  a stretch of normal work says otherwise.
+  and re-imported hash-verified.
+
+  **There is now a mirror to push to.** The remote is named **`backup`**, not
+  `origin` — deliberately, because it is a mirror of record and not an upstream
+  anyone develops against. It is `/Volumes/Common/git-backup/transync.git`, a
+  bare clone created 2026-08-19, and `master` tracks `backup/master`. Push
+  after every commit (`git push backup master`) — it is the cheapest thing
+  on this page and the only one that has ever turned a loss into a repair. Its
+  own integrity is checkable the same way: `git --git-dir=/Volumes/Common/git-backup/transync.git fsck --full`.
+
+  Be honest about its limit: it lives on the same synced volume, so it can be
+  damaged by the same cause. It is redundancy, not immunity — a copy on a
+  volume the sync client does not touch would be strictly better. And treat any
+  sync-client setting as unproven until an `fsck` after a stretch of normal
+  work says otherwise; the 2026-08-19 recurrence is what that rule is made of.
 
 The commit hashes in this section — `494bc9c` above among them — name commits
 that are **not in this object store**: the 2026-08-10 and 2026-08-17 restarts
