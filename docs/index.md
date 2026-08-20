@@ -120,6 +120,7 @@ Three things sit outside the rule on purpose, because they are not this index's 
 - [OI-0008 + OI-0033 Internal-Quality Wave — implementation plan (2026-08-05)](superpowers/plans/2026-08-05-oi0008-0033-internal-quality.md) — the 12-task plan the wave shipped against.
 - [Track C — In-Browser WASM Rendering + Edit Demo (2026-08-05)](superpowers/specs/2026-08-05-track-c-wasm-render-demo-design.md) — approved design spec for the `transync-wasm` crate, the JSON-string boundary, the build pipeline and size budget, and the web-only scope; the decision is ADR-0019, the implementation record DCR-0020.
 - [Track C — WASM Render Demo — implementation plan (2026-08-05)](superpowers/plans/2026-08-05-track-c-wasm-render-demo.md) — the 6-task plan the wave shipped against.
+- [HTML→HTML Document Translation (2026-08-20)](superpowers/specs/2026-08-20-html-to-html-translation-design.md) — owner-ratified design spec for the second intake, the semantic-kind ⊥ spelling split, the `transync-html` mechanics crate, the layer-6 HTML twin, and the eight-wave split; ti `490d97`. **Design only — implementation is not yet authorized**, and the breaking changes it names ride a future v0.5.0 window.
 
 ## Browser demo
 
