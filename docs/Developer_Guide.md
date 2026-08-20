@@ -178,10 +178,12 @@ map; the scroll-sync feature is everything to the right.
 ```
 transync/
 ├── crates/
-│   ├── transync-syntax/      syntax layer (parser, id, regen, render, align, htmlseg, outcome, walk); compiles for wasm32 under a standing gate
+│   ├── transync-html/        HTML mechanics: tag scan, element extents, segment extract/splice, fragment balancing; lol_html + htmlize only (DCR-0032)
+│   ├── transync-syntax/      syntax layer (parser, id, regen, render, align, outcome, walk); compiles for wasm32 under a standing gate
 │   ├── transync-core/        pipeline on top (unit, batch, llm, validate, cache, profile, pipeline); no HTTP, no LLM dep
 │   ├── transync/             curated facade (semver firewall) — an EXPLICIT re-export list, not a glob; contracts.md §0 is its table of contents
 │   ├── transync-openai/      Translator impl; model-driven dispatch to Chat Completions + Responses
+│   ├── transync-anthropic/   Translator impl; Anthropic Messages API. In-tree but on NO run path — transync-cli depends only on transync + transync-openai (ADR-0002 / DCR-0029)
 │   ├── transync-cli/         binary; embeds the demo shell + sync engine
 │   └── transync-wasm/        browser (wasm-bindgen) surface over transync-syntax; publish = false
 ├── web/                      vanilla-JS demo source-of-truth
@@ -211,8 +213,8 @@ cargo fmt --all
 cargo check -p transync-syntax -p transync-wasm \
   --target wasm32-unknown-unknown                       # standing wasm gate
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
-  -p transync-syntax -p transync-core -p transync \
-  -p transync-openai -p transync-wasm                  # standing rustdoc gate
+  -p transync-html -p transync-syntax -p transync-core -p transync \
+  -p transync-openai -p transync-anthropic -p transync-wasm   # standing rustdoc gate
 ./scripts/build-wasm.sh                                # demo module + size budget
 ```
 
@@ -244,8 +246,8 @@ the value is already `scripts/hooks`, re-running is a one-line no-op.
 
 **The rustdoc gate** (DCR-0018, widened to `transync-openai` on
 2026-08-07) keeps `cargo doc` warning-free for **every workspace member
-that has a library target** — `transync-syntax`, `transync-core`,
-`transync`, `transync-openai`, `transync-wasm`. `transync-cli` is the one
+that has a library target** — `transync-html`, `transync-syntax`, `transync-core`,
+`transync`, `transync-openai`, `transync-anthropic`, `transync-wasm`. `transync-cli` is the one
 member outside it, and deliberately: it is bin-only, with no public API
 to document. Its usual failure is an intra-doc link from a public item to
 a private sibling: either widen the linked item or de-link the prose to

@@ -131,10 +131,18 @@ const RETIRED_CLAIMS: &[(&str, &str)] = &[
     ),
 ];
 
-/// The two `lib.rs` files whose module lists the table's intro enumerates.
-const CRATE_ROOTS: &[(&str, &str)] = &[
-    ("transync-syntax", "crates/transync-syntax/src/lib.rs"),
-    ("transync-core", "crates/transync-core/src/lib.rs"),
+/// The crate roots whose module lists the table's intro enumerates, each with
+/// the floor its own `lib.rs` must clear.
+///
+/// The floor is **per root** because `transync-html` is a single file: ti
+/// 490d97 wave 0 moved `htmlseg.rs` in verbatim, and the file-as-module split
+/// the spec permits is a later, separate decision. One shared floor of 5
+/// would assert a shape nobody has chosen for that crate; the two roots above
+/// it are what keep the anti-vacuity check meaningful.
+const CRATE_ROOTS: &[(&str, &str, usize)] = &[
+    ("transync-syntax", "crates/transync-syntax/src/lib.rs", 5),
+    ("transync-core", "crates/transync-core/src/lib.rs", 5),
+    ("transync-html", "crates/transync-html/src/lib.rs", 0),
 ];
 
 /// Every module a crate root declares, minus the `cfg`-gated ones.
@@ -156,7 +164,7 @@ fn declared_modules(src: &str) -> Vec<String> {
             continue;
         }
         if line.starts_with("#[") {
-            // Only `cfg` hides a module; `#[doc(hidden)]` (`htmlseg`, `unit`)
+            // Only `cfg` hides a module; `#[doc(hidden)]` (`unit`)
             // means "not curated API", which is still an owner worth naming.
             cfg_gated |= line.starts_with("#[cfg(");
             continue;
@@ -194,11 +202,12 @@ fn document_names_module(doc: &str, module: &str) -> bool {
 fn the_module_enumeration_names_every_module_both_crates_declare() {
     let doc = read_doc("docs/architecture/source-of-truth-table.md");
     let mut unnamed = Vec::new();
-    for (krate, rel) in CRATE_ROOTS {
+    for (krate, rel, floor) in CRATE_ROOTS {
         let modules = declared_modules(&read_doc(rel));
         assert!(
-            modules.len() >= 5,
-            "{rel} parsed to {} modules — the scan broke, it did not get simpler",
+            modules.len() >= *floor,
+            "{rel} parsed to {} modules, below its floor of {floor} — the scan \
+             broke, it did not get simpler",
             modules.len(),
         );
         for module in modules {

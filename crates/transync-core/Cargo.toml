@@ -25,6 +25,9 @@ test-stub = []  # exposes ::test_stub::EchoTranslator for downstream test bundle
 # syntax side. Core re-exports its modules so `crate::id::…`/`crate::parser::…`
 # keep resolving unchanged (spec 2026-08-04 §2.2, §6).
 transync-syntax = { workspace = true }
+# HTML mechanics (DCR-0032): `validate`'s layer-3 splice + tag-inventory
+# check and `unit::payload`'s segment extraction call it directly.
+transync-html = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 thiserror   = { workspace = true }

@@ -21,7 +21,7 @@ The application — not the LLM — owns block IDs, table shape, list topology, 
 |--------------------------|-----------------------------------|----------------|
 | Markdown parser          | `crates/transync-syntax` (`parser` mod) | GFM AST + IR with block IDs and source ranges |
 | Block indexer            | `crates/transync-syntax` (`id` mod)    | Stable ID assignment + source hashing |
-| HTML segment engine      | `crates/transync-syntax` (`htmlseg` mod) | Text-segment extraction / positional splice-back inside raw-HTML blocks (`lol_html`, one pinned `Settings` for both passes) + render-path fragment balancing (ADR-0018 / DCR-0016) |
+| HTML mechanics engine    | `crates/transync-html`            | Text-segment extraction / positional splice-back inside raw-HTML blocks (`lol_html`, one pinned `Settings` for both passes) + render-path fragment balancing (ADR-0018 / DCR-0016) |
 | Translation unit builder | `crates/transync-core` (`unit` mod)    | Context-rich units; section path + neighbor snippets |
 | Batch manager            | `crates/transync-core` (`batch` mod + `unit::section`) | Section-coherent packing: the unit list is partitioned at every heading (`unit::section`), then each section is packed by the sequential token-budget packer (consumer-driven via `TranslateOptions`). No batch straddles a section boundary; an oversize section splits inside itself (DCR-0027) |
 | Translator trait         | `crates/transync-core` (`llm` mod)     | HTTP-free contract: `translate_batch(batch, cancel) -> result` + `fingerprint()` for cache namespacing; the `cancel` token is the run's (DCR-0024, contracts.md §5b) |

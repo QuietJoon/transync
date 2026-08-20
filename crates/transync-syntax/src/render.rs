@@ -570,7 +570,7 @@ fn render_block<'a>(
             let _ = writeln!(
                 out,
                 "<div{attrs}>{}</div>",
-                crate::htmlseg::balance_fragment(md),
+                transync_html::balance_fragment(md),
             );
         }
         return;

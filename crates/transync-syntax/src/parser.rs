@@ -167,8 +167,8 @@ pub struct Section {
 /// already thrown away by the time it reports a position, so there is nothing
 /// for a line table to agree with and the input must move instead.
 ///
-/// The byte-verbatim round-trip guarantee `regen` and `htmlseg` keep — the
-/// reason normalization was rejected for lone CR — is unaffected in
+/// The byte-verbatim round-trip guarantee `regen` and `transync-html` keep
+/// — the reason normalization was rejected for lone CR — is unaffected in
 /// substance: it is a guarantee about `Document::source_text`, and this
 /// substitution happens before that field exists. What changes for a
 /// NUL-bearing source is that `out.md` carries U+FFFD instead of the NUL —

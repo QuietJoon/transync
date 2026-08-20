@@ -4,6 +4,7 @@
 [workspace]
 resolver = "2"
 members  = [
+    "crates/transync-html",
     "crates/transync-syntax",
     "crates/transync-core",
     "crates/transync",
@@ -13,9 +14,9 @@ members  = [
     "crates/transync-wasm",
 ]
 
-# Publication set (R0001-0040). Six members are ordinary crates.io packages,
+# Publication set (R0001-0040). Seven members are ordinary crates.io packages,
 # and a first publication has to walk them in dependency order —
-# transync-syntax, transync-core, transync, transync-openai,
+# transync-html, transync-syntax, transync-core, transync, transync-openai,
 # transync-anthropic, transync-cli — because each one's internal dependency
 # resolves from the registry once the
 # `path` key is stripped at package time. `crates/transync-wasm` is the single
@@ -56,7 +57,7 @@ repository   = "https://github.com/QuietJoon/transync"
 # path-depending sibling consumer) builds against, and `version` is what
 # `cargo publish` demands — a path dependency with no version requirement
 # cannot be published at all (R0001-0040). Bumping `[workspace.package]
-# version` means bumping these four in the same edit; the release checklist's
+# version` means bumping these five in the same edit; the release checklist's
 # version-bump step says so.
 #
 # `transync-anthropic` publishes too but has **no entry here**, and that is
@@ -69,6 +70,7 @@ repository   = "https://github.com/QuietJoon/transync"
 # needs is a `version` on the edges it *has* (`transync`, and the two dev-only
 # ones), which it takes from this table via `workspace = true`. The day a
 # member depends on it, the entry lands in the same edit as that dependency.
+transync-html   = { version = "0.4.0", path = "crates/transync-html" }
 transync-syntax = { version = "0.4.0", path = "crates/transync-syntax" }
 transync-core   = { version = "0.4.0", path = "crates/transync-core" }
 transync        = { version = "0.4.0", path = "crates/transync" }

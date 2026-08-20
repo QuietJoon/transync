@@ -63,6 +63,7 @@ use toml::value::Table;
 /// here depends on the order — it is written this way so the two documents
 /// read alike.
 const PUBLISHED_MEMBERS: &[&str] = &[
+    "transync-html",
     "transync-syntax",
     "transync-core",
     "transync",

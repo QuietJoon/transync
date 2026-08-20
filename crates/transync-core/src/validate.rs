@@ -438,12 +438,11 @@ fn validate_unit(
             Err(e) => {
                 return direct_fallback(format!("html splice precheck: payload unparsable: {e}"));
             }
-            Ok(segs) => match transync_syntax::htmlseg::splice(&h.source_bytes, &segs, *block_type)
-            {
+            Ok(segs) => match transync_html::splice(&h.source_bytes, &segs, *block_type) {
                 Err(e) => return direct_fallback(format!("html splice failed: {e}")),
                 Ok(spliced) => {
-                    if transync_syntax::htmlseg::tag_inventory(&spliced)
-                        != transync_syntax::htmlseg::tag_inventory(&h.source_bytes)
+                    if transync_html::tag_inventory(&spliced)
+                        != transync_html::tag_inventory(&h.source_bytes)
                     {
                         return direct_fallback(
                             "html splice check: tag inventory diverged from source (engine fault)"
@@ -1109,7 +1108,7 @@ mod nul_payload_tests {
     #[test]
     fn an_html_payload_whose_segment_decodes_to_a_nul_is_rejected() {
         let source = "<p>one</p>";
-        let segs = transync_syntax::htmlseg::extract(source).expect("source block extracts");
+        let segs = transync_html::extract(source).expect("source block extracts");
         let mut unit = paragraph_unit(source);
         unit.unit_id = BlockId::new("html", 1);
         unit.block_kind = BlockKind::Html { block_type: 6 };
@@ -1270,13 +1269,13 @@ mod html_splice_layer_tests {
 
     /// A one-unit html batch over `source`, plus a result row carrying
     /// `payload`. `constraints.html` is built the way `unit::build_batches`
-    /// builds it (real `htmlseg::extract` over the same bytes), so the
+    /// builds it (real `transync_html::extract` over the same bytes), so the
     /// splice check sees production-shaped inputs.
     fn html_batch_and_result(
         source: &str,
         payload: &str,
     ) -> (TranslationBatch, TranslationBatchResult) {
-        let segs = transync_syntax::htmlseg::extract(source).expect("source block extracts");
+        let segs = transync_html::extract(source).expect("source block extracts");
         let unit = TranslationUnit {
             unit_id: BlockId::new("html", 1),
             block_kind: BlockKind::Html { block_type: 6 },

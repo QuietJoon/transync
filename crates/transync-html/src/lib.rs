@@ -1,9 +1,35 @@
-//! HTML segment extraction / splice engine (lol_html).
+//! HTML mechanics for transync: tag scanning, the pairing discipline,
+//! element extents, text-segment extraction/splice, and render-path fragment
+//! balancing (`lol_html`).
 //!
-//! Spec: docs/superpowers/specs/2026-08-03-html-content-translation-design.md
-//! §3.2–§3.4. One pinned Settings source (`rewriter_settings`) feeds every
-//! pass so the extract and splice passes can never disagree on coalescing
-//! or drop decisions.
+//! One pinned Settings source (`rewriter_settings`) feeds every pass so the
+//! extract pass and the splice pass can never disagree on coalescing or drop
+//! decisions.
+//!
+//! **Structural intake does not live here.** Classification, `BlockKind`
+//! assignment, block ids and `ast_path` are `transync-syntax`'s job — the
+//! `transync_syntax::intake::html` module — and this crate is the mechanics
+//! layer underneath it. The name says "html" because the capability is HTML,
+//! not because the crate decides what an HTML block *is*.
+//!
+//! **The module formerly called `htmlseg` inside `transync-syntax` is this
+//! crate.** Records dated before 2026-08-20 — ADR-0018, ADR-0003,
+//! `docs/project/stub-manifest.md`, `docs/project/status.md`,
+//! `docs/project/open-issues-archive.md`,
+//! `docs/project/implementation-slice-checklists.md`, and the investigation
+//! bundle — name `htmlseg`, and they are dated records that are not
+//! rewritten. A reader who greps for `htmlseg` and finds nothing is looking
+//! at this.
+//!
+//! Spec: docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md
+//! §5. The original engine spec, still the authority on the extract/splice
+//! algorithm, is
+//! docs/superpowers/specs/2026-08-03-html-content-translation-design.md
+//! §3.2–§3.4.
+//!
+//! TRACE: ADR-0018
+//! TRACE: DCR-0016
+//! TRACE: DCR-0032
 
 use lol_html::html_content::{ContentType, TextType};
 use lol_html::{
@@ -50,11 +76,16 @@ pub struct HtmlSegments {
     pub labels: Vec<String>,
 }
 
-fn is_void(tag: &str) -> bool {
+/// Is `tag` an HTML void element? Void elements never get an end tag, so a
+/// stack walker must not push them and a balancer must not close them.
+pub fn is_void(tag: &str) -> bool {
     VOID_ELEMENTS.contains(&tag)
 }
 
-fn is_raw_text(tag: &str) -> bool {
+/// Does `tag` hold raw text / RCDATA (`script`, `style`, `textarea`,
+/// `title`)? A browser never tokenizes their content as markup, and HTML
+/// ignores the self-closing flag on them (DCR-0016 Part D).
+pub fn is_raw_text(tag: &str) -> bool {
     RAW_TEXT_ELEMENTS.contains(&tag)
 }
 
@@ -376,17 +407,24 @@ enum AttrState {
     Unquoted,
 }
 
+/// One tag-shaped region [`scan_tags`] recognized, in document order.
+///
+/// Exhaustive by policy: no `#[non_exhaustive]`, and no in-crate match may
+/// use a `_ =>` arm. R0002-0020 and R0003-0066 were both phantom tokens
+/// caught because nothing hid behind one.
 #[derive(Debug, Clone)]
-enum TagToken {
+pub enum TagToken {
     Open { name: String, self_closing: bool },
     Close { name: String, span: (usize, usize) },
 }
 
 /// Minimal tag tokenizer for balancing: understands comments, CDATA
-/// sections, the raw-text and RCDATA states of every [`RAW_TEXT_ELEMENTS`]
-/// entry, and quoted attribute values. NOT a general HTML parser — only the
-/// render-path balancer (spec §3.4) and the layer-3 inventory check use it.
-fn scan_tags(html: &str) -> Vec<TagToken> {
+/// sections, the raw-text and RCDATA states of every [`is_raw_text`] element,
+/// and quoted attribute values. NOT a general HTML parser — it is one
+/// self-consistent opinion about HTML tokenization, shared by the render-path
+/// balancer (spec 2026-08-03 §3.4), the layer-3 inventory check, and the HTML
+/// intake to come.
+pub fn scan_tags(html: &str) -> Vec<TagToken> {
     let bytes = html.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0usize;
@@ -597,7 +635,7 @@ pub fn tag_inventory(html: &str) -> Vec<String> {
 /// in the "in body" insertion mode; the rest are the classic pairs (list
 /// items, definition lists, table rows and cells, select options, ruby
 /// annotations).
-fn implicitly_closes(name: &str) -> &'static [&'static str] {
+pub fn implicitly_closes(name: &str) -> &'static [&'static str] {
     const P: &[&str] = &["p"];
     match name {
         "li" => &["li", "p"],
@@ -632,7 +670,7 @@ fn implicitly_closes(name: &str) -> &'static [&'static str] {
 /// structure that appears in the pane and in no source document. Fragments
 /// whose optional end tags are all written out are unaffected: the implicit
 /// close pops exactly what the explicit one would have.
-pub(crate) fn balance_fragment(html: &str) -> String {
+pub fn balance_fragment(html: &str) -> String {
     let tokens = scan_tags(html);
     let mut open_stack: Vec<String> = Vec::new();
     let mut drop_spans: Vec<(usize, usize)> = Vec::new();

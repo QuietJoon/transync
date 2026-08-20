@@ -14,6 +14,11 @@ crates/transync/                        # curated public facade (semver firewall
     └── lib.rs                          # EXPLICIT curated re-export list — no globs; the
                                         #   supported surface, mirrored by contracts.md §0
 
+crates/transync-html/                   # HTML mechanics: tag scan + element extents + segment
+├── Cargo.toml                          #   extract/splice + fragment balancing (DCR-0032);
+└── src/                                #   lol_html + htmlize only, no workspace-member dep
+    └── lib.rs                          # tag scan + element extents + segment extract/splice + balancing (DCR-0032)
+
 crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017); no [features]
 ├── Cargo.toml                          #   gate: cargo check --target wasm32-unknown-unknown
 └── src/
@@ -28,8 +33,6 @@ crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017
     │   │                               #   line table matching comrak (OI-0033)
     │   └── refdefs.rs                  # link-reference-definition pool (DCR-0013)
     ├── id.rs                           # BlockId assignment + source_hash
-    ├── htmlseg.rs                      # HTML text-segment scan/extract/splice + render-path
-    │                                   #   fragment balancing (ADR-0018 / DCR-0016)
     ├── outcome.rs                      # per-block HtmlOutcome closure (DCR-0017 §3.1)
     ├── walk.rs                         # ONE shared top-level normalization + per-list item
     │                                   #   count; consumed by render AND validate::full_reparse
@@ -177,7 +180,7 @@ scripts/
 
 Module names in the "Crates / modules touched" column are **engine** modules —
 `transync-syntax` owns `parser` (+`options`/`classify`/`emit`/`sections`/
-`ranges`/`refdefs`), `id`, `regen`, `render` (+`attrs`), `align`, `htmlseg`,
+`ranges`/`refdefs`), `id`, `regen`, `render` (+`attrs`), `align`,
 `outcome`, `walk`; `transync-core` owns `unit` (+`payload`/`budget`/`context`),
 `structure` (+`labels`), `batch`, `llm` (+`prompt`), `validate` (+ its five
 layers), `pipeline` (+`policy`/`dispatch`/`finalize`/`report`/`retry`),
@@ -206,7 +209,7 @@ column below.
 | SCN-12  | CLI end-to-end produces 4 outputs                           | `transync-cli::{main, translate_cmd, output}`, `transync-openai::*`, the `transync` facade                 | `scn-14-full.md` reused as input                       | OpenAI Chat Completions / Responses on a human-invoked live run; the `test-stub-provider` echo `Translator` in every automated run — see the table below |
 | SCN-13  | JS demo sync                                                | `web/js/sync.js`, `{render, align}`                                                                       | output of SCN-12; `web/tests/scn13.spec.js`            | headless Chromium via Playwright (`scripts/test-browser.sh`) |
 | SCN-14  | Full-document reparse                                       | `{regen, validate::full_reparse}`                                                               | `scn-14-full.md`                                       | none                                               |
-| SCN-15  | HTML-content translation end-to-end (post-MVP)              | `{htmlseg, parser, unit (html_outcomes), validate::per_kind, regen, render, align}`, `web/js/sync.js` (toggle mirror) | `scn-15-html-blocks.md`                 | none (`MockTranslator`); browser leg via Playwright |
+| SCN-15  | HTML-content translation end-to-end (post-MVP)              | `transync-html`, `{parser, unit (html_outcomes), validate::per_kind, regen, render, align}`, `web/js/sync.js` (toggle mirror) | `scn-15-html-blocks.md`                 | none (`MockTranslator`); browser leg via Playwright |
 
 ## Persistence / file touches per scenario
 

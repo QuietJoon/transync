@@ -231,8 +231,8 @@ pub fn check_html(constraints: &BlockConstraints, result: &UnitResult) -> Result
             segs.len()
         ));
     }
-    // R0003-0042: WHITESPACE-only, not just empty. `htmlseg::scan` drops
-    // every source text node whose decoded form is all whitespace
+    // R0003-0042: WHITESPACE-only, not just empty. The segment engine's scan
+    // drops every source text node whose decoded form is all whitespace
     // (`kept: false`), so a segment reaching the model always carries
     // visible text and a whitespace-only source counter-case cannot exist.
     // Testing only `is_empty` therefore left one character class through

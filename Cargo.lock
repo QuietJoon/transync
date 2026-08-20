@@ -1875,8 +1875,17 @@ dependencies = [
  "tokio-util",
  "toml",
  "tracing",
+ "transync-html",
  "transync-syntax",
  "unicode-normalization",
+]
+
+[[package]]
+name = "transync-html"
+version = "0.4.0"
+dependencies = [
+ "htmlize",
+ "lol_html",
 ]
 
 [[package]]
@@ -1902,13 +1911,12 @@ name = "transync-syntax"
 version = "0.4.0"
 dependencies = [
  "comrak",
- "htmlize",
- "lol_html",
  "serde",
  "serde_json",
  "siphasher",
  "thiserror 1.0.69",
  "tracing",
+ "transync-html",
 ]
 
 [[package]]

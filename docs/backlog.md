@@ -756,7 +756,7 @@ paid out._
 ### template-webcomponent-extraction
 
 - **Description:** Text inside `<template>` elements (and web-component content) is
-  bucketed with `script`/`style` and left untranslated (`htmlseg.rs` tracks
-  `template_depth` specifically to exclude it).
+  bucketed with `script`/`style` and left untranslated (`transync-html`'s
+  segment scan tracks `template_depth` specifically to exclude it).
 - **Background:** DCR-0016 / 2026-08-03 design §9.
 - **Blocked by:** stated gate — "revisit only on demonstrated need"; none demonstrated.

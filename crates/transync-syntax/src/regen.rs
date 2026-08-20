@@ -104,7 +104,7 @@ pub fn regenerate(doc: &Document, accepted: &HashMap<BlockId, String>) -> (Strin
                 // honest, never corrupt.
                 match serde_json::from_str::<Vec<String>>(payload)
                     .ok()
-                    .and_then(|segs| crate::htmlseg::splice(source_bytes, &segs, *block_type).ok())
+                    .and_then(|segs| transync_html::splice(source_bytes, &segs, *block_type).ok())
                 {
                     Some(spliced) => Cow::Owned(spliced),
                     None => Cow::Borrowed(source_bytes),
@@ -470,7 +470,7 @@ mod html_regen_tests {
         assign_block_ids(&mut doc);
         // Preserved: the wire payload echoes the source segments — the
         // identity skip keeps entity forms byte-exact (spec §3.3).
-        let segs = crate::htmlseg::extract("<p>Caf&eacute;&nbsp;&copy;</p>").expect("extracts");
+        let segs = transync_html::extract("<p>Caf&eacute;&nbsp;&copy;</p>").expect("extracts");
         let payload = serde_json::to_string(&segs.texts).unwrap();
         let accepted = accepted_map("html-0001", Some(&payload));
         let (md, _) = regenerate(&doc, &accepted);

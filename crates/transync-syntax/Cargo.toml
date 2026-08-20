@@ -1,6 +1,7 @@
 # transync-syntax: the wasm32-compilable base crate — GFM parsing, block IR
-# and IDs, regeneration/splicing, alignment maps, HTML rendering, and the
-# lol_html segment engine. transync-core sits on top with the pipeline.
+# and IDs, regeneration/splicing, alignment maps, and HTML rendering. The
+# lol_html segment engine moved to transync-html (DCR-0032). transync-core
+# sits on top with the pipeline.
 # No [features] and no core-directed dev-dependency, ever: both would
 # defeat the standing wasm gate (spec 2026-08-04 §2.1/§3).
 # TRACE: ADR-0003 (amended)
@@ -21,11 +22,10 @@ serde       = { workspace = true }
 serde_json  = { workspace = true }
 siphasher   = { workspace = true }
 thiserror   = { workspace = true }
-# HTML-content translation (spec 2026-08-03): segment extraction/splice
-# rides lol_html's streaming rewriter; htmlize supplies the full
-# named-entity decode table (lol_html has no decoder).
-lol_html    = { workspace = true }
-htmlize     = { workspace = true }
+# HTML-content translation (spec 2026-08-03 / 2026-08-20 §5): the mechanics
+# — extract/splice, tag scanning, fragment balancing — live in their own
+# member since ti 490d97 wave 0. `regen`, `render` and `outcome` call it.
+transync-html = { workspace = true }
 # R0003-0055: the one diagnostic channel this crate has. Programmatic misuse
 # of `align::build_alignment_map` (offsets that do not belong to the document)
 # is reported rather than returned, so the signature stays infallible for the

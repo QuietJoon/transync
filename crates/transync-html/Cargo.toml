@@ -1,0 +1,33 @@
+# transync-html: the HTML mechanics layer — tag scanning, the pairing
+# discipline, element extents, text-segment extract/splice, and render-path
+# fragment balancing. Extracted verbatim from `transync-syntax::htmlseg`
+# (ti 490d97 wave 0; spec 2026-08-20 §5, decisions D3 and D10).
+#
+# Structural intake — classification, BlockKind assignment, ids, ast_path —
+# is NOT here; it belongs to transync-syntax. This crate has no opinion about
+# what a block is.
+#
+# No [features] and no workspace-member dependency, ever. This crate sits
+# under `transync-syntax`, which must keep passing the standing gate
+# `cargo check -p transync-syntax -p transync-wasm --target
+# wasm32-unknown-unknown`; the gate's STRING does not change because the new
+# crate is covered transitively, and it stays green because this dependency
+# set is a subset of the one transync-syntax already carried.
+# TRACE: ADR-0003 (amended)
+# TRACE: ADR-0018
+# TRACE: DCR-0032
+
+[package]
+name         = "transync-html"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+description  = "HTML mechanics for transync: tag scanning, element extents, text-segment extract/splice, and fragment balancing."
+
+[dependencies]
+# Segment extraction/splice rides lol_html's streaming rewriter; htmlize
+# supplies the full named-entity decode table (lol_html has no decoder).
+lol_html    = { workspace = true }
+htmlize     = { workspace = true }

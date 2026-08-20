@@ -477,6 +477,7 @@ fn hidden_modules_are_not_documented_as_surface() {
         "regen",
         "render",
         "transync_syntax",
+        "transync_html",
         "htmlseg",
         "outcome",
         "walk",

@@ -32,7 +32,7 @@ pub(crate) fn assemble(doc: &Document, block: &Block) -> (String, InputMode, Blo
     // structural facts the validator needs ride in `constraints.html`.
     if let BlockKind::Html { block_type } = block.kind {
         let raw = block_payload(doc, block);
-        let segs = transync_syntax::htmlseg::extract(&raw)
+        let segs = transync_html::extract(&raw)
             .expect("outcome said Unit — extract cannot fail here (same input, same routine)");
         let payload = serde_json::to_string(&segs.texts)
             .expect("Vec<String> JSON serialization is infallible");

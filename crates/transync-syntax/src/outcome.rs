@@ -2,9 +2,9 @@
 //! derived from it (spec §3.2).
 //!
 //! Syntax-side because the whole closure is syntax-side: the block IR, the
-//! `htmlseg` extract pass, and the byte-range payload slice. `transync-core`
-//! consumes these from batching, alignment, and the pipeline report so all
-//! three agree on which html blocks became units.
+//! `transync-html` extract pass, and the byte-range payload slice.
+//! `transync-core` consumes these from batching, alignment, and the pipeline
+//! report so all three agree on which html blocks became units.
 //!
 //! TRACE: DCR-0017
 
@@ -27,7 +27,7 @@ pub enum HtmlOutcome {
     ExtractionFailed(String),
 }
 
-/// Run `htmlseg::extract` over every `BlockKind::Html` block once
+/// Run `transync_html::extract` over every `BlockKind::Html` block once
 /// and record what it produced (spec §3.2).
 ///
 /// Computing the map once per run is what keeps every html-aware stage in
@@ -45,7 +45,7 @@ pub fn html_outcomes(doc: &Document) -> HashMap<BlockId, HtmlOutcome> {
             continue;
         }
         let payload = block_payload(doc, block);
-        let outcome = match crate::htmlseg::extract(&payload) {
+        let outcome = match transync_html::extract(&payload) {
             Ok(segs) if segs.texts.is_empty() => HtmlOutcome::PreservedZeroSegment,
             Ok(_) => HtmlOutcome::Unit,
             Err(e) => HtmlOutcome::ExtractionFailed(e),
