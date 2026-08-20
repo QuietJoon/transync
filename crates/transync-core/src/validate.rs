@@ -438,7 +438,11 @@ fn validate_unit(
             Err(e) => {
                 return direct_fallback(format!("html splice precheck: payload unparsable: {e}"));
             }
-            Ok(segs) => match transync_html::splice(&h.source_bytes, &segs, *block_type) {
+            Ok(segs) => match transync_html::splice(
+                &h.source_bytes,
+                &segs,
+                transync_html::BlankLinePolicy::from_commonmark_html_block_type(*block_type),
+            ) {
                 Err(e) => return direct_fallback(format!("html splice failed: {e}")),
                 Ok(spliced) => {
                     if transync_html::tag_inventory(&spliced)

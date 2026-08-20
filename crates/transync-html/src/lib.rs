@@ -271,8 +271,43 @@ pub fn extract(block: &str) -> Result<HtmlSegments, String> {
     Ok(out)
 }
 
+/// Whether a translated segment's interior blank lines survive the splice.
+///
+/// The knob exists because the *host format* decides, not the markup: a blank
+/// line terminates a CommonMark HTML block of type 6/7 at reparse, splitting
+/// the block and breaking its anchor. Nothing else about splicing cares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlankLinePolicy {
+    /// Interior blank lines in a translated segment are collapsed — the
+    /// Markdown-host rule for CommonMark HTML block types 6 and 7.
+    Collapse,
+    /// Blank lines pass through. Correct for CommonMark types 1–5 (`<pre>`,
+    /// `<textarea>` and friends, whose content a collapse would damage) and
+    /// for every block of an HTML document, where nothing ever Markdown-
+    /// reparses the output.
+    Keep,
+}
+
+impl BlankLinePolicy {
+    /// The one home of the CommonMark mapping: 6 | 7 → [`BlankLinePolicy::Collapse`],
+    /// everything else → [`BlankLinePolicy::Keep`]. Byte-for-byte the
+    /// `matches!(block_type, 6 | 7)` that `splice` computed inline before ti
+    /// 490d97 wave 0.
+    ///
+    /// The domain is CommonMark's 1–7 plus the `0` a caller with no
+    /// CommonMark context has; values outside it resolve to `Keep` rather
+    /// than panicking, because the safe arm is the one that touches nothing.
+    pub fn from_commonmark_html_block_type(block_type: u8) -> Self {
+        if matches!(block_type, 6 | 7) {
+            BlankLinePolicy::Collapse
+        } else {
+            BlankLinePolicy::Keep
+        }
+    }
+}
+
 /// Remove interior blank lines (CommonMark definition: a line containing
-/// only spaces/tabs). Only [`splice`] for block types 6/7 calls this —
+/// only spaces/tabs). Only [`splice`] under [`BlankLinePolicy::Collapse`] calls this —
 /// type-1 blocks (`<pre>`, `<textarea>`) keep their blank lines (spec §3.3).
 pub(crate) fn collapse_blank_lines(text: &str) -> String {
     let lines: Vec<&str> = text.split('\n').collect();
@@ -295,7 +330,11 @@ pub(crate) fn collapse_blank_lines(text: &str) -> String {
 /// same `rewriter_settings` and the same `wanted_text_type` filter,
 /// replacing kept nodes whose translation differs from the decoded source
 /// (identity-skip) and passing everything else through byte-verbatim.
-pub fn splice(block: &str, translated: &[String], block_type: u8) -> Result<String, String> {
+pub fn splice(
+    block: &str,
+    translated: &[String],
+    blank_lines: BlankLinePolicy,
+) -> Result<String, String> {
     let plan = scan(block)?;
     let kept_count = plan.iter().filter(|r| r.kept).count();
     if kept_count != translated.len() {
@@ -307,7 +346,7 @@ pub fn splice(block: &str, translated: &[String], block_type: u8) -> Result<Stri
 
     // Node-level actions, in text-node order: None = leave untouched
     // (dropped node OR identity translation); Some(text) = replace.
-    let collapse = matches!(block_type, 6 | 7);
+    let collapse = matches!(blank_lines, BlankLinePolicy::Collapse);
     let mut ti = 0usize;
     let actions: Vec<Option<String>> = plan
         .iter()
@@ -857,6 +896,37 @@ mod extract_tests {
     }
 }
 
+// Spec 2026-08-20 §5: the CommonMark blank-line rule has exactly one home.
+#[cfg(test)]
+mod policy_tests {
+    use super::*;
+
+    /// `matches!(block_type, 6 | 7)` is what `splice` computed inline before
+    /// wave 0, and this constructor is now its only home. Every other type —
+    /// including the `0` a non-CommonMark host has no value for, and anything
+    /// outside CommonMark's 1–7 domain — keeps its blank lines.
+    #[test]
+    fn the_commonmark_mapping_is_six_and_seven_and_nothing_else() {
+        for t in 0u8..=7 {
+            let expected = if t == 6 || t == 7 {
+                BlankLinePolicy::Collapse
+            } else {
+                BlankLinePolicy::Keep
+            };
+            assert_eq!(
+                BlankLinePolicy::from_commonmark_html_block_type(t),
+                expected,
+                "block type {t}"
+            );
+        }
+        assert_eq!(
+            BlankLinePolicy::from_commonmark_html_block_type(200),
+            BlankLinePolicy::Keep,
+            "out of CommonMark's domain entirely: Keep, never a panic"
+        );
+    }
+}
+
 // Spec §3.3: identity-skip splice, entity-drift acceptance, type-conditional
 // blank-line collapse. Spec §3.4: render-side auto-balancing.
 #[cfg(test)]
@@ -869,14 +939,24 @@ mod splice_tests {
         // round-trip; the identity skip preserves them byte-exactly.
         let block = "<p>Caf&eacute; &copy; 2026&nbsp;&mdash; <b>bold &amp; true</b></p>";
         let segs = extract(block).expect("extracts");
-        let out = splice(block, &segs.texts, 6).expect("splices");
+        let out = splice(
+            block,
+            &segs.texts,
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(out, block, "identity splice must be byte-identical");
     }
 
     #[test]
     fn translated_segment_is_replaced_and_specials_are_escaped() {
         let block = "<summary>Click to expand</summary>";
-        let out = splice(block, &["펼치기 <&>".to_string()], 6).expect("splices");
+        let out = splice(
+            block,
+            &["펼치기 <&>".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(out, "<summary>펼치기 &lt;&amp;&gt;</summary>");
     }
 
@@ -885,7 +965,12 @@ mod splice_tests {
         // Spec §6 entities row: genuinely translated segments re-escape only
         // < > & — a translated segment loses named-entity forms.
         let block = "<p>one&nbsp;two</p>";
-        let out = splice(block, &["eins\u{a0}zwei".to_string()], 6).expect("splices");
+        let out = splice(
+            block,
+            &["eins\u{a0}zwei".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(out, "<p>eins\u{a0}zwei</p>");
     }
 
@@ -893,7 +978,12 @@ mod splice_tests {
     fn blank_lines_collapse_for_type_6_but_not_type_1() {
         let block = "<div>text</div>";
         let translated = vec!["line1\n\nline2".to_string()];
-        let out6 = splice(block, &translated, 6).expect("splices");
+        let out6 = splice(
+            block,
+            &translated,
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert!(
             !out6.contains("\n\n"),
             "type 6 must collapse blank lines: {out6}"
@@ -901,7 +991,12 @@ mod splice_tests {
 
         let pre = "<pre>a\n\nb</pre>";
         let pre_segs = extract(pre).expect("extracts");
-        let out1 = splice(pre, &pre_segs.texts, 1).expect("splices");
+        let out1 = splice(
+            pre,
+            &pre_segs.texts,
+            BlankLinePolicy::from_commonmark_html_block_type(1),
+        )
+        .expect("splices");
         assert_eq!(out1, pre, "type 1 keeps interior blank lines");
     }
 
@@ -912,14 +1007,24 @@ mod splice_tests {
         // `1 | 6 | 7` would still pass it. A NON-identity translation is what
         // actually pins the type-1 exemption (spec §3.3).
         let pre = "<pre>a\n\nb</pre>";
-        let out = splice(pre, &["가\n\n나".to_string()], 1).expect("splices");
+        let out = splice(
+            pre,
+            &["가\n\n나".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(1),
+        )
+        .expect("splices");
         assert_eq!(out, "<pre>가\n\n나</pre>");
     }
 
     #[test]
     fn whitespace_only_line_counts_as_blank_for_collapse() {
         let block = "<div>text</div>";
-        let out = splice(block, &["a\n \nb".to_string()], 6).expect("splices");
+        let out = splice(
+            block,
+            &["a\n \nb".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert!(
             !out.contains("\n \n"),
             "whitespace-only line must collapse: {out:?}"
@@ -929,7 +1034,12 @@ mod splice_tests {
     #[test]
     fn wrong_segment_count_is_an_error() {
         let block = "<p>one</p><p>two</p>";
-        let err = splice(block, &["only-one".to_string()], 6).unwrap_err();
+        let err = splice(
+            block,
+            &["only-one".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .unwrap_err();
         assert!(err.contains("segment count"), "got: {err}");
     }
 
@@ -938,7 +1048,12 @@ mod splice_tests {
         // The &nbsp;-only node is dropped by BOTH passes (same scan()), so
         // one translated segment maps to the kept node — never off-by-one.
         let block = "<p>&nbsp;</p><p>kept</p>";
-        let out = splice(block, &["유지".to_string()], 6).expect("splices");
+        let out = splice(
+            block,
+            &["유지".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(out, "<p>&nbsp;</p><p>유지</p>");
     }
 
@@ -948,10 +1063,20 @@ mod splice_tests {
         // the suppressed node passes through byte-verbatim and the one real
         // segment still lands on the right node (spec §9).
         let block = "<div>before<template><p>inside &amp; hidden</p></template>after</div>";
-        let out = splice(block, &["before".to_string(), "after".to_string()], 6).expect("splices");
+        let out = splice(
+            block,
+            &["before".to_string(), "after".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(out, block, "identity splice must be byte-identical");
 
-        let translated = splice(block, &["앞".to_string(), "뒤".to_string()], 6).expect("splices");
+        let translated = splice(
+            block,
+            &["앞".to_string(), "뒤".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(
             translated, "<div>앞<template><p>inside &amp; hidden</p></template>뒤</div>",
             "template content is untouched while its siblings translate"
@@ -974,7 +1099,12 @@ mod splice_tests {
         );
         let mut translated = segs.texts.clone();
         *translated.last_mut().expect("two segments") = "대상".to_string();
-        let out = splice(block, &translated, 6).expect("splices");
+        let out = splice(
+            block,
+            &translated,
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(
             out,
             "<div><!-- c --><script>a < b;</script><p>&nbsp;</p>\
@@ -1268,7 +1398,12 @@ mod inventory_tests {
     fn identity_splice_preserves_tag_inventory() {
         let block = "<details><summary>s</summary><p>p</p></details>";
         let segs = extract(block).expect("extracts");
-        let out = splice(block, &segs.texts, 6).expect("splices");
+        let out = splice(
+            block,
+            &segs.texts,
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(tag_inventory(&out), tag_inventory(block));
     }
 
@@ -1288,8 +1423,12 @@ mod inventory_tests {
             vec!["Use </p> to close a paragraph".to_string()],
             "the tag-like bytes are RCDATA text, extracted whole",
         );
-        let out =
-            splice(block, &["단락을 닫으려면 </p> 를 씁니다".to_string()], 6).expect("splices");
+        let out = splice(
+            block,
+            &["단락을 닫으려면 </p> 를 씁니다".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(tag_inventory(&out), tag_inventory(block));
         assert_eq!(tag_inventory(block), vec!["textarea", "/textarea"]);
     }
@@ -1309,7 +1448,12 @@ mod inventory_tests {
             vec!["Row <1> is the header".to_string()],
             "the tag-like bytes are ordinary text, extracted whole",
         );
-        let out = splice(block, &["<1> 행이 헤더입니다".to_string()], 6).expect("splices");
+        let out = splice(
+            block,
+            &["<1> 행이 헤더입니다".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
         assert_eq!(tag_inventory(&out), tag_inventory(block));
         assert_eq!(tag_inventory(block), vec!["p", "/p"]);
     }

@@ -104,8 +104,16 @@ pub fn regenerate(doc: &Document, accepted: &HashMap<BlockId, String>) -> (Strin
                 // honest, never corrupt.
                 match serde_json::from_str::<Vec<String>>(payload)
                     .ok()
-                    .and_then(|segs| transync_html::splice(source_bytes, &segs, *block_type).ok())
-                {
+                    .and_then(|segs| {
+                        transync_html::splice(
+                            source_bytes,
+                            &segs,
+                            transync_html::BlankLinePolicy::from_commonmark_html_block_type(
+                                *block_type,
+                            ),
+                        )
+                        .ok()
+                    }) {
                     Some(spliced) => Cow::Owned(spliced),
                     None => Cow::Borrowed(source_bytes),
                 }
