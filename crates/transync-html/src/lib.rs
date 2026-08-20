@@ -346,7 +346,14 @@ pub fn splice(
 
     // Node-level actions, in text-node order: None = leave untouched
     // (dropped node OR identity translation); Some(text) = replace.
-    let collapse = matches!(blank_lines, BlankLinePolicy::Collapse);
+    //
+    // Exhaustive on purpose (ti 490d97 wave 0 Task 3 review): `matches!`
+    // would hide a third variant behind an implicit `_ => false` and make it
+    // mean Keep by accident. A new policy must stop the compiler here.
+    let collapse = match blank_lines {
+        BlankLinePolicy::Collapse => true,
+        BlankLinePolicy::Keep => false,
+    };
     let mut ti = 0usize;
     let actions: Vec<Option<String>> = plan
         .iter()
