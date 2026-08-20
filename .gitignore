@@ -64,3 +64,9 @@ out/
 # regeneration produced a diff that carried no decision. `reviews/` is untracked
 # for the same reason.
 docs/investigation/
+
+# Subagent-driven-development scratch: per-plan ledgers, task briefs, implementer
+# reports and review packages. Recovery state for a running plan, not authored
+# content — the git history is the record once a plan lands, and the skill
+# deletes the directory itself when a plan's final review is clean.
+.superpowers/

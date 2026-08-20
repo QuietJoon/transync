@@ -27,15 +27,21 @@ project:
     CHANGELOG 0.3.0 preamble records it and status.md carries the post-tag
     action. Alignment schema stays 1.2.0; VALIDATION_SCHEMA_VERSION stays 2.
 
-    V0.4.0 RELEASED 2026-08-20, UNTAGGED (owner decision 2026-08-13). THE
+    V0.4.0 RELEASED 2026-08-20, TAGGED (annotated tag v0.4.0 on the
+    release-prep commit 6fa4e88, created the same day). The 2026-08-13
+    ships-untagged decision was REVERSED by the owner on 2026-08-20: consumers
+    need a ref to depend on, and a tag serves that whether or not the commit's
+    ancestry is the development that produced the release. The tag makes no
+    claim about ancestry. THE
     SANCTIONED 0.4.0 BREAKING WINDOW IS USED AND CLOSED - three changes rode
     it: TranslationOutput.translated_markdown -> translated_document (ti
     490d97), transync translate refusing an HTML document instead of
     corrupting it (ti 13e145), and BlockKind::CodeBlock gaining fenced: bool
     so an indented code block can be translated at all (ti 457e51, DCR-0031).
-    The next breaking change needs a new window. No tag exists: the
-    release-prep commit is the only anchor, because this repository's history
-    was restarted on 2026-08-10 and again on 2026-08-17
+    The next breaking change needs a new window. The tag points at the
+    release-prep commit, which is also the anchor the CHANGELOG [0.4.0] entry
+    names; git log v0.4.0 shows one synthetic root below it, because this
+    repository's history was restarted on 2026-08-10 and again on 2026-08-17
     (docs/project/git-history-loss-2026-08-17.md). Schema constants did NOT
     move - alignment stays 1.2.0, VALIDATION_SCHEMA_VERSION stays 2,
     VALIDATION_REPORT_SCHEMA_VERSION stays 1.1.0, CacheKey keeps 13 fields.

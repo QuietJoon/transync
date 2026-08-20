@@ -26,6 +26,16 @@ repository's history was restarted twice, and a release tag on a commit that
 does not carry the release's history is worse than no tag. The release-prep
 commit is this release's only anchor.
 
+> **Correction (2026-08-20, owner decision — reversed the same day).** The
+> paragraph above was true when this entry shipped and is no longer: **`v0.4.0`
+> is tagged**, annotated, on the release-prep commit `6fa4e88`. The reversal is
+> not a change of mind about the history — that reasoning still holds — but a
+> use the earlier decision did not weigh: **consumers need a ref to depend on**,
+> and a tag serves that whether or not the commit's ancestry is the development
+> that produced it. The tag makes no claim about ancestry; it names which tree
+> is v0.4.0. The `[0.4.0]` link below therefore resolves to the tag rather than
+> to a bare commit URL, and `[Unreleased]` compares against `v0.4.0`.
+
 **Release gate (OI-0030): `scripts/smoke-live-gate.sh` PASS on 2026-08-20** —
 2/2 machine-asserted live round-trips against `gpt-4o-mini` (Chat Completions)
 and `gpt-5-mini` (Responses). The gate was triggered by this range: it changes
@@ -101,7 +111,9 @@ measured identically on both sides of the restart.
   what to do now that a `git log <range>` spans **zero** commits — read the
   `[Unreleased]` entries against the tree, and run the live gate when in doubt.
   **The v0.4.0-ships-untagged decision is unchanged**, and its reason is the same
-  one, now twice over.
+  one, now twice over. *(Correction, same day: the owner reversed it — `v0.4.0`
+  is tagged. The reasoning above about history is unaffected; the reversal rests
+  on consumers needing a ref. See the `[0.4.0]` entry's correction note.)*
 - **Dated records were left as written.** Every commit hash quoted in
   `status.md`, `backlog.md`, the ADRs, the DCRs and this file names a commit that
   is not in this object store; `status.md` and `backlog.md` gained one dated note
@@ -7288,8 +7300,8 @@ cargo clippy --workspace --all-targets -- -D warnings              # clean
 OPENAI_API_KEY=... ./scripts/smoke-live.sh                         # live API + browser demo
 ```
 
-[Unreleased]: https://github.com/QuietJoon/transync/compare/6fa4e8866300b4afb989f82ab4da5d1ae5350cfc...HEAD
-[0.4.0]: https://github.com/QuietJoon/transync/commit/6fa4e8866300b4afb989f82ab4da5d1ae5350cfc
+[Unreleased]: https://github.com/QuietJoon/transync/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/QuietJoon/transync/releases/tag/v0.4.0
 [0.3.0]: https://github.com/QuietJoon/transync/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/QuietJoon/transync/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/QuietJoon/transync/releases/tag/v0.1.0
