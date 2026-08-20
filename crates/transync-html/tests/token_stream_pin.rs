@@ -198,12 +198,18 @@ fn balance_fragment_output_is_byte_identical_to_the_golden() {
     }
 }
 
-/// Regenerate both goldens. `#[ignore]`d so no ordinary run rewrites a pin.
-/// Run it deliberately, and only when the corpus itself changes — never to
-/// turn a red pin green.
+/// Regenerate both goldens. `#[ignore]`d **and** env-var interlocked so no
+/// ordinary run — including `--include-ignored` — can rewrite a pin. Run it
+/// deliberately, and only when the corpus itself changes — never to turn a
+/// red pin green:
+///
+/// `TRANSYNC_REGEN_GOLDENS=1 cargo test -p transync-html regenerate_goldens -- --ignored --test-threads=4`
 #[test]
 #[ignore = "writes the goldens; run explicitly with --ignored"]
 fn regenerate_goldens() {
+    if std::env::var("TRANSYNC_REGEN_GOLDENS").as_deref() != Ok("1") {
+        panic!("set TRANSYNC_REGEN_GOLDENS=1 to confirm intentional regeneration");
+    }
     let dir = goldens_dir();
     std::fs::create_dir_all(dir.join("balanced")).expect("goldens/balanced should be creatable");
     std::fs::write(dir.join("token-stream.txt"), render_token_golden())
