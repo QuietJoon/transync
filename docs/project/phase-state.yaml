@@ -39,9 +39,15 @@ project:
     (docs/project/git-history-loss-2026-08-17.md). Schema constants did NOT
     move - alignment stays 1.2.0, VALIDATION_SCHEMA_VERSION stays 2,
     VALIDATION_REPORT_SCHEMA_VERSION stays 1.1.0, CacheKey keeps 13 fields.
-    The DCR-0015 live gate was TRIGGERED BUT NOT RUN again, same reason (no
-    API key in the release session); the CHANGELOG 0.4.0 preamble records it
-    explicitly rather than leaving the omission silent. Standing gates all
+    The DCR-0015 live gate PASSED 2026-08-20 - 2/2 live round-trips against
+    gpt-4o-mini (Chat Completions) and gpt-5-mini (Responses), run just after
+    the cut against a tree identical to the release-prep commit except for two
+    CHANGELOG link lines; date and models are in the CHANGELOG 0.4.0 preamble.
+    This ends the v0.3.0 + v0.4.0 run of shipping with the gate triggered and
+    unrun. The anthropic leg is STILL UNRUN and has never been executed in this
+    repository (no ANTHROPIC_API_KEY; transync-anthropic is on no CLI run path
+    per DCR-0029 scope, so its offline suite is its only standing evidence).
+    Standing gates all
     green: workspace 1066/0/5, CLI stub 208, browser 33, wasm within budget.
     Sibling consumers: dynwebserver clean, resp-translator's copy-transfer-mcp
     broken by the 490d97 rename and reported as ticket e502b0.

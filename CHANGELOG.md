@@ -26,14 +26,24 @@ repository's history was restarted twice, and a release tag on a commit that
 does not carry the release's history is worse than no tag. The release-prep
 commit is this release's only anchor.
 
-**Release gate (OI-0030): `scripts/smoke-live-gate.sh` TRIGGERED but NOT RUN.**
-The gate's conditions are met — this range changes `unit::payload` (an indented
-code block now reaches the model as an engine-synthesized fenced block, so the
-wire payload itself moved), `transync-openai`, and the batching surface. It was
-not run because no `OPENAI_API_KEY` was available to the session that prepared
-the release. This line exists so the omission is visible: an absent line is
-indistinguishable from a forgotten one. Run
-`OPENAI_API_KEY=… ./scripts/smoke-live-gate.sh` and append the result here.
+**Release gate (OI-0030): `scripts/smoke-live-gate.sh` PASS on 2026-08-20** —
+2/2 machine-asserted live round-trips against `gpt-4o-mini` (Chat Completions)
+and `gpt-5-mini` (Responses). The gate was triggered by this range: it changes
+`unit::payload` (an indented code block now reaches the model as an
+engine-synthesized fenced block, so the wire payload itself moved),
+`transync-openai`, and the batching surface. Each leg is one full `translate()`
+round-trip, so a pass is evidence that the whole validation stack — schema,
+ID-set equality, per-kind shape, fragment reparse, inline protection, full
+reparse — accepted a genuine provider response. Run against a tree identical to
+the release-prep commit in every file but this one: `git diff 6fa4e88..HEAD`
+is the two CHANGELOG link lines and nothing else, so the result attests to the
+released code.
+
+This ends a two-release run of shipping with the gate triggered and unrun
+(v0.3.0 was the first). The **`anthropic` leg remains unrun** — no
+`ANTHROPIC_API_KEY` was supplied, and it has never been executed in this
+repository; `transync-anthropic` is in the tree but on no CLI run path, so its
+only standing evidence is still its offline suite.
 
 Standing gates, all green against the release-prep commit: `./scripts/smoke.sh`
 (workspace 1066 passed / 0 failed / 5 ignored; CLI stub 208 passed; rustdoc and
