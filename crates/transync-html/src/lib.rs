@@ -453,8 +453,21 @@ enum AttrState {
 /// caught because nothing hid behind one.
 #[derive(Debug, Clone)]
 pub enum TagToken {
-    Open { name: String, self_closing: bool },
+    /// A start tag. `span` covers `<` through `>` inclusive-exclusive.
+    Open {
+        name: String,
+        self_closing: bool,
+        span: (usize, usize),
+    },
+    /// An end tag. `span` covers `</` through `>` inclusive-exclusive.
     Close { name: String, span: (usize, usize) },
+    /// A region the scanner recognizes and steps over: a comment, a CDATA
+    /// section (either terminator mode), or a bogus comment (`<!…>` / `<?…>`).
+    /// It carries no name because it has none — what it carries is the byte
+    /// range, which is the thing an intake needs in order to trim the
+    /// anonymous runs between elements. Neither `tag_inventory` nor
+    /// `balance_fragment` reads it.
+    Skip { span: (usize, usize) },
 }
 
 /// Minimal tag tokenizer for balancing: understands comments, CDATA
@@ -504,10 +517,12 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
             }
         }
         if html[i..].starts_with("<!--") {
-            i = html[i..]
+            let end = html[i..]
                 .find("-->")
                 .map(|p| i + p + 3)
                 .unwrap_or(html.len());
+            tokens.push(TagToken::Skip { span: (i, end) });
+            i = end;
             continue;
         }
         // R0003-0067: `<![CDATA[ … ]]>`. A browser never tokenizes what is
@@ -520,11 +535,26 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
         // not match. The terminator differs by context, so the depth
         // decides which one ends the skip.
         if html[i..].starts_with("<![CDATA[") {
-            let end = if foreign_depth > 0 { "]]>" } else { ">" };
-            i = html[i..]
-                .find(end)
-                .map(|p| i + p + end.len())
+            let terminator = if foreign_depth > 0 { "]]>" } else { ">" };
+            let end = html[i..]
+                .find(terminator)
+                .map(|p| i + p + terminator.len())
                 .unwrap_or(html.len());
+            tokens.push(TagToken::Skip { span: (i, end) });
+            i = end;
+            continue;
+        }
+        // HTML's bogus-comment state. `<!` that is neither a comment nor a
+        // CDATA section, and `<?`, run to the FIRST `>` and are not markup —
+        // the same rule R0003-0066 and R0003-0067 applied one region further
+        // in. Before wave 0 the scanner had no such state: it stepped past
+        // `<!` a byte at a time, so `<!doctype html>` produced no token at
+        // all (the `!` fails the tag-open state's ASCII-letter test below)
+        // and tag-shaped bytes inside a bogus comment tokenized as markup.
+        if html[i..].starts_with("<!") || html[i..].starts_with("<?") {
+            let end = html[i..].find('>').map(|p| i + p + 1).unwrap_or(html.len());
+            tokens.push(TagToken::Skip { span: (i, end) });
+            i = end;
             continue;
         }
         let start = i;
@@ -641,7 +671,11 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
             if is_foreign_root(&name) && !self_closing {
                 foreign_depth += 1;
             }
-            tokens.push(TagToken::Open { name, self_closing });
+            tokens.push(TagToken::Open {
+                name,
+                self_closing,
+                span,
+            });
         }
         i = j + 1;
     }
@@ -654,9 +688,10 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
 pub fn tag_inventory(html: &str) -> Vec<String> {
     scan_tags(html)
         .into_iter()
-        .map(|t| match t {
-            TagToken::Open { name, .. } => name,
-            TagToken::Close { name, .. } => format!("/{name}"),
+        .filter_map(|t| match t {
+            TagToken::Open { name, .. } => Some(name),
+            TagToken::Close { name, .. } => Some(format!("/{name}")),
+            TagToken::Skip { .. } => None,
         })
         .collect()
 }
@@ -748,6 +783,9 @@ pub fn balance_fragment(html: &str) -> String {
                     drop_spans.push(*span);
                 }
             }
+            // Comments, CDATA and bogus comments are not structure: the
+            // balancer must neither open nor close on them.
+            TagToken::Skip { .. } => {}
         }
     }
 
@@ -924,6 +962,91 @@ mod policy_tests {
             BlankLinePolicy::Keep,
             "out of CommonMark's domain entirely: Keep, never a panic"
         );
+    }
+}
+
+// Spec 2026-08-20 §5: the token stream grows the two things the HTML intake
+// needs, and stays inert for the two consumers that ship today.
+#[cfg(test)]
+mod token_tests {
+    use super::*;
+
+    #[test]
+    fn an_open_tag_span_slices_back_to_its_own_bytes() {
+        let html = "<p>x</p><img src=\"a.png\"/>";
+        let mut opens: Vec<(String, (usize, usize))> = Vec::new();
+        for token in scan_tags(html) {
+            if let TagToken::Open { name, span, .. } = token {
+                opens.push((name, span));
+            }
+        }
+        assert_eq!(opens.len(), 2, "two open tags: {opens:?}");
+        assert_eq!(opens[0].0, "p");
+        assert_eq!(&html[opens[0].1.0..opens[0].1.1], "<p>");
+        assert_eq!(opens[1].0, "img");
+        assert_eq!(&html[opens[1].1.0..opens[1].1.1], "<img src=\"a.png\"/>");
+    }
+
+    #[test]
+    fn comments_cdata_and_bogus_comments_become_skip_tokens() {
+        let comment = "<!-- note --><p>x</p>";
+        assert_eq!(skips(comment), vec![(0, 13)]);
+        assert_eq!(&comment[0..13], "<!-- note -->");
+
+        // Foreign content: the section ends at `]]>`.
+        let foreign = "<svg><![CDATA[<b>]]></svg>";
+        let foreign_skips = skips(foreign);
+        assert_eq!(foreign_skips.len(), 1);
+        assert_eq!(
+            &foreign[foreign_skips[0].0..foreign_skips[0].1],
+            "<![CDATA[<b>]]>"
+        );
+
+        // HTML content: the same bytes are a bogus comment ending at the
+        // first `>`.
+        let in_html = "<p><![CDATA[</b>]]></p>";
+        let html_skips = skips(in_html);
+        assert_eq!(html_skips.len(), 1);
+        assert_eq!(&in_html[html_skips[0].0..html_skips[0].1], "<![CDATA[</b>");
+
+        // The doctype: `!` fails the tag-open state's ASCII-letter test, so
+        // before wave 0 this produced no token AND no skip — the region was
+        // stepped over as text. It is a bogus comment, and now it says so.
+        let doctype = "<!doctype html>\n<p>x</p>";
+        assert_eq!(skips(doctype), vec![(0, 15)]);
+        assert_eq!(&doctype[0..15], "<!doctype html>");
+    }
+
+    /// The bogus-comment state is a tokenizer change, not just a new token.
+    /// Before wave 0 the scanner stepped past `<!` a byte at a time and read
+    /// the `<div>` inside as markup — so `balance_fragment` appended a
+    /// `</div>` a browser never asked for.
+    #[test]
+    fn tag_shaped_bytes_inside_a_bogus_comment_are_not_markup() {
+        assert!(tag_inventory("<! <div> >").is_empty());
+        assert_eq!(balance_fragment("<! <div> >"), "<! <div> >");
+        assert!(tag_inventory("<?xml version=\"1.0\"?>").is_empty());
+    }
+
+    /// `Skip` reaches neither shipped consumer: `tag_inventory` filters it
+    /// out and the balancer ignores it.
+    #[test]
+    fn skip_tokens_are_invisible_to_both_shipped_consumers() {
+        let html = "<!doctype html><div><!-- c -->text</div>";
+        assert_eq!(tag_inventory(html), vec!["div", "/div"]);
+        assert_eq!(balance_fragment(html), html);
+        assert_eq!(skips(html).len(), 2, "the doctype and the comment");
+    }
+
+    /// The `Skip` spans of `html`, in document order.
+    fn skips(html: &str) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        for token in scan_tags(html) {
+            if let TagToken::Skip { span } = token {
+                out.push(span);
+            }
+        }
+        out
     }
 }
 
