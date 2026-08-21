@@ -738,6 +738,112 @@ pub fn implicitly_closes(name: &str) -> &'static [&'static str] {
     }
 }
 
+/// One element the [`element_extents`] walk found, in source order by its
+/// open tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ElementExtent {
+    /// Lowercased tag name, exactly as [`scan_tags`] reports it.
+    pub name: String,
+    /// Nesting depth at the open tag; 0 at top level.
+    pub depth: usize,
+    /// Byte range of the open tag, `<` through `>`.
+    pub open: (usize, usize),
+    /// Byte range of the end tag, or `None` when the element was closed
+    /// implicitly (HTML's optional end tags) or left unclosed at EOF.
+    pub close: Option<(usize, usize)>,
+    /// Byte offset where the element's content ends: its end tag's start, its
+    /// implicit closer's start, or `html.len()`.
+    pub content_end: usize,
+}
+
+/// The result of the one stack walk over [`scan_tags`]' token stream.
+struct Walk {
+    extents: Vec<ElementExtent>,
+    /// Orphan close tags, in document order — the spans the balancer deletes.
+    orphan_closes: Vec<(usize, usize)>,
+    /// Names still open at EOF, outermost first.
+    unclosed: Vec<String>,
+}
+
+/// THE stack walk. [`element_extents`] reads its structure and
+/// [`balance_fragment`] reads its repairs; there is exactly one of it, for
+/// the same reason there is exactly one Markdown parser — a second walk would
+/// be a second opinion about HTML structure, and the two would drift.
+fn walk_elements(html: &str) -> Walk {
+    let tokens = scan_tags(html);
+    let mut extents: Vec<ElementExtent> = Vec::new();
+    // (name, index into `extents`) for each element still open.
+    let mut open_stack: Vec<(String, usize)> = Vec::new();
+    let mut orphan_closes: Vec<(usize, usize)> = Vec::new();
+
+    for tok in &tokens {
+        match tok {
+            TagToken::Open {
+                name,
+                self_closing,
+                span,
+            } => {
+                // Before the push, and for void elements too: `<hr>` closes a
+                // paragraph it never joins (R0002-0061).
+                let implied = implicitly_closes(name);
+                while open_stack
+                    .last()
+                    .is_some_and(|(top, _)| implied.contains(&top.as_str()))
+                {
+                    let (_, idx) = open_stack.pop().expect("just inspected the top");
+                    extents[idx].content_end = span.0;
+                }
+                // HTML ignores `/` on raw-text/RCDATA start tags: `<textarea/>`
+                // still opens RCDATA and swallows every later sibling
+                // (DCR-0016 Part D).
+                if !is_void(name) && (!self_closing || is_raw_text(name)) {
+                    extents.push(ElementExtent {
+                        name: name.clone(),
+                        depth: open_stack.len(),
+                        open: *span,
+                        close: None,
+                        content_end: html.len(),
+                    });
+                    open_stack.push((name.clone(), extents.len() - 1));
+                }
+            }
+            TagToken::Close { name, span } => {
+                if let Some(pos) = open_stack.iter().rposition(|(t, _)| t == name) {
+                    // Everything above `pos` is closed implicitly by this tag.
+                    for (_, idx) in open_stack.drain(pos + 1..) {
+                        extents[idx].content_end = span.0;
+                    }
+                    let (_, idx) = open_stack.pop().expect("rposition found it");
+                    extents[idx].close = Some(*span);
+                    extents[idx].content_end = span.0;
+                } else {
+                    // Orphan close tag: dropping it is what keeps the sync
+                    // wrapper's own `</div>` safe (spec 2026-08-03 §3.4).
+                    orphan_closes.push(*span);
+                }
+            }
+            // Comments, CDATA and bogus comments are not structure.
+            TagToken::Skip { .. } => {}
+        }
+    }
+
+    let unclosed = open_stack.into_iter().map(|(name, _)| name).collect();
+    Walk {
+        extents,
+        orphan_closes,
+        unclosed,
+    }
+}
+
+/// Every element in `html`, in source order by open tag, with its nesting
+/// depth, both tag spans and its content end.
+///
+/// The classification of what those elements *mean* is not here — that is
+/// `transync-syntax`'s intake. This is the structure the intake walks.
+pub fn element_extents(html: &str) -> Vec<ElementExtent> {
+    walk_elements(html).extents
+}
+
 /// Render-path auto-balancing (spec §3.4): tags opened but never closed in
 /// the fragment are closed at its end, and orphan close tags are DROPPED.
 /// `out.md` never sees this — it exists so an unbalanced fragment cannot
@@ -752,58 +858,16 @@ pub fn implicitly_closes(name: &str) -> &'static [&'static str] {
 /// whose optional end tags are all written out are unaffected: the implicit
 /// close pops exactly what the explicit one would have.
 pub fn balance_fragment(html: &str) -> String {
-    let tokens = scan_tags(html);
-    let mut open_stack: Vec<String> = Vec::new();
-    let mut drop_spans: Vec<(usize, usize)> = Vec::new();
-
-    for tok in &tokens {
-        match tok {
-            TagToken::Open {
-                name, self_closing, ..
-            } => {
-                // Before the push, and for void elements too: `<hr>` closes a
-                // paragraph it never joins.
-                let implied = implicitly_closes(name);
-                while open_stack
-                    .last()
-                    .is_some_and(|top| implied.contains(&top.as_str()))
-                {
-                    open_stack.pop();
-                }
-                // HTML ignores `/` on raw-text/RCDATA start tags: `<textarea/>`
-                // still opens RCDATA and swallows every later sibling —
-                // including the sync wrapper's own `</div>` — and DOMPurify
-                // keeps `<textarea>`, so the pane tail collapses into a form
-                // control. Treating them as open makes the balancer append the
-                // close tag, and matches `scan_tags`, which already enters
-                // raw-text state for `<script/>`/`<style/>` (DCR-0016 Part D).
-                if !is_void(name) && (!self_closing || is_raw_text(name)) {
-                    open_stack.push(name.clone());
-                }
-            }
-            TagToken::Close { name, span } => {
-                if let Some(pos) = open_stack.iter().rposition(|t| t == name) {
-                    open_stack.truncate(pos);
-                } else {
-                    // Orphan close tag: dropping it is what keeps the sync
-                    // wrapper's own </div> safe (spec §3.4).
-                    drop_spans.push(*span);
-                }
-            }
-            // Comments, CDATA and bogus comments are not structure: the
-            // balancer must neither open nor close on them.
-            TagToken::Skip { .. } => {}
-        }
-    }
+    let walk = walk_elements(html);
 
     let mut out = String::with_capacity(html.len());
     let mut cursor = 0usize;
-    for (s, e) in drop_spans {
+    for (s, e) in walk.orphan_closes {
         out.push_str(&html[cursor..s]);
         cursor = e;
     }
     out.push_str(&html[cursor..]);
-    for name in open_stack.iter().rev() {
+    for name in walk.unclosed.iter().rev() {
         out.push_str("</");
         out.push_str(name);
         out.push('>');
@@ -1054,6 +1118,101 @@ mod token_tests {
             }
         }
         out
+    }
+}
+
+// Spec 2026-08-20 §5: one stack walk, two readers.
+#[cfg(test)]
+mod extent_tests {
+    use super::*;
+
+    #[test]
+    fn extents_are_in_source_order_with_depth_and_both_tag_spans() {
+        let html = "<div><p>a</p><p>b</p></div>";
+        let ex = element_extents(html);
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["div", "p", "p"]);
+        assert_eq!(ex[0].depth, 0);
+        assert_eq!(ex[1].depth, 1);
+        assert_eq!(ex[2].depth, 1);
+        assert_eq!(&html[ex[1].open.0..ex[1].open.1], "<p>");
+        let inner_close = ex[1].close.expect("the first <p> is closed");
+        assert_eq!(&html[inner_close.0..inner_close.1], "</p>");
+        assert_eq!(&html[ex[1].open.1..ex[1].content_end], "a");
+        let outer_close = ex[0].close.expect("the div is closed");
+        assert_eq!(&html[outer_close.0..outer_close.1], "</div>");
+        assert_eq!(&html[ex[0].open.1..ex[0].content_end], "<p>a</p><p>b</p>");
+    }
+
+    #[test]
+    fn an_implicitly_closed_element_has_no_close_span_and_ends_at_its_closer() {
+        let html = "<ul><li>a<li>b</ul>";
+        let ex = element_extents(html);
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["ul", "li", "li"]);
+        assert!(ex[1].close.is_none(), "the first <li> is closed implicitly");
+        assert_eq!(&html[ex[1].open.1..ex[1].content_end], "a");
+        assert!(ex[2].close.is_none(), "the second <li> is closed by </ul>");
+        assert_eq!(&html[ex[2].open.1..ex[2].content_end], "b");
+    }
+
+    #[test]
+    fn an_unclosed_element_runs_to_end_of_input() {
+        let html = "<div><span>x";
+        let ex = element_extents(html);
+        assert_eq!(ex.len(), 2);
+        assert!(ex[0].close.is_none());
+        assert_eq!(ex[0].content_end, html.len());
+        assert!(ex[1].close.is_none());
+        assert_eq!(ex[1].content_end, html.len());
+    }
+
+    #[test]
+    fn void_and_self_closing_elements_mint_no_extent() {
+        assert!(element_extents("<br><img src=\"a.png\"/>").is_empty());
+        // …but a self-closing raw-text start tag DOES open one, exactly as
+        // the balancer treats it: HTML ignores `/` there (DCR-0016 Part D).
+        let ex = element_extents("<textarea/>");
+        assert_eq!(ex.len(), 1);
+        assert_eq!(ex[0].name, "textarea");
+        assert!(ex[0].close.is_none());
+    }
+
+    #[test]
+    fn an_orphan_close_tag_mints_no_extent() {
+        let ex = element_extents("</details><p>x</p>");
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["p"],
+            "the orphan closes nothing and opens nothing"
+        );
+    }
+
+    #[test]
+    fn skipped_regions_are_not_structure() {
+        let ex = element_extents("<!doctype html><div><!-- c -->x</div>");
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["div"]);
+    }
+
+    /// The walk is SHARED (spec §5): the balancer's "still open at EOF" set
+    /// and the extents' "no close span" set are the same computation, and a
+    /// divergence here means a second copy crept in.
+    #[test]
+    fn the_walk_is_shared_with_the_balancer() {
+        let html = "<div><span>x";
+        // Bound to a local first: the `&str`s below borrow out of the Vec, so
+        // calling `element_extents` inline would drop it at the end of the
+        // statement (E0716).
+        let ex = element_extents(html);
+        let unclosed: Vec<&str> = ex
+            .iter()
+            .filter(|e| e.close.is_none())
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(unclosed, vec!["div", "span"]);
+        assert_eq!(balance_fragment(html), "<div><span>x</span></div>");
     }
 }
 
