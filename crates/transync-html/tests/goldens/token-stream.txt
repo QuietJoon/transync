@@ -44,11 +44,11 @@ stream: O:p:false|C:p@24..28
 inventory: p|/p
 stream: O:p:false|C:p@24..28
 ### stray-quote-bare
-inventory: 
-stream: 
+inventory: div|p|/p
+stream: O:div:false|O:p:false|C:p@29..33
 ### stray-quote-doubled
-inventory: 
-stream: 
+inventory: div|/div
+stream: O:div:false|C:div@30..36
 ### stray-equals
-inventory: 
-stream: 
+inventory: div|/div
+stream: O:div:false|C:div@27..33

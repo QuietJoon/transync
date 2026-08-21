@@ -443,7 +443,11 @@ pub fn splice(
 /// value such as `href=https://example.com/` must not be misread as one.
 #[derive(Debug, Clone, Copy)]
 enum AttrState {
-    /// Between attributes, or after a quoted value: `/` here is a marker.
+    /// Between attributes, or after a quoted value: `/` here is a marker,
+    /// a bare `"` / `'` is an ordinary name byte, and `=` opens a value
+    /// only after a consumed attribute name — a stray `=` starts an
+    /// attribute NAMED `=` instead (ti 549b20; both measured against a
+    /// real browser).
     Outside,
     /// After `=`, before the value starts.
     BeforeValue,
@@ -469,7 +473,10 @@ pub enum TagToken {
     /// An end tag. `span` covers `</` through `>` inclusive-exclusive.
     Close { name: String, span: (usize, usize) },
     /// A region the scanner recognizes and steps over: a comment, a CDATA
-    /// section (either terminator mode), or a bogus comment (`<!…>` / `<?…>`).
+    /// section (either terminator mode), a bogus comment (`<!…>` / `<?…>`),
+    /// or a tag left unterminated at EOF (ti 549b20 — a browser abandons a
+    /// tag cut off before its `>`, minting no element and no attributes, so
+    /// the bytes are a passed-over region, not markup).
     /// It carries no name because it has none — what it carries is the byte
     /// range, which is the thing an intake needs in order to trim the
     /// anonymous runs between elements. Neither `tag_inventory` nor
@@ -606,21 +613,60 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
         // follows immediately; anything else clears it again.
         let mut attr = AttrState::Outside;
         let mut self_closing = false;
+        // ti 549b20: has the current attribute consumed a NAME byte since
+        // the last boundary (tag name, `/`, or a completed value)? HTML
+        // opens a value on `=` only from the attribute-name /
+        // after-attribute-name states; a stray `=` in before-attribute-name
+        // STARTS an attribute named `=` instead, and a quote after it joins
+        // that name. This bit tells the two apart — whitespace does not
+        // reset it (after-attribute-name), a completed value or a `/` does
+        // (after-attribute-value-quoted and self-closing-start-tag both
+        // reconsume in before-attribute-name).
+        let mut has_attr_name = false;
         while j < bytes.len() {
             let c = bytes[j];
             match attr {
                 AttrState::Outside => match c {
                     b'>' => break,
+                    // ti 549b20: a bare quote is a parse error that joins
+                    // the attribute NAME in a browser — never a value
+                    // opener. Before the fix it opened a phantom Quoted
+                    // state, and one stray quote ran the scan off EOF and
+                    // hid everything after it from every consumer.
                     b'"' | b'\'' => {
-                        attr = AttrState::Quoted(c);
                         self_closing = false;
+                        has_attr_name = true;
                     }
                     b'=' => {
-                        attr = AttrState::BeforeValue;
                         self_closing = false;
+                        if has_attr_name {
+                            // attribute-name / after-attribute-name: `=`
+                            // ends the name and opens the value. The
+                            // ordinary `name=value` shape lands here.
+                            attr = AttrState::BeforeValue;
+                            has_attr_name = false;
+                        } else {
+                            // before-attribute-name: `=` is a parse error
+                            // that STARTS an attribute whose name is `=`
+                            // (measured in headless Chromium: `<div =">`
+                            // is one attribute named `="` and the tag ends
+                            // at the first `>`). No value state — the
+                            // quote after it joins the NAME.
+                            has_attr_name = true;
+                        }
                     }
-                    b'/' => self_closing = true,
-                    _ => self_closing = false,
+                    b'/' => {
+                        // self-closing-start-tag: anything but `>`
+                        // reconsumes in before-attribute-name, so the
+                        // name track resets with it.
+                        self_closing = true;
+                        has_attr_name = false;
+                    }
+                    _ if c.is_ascii_whitespace() => self_closing = false,
+                    _ => {
+                        self_closing = false;
+                        has_attr_name = true;
+                    }
                 },
                 AttrState::BeforeValue => match c {
                     b'>' => break,
@@ -643,7 +689,17 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
             j += 1;
         }
         if j >= bytes.len() {
-            break; // unterminated tag: leave as-is
+            // ti 549b20: an unterminated tag runs to EOF — there are no
+            // bytes past it by definition — but the old bare `break` left
+            // the DOCUMENT loop with no token, so a caller could not tell
+            // a passed-over region from a scanned one. Name it instead: a
+            // browser abandons a tag truncated at EOF (no element, no
+            // attributes), so `Skip` — recognized and stepped over, not
+            // markup — is exactly what it is.
+            tokens.push(TagToken::Skip {
+                span: (start, bytes.len()),
+            });
+            break;
         }
         let span = (start, j + 1);
         if closing {
@@ -749,6 +805,13 @@ pub fn implicitly_closes(name: &str) -> &'static [&'static str] {
 /// (ti 490d97 wave 0 Task 5 review; wave 6's pane derivation depends on it —
 /// a block whose only element is a lone `<img>` has zero extents, which is why
 /// it takes the transparent wrapper rather than self-injection.)
+///
+/// **A truncated tag is not an element either.** A tag with no closing `>`
+/// before EOF is a [`TagToken::Skip`], not an `Open` (ti 549b20): it mints
+/// no extent, exactly as a browser abandons a tag cut off at EOF. An
+/// element whose open tag is complete but whose end tag never arrives is
+/// different — it still gets an extent with `close: None` and
+/// `content_end == html.len()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementExtent {
     /// Lowercased tag name, exactly as [`scan_tags`] reports it.
@@ -887,6 +950,24 @@ const RESERVED_SYNC_ATTRS: &[&str] = &[
 /// text are content, and RCDATA / comment interiors are never tokenized by
 /// [`scan_tags`] in the first place, so the strip cannot reach into them.
 /// Borrows when nothing matched.
+///
+/// Malformed markup is tokenized the way a browser tokenizes it where the
+/// two were measured to disagree (ti 549b20): a bare quote between
+/// attributes is a NAME byte, never a value opener; a stray `=` in
+/// attribute-name position STARTS an attribute named `=` rather than
+/// opening a value, so the strip neither misses a plant hidden behind one
+/// nor deletes text a browser paints after the tag's real end; and a tag
+/// left unterminated at EOF is a passed-over [`TagToken::Skip`] region a
+/// browser abandons. That exhausts the known divergences in the regions
+/// this fix touched; two remain one state earlier — HTML's tag-name state
+/// consumes `=` and quote bytes into the ELEMENT name until the first
+/// whitespace, where this scanner ends the name earlier, and HTML's
+/// end-tag-open state opens a bogus comment on `</` before a non-letter,
+/// where this scanner sees plain text and keeps tokenizing — both
+/// recorded in DCR-0032's 2026-08-21 amendment. Neither yields a
+/// live-anchor construction through the pane path: a diverging element
+/// name can never match a sanitizer's allowlist, and a browser mints no
+/// element at all from a bogus comment's interior.
 pub fn strip_reserved_sync_attrs(html: &str) -> Cow<'_, str> {
     let mut cuts: Vec<(usize, usize)> = Vec::new();
     for token in scan_tags(html) {
@@ -896,8 +977,12 @@ pub fn strip_reserved_sync_attrs(html: &str) -> Cow<'_, str> {
         // unstripped.
         match token {
             TagToken::Open { span, .. } => collect_reserved_attr_spans(html, span, &mut cuts),
-            // A close tag carries no attribute list, and a skipped region is
-            // not markup at all: neither can hold a reserved name.
+            // A close tag carries no attribute list. A skipped region —
+            // comment, CDATA, bogus comment, or a tag left unterminated at
+            // EOF (ti 549b20) — never mints an element in a browser, so
+            // reserved-name-shaped bytes inside one cannot become live
+            // attributes; leaving them unstripped is fail-safe, not an
+            // oversight.
             TagToken::Close { .. } | TagToken::Skip { .. } => {}
         }
     }
@@ -1250,6 +1335,68 @@ mod token_tests {
         assert_eq!(skips(html).len(), 2, "the doctype and the comment");
     }
 
+    /// ti 549b20: HTML's before-attribute-name / attribute-name states make
+    /// a quote not preceded by `=` part of the attribute NAME. Opening a
+    /// phantom quoted value here desynchronized the scanner from every
+    /// browser and hid the rest of the document from every consumer.
+    #[test]
+    fn a_bare_quote_in_a_tag_is_a_name_byte_not_a_value_opener() {
+        let html = "<div \">x";
+        let mut opens: Vec<(String, (usize, usize))> = Vec::new();
+        for token in scan_tags(html) {
+            if let TagToken::Open { name, span, .. } = token {
+                opens.push((name, span));
+            }
+        }
+        assert_eq!(opens.len(), 1, "one open tag: {opens:?}");
+        assert_eq!(opens[0].0, "div");
+        assert_eq!(&html[opens[0].1.0..opens[0].1.1], "<div \">");
+    }
+
+    /// ti 549b20, measured in headless Chromium: a stray `=` in
+    /// before-attribute-name state STARTS an attribute named `=`, and the
+    /// quote after it joins that NAME — no value state is entered, so the
+    /// browser ends this tag at the FIRST `>`. The ordinary `name=value`
+    /// shape reaches `=` from a consumed name and still opens the value.
+    #[test]
+    fn a_stray_equals_does_not_open_a_value() {
+        let html = "<div =\"> data-sync-id=\"v\">x</div>";
+        let mut opens: Vec<(String, (usize, usize))> = Vec::new();
+        for token in scan_tags(html) {
+            if let TagToken::Open { name, span, .. } = token {
+                opens.push((name, span));
+            }
+        }
+        assert_eq!(opens.len(), 1, "one open tag: {opens:?}");
+        assert_eq!(&html[opens[0].1.0..opens[0].1.1], "<div =\">");
+        // The ordinary shape is untouched: `=` after a NAME opens the
+        // value, and a `>` inside that value stays data.
+        let ok = "<div a=\">\" b>x";
+        let spans: Vec<(usize, usize)> = scan_tags(ok)
+            .into_iter()
+            .filter_map(|t| match t {
+                TagToken::Open { span, .. } => Some(span),
+                TagToken::Close { .. } | TagToken::Skip { .. } => None,
+            })
+            .collect();
+        assert_eq!(spans.len(), 1);
+        assert_eq!(&ok[spans[0].0..spans[0].1], "<div a=\">\" b>");
+    }
+
+    /// ti 549b20: the old exit left the document loop with no token, so a
+    /// caller could not tell a passed-over suffix from a scanned one. A
+    /// browser abandons a tag truncated at EOF — no element, no attributes —
+    /// and the scanner now says so in the stream.
+    #[test]
+    fn an_unterminated_tag_is_a_skip_to_eof_not_a_silent_abort() {
+        let html = "<p>a</p><div class=\"x";
+        assert_eq!(skips(html), vec![(8, 21)]);
+        assert_eq!(&html[8..21], "<div class=\"x");
+        // The ledger is unaffected by construction: `tag_inventory` filters
+        // `Skip` out, so the region never mints an inventory entry.
+        assert_eq!(tag_inventory(html), vec!["p", "/p"]);
+    }
+
     /// The `Skip` spans of `html`, in document order.
     fn skips(html: &str) -> Vec<(usize, usize)> {
         let mut out = Vec::new();
@@ -1355,6 +1502,23 @@ mod extent_tests {
         assert_eq!(unclosed, vec!["div", "span"]);
         assert_eq!(balance_fragment(html), "<div><span>x</span></div>");
     }
+
+    /// ti 549b20. `<div ">` is a complete open tag — the quote is a name
+    /// byte — and it minted nothing before the fix because the scanner
+    /// aborted the whole scan instead.
+    #[test]
+    fn a_stray_quote_tag_mints_an_extent_and_an_unterminated_tag_does_not() {
+        let html = "<div \"> <p>x</p>";
+        let ex = element_extents(html);
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["div", "p"]);
+        assert!(ex[0].close.is_none(), "the div is unclosed at EOF");
+        assert_eq!(ex[0].content_end, html.len());
+        // A tag with no `>` at all is a Skip: no element, exactly as a
+        // browser abandons it. An intake caller sees the passed-over region
+        // in the token stream, not a phantom element here.
+        assert!(element_extents("<div class=\"x").is_empty());
+    }
 }
 
 // Spec 2026-08-20 §8, OI-0035 route (c), render half.
@@ -1416,6 +1580,40 @@ mod strip_tests {
         let stripped = strip_reserved_sync_attrs(html);
         assert_eq!(tag_inventory(&stripped), tag_inventory(html));
         assert_eq!(stripped, "<div><b>x</b></div>");
+    }
+
+    /// ti 549b20, measured: DOMPurify 3.2.6 (the vendored copy) sanitizes
+    /// this to `<div> <p data-sync-id="v">x</p></div>` — a live P#v anchor —
+    /// while the pre-fix scanner saw zero tokens and stripped nothing.
+    #[test]
+    fn a_stray_quote_cannot_hide_a_planted_sync_attr() {
+        let html = "<div \"> <p data-sync-id=\"v\">x</p>";
+        assert_eq!(strip_reserved_sync_attrs(html), "<div \"> <p>x</p>");
+    }
+
+    /// ti 549b20, measured: DOMPurify keeps this plant as a live DIV#v. The
+    /// stray quote after the closed value is a name byte, so the scanner now
+    /// reads the tag the way the browser does and the strip reaches the
+    /// plant.
+    #[test]
+    fn a_doubled_quote_cannot_hide_a_planted_sync_attr() {
+        let html = "<div a=\"x\"\" data-sync-id=\"v\">y</div>";
+        assert_eq!(strip_reserved_sync_attrs(html), "<div a=\"x\"\">y</div>");
+    }
+
+    /// ti 549b20, measured in headless Chromium: the browser makes one
+    /// attribute named `="`, ends the div at the FIRST `>`, and paints
+    /// ` data-sync-id="v">x` as TEXT — live_sync_ids is empty. The strip
+    /// must never delete bytes a browser renders. This test is vacuously
+    /// green against the wholly-broken scanner (zero tokens, borrow); its
+    /// red arrives at the task's midpoint, where fixing only the quote and
+    /// unterminated-tag divergences turns the bypass into a DELETION — a
+    /// content mutation, not a bypass — which is exactly why the stray-`=`
+    /// arm is fixed in the same task.
+    #[test]
+    fn text_the_browser_paints_is_never_cut_by_the_strip() {
+        let html = "<div =\"> data-sync-id=\"v\">x</div>";
+        assert_eq!(strip_reserved_sync_attrs(html), html);
     }
 }
 
@@ -1872,6 +2070,22 @@ mod balance_tests {
         // in before-attribute-name state).
         assert_eq!(balance_fragment("<span / >tail"), "<span / >tail</span>");
     }
+
+    /// ti 549b20, measured against the vendored DOMPurify 3.2.6: a browser
+    /// parses `<div ">` as an open div and the sanitized DOM closes it at
+    /// fragment end. The old scanner saw zero tokens here and returned the
+    /// input unchanged — disagreeing with the DOM this function exists to
+    /// protect.
+    #[test]
+    fn a_stray_quote_no_longer_hides_an_unclosed_div_from_the_balancer() {
+        assert_eq!(
+            balance_fragment("<div \"> <p>x</p>"),
+            "<div \"> <p>x</p></div>"
+        );
+        // An unterminated tag is a Skip, not structure: nothing to balance,
+        // before the fix and after it.
+        assert_eq!(balance_fragment("<p>a</p><div "), "<p>a</p><div ");
+    }
 }
 
 #[cfg(test)]
@@ -1948,5 +2162,17 @@ mod inventory_tests {
         .expect("splices");
         assert_eq!(tag_inventory(&out), tag_inventory(block));
         assert_eq!(tag_inventory(block), vec!["p", "/p"]);
+    }
+
+    /// ti 549b20: the inventory is the layer-3 ledger, and the Skip-to-EOF
+    /// token must be filtered by construction — verified here rather than
+    /// assumed, because a phantom entry there fails good translations.
+    #[test]
+    fn the_ledger_never_carries_a_skipped_suffix() {
+        assert_eq!(
+            tag_inventory("<div \"> <p data-sync-id=\"v\">x</p>"),
+            vec!["div", "p", "/p"]
+        );
+        assert_eq!(tag_inventory("<p>a</p><div class=\"x"), vec!["p", "/p"]);
     }
 }
