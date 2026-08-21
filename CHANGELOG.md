@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet — v0.4.0 closed the sanctioned breaking window opened after v0.3.0.
-The next breaking change needs a new window; additive changes land here as they
-come.
+v0.4.0 closed the sanctioned breaking window opened after v0.3.0, and
+everything below it is additive — nothing on the `transync` facade's §0
+surface moves. The next breaking change still needs a new window: wave 2 of
+the HTML→HTML feature (spec `docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md`
+§12) is the one asking for it, against a future v0.5.0.
+
+### Changed
+
+- **The HTML mechanics moved to their own workspace member, `transync-html`** (ti `490d97` wave 0, DCR-0032). `transync-syntax::htmlseg` is gone with no re-export alias; `transync-syntax` and `transync-core` depend on the new crate, and `transync-syntax` no longer depends on `lol_html` or `htmlize`. Nothing on the `transync` facade's surface moves — the mechanics were always tier (c) engine internals. The publication roster is seven members.
+- `transync_html::splice` takes a `BlankLinePolicy` instead of a CommonMark block-type `u8`; `BlankLinePolicy::from_commonmark_html_block_type` is the one surviving home of the `6 | 7` rule.
+
+### Added
+
+- `transync_html::element_extents` / `ElementExtent` — the balancer's stack walk lifted out from under it, for the HTML intake to come.
+- `TagToken::Open` carries the byte span the scanner already computed; `TagToken::Skip { span }` names comments, CDATA sections and bogus comments, including the `<!doctype …>` region that previously produced no token at all.
+- `transync_html::strip_reserved_sync_attrs` — removes the six reserved sync-attribute names from element open tags (OI-0035 route (c), render half; no call site yet).
 
 ## [0.4.0] - 2026-08-20
 

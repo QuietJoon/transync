@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-08-20-v0.4.0-released
+  last_updated: 2026-08-20-ti490d97-wave0
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -62,6 +62,21 @@ project:
     owner decision. Post-0.3.0 roadmap: six commissioned tickets in recorded
     order fc0304, 43cfb4, d3acc3, b791d6, bda471, f12b8b (docs/backlog.md
     Type 1).
+    TI 490d97 WAVE 0 LANDED 2026-08-20 (DCR-0032): the HTML mechanics left
+    transync-syntax for a new workspace member, transync-html, with NO
+    re-export alias - splice takes a BlankLinePolicy instead of a CommonMark
+    u8, TagToken::Open carries the span scan_tags already computed,
+    TagToken::Skip names the comment / CDATA / bogus-comment regions (the
+    bogus-comment state is new: <!doctype html> previously produced no token
+    at all), element_extents is balance_fragment's stack walk lifted out from
+    under it, and strip_reserved_sync_attrs landed ahead of its callers. The
+    publication roster is SEVEN members plus transync-wasm (publish = false).
+    Pure refactor: workspace suite green with zero fixture or expectation
+    edits, two-package wasm gate exit 0 with its string unchanged, goldens
+    generated before the scanner change byte-identical after it. Waves 1-7 of
+    the HTML->HTML feature are UNSTARTED; wave 2 is the IR split, needs a
+    sanctioned breaking window, carries the version to 0.5.0-dev, and blocks
+    everything after it.
     TRACK C WASM RENDER+EDIT DEMO LANDED 2026-08-05 (ADR-0019 + DCR-0020;
     6 commits 94d7e39..1d04135, branch master). This is TRACK C PROPER - the
     browser integration OI-0028/DCR-0017 deferred after delivering only the
@@ -595,6 +610,7 @@ design:
     - DCR-0029-transync-anthropic-second-provider
     - DCR-0030-review-0004-credential-and-origin-hardening
     - DCR-0031-indented-code-normalize-on-translate
+    - DCR-0032-transync-html-crate-extraction
   rewind_required_to_phase: null
   status: handoff_complete
 
