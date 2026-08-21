@@ -24,6 +24,10 @@ the HTML→HTML feature (spec `docs/superpowers/specs/2026-08-20-html-to-html-tr
 - `TagToken::Open` carries the byte span the scanner already computed; `TagToken::Skip { span }` names comments, CDATA sections and bogus comments, including the `<!doctype …>` region that previously produced no token at all.
 - `transync_html::strip_reserved_sync_attrs` — removes the six reserved sync-attribute names from element open tags (OI-0035 route (c), render half; no call site yet).
 
+### Fixed
+
+- `scan_tags` tokenizes malformed attribute regions the way a browser does (ti `549b20`; DCR-0032 amendment 2026-08-21): a bare quote in attribute-name position is a name byte instead of opening a phantom quoted value; a stray `=` starts an attribute named `=` instead of opening a value, so the strip neither misses a plant behind one nor deletes text a browser paints; and a tag left unterminated at EOF becomes a `TagToken::Skip` spanning to end of input instead of a silent whole-suffix abort. One stray byte could previously desynchronize the scanner and hide everything after it from `tag_inventory`, `balance_fragment`, `element_extents` and `strip_reserved_sync_attrs` — including a planted `data-sync-id` that DOMPurify keeps as a live anchor.
+
 ## [0.4.0] - 2026-08-20
 
 **This release closes the sanctioned 0.4.0 breaking window.** Three breaking

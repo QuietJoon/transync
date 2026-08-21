@@ -374,3 +374,106 @@ wrong, and both are load-bearing where they sit.
 - **Waves 1–7 are unstarted.** Wave 2 — the IR split — is the one that needs a
   sanctioned breaking window, carries the version to `0.5.0-dev`, and blocks
   every wave after it.
+
+### Amendment 2026-08-21 (ti 549b20) — the scanner aligns with the browser it was measured against, and an unterminated tag becomes a named region
+
+*Appended, not a rewrite. Everything above stands as written.*
+
+Wave 0 task 6's adversarial review broke `strip_reserved_sync_attrs` on a
+constructed input, the owner ruled on the fix, and task 8 landed it —
+plus one sibling divergence in the same scanner state, measured into
+scope during the task. Three tokenizer divergences, all in
+`AttrState::Outside`:
+
+- **A bare quote opened a phantom value.** HTML's tokenizer makes a quote
+  not preceded by `=` part of the attribute **name**; the scanner opened
+  a quoted value instead. One stray quote desynchronized its quote state
+  from every browser's.
+- **An unterminated tag aborted the whole scan.** The post-attribute-loop
+  `break` left the *document* loop, so every byte after the desync point
+  was invisible to the scanner — and to the strip. Measured through the
+  vendored DOMPurify 3.2.6: `<div "> <p data-sync-id="v">x</p>` kept a
+  live `P#v` anchor the strip never saw, while the well-formed control
+  was stripped correctly. That contrast was the finding.
+- **A stray `=` opened a value the browser never opens.** HTML's
+  *before attribute name* state makes `=` a parse error that **starts an
+  attribute named `=`**, and a following quote joins that name. Measured
+  in headless Chromium: `<div ="> data-sync-id="v">x</div>` parses as one
+  attribute named `="` with the tag ending at the **first** `>` and
+  ` data-sync-id="v">x` painted as text (`live_sync_ids` empty — not an
+  anchor bypass). A scanner that opens a value there swallows that `>`,
+  and the strip then deletes text a browser paints.
+
+The third fix is inside the ruling, not an expansion of it: the chosen
+option is "align `AttrState::Outside` with HTML", the `=` transition is
+that same arm, and the task's midpoint capture
+(`t8-mid-red.txt`, preserved with the wave's gate evidence) shows what
+stopping at the two previewed lines produces — the strip turning the
+bypass into a *deletion* of painted text, the content-mutation class
+invariant 6 forbids. Fixing one divergence in the arm while knowingly
+leaving a sibling would also have falsified this amendment's own
+rationale sentence, and the golden blast-radius window this task opens
+(corpus commit, re-bless, reviewed diff) would have had to open twice.
+
+The fix as landed: a bare quote in `Outside` is an ordinary name byte; a
+new `has_attr_name` bit distinguishes HTML's *before attribute name*
+state (stray `=` starts an attribute named `=`, no value state) from
+*attribute name* / *after attribute name* (`=` after a consumed name
+opens the value, the ordinary shape, unaffected); and a tag with no `>`
+before EOF is pushed as `TagToken::Skip { span: (start, len) }` before
+the scan stops — the passed-over region is named instead of silently
+dropped. Blast radius, per consumer: `tag_inventory` filters `Skip` by
+construction, so the layer-3 ledger is unaffected; `balance_fragment`
+now closes what a browser closes on stray-quote input (`<div "> …` gains
+the same `</div>` the sanitized DOM has) and is pinned unchanged on the
+other two constructions, whose divs close explicitly; `element_extents`
+mints the extents the old scanner never saw, and a truncated tag mints
+none — a browser abandons it; the strip reaches both planted attributes
+and no longer cuts bytes a browser paints.
+
+**The token-stream pin moved, deliberately, twice.** Task 8 first taught
+the corpus the blind spot — three `stray-*` entries blessed from the
+broken scanner, which emits zero tokens for all three — then fixed the
+scanner and re-blessed through the `TRANSYNC_REGEN_GOLDENS=1` hatch with
+the diff reviewed: exactly the three new entries moved in
+`token-stream.txt`, exactly one balanced golden moved
+(`stray-quote-bare`), and the fifteen pre-existing goldens are
+byte-identical. The corpus learning a gap and the fix are separate
+commits, so the diff between the two blessings is itself the record of
+how tokenization changed.
+
+**Two remainder divergences outlive this amendment, filed together
+rather than fixed** (ti `e20490`; the owner's ruling comment on
+ti 549b20 names both as deliberately unfixed). First, HTML's *tag name*
+state consumes `=` and quote bytes into the element name until the first
+whitespace, where this scanner ends the name at the first byte outside
+`[A-Za-z0-9:-]` — so an element a browser names `divq"x="` can carry a
+real attribute the scanner files inside a phantom value. Second, HTML's
+*end-tag-open* state makes `</` before a non-letter a parse error that
+opens a bogus comment consuming to the first `>`, where this scanner's
+name fall-through treats the bytes as plain text and keeps tokenizing
+markup a browser never mints.
+
+  **Both measured while landing this task, so the record states them
+  rather than defers them.** Parsed raw, `<divq"x=" data-sync-id="v">z`
+  yields an element `DIVQ"X="` carrying a **real** `data-sync-id` — a
+  live anchor in an unsanitized DOM. Through the vendored DOMPurify the
+  whole element is gone (`after_sanitize: "z"`, zero live ids), because
+  its name can never match an allowlisted tag. So no live-anchor
+  construction through the pane path is known — **and the safety is the
+  sanitizer dropping an unknown element**, the same mechanism behind the
+  custom-element collision measured in wave 6's pane plan (an anchor
+  self-injected into an unknown element dies in the DOMPurify mount),
+  here working in our favour. That remainder is therefore safe *only
+  while every mount sanitizes*, which panes do, fail-closed by design.
+  And in headless Chromium `</1 <div>x` parses to a comment `1 <div`
+  plus text `x` — zero elements — while the scanner emits `Open{div}`:
+  phantom structure (the R0003-0066 class), not a bypass, fail-safe in
+  the strip direction because a plant there is comment interior a
+  browser mints nothing from. The ticket states both dependencies
+  rather than implying either divergence is harmless in itself.
+
+The section *Two things added, one of them with no caller yet* above
+describes `strip_reserved_sync_attrs`' guarantee as it stood at wave-0
+landing; this amendment is the record that the guarantee was false for
+stray-markup constructions until 2026-08-21, and of what made it true.
