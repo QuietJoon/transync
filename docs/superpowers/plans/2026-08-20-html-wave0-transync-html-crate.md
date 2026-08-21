@@ -25,7 +25,7 @@
 - No pure-formatting edits. Let `cargo fmt` own wrapping — where this plan shows wrapped code, run `cargo fmt --all` afterwards and take the formatter's answer.
 - Korean `*.ko.md` siblings and anything under `manual/` are out of scope: never read, edit, or cite them.
 - Commit messages end with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
-- `TagToken` stays exhaustive: **no `#[non_exhaustive]`, and no `_ =>` catch-all arm in any in-crate match** — the R0002-0020 / R0003-0066 phantom-token incidents were caught precisely because nothing hid behind one.
+- **Every enum this crate publishes stays exhaustive** — `TagToken`, `BlankLinePolicy`, and anything later tasks add: no `#[non_exhaustive]`, and no `_ =>` catch-all arm in any in-crate match over one. The R0002-0020 / R0003-0066 phantom-token incidents were caught precisely because nothing hid behind one. **`matches!(x, Variant)` counts as a catch-all**: it expands to a match with an implicit `_ => false`, so a variant added later silently takes the `false` branch instead of stopping the compiler. Match exhaustively and name every arm. (This constraint originally said `TagToken` alone, which is how Task 3's `matches!(blank_lines, BlankLinePolicy::Collapse)` passed review as compliant; Task 5 Step 0 closes it. Matches over `char`, `u8` or `AttrState` are not covered — they are not this crate's enums and have no exhaustible variant set.)
 
 ---
 
@@ -910,6 +910,31 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   `span` is `(start, end)`, half-open byte offsets into the `html` argument, covering the whole region including its delimiters. The `Open` span is **already computed** by `scan_tags` today (`let span = (start, j + 1);`, one line above the push) and merely discarded for the `Open` arm — this is a field addition, not new logic.
 - **The bogus-comment state is a real tokenizer change, not just a new token.** HTML ends a `<!…>` / `<?…>` at the first `>`, so tag-shaped bytes inside one are not markup; today the scanner steps past `<!` one byte at a time and tokenizes them. The Task 2 corpus *does* contain bare `<!…>` regions — `doctype-upper` and `doctype-lower` — and they are still inert, because their interiors hold no tag-shaped bytes: before the change they produced no token at all, after it one `Skip`, and the pin's projection drops both. The three HTML-bearing fixtures carry a single `<!--` comment and no bare `<!` or `<?` anywhere (verified). So the pin must stay green. **If it goes red, STOP** — the corpus has acquired a bogus comment whose interior *is* tag-shaped, and the change is not inert there.
 
+- [ ] **Step 0: Harden the golden-regeneration hatch before you touch the token stream.** Task 2's review found that `regenerate_goldens` is guarded by `#[ignore]` alone, while this repository already learned that `#[ignore]` is not enough: `regen_prompt_goldens` in `crates/transync-core/src/llm/prompt.rs` **panics** unless `TRANSYNC_REGEN_GOLDENS=1`. Without that interlock a `cargo test -p transync-html -- --include-ignored` silently rewrites the tracked goldens from *current* code and reports green — which is precisely the accident this pin exists to prevent, and it would happen in the very task that changes the token stream. Bring the hatch up to the house standard. In `crates/transync-html/tests/token_stream_pin.rs`, `regenerate_goldens`'s body gains a first statement, and its doc comment gains the invocation:
+```rust
+/// Regenerate both goldens. `#[ignore]`d **and** env-var interlocked so no
+/// ordinary run — including `--include-ignored` — can rewrite a pin. Run it
+/// deliberately, and only when the corpus itself changes — never to turn a
+/// red pin green:
+///
+/// `TRANSYNC_REGEN_GOLDENS=1 cargo test -p transync-html regenerate_goldens -- --ignored --test-threads=4`
+#[test]
+#[ignore = "writes the goldens; run explicitly with --ignored"]
+fn regenerate_goldens() {
+    if std::env::var("TRANSYNC_REGEN_GOLDENS").as_deref() != Ok("1") {
+        panic!("set TRANSYNC_REGEN_GOLDENS=1 to confirm intentional regeneration");
+    }
+```
+  **Prove the interlock works, in both directions**, and capture each bare-to-file:
+```bash
+cargo test -p transync-html -- --include-ignored --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave0/gate/t4-interlock-blocked.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t4-interlock-blocked.txt
+git status --porcelain -- crates/transync-html/tests/goldens >> /Volumes/Temp/claude/ti490d97-wave0/gate/t4-interlock-blocked.txt
+```
+  Expected: `CARGO_EXIT=101` with `regenerate_goldens` panicking on the env-var message, the three pin tests **passing**, and the `git status` line printing **nothing** — the goldens were not rewritten by a run that, before this step, would have rewritten them. That empty `git status` is the finding's proof, not the panic.
+
+  Commit this step **on its own**, before the token change, so the hardening is not entangled with the change it protects against. Message subject: `test(transync-html): the golden hatch gets the interlock the prompt goldens already had`.
+
 - [ ] **Step 1: Write the two failing tests.** Append to `crates/transync-html/src/lib.rs`, after `mod policy_tests`:
 ```rust
 // Spec 2026-08-20 §5: the token stream grows the two things the HTML intake
@@ -1169,6 +1194,27 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   `depth` is nesting depth at the open tag, 0 at top level. `close` is `None` for an element closed implicitly or unclosed at EOF. `content_end` is the byte offset where the element's content ends: its close tag's start, its implicit closer's start, or `html.len()`.
 - **There is exactly one walk.** `balance_fragment` is re-expressed on top of the same private `walk_elements`; a second copy would be a second opinion about HTML structure, the sin the architecture forbids for comrak and forbids here for the same reason. `balance_fragment`'s output does not change — the Task 2 pin and the existing `mod balance_tests` are the proof.
 
+- [ ] **Step 0: Close the `BlankLinePolicy` catch-all before adding another enum to this file.** Task 3's review found that `splice`'s `let collapse = matches!(blank_lines, BlankLinePolicy::Collapse);` hides an implicit `_ => false`: add a third variant and it silently means *keep blank lines*, with no compiler error at the one site that decides the behaviour. Two variants make that harmless today and a trap the moment the enum grows — which is exactly the shape the widened Global Constraint now forbids. In `crates/transync-html/src/lib.rs`, inside `splice`:
+```rust
+    // Node-level actions, in text-node order: None = leave untouched
+    // (dropped node OR identity translation); Some(text) = replace.
+    //
+    // Exhaustive on purpose (ti 490d97 wave 0 Task 3 review): `matches!`
+    // would hide a third variant behind an implicit `_ => false` and make it
+    // mean Keep by accident. A new policy must stop the compiler here.
+    let collapse = match blank_lines {
+        BlankLinePolicy::Collapse => true,
+        BlankLinePolicy::Keep => false,
+    };
+```
+  **Prove it is behaviour-preserving rather than asserting it**, and capture bare-to-file:
+```bash
+cargo test -p transync-html -- --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave0/gate/t5-step0.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t5-step0.txt
+git diff --stat HEAD -- crates/transync-html/tests/goldens >> /Volumes/Temp/claude/ti490d97-wave0/gate/t5-step0.txt
+```
+  Expected: `CARGO_EXIT=0`, every `splice` test still passing with **no expected value edited**, and the goldens line printing nothing. Commit this step **on its own**, before `element_extents`: subject `refactor(transync-html): the blank-line policy is matched exhaustively, not sampled`.
+
 - [ ] **Step 1: Write the failing tests.** Append to `crates/transync-html/src/lib.rs`, after `mod token_tests`:
 ```rust
 // Spec 2026-08-20 §5: one stack walk, two readers.
@@ -1248,7 +1294,13 @@ mod extent_tests {
     #[test]
     fn the_walk_is_shared_with_the_balancer() {
         let html = "<div><span>x";
-        let unclosed: Vec<&str> = element_extents(html)
+        // Bind first: `element_extents` returns a Vec, and collecting
+        // `&str`s out of a temporary drops it while they still borrow it
+        // (E0716). The other six tests in this module already bind; this one
+        // did not, and it was corrected during execution (ti 490d97 wave 0
+        // Task 5, deviation 1) rather than left as a plan-shaped compile error.
+        let ex = element_extents(html);
+        let unclosed: Vec<&str> = ex
             .iter()
             .filter(|e| e.close.is_none())
             .map(|e| e.name.as_str())
@@ -1454,6 +1506,39 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - The function ships here with its own tests and **no call site yet**; wiring it into `render.rs`'s `BlockKind::Html` success arm is wave 1's job. That ordering is deliberate: the spec reversed an earlier draft that put OI-0035 first, because the OI's render half calls this function, and landing OI-0035 first would mean writing it in `transync-syntax` and moving it one commit later.
 - Attribute *values* and text content are never inspected — only names, and only inside an `Open` token's span. RCDATA and comment content therefore cannot be reached, because `scan_tags` never tokenizes them.
 
+- [ ] **Step 0: Say the two things `ElementExtent`'s doc enforces but does not state.** Task 5's review found the struct documents `name` / `depth` / `open` / `close` / `content_end` while leaving two behaviours of the walk unwritten — and **wave 6 is told, in as many words, to "read the landed `ElementExtent` doc … and adjust to the landed contract"**, with its wrapper rule resting on the first of them. A downstream plan reading this doc today gets a contract that is narrower than the code. Two doc-only edits in `crates/transync-html/src/lib.rs`, no behaviour change:
+
+  1. **Voids and self-closing tags mint no extent.** The rule lives only in `walk_elements`' guard (`if !is_void(name) && (!self_closing || is_raw_text(name))`) and in `extent_tests::void_and_self_closing_elements_mint_no_extent`. Add it to the struct's own doc, immediately after the first sentence:
+```rust
+/// One element the [`element_extents`] walk found, in source order by its
+/// open tag.
+///
+/// **Not every tag mints one.** A void element (`img`, `br`, `hr`, …) and a
+/// self-closing tag outside raw-text/RCDATA are never pushed onto the walk's
+/// stack, so they produce **no** `ElementExtent` at all — they have no content
+/// and nothing to close. A consumer that needs "the element around these
+/// bytes" must handle the empty case rather than assuming one extent per tag.
+/// (ti 490d97 wave 0 Task 5 review; wave 6's pane derivation depends on it —
+/// a block whose only element is a lone `<img>` has zero extents, which is why
+/// it takes the transparent wrapper rather than self-injection.)
+```
+
+  2. **`close: None` is wider than "optional end tags or EOF".** The drain branch also assigns `None` to elements closed by **mis-nesting recovery** — `<b><i></b>` leaves `i` with `close: None`, and `i` has no optional end tag. A reader could otherwise infer `close: None ⇒ optional-end-tag element`, which is false. Widen the field's parenthetical:
+```rust
+    /// Byte range of the end tag, or `None` when the element was closed
+    /// implicitly (HTML's optional end tags, or mis-nesting recovery — a
+    /// `</b>` that closes an open `<i>` beneath it) or left unclosed at EOF.
+    pub close: Option<(usize, usize)>,
+```
+
+  **This is documentation only — no assertion, fixture or golden may move.** Prove it and capture:
+```bash
+cargo test -p transync-html -- --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave0/gate/t6-step0.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t6-step0.txt
+git diff --stat HEAD -- crates/transync-html/tests/goldens >> /Volumes/Temp/claude/ti490d97-wave0/gate/t6-step0.txt
+```
+  Expected: `CARGO_EXIT=0` with the same test count Task 5 left (56), and the goldens line printing nothing. Commit this step **on its own**, before `strip_reserved_sync_attrs`: subject `docs(transync-html): ElementExtent says the two things its walk already enforces`.
+
 - [ ] **Step 1: Write the failing tests.** Append to `crates/transync-html/src/lib.rs`, after `mod extent_tests`:
 ```rust
 // Spec 2026-08-20 §8, OI-0035 route (c), render half.
@@ -1541,8 +1626,15 @@ const RESERVED_SYNC_ATTRS: &[&str] = &[
     "data-skipped",
 ];
 
-/// Remove every [`RESERVED_SYNC_ATTRS`] attribute from `html`'s element open
+/// Remove every `RESERVED_SYNC_ATTRS` attribute from `html`'s element open
 /// tags, case-insensitively, taking each one's leading whitespace with it.
+///
+/// (Plain backticks, not an intra-doc link: `RESERVED_SYNC_ATTRS` is private
+/// and this fn is `pub`, so a link would trip rustdoc's
+/// `private_intra_doc_links` lint — warn-by-default, but the pre-commit
+/// rustdoc gate runs `-D warnings` over `transync-html` without
+/// `--document-private-items`, which makes it a hard commit block. Same rule
+/// wave 3's plan states for `intake::html`. Do not "restore" the link.)
 ///
 /// This is **pane-only** (OI-0035 route (c), render half): strip-then-inject
 /// is what makes "ours are the only sync attributes in this DOM" a
@@ -1691,7 +1783,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md`
-- Modify: `CHANGELOG.md`, `docs/project/status.md`, `docs/project/phase-state.yaml`, `docs/index.md`
+- Modify: `CHANGELOG.md`, `docs/project/status.md`, `docs/project/phase-state.yaml`, `docs/index.md`, `CLAUDE.md`
 
 **Interfaces:**
 - Consumes: everything Tasks 1–6 landed. The DCR number `DCR-0032` is the next free one (DCR-0031 is the highest on disk) and is what the code comments written in Tasks 1–6 already cite — the record must exist or those `TRACE: DCR-0032` lines point at nothing.
@@ -1720,6 +1812,10 @@ Body sections, each of which must state a fact this wave actually established:
   - **The four non-mechanical changes**, each with what it replaced: the `BlankLinePolicy` signature (the `matches!(block_type, 6 | 7)` now has exactly one home, and every HTML-document splice will run `Keep`); the `Open.span` field (already computed, previously discarded); the `Skip` variant **and the bogus-comment state it required**, which is a real tokenizer change — HTML ends `<!…>` / `<?…>` at the first `>`, so tag-shaped bytes inside one are not markup, and before this wave `<!doctype html>` produced no token and no skip at all; and the visibility opening.
   - **Evidence.** The full workspace suite green with zero fixture or expectation edits; the two-package wasm gate exit 0, string unchanged; `workspace_publication.rs` green on a seven-member roster in dependency order; the new token-stream pin, generated before the token change and byte-identical after it.
   - **Welds that moved with it**, listed: the forbidden path segment, the roster, the workspace dependency entry and its two unwelded comments, the ownership-drift roots and their new per-root floor, the rustdoc-gate crate list, and the seven documents.
+  - **Two spec sentences this wave made stale, recorded as owed rather than edited** (§14-style post-implementation items; the spec file is not touched in this wave, following the same convention wave 3's deviation 5 uses). Task 4 gave `<!…>` / `<?…>` a `TagToken::Skip`, so `<!DOCTYPE html>` now *does* produce a scanner token. Both sentences' **conclusions survive** — `tag_inventory` filters `Skip` (`TagToken::Skip { .. } => None`), so those regions remain invisible to the ledger — but the mechanism each states is now wrong, and both are load-bearing where they sit:
+    - **§7, the layer-6 twin's check-3 rationale:** "`<!DOCTYPE>` and comments produce no token in `scan_tags`, so a dropped doctype or comment is ledger-invisible". The correct form is *no **ledger entry** — `tag_inventory` filters `Skip`*. This one matters most: it is the stated justification for the one check in the HTML twin that has no Markdown counterpart, so a reader who verifies the mechanism and finds it false has reason to doubt the check. Wave 4's plan carries the corrected wording into its own doc comments and repeats this amendment as owed.
+    - **§4, rule T:** "**MEASURED: `<!DOCTYPE html>` produces no token *and no skip* in today's scanner**". This one is a *rationale for adding `Skip`*, not a live claim — "today's scanner" meant the pre-wave-0 scanner, and the sentence is correct about what it describes. It is listed anyway because the phrase reads as present-tense to anyone arriving after this wave; the amendment is a clarification ("in the pre-wave-0 scanner"), not a correction.
+
   - **Handed forward.** The file-as-module split the spec permits "later"; `ElementExtent`'s exact field shape, refined jointly when wave 3's consumer exists (spec §15 item 2); `strip_reserved_sync_attrs`' call sites, which are wave 1's and wave 6's.
 
 - [ ] **Step 2: CHANGELOG.** The `## [Unreleased]` heading already exists above `## [0.4.0]`, and its reference link is already at the foot of the file (`[Unreleased]: …/compare/6fa4e88…HEAD`) — neither needs creating. What it holds today is a placeholder that these entries would contradict:
@@ -1791,7 +1887,46 @@ the HTML→HTML feature (spec `docs/superpowers/specs/2026-08-20-html-to-html-tr
 - [DCR-0032: The HTML mechanics become a workspace member](project/design-change-records/DCR-0032-transync-html-crate-extraction.md) — `htmlseg` becomes `transync-html`, the scanner grows `Open.span` and `TagToken::Skip`, and the balancer's walk becomes `element_extents`.
 ```
 
-- [ ] **Step 6: Verify — the docs-drift welds are the gate here.**
+- [ ] **Step 6: `CLAUDE.md` — the file every future agent reads before touching this repository.** It is not a record of what happened; it is a description of what *is*, and after Tasks 1–6 four of its statements are false. Leaving them is worse than leaving a stale changelog entry: a stale record misinforms a reader who went looking, while a stale `CLAUDE.md` misinforms every agent that never went looking at all. Four edits, all in statements this wave made wrong.
+
+  1. **The Project paragraph's opening.** It reads `The repository is a shipped Cargo workspace (v0.3.0), seven members:` — two errors in six words (the workspace has been at `0.4.0` since the release, and this wave adds the eighth member). Replace that clause with:
+```markdown
+The repository is a shipped Cargo workspace (v0.4.0), eight members:
+```
+
+  2. **The member enumeration, which does not mention the crate this wave created.** The list runs `crates/transync-syntax` … `crates/transync-wasm`. Insert `transync-html` at the head of it, before `crates/transync-syntax`, since it is the layer everything else sits on:
+```markdown
+`crates/transync-html` (the HTML mechanics — tag scanning, the pairing discipline, element extents, text-segment extract/splice, fragment balancing; extracted verbatim from `transync-syntax::htmlseg` by DCR-0032, with **no** re-export alias, and holding no opinion about what a block is),
+```
+
+  3. **Two counts inside the same sentence, both now wrong.** The paragraph ends `…the one member carrying `publish = false`, so the publication roster is the other six). Those two — `transync-syntax` and `transync-wasm` — are the only members that compile for `wasm32`.` The roster is **seven**, and `wasm32` is now **three** members, because `transync-syntax` depends on `transync-html` and the standing gate therefore builds it transitively — which is exactly why `transync-html`'s own `Cargo.toml` carries the no-`[features]`, no-workspace-member-dependency prohibition. Replace both:
+```markdown
+the one member carrying `publish = false`, so the publication roster is the other seven). Those three — `transync-html`, `transync-syntax` and `transync-wasm` — are the only members that compile for `wasm32`; `transync-html` is covered transitively, which is why the standing gate's command string does not name it and must not be changed to.
+```
+
+  4. **The `transync-syntax` module split still lists a module that is no longer in the crate.** Delete the `htmlseg` bullet from under *Module split in `crates/transync-syntax`*:
+```markdown
+  - `htmlseg` — raw-HTML text-segment extract/splice engine (`lol_html`), `#[doc(hidden)]`
+```
+  and add a `crates/transync-html` entry to the **Layout** section, immediately **before** the `crates/transync-wasm` bullet, so the layout list and the member list agree:
+```markdown
+- `crates/transync-html` (DCR-0032) — the HTML mechanics, one file (`lib.rs`): `scan_tags` / `TagToken`, `element_extents`, `balance_fragment`, `extract` / `splice` + `BlankLinePolicy`, `strip_reserved_sync_attrs`. **No `[features]` table and no workspace-member dependency, ever** — `transync-syntax` sits on top of it and must keep passing the two-package `wasm32` gate. The module formerly called `transync-syntax::htmlseg` is this crate; records dated before 2026-08-20 still say `htmlseg` and are correct as written.
+```
+
+  **Do not touch anything else in `CLAUDE.md`.** In particular the WASM bullet's existing prohibition on `transync-syntax` (`Never add a `[features]` table or a `transync-core` dependency (dev-dependencies included)…`) stays exactly as written — the new crate's own prohibition is stated in its Layout entry above, and rewording a rule that is still true is how a correct sentence acquires a bug.
+
+  **Verify by grep, not by reading**, and capture:
+```bash
+{
+  grep -c 'transync-html' CLAUDE.md
+  grep -c 'seven members' CLAUDE.md
+  grep -c 'htmlseg' CLAUDE.md
+  grep -n 'v0\.3\.0' CLAUDE.md
+} > /Volumes/Temp/claude/ti490d97-wave0/gate/t7-claude-md.txt 2>&1
+```
+  Expected: `transync-html` **≥ 3**; `seven members` **0**; `htmlseg` **≥ 2** (the two deliberate name-continuity mentions — the crate's provenance and the dated-records note — survive on purpose, so a reader who greps the old name still lands somewhere); and no `v0.3.0` line except inside a dated historical statement, if one exists. Note that `grep -c` **exits non-zero on a zero count**, so do not run this under `set -e` — the `seven members` line is *expected* to be 0 and would abort the block.
+
+- [ ] **Step 7: Verify — the docs-drift welds are the gate here.**
 ```bash
 cargo test -p transync --test docs_index_drift --test docs_ownership_drift --test docs_gate_claims_drift -- --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave0/gate/t7-docs.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t7-docs.txt
@@ -1800,7 +1935,7 @@ echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t7-workspace.tx
 ```
 Expected: `CARGO_EXIT=0` in both. A red `docs_index_drift` means a new document under `docs/` is unlinked — link it rather than excluding it.
 
-- [ ] **Step 7: Run the aggregate hard gate once, then commit.**
+- [ ] **Step 8: Run the aggregate hard gate once, then commit.**
 ```bash
 ./scripts/smoke.sh > /Volumes/Temp/claude/ti490d97-wave0/gate/t7-smoke.txt 2>&1
 echo "SMOKE_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t7-smoke.txt
@@ -1808,7 +1943,7 @@ echo "SMOKE_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t7-smoke.txt
 Read the file separately. Expected: `SMOKE_EXIT=0`. This is the run that proves the rustdoc-gate completeness check accepts the seven-member list (Task 1 Step 14) — the workspace test suite never exercises it.
 ```bash
 git add docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md \
-  CHANGELOG.md docs/project/status.md docs/project/phase-state.yaml docs/index.md
+  CHANGELOG.md docs/project/status.md docs/project/phase-state.yaml docs/index.md CLAUDE.md
 git commit -m "docs: wave 0 gets its record, and the record names what stopped being called htmlseg
 
 DCR-0032 carries the extraction, the four non-mechanical changes inside it,

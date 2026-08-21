@@ -10,7 +10,7 @@
 
 **Spec:** docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md
 
-**Depends on:** wave 0 (`docs/superpowers/plans/2026-08-20-html-wave0-transync-html-crate.md`), which lands `transync_html::strip_reserved_sync_attrs` with its own tests and **no call site**. Wave 1 is its first consumer. Wave 1 is independent of waves 2–7 and runs parallel to 2–5 (spec §12).
+**Depends on:** wave 0 (`docs/superpowers/plans/2026-08-20-html-wave0-transync-html-crate.md`), which lands `transync_html::strip_reserved_sync_attrs` with its own tests and **no call site**. Wave 1 is its first consumer. **The dependency is split, and the split is load-bearing:** Tasks 1–3 need only wave 0 **Task 6** — the function and its six tests in their final home — but Task 4 additionally requires wave 0 **Task 7's records commit** (DCR-0032, the CHANGELOG entry, `status.md`, `phase-state.yaml`), because every one of Task 4's edit anchors quotes the post-Task-7 text: a DCR roster ending at 0032, a status line reading "through DCR-0032", the `**Action (HTML→HTML feature, ti \`490d97\`):**` bullet, the `WAVE 0 LANDED` paragraph, and an `[Unreleased]` block that no longer holds the "Nothing yet" placeholder. Task 4 Step 0 is the guard that proves this before anything is written; dispatched between wave 0's Task 6 and its Task 7, Task 4 stops there — it does not improvise. Wave 1 is independent of waves 2–7 and runs parallel to 2–5 (spec §12).
 
 ## Global Constraints
 
@@ -43,7 +43,7 @@
 | `web/tests/engine.spec.js` | modify | new tests `k` and `l` — the engine-direct cases: unlisted anchors inert + warned at mount; listed duplicates still first-occurrence-wins; a post-mount arrival stays inert through the reflow that used to activate it. Plus one assertion added to the **existing** test `b`, pinning the R0002-0047 refusal the gate must not swallow |
 | `web/js/sync.js` | modify | `synchronizableRowIds`, the `collectAnchors` gate, the reflow thread-through, the R0002-0047 refusal moved above the collection and kept on an ungated DOM count, the docstrings |
 | `crates/transync-cli/web/sync.js` | modify (`cp` of the above) | the byte-identical embedded twin |
-| `docs/architecture/contracts.md` | modify (Task 2, Task 3) | Task 2: §4's reserved-namespace rule, beside the render change that makes it true. Task 3: §4's engine-reads-listed-ids sentence **and** §4a's anchor-set-from-rows paragraph with the residual — both in the commit that changes the engine, so no commit carries a docs claim the code has not made yet |
+| `docs/architecture/contracts.md` | modify (Task 2, Task 3) | Task 2: §4's reserved-namespace rule, beside the render change that makes it true. Task 3: §4's engine-reads-listed-ids sentence, §3's cross-reference to it, **and** §4a's anchor-set-from-rows paragraph with the residual — all in the commit that changes the engine, so no commit carries a docs claim the code has not made yet |
 | `docs/project/design-change-records/DCR-0033-oi0035-anchor-trust-both-layers.md` | **create** | the wave's record |
 | `docs/project/open-issues.md` | modify | OI-0035 → RESOLVED, entry moved to the archive, summary-table row updated |
 | `docs/project/open-issues-archive.md` | modify | receives the resolved OI-0035 entry with its archive banner |
@@ -109,7 +109,7 @@ Read all four capture files as a separate step. Expected: `CARGO_EXIT=0` in both
 git status --porcelain -- docs/index.md docs/superpowers/plans/2026-08-20-html-wave1-oi0035-anchor-trust.md
 git diff -- docs/index.md
 ```
-Expected: `?? docs/superpowers/plans/2026-08-20-html-wave1-oi0035-anchor-trust.md`, plus either nothing for `docs/index.md` (wave 0's commit already carried the link — commit the plan file alone) or ` M docs/index.md` whose diff adds **only** this plan's entry. **If the diff also adds another wave's entry whose plan file is still untracked, stop:** committing that line publishes a link to a file nobody has committed, which is the dead link this task exists to prevent, and the other wave's file is not yours to commit. Let that wave land first, then re-run this step.
+Expected: `?? docs/superpowers/plans/2026-08-20-html-wave1-oi0035-anchor-trust.md`, plus either nothing for `docs/index.md` (wave 0's commit already carried the link — commit the plan file alone) or ` M docs/index.md` whose diff adds **only** this plan's entry. A third state is legitimate: if **both** paths print nothing, the controller already committed the plan file with its link (the plan went through a reviewed fix round after it was written, and committing the result was the controller's), so the pair this step exists to create is already tracked — Step 2 has proven it green — and there is nothing to commit; check the box and move on rather than manufacturing an empty commit. **If the diff also adds another wave's entry whose plan file is still untracked, do not run the commands below:** `git add docs/index.md` stages the whole file, so committing it would publish a link to a file nobody has committed — the dead link this task exists to prevent — and the other wave's plan file is not yours to commit. Where the problem goes depends on whether that file exists on disk. If it does **not** exist, the index points at nothing: that is a defect in the index edit itself — report it. If it **does** exist (the normal case: the controller writes every wave's plan before dispatching any of them), **escalate to the controller to commit each sibling plan file together with its index line, then re-run this step once the index diff shows only this wave's entry or none.** Waiting for "that wave to land first" does not resolve here: every wave's Task 1 carries this same guard, so the standoff is symmetric — wave 2's Task 1 would be waiting on this wave's entry exactly as this step waits on wave 2's — and only the controller, who owns all the plan files, can break the cycle. However it resolves, never commit `docs/index.md` wholesale.
 ```bash
 git add docs/superpowers/plans/2026-08-20-html-wave1-oi0035-anchor-trust.md docs/index.md
 git commit -m "docs(plan): wave 1's plan lands under the index entry that names it
@@ -246,18 +246,43 @@ fi
   --html-out "$HTML_OUT/oi0035" \
   --target-language ko
 
+# All six bundle files, mirroring the main leg's loop — purify.min.js
+# included: a sub-bundle missing the sanitizer would otherwise surface as an
+# opaque waitForMounted timeout in test `m` instead of this leg's named FAIL.
 for path in \
   "$HTML_OUT/oi0035/index.html" \
   "$HTML_OUT/oi0035/source.html" \
   "$HTML_OUT/oi0035/target.html" \
   "$HTML_OUT/oi0035/alignment.json" \
-  "$HTML_OUT/oi0035/sync.js"
+  "$HTML_OUT/oi0035/sync.js" \
+  "$HTML_OUT/oi0035/purify.min.js"
 do
   if [[ ! -s "$path" ]]; then
     echo "[test-browser] FAIL: $path missing or empty" >&2
     exit 1
   fi
 done
+
+# The strip is PANE-ONLY: out.md keeps the author's bytes, because their
+# data-sync-id is their content. That sentence is written into render.rs,
+# contracts.md §4, DCR-0033 and the archived issue — and this check is the one
+# place anything READS the published Markdown to hold them to it. Every other
+# assertion in this wave looks at pane HTML, so a strip wired one layer too
+# deep — into regen or the splice, now or by a later "centralization" —
+# changes zero pane bytes, passes everything above, and silently deletes
+# author content from out.md. A contract sentence no test reads is the shape
+# that rots.
+#
+# `-lt 1`, not exactly 1: the attribute survives translation by splice
+# construction (and byte-verbatim through fallback), so >=1 holds on any
+# correct implementation — but its exact multiplicity in the translated
+# document belongs to the stub's behaviour, not to this contract. The only
+# thing pane-only forbids is LOSS, and loss is what -lt 1 catches; pinning
+# the count would turn an unrelated stub change into a false red here.
+if [[ "$(grep -c 'data-sync-id="p-0003"' "$WORKDIR/oi0035.md")" -lt 1 ]]; then
+  echo "[test-browser] FAIL: out.md lost the author's bytes — the strip must be pane-only (OI-0035)" >&2
+  exit 1
+fi
 ```
 
 - [ ] **Step 5: Write the failing end-to-end browser test.** In `web/tests/scn13.spec.js`, append after test `l` and before the closing `});` of the `test.describe` block:
@@ -283,6 +308,11 @@ done
     // quotes become `&quot;` and every "does not contain" would pass vacuously.
     expect(sourceHtml).toContain('class="impostor-marker"');
     expect(sourceHtml).not.toContain('data-skipped="html-block"');
+    // The target pane carries the guard too: if the stub's translation of the
+    // html block ever fell back, the target block would be the escaped
+    // placeholder — its count of 1 below would then hold without the strip
+    // ever running on that pane. Same vacuous pass, seen from the other side.
+    expect(targetHtml).not.toContain('data-skipped="html-block"');
 
     expect(sourceHtml.split('data-sync-id="p-0003"').length - 1).toBe(1);
     expect(targetHtml.split('data-sync-id="p-0003"').length - 1).toBe(1);
@@ -455,7 +485,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Modify: `web/tests/engine.spec.js` (new tests `k` and `l`; one assertion added to the existing test `b`)
 - Modify: `web/js/sync.js`
 - Modify: `crates/transync-cli/web/sync.js` (by `cp`, never by hand)
-- Modify: `docs/architecture/contracts.md` (§4's engine sentence and §4a's new paragraph)
+- Modify: `docs/architecture/contracts.md` (§4's engine sentence, §3's cross-reference to it, and §4a's new paragraph)
 
 **Interfaces:**
 - **New module-private function in `sync.js`:**
@@ -480,7 +510,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   The recompute closes over `rowIds` so a reflow re-collection is gated on the same set as the mount.
 - **Unchanged on purpose, and the thing most easily broken here:** the R0002-0047 refusal in `mountSync` — "the map describes no synchronizable block, but the panes carry anchors" — keeps counting anchors with an **ungated** `pane.querySelectorAll("[data-sync-id]")`, and moves to *before* the two `collectAnchors` calls. Counting collected anchors instead makes its condition unsatisfiable and deletes the refusal in silence; Step 7 carries the mechanism and Step 3 the test that catches it.
 - Consumes from Task 2: nothing in code. The two halves are independent; this one is sequenced second so no commit ever leaves the browser suite red.
-- **Carries `contracts.md` §4's engine sentence as well as §4a's paragraph** (Step 13). Both describe the behaviour this commit introduces, so both land in this commit: at no point does the tree hold a contract the code has not yet made true.
+- **Carries `contracts.md` §4's engine sentence, §3's cross-reference to it, and §4a's paragraph** (Step 13). All three describe the behaviour this commit introduces, so all three land in this commit: at no point does the tree hold a contract the code has not yet made true.
 
 - [ ] **Step 1: Add the rig helper the new tests need.** In `web/tests/engine.spec.js`, immediately after the `appendBlock` helper and before `test.describe(`:
 ```js
@@ -971,7 +1001,20 @@ with:
     const target = collectAnchors(targetPane, "target", rowIds, true);
 ```
 
-- [ ] **Step 9: Record the gate in `mountSync`'s docstring.** In `web/js/sync.js`, immediately after the `**Pairing is by identical \`data-sync-id\`, and that is normative …**` paragraph and before `**Refusal is a real outcome, and it is signalled (R0002-0016).**`, insert:
+- [ ] **Step 9: Record the gate in `mountSync`'s docstring — two edits, the opening sentence and a new paragraph.** The docstring's first sentence is the one a skimming reader takes away, and left alone it keeps describing ungated collection after every paragraph below it has been qualified. In `web/js/sync.js`, first replace:
+```js
+ * Caches each pane's `[data-sync-id]` element list and a partner-side
+ * `id → element` map at mount time, so per-frame scroll handling
+ * doesn't repeat a `querySelectorAll` + attribute-selector lookup.
+```
+with:
+```js
+ * Caches each pane's `[data-sync-id]` element list — the elements whose
+ * ids the validated rows claim (OI-0035) — and a partner-side
+ * `id → element` map at mount time, so per-frame scroll handling
+ * doesn't repeat a `querySelectorAll` + attribute-selector lookup.
+```
+Then, immediately after the `**Pairing is by identical \`data-sync-id\`, and that is normative …**` paragraph and before `**Refusal is a real outcome, and it is signalled (R0002-0016).**`, insert:
 ```js
  * **The anchor set comes from the validated rows, not from the DOM
  * (OI-0035).** Every element whose `data-sync-id` is absent from the map's
@@ -1016,7 +1059,7 @@ echo "PW_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave1/gate/t3-browser.txt
 ```
 Expected: `PW_EXIT=0` and the file ending `[test-browser] OK — SCN-13 headless suite passed`.
 
-- [ ] **Step 13: Land the contracts.md sentence and paragraph this commit makes true.** Two edits in `docs/architecture/contracts.md`, both describing behaviour that exists as of *this* commit and neither one earlier — §4's sentence about what the engine reads is edited here, beside the §4a paragraph it points at, so no commit ever ships a docs claim ahead of its code.
+- [ ] **Step 13: Land the contracts.md sentence and paragraph this commit makes true.** Three edits in `docs/architecture/contracts.md`, all describing behaviour that exists as of *this* commit and none earlier — §4's sentence about what the engine reads, and §3's cross-reference to that same claim, are edited here beside the §4a paragraph they point at, so no commit ever ships a docs claim ahead of its code.
 
   1. In **§4**, replace the sentence that follows the wrapper-element list:
 ```markdown
@@ -1031,6 +1074,16 @@ The JS sync engine reads `[data-sync-id]` only, and only for the ids the alignme
 ```markdown
 **The engine's anchor set comes from the validated rows, not from the DOM (OI-0035, ti `490d97` wave 1).** `mountSync` builds the id set from every row whose `sync_role` is not `non-sync` — derived from the same function that answers whether the map describes a synchronizable block at all, so the two cannot drift apart — and `collectAnchors`, the single choke point both panes pass through at mount **and** on every reflow recompute, skips any element whose `data-sync-id` is not in it. An unlisted anchor is therefore inert forever, including one inserted after mount, which the reflow recompute would otherwise have folded into the live set with the duplicate audit suppressed. Each skip is named at mount under the same first-five-then-a-tally policy the duplicate warning uses, and is silent on reflow for the same reason. Duplicate handling is unchanged: among listed ids, the first occurrence in document order still wins in both the scan array and the partner lookup. The refusal of a map that describes no synchronizable block over panes that carry anchors (§3) is also unchanged, and deliberately asks the DOM rather than the rows: it is a question about what the panes hold, so it is answered by an ungated `querySelectorAll` before the gated collection runs — the gate governs what may *drive scroll*, not what may be counted. **The honest residual:** this gate cannot defeat an in-pane impostor carrying a *listed* id that precedes the genuine anchor in document order — first-occurrence-wins has no DOM-visible discriminator to prefer one over the other. That is why the defense is two layers rather than one: §4's render-side strip guarantees the panes transync produces never contain such an impostor, and this gate makes every *unlisted* id inert in any pane, whoever produced it. Each layer covers the other's blind spot; neither is optional. What the pair still does not reach is that same residual seen from outside — a *listed* impostor in a pane transync did not produce, which a third-party producer can hand the engine and the engine will drive from.
 ```
+
+  3. In **§3**, the **Forward-minor policy** bullet ends with the same read-claim §4 carried, as a cross-reference — and edit 1 corrected the original while this parenthetical still asserts the unqualified read. It is genuinely about the anchor read: "it reads `[data-sync-id]` only" is the stated *reason* an unknown `block_kind` renders inertly, and the gate strengthens that reason rather than changing it — an engine that reads only the listed `data-sync-id`s still reads no `block_kind`. Left alone it would contradict the §4a paragraph landing two edits up. Replace:
+```markdown
+(it reads `[data-sync-id]` only — §4)
+```
+  with:
+```markdown
+(it reads `[data-sync-id]` only, and only for the ids the alignment map claims — §4, §4a)
+```
+  `§4` stays in the pointer — it is where the attribute contract lives — and `§4a` joins it for the gate.
 
 - [ ] **Step 14: Verify the workspace and the lints.**
 ```bash
@@ -1074,6 +1127,7 @@ Both sync.js copies move here, byte-identical; sync_js_drift.rs is the weld.
 
 TRACE: ti 490d97 wave 1
 TRACE: OI-0035
+TRACE: contracts.md §3
 TRACE: contracts.md §4
 TRACE: contracts.md §4a
 
@@ -1091,6 +1145,14 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: everything Tasks 2 and 3 landed, plus the DOMPurify measurement Task 2 Step 5 wrote into the browser suite.
 - Produces: nothing code-facing. **No ADR in this wave** — ADR-0025 records the twelve HTML→HTML decisions and lands in wave 2 (spec §12).
+- **Additionally consumes wave 0 Task 7's records commit** — DCR-0032, the CHANGELOG entry, `status.md`, `phase-state.yaml` — which Tasks 1–3 did not need. Step 0 is the check.
+
+- [ ] **Step 0: Verify wave 0's records commit (Task 7) has landed.** Tasks 1–3 needed only wave 0's *code* (Task 6). This task edits five documents at anchors wave 0's **Task 7** wrote — the roster tail, the "through DCR-0032" line, the `**Action (HTML→HTML feature, ti \`490d97\`):**` bullet, the `WAVE 0 LANDED` paragraph, the emptied `[Unreleased]` placeholder — and Step 1's take-the-next-number rule is only safe over a roster whose tail is wave 0's. Dispatched between wave 0's Task 6 and its Task 7, Step 1's `tail -3` prints `0029/0030/0031`, "the next number" is then **DCR-0032 — wave 0's reserved number** — and taking it corrupts both waves' records at once; Step 5 executed literally over the same tree would also leave the "Nothing yet —" placeholder standing directly above a real `### Fixed` section. So check both directions of the landing before writing anything:
+```bash
+ls /Volumes/Common/QJoon/transync/docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md
+grep -c 'through DCR-0032' /Volumes/Common/QJoon/transync/docs/project/status.md
+```
+Expected: the `ls` prints the path — the file exists — and the `grep -c` prints `1` — `status.md`'s Design Track line already reads `DCR-0001 through DCR-0032`. **If either check fails, wave 0's records have not landed: STOP and wait for wave 0's Task 7.** Never take 0032 for this wave's DCR, and never write wave 0's missing records yourself — they are wave 0's to write, with wave 0's content, in wave 0's commit, and a wave-1 agent filling them in leaves one record with two authors and an audit trail no reader can untangle.
 
 - [ ] **Step 1: Confirm the DCR number is free.**
 ```bash
