@@ -172,7 +172,8 @@ scripts/
 │                                       #   wasm-opt (cached 117 rejects current rustc output);
 │                                       #   enforces the size budget; loud prereq failures
 ├── test-browser.sh                     # CLI fixture + wasm demo leg + Playwright
-│                                       #   (web/tests/scn13.spec.js + wasm.spec.js)
+│                                       #   (web/tests/scn13.spec.js + engine.spec.js
+│                                       #    + wasm.spec.js — every spec under web/tests/)
 └── hooks/pre-commit                    # fmt, clippy, the two-crate wasm gate
 ```
 

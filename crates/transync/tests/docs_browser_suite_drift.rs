@@ -20,6 +20,17 @@
 //! are recognised too now, and `web/SMOKE.md` joined the documents that must
 //! keep naming the spec files, since that is what replaced its count.
 //!
+//! The third spec joined the pin later than the other two. `web/tests/
+//! engine.spec.js` — `sync.js`'s mount contract driven directly over a bare
+//! two-pane rig — has been in the suite and run by the same `pnpm exec
+//! playwright test` all along (`playwright.config.js` sets
+//! `testDir: "./tests"`), but `docs/Developer_Guide.md` named only the other
+//! two, and `SPEC_FILES` cannot pin a file that a `MUST_NAME_SPECS` document
+//! does not name. So the file was unpinned: renaming or deleting it would have
+//! left every guarded document green. Ticket `729ec8` closed that by naming it
+//! in the guide and in the module map's `scripts/` tree, which is what let it
+//! join `SPEC_FILES` here.
+//!
 //! Snapshot documents are deliberately **not** guarded. DCR-0019 (8/8),
 //! DCR-0020 (12/12), the resolved `open-issues.md` entry (6 tests) and the wave
 //! log in `docs/project/status.md` each record what was true when written, and
@@ -51,13 +62,14 @@ const MUST_NAME_SPECS: &[&str] = &[
     "web/SMOKE.md",
 ];
 
-const SPEC_FILES: &[&str] = &["scn13.spec.js", "wasm.spec.js"];
+const SPEC_FILES: &[&str] = &["scn13.spec.js", "engine.spec.js", "wasm.spec.js"];
 
 /// A line mentioning any of these is a line about the browser suite.
 const SUITE_MENTIONS: &[&str] = &[
     "test-browser.sh",
     "web/tests",
     "scn13.spec.js",
+    "engine.spec.js",
     "wasm.spec.js",
     "Playwright",
 ];
@@ -296,8 +308,8 @@ fn no_living_doc_publishes_the_browser_suite_test_count() {
         offenders.is_empty(),
         "living document(s) state a count for the browser suite. The count rots \
          the next time a Playwright test is added, so name the spec files \
-         (`web/tests/scn13.spec.js`, `web/tests/wasm.spec.js`) instead of \
-         counting them (ti e9481b). If the passage is a dated snapshot rather \
+         (`web/tests/scn13.spec.js`, `web/tests/engine.spec.js`, \
+         `web/tests/wasm.spec.js`) instead of counting them (ti e9481b). If the passage is a dated snapshot rather \
          than a description of the suite today, it does not belong in a guarded \
          living document:\n  {}",
         offenders.join("\n  "),
