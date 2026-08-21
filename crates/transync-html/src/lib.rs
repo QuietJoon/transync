@@ -740,6 +740,15 @@ pub fn implicitly_closes(name: &str) -> &'static [&'static str] {
 
 /// One element the [`element_extents`] walk found, in source order by its
 /// open tag.
+///
+/// **Not every tag mints one.** A void element (`img`, `br`, `hr`, …) and a
+/// self-closing tag outside raw-text/RCDATA are never pushed onto the walk's
+/// stack, so they produce **no** `ElementExtent` at all — they have no content
+/// and nothing to close. A consumer that needs "the element around these
+/// bytes" must handle the empty case rather than assuming one extent per tag.
+/// (ti 490d97 wave 0 Task 5 review; wave 6's pane derivation depends on it —
+/// a block whose only element is a lone `<img>` has zero extents, which is why
+/// it takes the transparent wrapper rather than self-injection.)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementExtent {
     /// Lowercased tag name, exactly as [`scan_tags`] reports it.
@@ -749,7 +758,8 @@ pub struct ElementExtent {
     /// Byte range of the open tag, `<` through `>`.
     pub open: (usize, usize),
     /// Byte range of the end tag, or `None` when the element was closed
-    /// implicitly (HTML's optional end tags) or left unclosed at EOF.
+    /// implicitly (HTML's optional end tags, or mis-nesting recovery — a
+    /// `</b>` that closes an open `<i>` beneath it) or left unclosed at EOF.
     pub close: Option<(usize, usize)>,
     /// Byte offset where the element's content ends: its end tag's start, its
     /// implicit closer's start, or `html.len()`.
