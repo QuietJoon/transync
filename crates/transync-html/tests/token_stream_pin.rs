@@ -201,7 +201,11 @@ fn the_open_close_stream_and_tag_inventory_are_byte_identical_to_the_golden() {
         expected,
         "the Open/Close stream or tag_inventory moved. Wave 0's token changes \
          (Open.span, TagToken::Skip) are meant to be inert for both shipped \
-         consumers; this says they are not. Do NOT re-bless the golden."
+         consumers; this says they are not. Do NOT re-bless the golden — \
+         unless this is a deliberate, reviewed tokenizer change landing \
+         through the two-bless protocol (ti 549b20, task 8), in which case \
+         this red IS the deliverable and the diff between the blessings is \
+         its record. Absent that, find out which region moved."
     );
 }
 

@@ -1228,7 +1228,7 @@ Append one bullet to the entry's `### Related` list while moving it:
 ```
 Leave `docs/project/open-issues.md`'s Open Issues Summary row in place (Step 3 edit 3): the table is the index a reader scans, and an entry that vanished from both the body and the table reads as one that was never filed.
 
-- [ ] **Step 5: CHANGELOG.** Insert a `### Fixed` section at the **end** of the `## [Unreleased]` block — that is, immediately before the `## [0.4.0] - 2026-08-20` heading, with one blank line on each side:
+- [ ] **Step 5: CHANGELOG.** At the **end** of the `## [Unreleased]` block — immediately before the `## [0.4.0] - 2026-08-20` heading — **append this bullet to the existing `### Fixed` section, or create that section if it is absent**, with one blank line on each side. (Corrected 2026-08-22: this step used to say *insert a `### Fixed` section* unconditionally, which was true when it was written and stopped being true when wave 0's Task 8 created one at exactly this anchor. Executed literally now, it produces a **duplicate `### Fixed` heading**. Task 8's own CHANGELOG step carries this conditional; wave 1's did not, and the asymmetry is what made the hazard invisible from either side.):
 ```markdown
 ### Fixed
 
