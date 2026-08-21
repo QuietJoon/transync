@@ -1961,12 +1961,939 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-## Wave acceptance — check all four before declaring wave 0 done
+### Task 8: `AttrState::Outside` aligns with the browser it was measured against — ti `549b20`'s bypass closes, the strip stops cutting painted text, and the pin records the movement
+
+**Files:**
+- Modify: `crates/transync-html/tests/token_stream_pin.rs` (the `EDGE_CASES` corpus learns the blind spot — three constructions — and its doc comment stops overclaiming)
+- Modify (regenerated through the interlocked hatch, twice): `crates/transync-html/tests/goldens/token-stream.txt`
+- Create (generated at the first bless, modified at the second — both through the interlocked hatch): `crates/transync-html/tests/goldens/balanced/stray-quote-bare.txt`
+- Create (generated; move at the first bless only): `crates/transync-html/tests/goldens/balanced/stray-quote-doubled.txt`, `crates/transync-html/tests/goldens/balanced/stray-equals.txt`
+- Modify: `crates/transync-html/src/lib.rs` (the two ruled scanner edits, the third `Outside`-arm edit measured into scope, nine red-first tests, the doc edits the fixes force)
+- Modify: `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md` (a dated amendment, appended — the record is committed at `796a97b`, since amended by `63bcbc0`; locate the final section by heading and append after it), `CHANGELOG.md` (a `### Fixed` entry under `[Unreleased]`)
+- Tickets: `549b20` closed with evidence; one new remainder ticket filed via `ti new` for the two divergences that outlive this task (HTML's *tag name* and *end-tag-open* states, both named as deliberately unfixed in the owner's ruling comment on the ticket)
+- Test: the Task 2 pin is the instrument, used against itself deliberately — this is the **first task in the wave in which running `regenerate_goldens` is legitimate**, and it runs exactly twice, both times through the `TRANSYNC_REGEN_GOLDENS=1` interlock, both times with the resulting diff reported as evidence
+
+**Interfaces:**
+- Consumes from Task 4: `TagToken::{Open, Close, Skip}` and `scan_tags`'s attribute-state machine; from Task 5: `walk_elements` / `element_extents` / `balance_fragment`; from Task 6: `strip_reserved_sync_attrs` + `collect_reserved_attr_spans`; from Task 7: the committed `DCR-0032-transync-html-crate-extraction.md`.
+- Produces (no signature changes anywhere — the whole fix is behavioural, inside `scan_tags`; the one new piece of state is a local `bool`):
+  - In `AttrState::Outside`, a bare `"` / `'` is an **ordinary name byte** (`self_closing = false`, `has_attr_name = true`, nothing more) — HTML's *before attribute name* / *attribute name* states make a quote not preceded by `=` part of the attribute name, never a value opener.
+  - In `AttrState::Outside`, `=` opens a value **only after a consumed attribute name**. HTML's *before attribute name* state makes a stray `=` a parse error that **starts a new attribute whose name is `=`**, moving to *attribute name* state — where a following quote is a parse error appended to the **name**. The ordinary `name=value` shape reaches `=` from *attribute name* / *after attribute name* and is unaffected. A new local `has_attr_name: bool` is the bit that tells the two apart: set by any name byte (quotes included), persisting through whitespace (*after attribute name*), reset by entering a value and by `/` (HTML's *self-closing start tag* state reconsumes everything but `>` in *before attribute name*).
+  - A tag with no `>` before EOF pushes `TagToken::Skip { span: (start, html.len()) }` and then stops the scan, instead of leaving the document loop silently. The passed-over region is **named**; callers can see it instead of losing the suffix without a trace.
+- Owner's ruling (recorded as the owner's 2026-08-21 comment on ti `549b20`, which also resolves the sub-choice — the `Skip` token over a scan-incomplete signal — and names the two deliberately-unfixed divergences with their measurements), implemented exactly for the two lines it shows:
+```text
+AttrState::Outside, today:
+  b'"' | b'\'' => attr = Quoted(c)      // browser: name bytes
+  if j >= bytes.len() { break }         // exits DOCUMENT loop
+
+After:
+  b'"' | b'\'' => self_closing = false  // ordinary name byte
+  unterminated  => push Skip{span:(start,len)}, then stop
+```
+- **The third edit is inside the ruling, not an expansion of it — the reasoning is stated here so a reviewer can check it rather than take it.** During this task's derivation a sibling divergence was traced in the same arm, and the coordinator then **measured** it in headless Chromium — `<div ="> data-sync-id="v">x</div>` parses as:
+```json
+{
+  "parsed_html": "<div =\"=\"\"> data-sync-id=\"v\">x</div>",
+  "div_attrs":   ["=\"=\"\""],
+  "div_text":    " data-sync-id=\"v\">x",
+  "live_sync_ids": []
+}
+```
+  The browser makes one attribute named `="`, ends the div at the **first** `>`, and paints ` data-sync-id="v">x` as **text**; `live_sync_ids` is empty, so this is *not* a live-anchor bypass — but a scanner that opens a value on the stray `=` swallows that first `>`, and the strip then **deletes text a browser paints**: a content mutation on adversarial input, the class invariant 6 exists to forbid. Three reasons this lands here and not in a follow-up ticket:
+  1. **It is inside the ruling.** The chosen option is "align `AttrState::Outside` with HTML", and the `b'=' => BeforeValue` transition *is* `AttrState::Outside`. The ruling's preview quoted the quote line because that is the line the bypass ran through, not because the ruling was scoped to it. Fixing one divergence in the arm while knowingly leaving a sibling is the harder position to justify.
+  2. **The blast-radius window opens exactly once.** This task already re-blesses goldens through the interlocked hatch and already reviews a tokenization diff. Deferring the sibling costs a second corpus commit, a second re-bless, a second blast-radius argument and a second review later, for a change that shares this one's surface.
+  3. **Leaving it weakens the fix's own rationale.** The DCR amendment's sentence is "the scanner tokenizes like the browser in this state"; a known residual in that same state falsifies the sentence as it is written.
+  The two-stage fix sequence below (Step 6 lands the ruled pair, Step 7 the `=` arm) exists to **capture the midpoint**: with only the ruled pair applied, the strip's behaviour on the measured construction is a *deletion* — that red run is the in-task, reviewer-checkable proof of point 3.
+- **Blast radius over the four `scan_tags` consumers, stated up front and pinned below.** On well-formed input nothing moves anywhere — the fixes are reachable only through a bare quote in attribute position, a stray `=` in attribute-name position, or a `>`-less tail, and Step 0 re-proves the existing corpus and the three fixtures contain none of the three.
+  1. `tag_inventory` — **unaffected by construction**: `TagToken::Skip { .. } => None` in its `filter_map` (verified in Step 0, pinned by a new test rather than assumed). Stray-markup inputs now contribute the entries a browser would see where before they contributed nothing.
+  2. `walk_elements` → `element_extents` — stray-markup inputs now mint extents where before they minted none (`<div ">` and `<div =">` are complete open tags). A truncated tag (`<div class="x` at EOF) minted no extent before (the scan aborted having emitted nothing) and mints none now (`Skip` is not structure) — **the `Skip`-to-EOF change does not alter what wave 6 sees for an unclosed fragment**: an element whose open tag is complete still gets `close: None`, `content_end == html.len()`. The struct doc gains that sentence because wave 6 reads the doc as binding.
+  3. `walk_elements` → `balance_fragment` — the one consumer whose *output bytes* change: `<div "> <p …>x</p>` now gains a `</div>` where before the input passed through unchanged. **Correct, and pinned as such**: DOMPurify 3.2.6 (the repository's own vendored copy, measured in ti `549b20`) closes the same div. The stray-`=` construction carries its own explicit `</div>`, so the balancer changes nothing for it — that inertness is pinned too.
+  4. `strip_reserved_sync_attrs` — both directions close: the two bypass constructions now **lose** their planted `data-sync-id`, and the stray-`=` construction **keeps** every byte the browser paints as text (the plant sits outside the tag the fixed scanner ends at the first `>`, exactly where the browser ends it). Reserved-shaped bytes inside a `Skip` region stay unstripped **and that is fail-safe**: a browser mints no element and no attributes from a bogus comment or an EOF-truncated tag — the match-arm comment is updated to say so instead of claiming the bytes cannot exist.
+- One line of the wave-acceptance checklist is superseded by this task, on purpose: "goldens byte-identical to the ones generated before the token change" now reads with one carve-out — the **three** stray-markup entries added here moved **inside this task, through the hatch, with the diff reviewed**; the fifteen wave-0-era entries are still bound by the original wording and must be byte-identical.
+
+**Task-local constraints (restated — each one binds every step below):**
+- Temp files ONLY under `/Volumes/Temp/claude/ti490d97-wave0/` — never `/tmp`, `/private/tmp`, or `$TMPDIR`. If the volume is unreachable, stop and ask.
+- **NEVER change or override `CARGO_TARGET_DIR`**; never pass `--target-dir`.
+- Every `cargo test` capped: `-- --test-threads=4`. Never raise it.
+- Every capture runs **bare**, redirected to a file, with the command line echoed as **line 1** and `echo "CARGO_EXIT=$?"` appended; the file is inspected as a *separate* step. Never `| grep | tail` on a test run.
+- **`git commit --no-verify` is never used.** The pre-commit hook (fmt, clippy, wasm gate, rustdoc gate) takes **~15 minutes under load**, which exceeds the 10-minute foreground tool cap: every commit therefore runs inside a **single detached background chain** (one commit per background run, ~60-minute background budget), which writes its completion marker **last** and writes `REFUSED_AT=<stage>` to the marker on any failed gate. Do not poll for the chain with `pgrep -f` — wait for the completion notification or for the marker file to exist.
+- Stage **exact paths only** — never `git add -A`, never a directory. The working tree carries other agents' in-flight edits (at plan time: `.gitignore`, `crates/transync-core/src/pipeline/finalize.rs`, `docs/index.md`, two wave plans); none of them may ride a Task 8 commit. If a workspace run fails in files outside this task's touch set, that is `REFUSED_AT=workspace-foreign`: report it, do not fix or revert another agent's work.
+- `crates/transync/tests/cancellation.rs` is load-flaky (ticket `d41782`): if it trips, preserve the red capture under a `-LOADFLAKE-` name, re-run once, report **both** files, and never adjust the assertion.
+- **No `_ =>` catch-all and no `matches!(x, Variant)` over this crate's enums** (`TagToken`, `BlankLinePolicy`) anywhere in the crate — the carve-out is by *enum ownership* (`char`, `u8`, `AttrState`, `Cow` are not this crate's exhaustible enums), **not** by test position; there is no test-code carve-out. The rewritten `Outside` arm below keeps every `u8` arm named anyway, including the quote and `=` arms the fixes are about.
+- **`regenerate_goldens` may be run in this task — the first task in the wave where that is true.** It is `#[ignore]`d **and** interlocked on `TRANSYNC_REGEN_GOLDENS=1` (Task 4 Step 0). It runs exactly twice here: once to bless the *broken* behaviour after the corpus learns the gap (Step 2), once to re-bless after the full fix (Step 9) — and the second bless is preceded by reviewing the red pin's diff, never used to avoid reviewing it. Both resulting diffs are reported.
+- Korean `*.ko.*` siblings (including the `.ko.txt` files beside the goldens) are out of scope: never read, edit, stage, or regenerate them — the owner handles them. Exact-path staging is what keeps them out of every commit.
+
+- [ ] **Step 0: Preconditions — verify the five things this task is told not to assume.** All read-only; capture the session in `/Volumes/Temp/claude/ti490d97-wave0/gate/t8-preflight.txt` (append each command's output under its echoed command line).
+  1. **The ticket is open and unclaimed, and the ruling is on it.** `ti show 549b20` — expected `Status: open`, `State: new`, tags including `490d97` and `owner-decision`, and the owner's 2026-08-21 ruling comment attached (option 1; the `Skip`-token sub-choice; the two deliberately-unfixed divergences with their measurements). If the ruling comment is absent, the ticket is closed, or another agent holds it, STOP.
+  2. **The corpus is blind to the class.** In `crates/transync-html/tests/token_stream_pin.rs`, read the twelve `EDGE_CASES` entries and confirm: no entry contains a `"` or `'` reachable in `AttrState::Outside` (`script-raw-text`'s quotes sit inside raw-text content, which `raw_until` skips byte-by-byte and never feeds to the attribute loop; `unquoted-slash` has no quotes at all; the two doctypes take the bogus-comment branch and never reach the attribute loop), no entry has a `=` in attribute-name position (every `=` follows a consumed name), and no entry has a tag without a closing `>`. Also `grep -c 'stray-' crates/transync-html/tests/token_stream_pin.rs` — expected `0`.
+  3. **The three fixtures are equally blind**, so their goldens cannot move:
+```bash
+for f in crates/transync/tests/fixtures/scn-15-html-blocks.md \
+         crates/transync/tests/fixtures/scn-14-full.md \
+         crates/transync/tests/fixtures/reader-honesty.md; do
+  echo "== $f"
+  perl -0777 -ne 'while (/<[A-Za-z][^>]*["\x27=][^>]*>/gs) { my $t = $&; $t =~ s/\n/\\n/g; print "  TAGQ: $t\n" }' "$f"
+done
+```
+  Expected: exactly three `TAGQ:` lines — `<div align="center">` (twice) and `<div class="note">` — every quote preceded by `=` and every `=` preceded by a name, i.e. the paths the fixes do not touch. Any other hit is a STOP: the fixture corpus changed since this task was planned, and the golden-movement prediction below is void until re-derived.
+  4. **`tag_inventory` filters `Skip` and the fix sites are byte-intact.** In `crates/transync-html/src/lib.rs`: `grep -n 'TagToken::Skip { .. } => None'` — exactly one hit, inside `tag_inventory`; `grep -c 'has_attr_name'` — expected `0` (the bit does not exist yet); and read the `AttrState::Outside` arm and the post-attribute-loop exit directly, confirming they still read `b'"' | b'\'' => { attr = AttrState::Quoted(c); self_closing = false; }`, `b'=' => { attr = AttrState::BeforeValue; self_closing = false; }`, and `break; // unterminated tag: leave as-is`. If either site has drifted from the shapes quoted in the Interfaces block, STOP and re-derive the edits before writing anything.
+  5. **DCR-0032 is committed** (`796a97b`, since amended by `63bcbc0`) **with its final section on disk**: `grep -n '^## Migration / follow-up' docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md` — expected one hit. Step 12 appends after that section's content; it does not depend on any other wording in the file.
+  6. `mkdir -p /Volumes/Temp/claude/ti490d97-wave0/gate`.
+
+- [ ] **Step 1: Teach the corpus the blind spot — all three constructions in one commit.** In `crates/transync-html/tests/token_stream_pin.rs`, four edits: the corpus, its doc comment, and the two re-bless prohibitions (module doc, hatch doc) that would otherwise contradict Step 9's sanctioned second bless.
+  1. Append the three constructions at the end of `EDGE_CASES`, immediately before the closing `];` — the two from ti `549b20`'s write-up plus the stray-`=` construction the coordinator measured:
+```rust
+    ("stray-quote-bare", "<div \"> <p data-sync-id=\"v\">x</p>"),
+    ("stray-quote-doubled", "<div a=\"x\"\" data-sync-id=\"v\">y</div>"),
+    ("stray-equals", "<div =\"> data-sync-id=\"v\">x</div>"),
+];
+```
+  2. The doc comment above `EDGE_CASES` currently opens with a sentence the new entries would make false (`Every one tokenizes the same way before and after wave 0…`). Scope it to the entries it was written about, and append the two-bless protocol. Replace the first paragraph:
+```rust
+/// The regions the R0002-* / R0003-* incidents were about, plus the two
+/// doctype spellings, plus (task 8) the three stray-markup constructions
+/// of ti 549b20. The twelve wave-0-era entries tokenize the same way
+/// before and after wave 0's token change, which is what made this golden
+/// a valid before/after comparison for that change.
+```
+  and append, after the existing `<![CDATA[…]]>` paragraph (the one ending `their tokenization does not move either.`):
+```rust
+///
+/// The three `stray-*` entries are different in kind (ti 549b20, task 8):
+/// they are the corpus learning a blind spot. Until task 8 no entry held a
+/// bare quote in attribute position, a stray `=` in attribute-name
+/// position, or an unterminated tag, so the pin could not see the
+/// scanner's stray-markup divergences from a real browser. Their goldens
+/// are blessed twice, deliberately: the commit that adds them blesses the
+/// BROKEN scanner's behaviour — empty stream, input passed through the
+/// balancer unchanged — and the fix re-blesses them through the same
+/// interlocked hatch, so the diff between the two blessings is the
+/// reviewable record of exactly how tokenization changed. Unlike every
+/// entry above, they exist because their tokenization moved inside wave 0.
+```
+  3. **The module doc's re-bless prohibition names its one sanctioned exception** — as written ("If the pin goes red … do not re-bless the golden") it contradicts Step 9, where the corpus is unchanged, the scanner moved, and the red pin is deliberately re-blessed. In the `//!` module doc, replace:
+```rust
+//! change was not inert — do not re-bless the golden, find out which region
+//! moved.**
+```
+  with:
+```rust
+//! change was not inert — do not re-bless the golden, find out which region
+//! moved.** The one sanctioned exception is a deliberate, reviewed tokenizer
+//! change landed through the two-bless protocol the `stray-*` entries
+//! document (ti 549b20, task 8): bless the broken behaviour first, fix,
+//! re-bless, and review the diff between the blessings as the record of the
+//! movement. The prohibition on blessing a red pin *instead of* reviewing it
+//! stands everywhere else.
+```
+  4. **The hatch's own doc admits the same bounded case** — "only when the corpus itself changes — never to turn a red pin green" forbids Step 9's second bless as written. On `regenerate_goldens`, replace:
+```rust
+/// deliberately, and only when the corpus itself changes — never to turn a
+/// red pin green:
+```
+  with:
+```rust
+/// deliberately, and only when the corpus itself changes or a deliberate,
+/// reviewed tokenizer change lands through the two-bless protocol (ti
+/// 549b20, task 8) — never to turn a red pin green as a shortcut past
+/// reviewing what moved:
+```
+
+- [ ] **Step 2: See the pin red for the right reason, then bless the broken behaviour.** Three foreground captures, each in the echoed-command-line-1 form.
+  1. The red — the corpus outgrew the golden:
+```bash
+echo 'cargo test -p transync-html --test token_stream_pin -- --test-threads=4' > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-corpus-red.txt
+cargo test -p transync-html --test token_stream_pin -- --test-threads=4 >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-corpus-red.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-corpus-red.txt
+```
+  Read the file separately. Expected: `CARGO_EXIT=101`, `0 passed; 2 failed; 1 ignored`, and the two failures for the *right* reasons — the token test on its anti-vacuity guard (`the golden does not cover the whole corpus — it was generated against a different FIXTURES/EDGE_CASES set`, left `15`, right `18`), the balanced test on `…/goldens/balanced/stray-quote-bare.txt should be readable: No such file or directory (os error 2)`. Any *other* failure shape means an entry above the new three moved — STOP.
+  2. The first bless, through the interlock (**sanctioned: the corpus itself changed** — the one legitimate reason the Task 2 notes name):
+```bash
+echo 'TRANSYNC_REGEN_GOLDENS=1 cargo test -p transync-html regenerate_goldens -- --ignored --test-threads=4' > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-bless1.txt
+TRANSYNC_REGEN_GOLDENS=1 cargo test -p transync-html regenerate_goldens -- --ignored --test-threads=4 >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-bless1.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-bless1.txt
+```
+  Expected: `CARGO_EXIT=0`, `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out` — Task 2 Step 3's shape note applies verbatim: `2 ignored` here would mean the generator did **not** run.
+  3. Inspect what the bless wrote — this is the moment the *broken* behaviour becomes a recorded fact:
+```bash
+git status --porcelain -- crates/transync-html/tests/goldens
+tail -9 crates/transync-html/tests/goldens/token-stream.txt | od -c | head -16
+cat crates/transync-html/tests/goldens/balanced/stray-quote-bare.txt
+cat crates/transync-html/tests/goldens/balanced/stray-quote-doubled.txt
+cat crates/transync-html/tests/goldens/balanced/stray-equals.txt
+```
+  Expected, exactly: `git status` shows ` M …/token-stream.txt`, `?? …/balanced/stray-quote-bare.txt`, `?? …/balanced/stray-quote-doubled.txt`, `?? …/balanced/stray-equals.txt` and **nothing else** (in particular no `.ko.txt` line and no pre-existing `balanced/*.txt` line — the generator rewrites those fifteen byte-identically). The tail of `token-stream.txt` is the three new sections with **empty** projections — `inventory:` and `stream:` each followed by one space and a newline (the `od` output makes the trailing spaces checkable):
+```text
+### stray-quote-bare
+inventory: 
+stream: 
+### stray-quote-doubled
+inventory: 
+stream: 
+### stray-equals
+inventory: 
+stream: 
+```
+  All three balanced files hold their input byte-verbatim, no trailing newline: `<div "> <p data-sync-id="v">x</p>`, `<div a="x"" data-sync-id="v">y</div>`, `<div ="> data-sync-id="v">x</div>` — the wholly-broken scanner emits **zero tokens** for each (the phantom quote state runs every one of them off EOF), so the balancer passes all three through untouched and the strip sees nothing. Then re-run the pin (same capture form, `t8-corpus-green.txt`): expected `CARGO_EXIT=0`, `2 passed; 0 failed; 1 ignored`.
+
+- [ ] **Step 3: Commit A — the corpus learning a gap is its own reviewable act.** One detached background chain, one commit, marker written last:
+```bash
+cd /Volumes/Common/QJoon/transync || exit 1
+G=/Volumes/Temp/claude/ti490d97-wave0/gate
+M="$G/t8-commitA.marker"
+mkdir -p "$G"; rm -f "$M"
+run() {
+  local stage="$1"; shift
+  echo "$*" > "$G/t8a-$stage.txt"
+  "$@" >> "$G/t8a-$stage.txt" 2>&1
+  echo "CARGO_EXIT=$?" >> "$G/t8a-$stage.txt"
+  [ "$(tail -n 1 "$G/t8a-$stage.txt")" = "CARGO_EXIT=0" ] || { echo "REFUSED_AT=$stage" > "$M"; exit 1; }
+}
+run fmt cargo fmt --all
+run clippy cargo clippy --all-targets --all-features -- -D warnings
+run crate cargo test -p transync-html -- --test-threads=4
+git add crates/transync-html/tests/token_stream_pin.rs \
+  crates/transync-html/tests/goldens/token-stream.txt \
+  crates/transync-html/tests/goldens/balanced/stray-quote-bare.txt \
+  crates/transync-html/tests/goldens/balanced/stray-quote-doubled.txt \
+  crates/transync-html/tests/goldens/balanced/stray-equals.txt
+git commit -m "test(transync-html): the corpus learns the stray-markup blind spot before the scanner learns the fix
+
+EDGE_CASES gains the three constructions from ti 549b20 - a bare quote in
+attribute position, a doubled quote after a closed value, and a stray
+equals sign before a quote, the last one measured in headless Chromium -
+and the goldens are blessed from the scanner as it stands, which is
+BROKEN on all three: empty token stream, input passed through the
+balancer unchanged, planted sync attribute invisible to the strip.
+Blessing the broken behaviour first is the point: the fix re-blesses in
+a later commit, and the diff between the two blessings is the reviewable
+record of exactly how tokenization changed.
+
+TRACE: ti 490d97 wave 0
+TRACE: ti 549b20
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" > "$G/t8a-commit.txt" 2>&1
+echo "COMMIT_EXIT=$?" >> "$G/t8a-commit.txt"
+[ "$(tail -n 1 "$G/t8a-commit.txt")" = "COMMIT_EXIT=0" ] || { echo "REFUSED_AT=pre-commit-hook" > "$M"; exit 1; }
+echo "COMPLETED=t8-commitA COMMIT=$(git rev-parse HEAD)" > "$M"
+```
+Expected: the marker reads `COMPLETED=t8-commitA COMMIT=<hash>`; `t8a-crate.txt` shows `62 passed` for the lib and `2 passed; 1 ignored` for the pin. If the marker reads `REFUSED_AT=…`, read that stage's capture, fix the cause, re-run the whole chain — never `--no-verify`.
+
+- [ ] **Step 4: Write the nine red-first tests.** All in `crates/transync-html/src/lib.rs`, each in the module that owns its consumer. **Change no existing assertion.** One of the nine — the strip's content-preservation test — is *vacuously green* until Step 6 and earns its red at the midpoint; that is stated on the test and re-stated in Step 5, so nobody mistakes the sequencing for an error.
+  1. In `mod token_tests` (after `skip_tokens_are_invisible_to_both_shipped_consumers`, before the `skips` helper):
+```rust
+    /// ti 549b20: HTML's before-attribute-name / attribute-name states make
+    /// a quote not preceded by `=` part of the attribute NAME. Opening a
+    /// phantom quoted value here desynchronized the scanner from every
+    /// browser and hid the rest of the document from every consumer.
+    #[test]
+    fn a_bare_quote_in_a_tag_is_a_name_byte_not_a_value_opener() {
+        let html = "<div \">x";
+        let mut opens: Vec<(String, (usize, usize))> = Vec::new();
+        for token in scan_tags(html) {
+            if let TagToken::Open { name, span, .. } = token {
+                opens.push((name, span));
+            }
+        }
+        assert_eq!(opens.len(), 1, "one open tag: {opens:?}");
+        assert_eq!(opens[0].0, "div");
+        assert_eq!(&html[opens[0].1.0..opens[0].1.1], "<div \">");
+    }
+
+    /// ti 549b20, measured in headless Chromium: a stray `=` in
+    /// before-attribute-name state STARTS an attribute named `=`, and the
+    /// quote after it joins that NAME — no value state is entered, so the
+    /// browser ends this tag at the FIRST `>`. The ordinary `name=value`
+    /// shape reaches `=` from a consumed name and still opens the value.
+    #[test]
+    fn a_stray_equals_does_not_open_a_value() {
+        let html = "<div =\"> data-sync-id=\"v\">x</div>";
+        let mut opens: Vec<(String, (usize, usize))> = Vec::new();
+        for token in scan_tags(html) {
+            if let TagToken::Open { name, span, .. } = token {
+                opens.push((name, span));
+            }
+        }
+        assert_eq!(opens.len(), 1, "one open tag: {opens:?}");
+        assert_eq!(&html[opens[0].1.0..opens[0].1.1], "<div =\">");
+        // The ordinary shape is untouched: `=` after a NAME opens the
+        // value, and a `>` inside that value stays data.
+        let ok = "<div a=\">\" b>x";
+        let spans: Vec<(usize, usize)> = scan_tags(ok)
+            .into_iter()
+            .filter_map(|t| match t {
+                TagToken::Open { span, .. } => Some(span),
+                TagToken::Close { .. } | TagToken::Skip { .. } => None,
+            })
+            .collect();
+        assert_eq!(spans.len(), 1);
+        assert_eq!(&ok[spans[0].0..spans[0].1], "<div a=\">\" b>");
+    }
+
+    /// ti 549b20: the old exit left the document loop with no token, so a
+    /// caller could not tell a passed-over suffix from a scanned one. A
+    /// browser abandons a tag truncated at EOF — no element, no attributes —
+    /// and the scanner now says so in the stream.
+    #[test]
+    fn an_unterminated_tag_is_a_skip_to_eof_not_a_silent_abort() {
+        let html = "<p>a</p><div class=\"x";
+        assert_eq!(skips(html), vec![(8, 21)]);
+        assert_eq!(&html[8..21], "<div class=\"x");
+        // The ledger is unaffected by construction: `tag_inventory` filters
+        // `Skip` out, so the region never mints an inventory entry.
+        assert_eq!(tag_inventory(html), vec!["p", "/p"]);
+    }
+```
+  2. In `mod extent_tests` (after `the_walk_is_shared_with_the_balancer`):
+```rust
+    /// ti 549b20. `<div ">` is a complete open tag — the quote is a name
+    /// byte — and it minted nothing before the fix because the scanner
+    /// aborted the whole scan instead.
+    #[test]
+    fn a_stray_quote_tag_mints_an_extent_and_an_unterminated_tag_does_not() {
+        let html = "<div \"> <p>x</p>";
+        let ex = element_extents(html);
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["div", "p"]);
+        assert!(ex[0].close.is_none(), "the div is unclosed at EOF");
+        assert_eq!(ex[0].content_end, html.len());
+        // A tag with no `>` at all is a Skip: no element, exactly as a
+        // browser abandons it. An intake caller sees the passed-over region
+        // in the token stream, not a phantom element here.
+        assert!(element_extents("<div class=\"x").is_empty());
+    }
+```
+  3. In `mod strip_tests` (after `stripping_never_changes_the_tag_inventory`):
+```rust
+    /// ti 549b20, measured: DOMPurify 3.2.6 (the vendored copy) sanitizes
+    /// this to `<div> <p data-sync-id="v">x</p></div>` — a live P#v anchor —
+    /// while the pre-fix scanner saw zero tokens and stripped nothing.
+    #[test]
+    fn a_stray_quote_cannot_hide_a_planted_sync_attr() {
+        let html = "<div \"> <p data-sync-id=\"v\">x</p>";
+        assert_eq!(strip_reserved_sync_attrs(html), "<div \"> <p>x</p>");
+    }
+
+    /// ti 549b20, measured: DOMPurify keeps this plant as a live DIV#v. The
+    /// stray quote after the closed value is a name byte, so the scanner now
+    /// reads the tag the way the browser does and the strip reaches the
+    /// plant.
+    #[test]
+    fn a_doubled_quote_cannot_hide_a_planted_sync_attr() {
+        let html = "<div a=\"x\"\" data-sync-id=\"v\">y</div>";
+        assert_eq!(strip_reserved_sync_attrs(html), "<div a=\"x\"\">y</div>");
+    }
+
+    /// ti 549b20, measured in headless Chromium: the browser makes one
+    /// attribute named `="`, ends the div at the FIRST `>`, and paints
+    /// ` data-sync-id="v">x` as TEXT — live_sync_ids is empty. The strip
+    /// must never delete bytes a browser renders. This test is vacuously
+    /// green against the wholly-broken scanner (zero tokens, borrow); its
+    /// red arrives at the task's midpoint, where fixing only the quote and
+    /// unterminated-tag divergences turns the bypass into a DELETION — a
+    /// content mutation, not a bypass — which is exactly why the stray-`=`
+    /// arm is fixed in the same task.
+    #[test]
+    fn text_the_browser_paints_is_never_cut_by_the_strip() {
+        let html = "<div =\"> data-sync-id=\"v\">x</div>";
+        assert_eq!(strip_reserved_sync_attrs(html), html);
+    }
+```
+  4. In `mod balance_tests` (after `a_slash_outside_any_attribute_value_still_self_closes`):
+```rust
+    /// ti 549b20, measured against the vendored DOMPurify 3.2.6: a browser
+    /// parses `<div ">` as an open div and the sanitized DOM closes it at
+    /// fragment end. The old scanner saw zero tokens here and returned the
+    /// input unchanged — disagreeing with the DOM this function exists to
+    /// protect.
+    #[test]
+    fn a_stray_quote_no_longer_hides_an_unclosed_div_from_the_balancer() {
+        assert_eq!(
+            balance_fragment("<div \"> <p>x</p>"),
+            "<div \"> <p>x</p></div>"
+        );
+        // An unterminated tag is a Skip, not structure: nothing to balance,
+        // before the fix and after it.
+        assert_eq!(balance_fragment("<p>a</p><div "), "<p>a</p><div ");
+    }
+```
+  5. In `mod inventory_tests` (after `translating_text_that_looks_like_a_digit_tag_preserves_the_tag_inventory`):
+```rust
+    /// ti 549b20: the inventory is the layer-3 ledger, and the Skip-to-EOF
+    /// token must be filtered by construction — verified here rather than
+    /// assumed, because a phantom entry there fails good translations.
+    #[test]
+    fn the_ledger_never_carries_a_skipped_suffix() {
+        assert_eq!(
+            tag_inventory("<div \"> <p data-sync-id=\"v\">x</p>"),
+            vec!["div", "p", "/p"]
+        );
+        assert_eq!(tag_inventory("<p>a</p><div class=\"x"), vec!["p", "/p"]);
+    }
+```
+
+- [ ] **Step 5: Run them and see exactly eight fail.**
+```bash
+echo 'cargo test -p transync-html --lib -- --test-threads=4' > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-red.txt
+cargo test -p transync-html --lib -- --test-threads=4 >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-red.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-red.txt
+```
+Read the file separately. Expected: `CARGO_EXIT=101`, `test result: FAILED. 63 passed; 8 failed` (62 existing + the vacuously-green preservation test pass; eight of the nine new tests fail), each failure for its predicted reason — these are runtime assertion failures, not compile errors, because every function already exists:
+  - `token_tests::a_bare_quote_in_a_tag_is_a_name_byte_not_a_value_opener` — `one open tag: []` (the old scanner enters `Quoted`, runs to EOF, aborts: zero tokens).
+  - `token_tests::a_stray_equals_does_not_open_a_value` — `one open tag: []` (same abort: the phantom `Quoted` from the old quote arm re-opens on the quote after `v` and runs off EOF).
+  - `token_tests::an_unterminated_tag_is_a_skip_to_eof_not_a_silent_abort` — left `[]`, right `[(8, 21)]` (no `Skip` exists on the abort path).
+  - `extent_tests::a_stray_quote_tag_mints_an_extent_and_an_unterminated_tag_does_not` — left `[]`, right `["div", "p"]`.
+  - `balance_tests::a_stray_quote_no_longer_hides_an_unclosed_div_from_the_balancer` — left `"<div \"> <p>x</p>"` (unchanged), right with the appended `</div>`.
+  - `inventory_tests::the_ledger_never_carries_a_skipped_suffix` — left `[]`, right `["div", "p", "/p"]`.
+  - `strip_tests::a_stray_quote_cannot_hide_a_planted_sync_attr` — left is the input byte-unchanged, plant intact.
+  - `strip_tests::a_doubled_quote_cannot_hide_a_planted_sync_attr` — left is the input byte-unchanged, plant intact.
+  And `strip_tests::text_the_browser_paints_is_never_cut_by_the_strip` **passes — vacuously**: the wholly-broken scanner emits zero tokens for its input, so the strip borrows. Its non-vacuous red is Step 6's midpoint capture; its anti-vacuity moment is there, not here. Any *ninth* failure, or any of the eight failing differently, is a STOP — the scanner or a consumer is not in the state the plan derived from.
+
+- [ ] **Step 6: The ruled pair — and the midpoint capture that proves the third edit belongs here.** Two edits in `crates/transync-html/src/lib.rs`, exactly the two lines the ruling shows, then a run whose red is evidence.
+  1. **The quote arm.** In `scan_tags`, in the `AttrState::Outside` match, replace:
+```rust
+                    b'"' | b'\'' => {
+                        attr = AttrState::Quoted(c);
+                        self_closing = false;
+                    }
+```
+  with:
+```rust
+                    b'"' | b'\'' => self_closing = false,
+```
+  (Step 7 rewrites this whole arm again, comments included — this intermediate form exists to measure the ruled pair in isolation.)
+  2. **The unterminated exit.** Still in `scan_tags`, replace:
+```rust
+        if j >= bytes.len() {
+            break; // unterminated tag: leave as-is
+        }
+```
+  with:
+```rust
+        if j >= bytes.len() {
+            // ti 549b20: an unterminated tag runs to EOF — there are no
+            // bytes past it by definition — but the old bare `break` left
+            // the DOCUMENT loop with no token, so a caller could not tell
+            // a passed-over region from a scanned one. Name it instead: a
+            // browser abandons a tag truncated at EOF (no element, no
+            // attributes), so `Skip` — recognized and stepped over, not
+            // markup — is exactly what it is.
+            tokens.push(TagToken::Skip {
+                span: (start, bytes.len()),
+            });
+            break;
+        }
+```
+  3. **The midpoint run — capture it; its red is the in-task justification for Step 7:**
+```bash
+echo 'cargo test -p transync-html --lib -- --test-threads=4' > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-mid-red.txt
+cargo test -p transync-html --lib -- --test-threads=4 >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-mid-red.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-mid-red.txt
+```
+  Read the file separately. Expected: `CARGO_EXIT=101`, `test result: FAILED. 69 passed; 2 failed` — the seven bypass-class tests all green, and exactly these two red:
+  - `strip_tests::text_the_browser_paints_is_never_cut_by_the_strip` — **left `"<div =\">>x</div>"`**: with only the ruled pair applied, the scanner ends the stray-`=` tag at the *second* `>` (the phantom value swallowed the first), and the strip **deleted** ` data-sync-id="v"` — bytes headless Chromium renders as text — leaving the swallowed first `>` behind beside the tag's own, hence the doubled `>>`. The bypass became a content mutation. This capture is the measured, reviewer-checkable form of the scope argument in the Interfaces block: stopping at the ruled pair leaves the same `Outside` arm browser-divergent in a way that now *edits what the reader sees*, which invariant 6 forbids.
+  - `token_tests::a_stray_equals_does_not_open_a_value` — left `"<div =\"> data-sync-id=\"v\">"` (span `(0, 26)`), right `"<div =\">"`: the tag end overshoots the browser's by exactly the swallowed `>`.
+  Preserve `t8-mid-red.txt`; it rides the final report and the DCR amendment cites it.
+
+- [ ] **Step 7: The `=` arm — HTML's before-attribute-name rule lands, and the docs the fixes force.** All in `crates/transync-html/src/lib.rs`. This step rewrites the whole `Outside` arm, subsuming Step 6's quote edit — the two-stage sequence existed to capture the midpoint, not because the arm is edited twice by accident.
+  1. **The state bit.** Replace:
+```rust
+        let mut attr = AttrState::Outside;
+        let mut self_closing = false;
+```
+  with:
+```rust
+        let mut attr = AttrState::Outside;
+        let mut self_closing = false;
+        // ti 549b20: has the current attribute consumed a NAME byte since
+        // the last boundary (tag name, `/`, or a completed value)? HTML
+        // opens a value on `=` only from the attribute-name /
+        // after-attribute-name states; a stray `=` in before-attribute-name
+        // STARTS an attribute named `=` instead, and a quote after it joins
+        // that name. This bit tells the two apart — whitespace does not
+        // reset it (after-attribute-name), a completed value or a `/` does
+        // (after-attribute-value-quoted and self-closing-start-tag both
+        // reconsume in before-attribute-name).
+        let mut has_attr_name = false;
+```
+  2. **The whole `Outside` arm.** Replace the arm as Step 6 left it (quote arm `b'"' | b'\'' => self_closing = false,`, `=` arm entering `BeforeValue` unconditionally) with:
+```rust
+                AttrState::Outside => match c {
+                    b'>' => break,
+                    // ti 549b20: a bare quote is a parse error that joins
+                    // the attribute NAME in a browser — never a value
+                    // opener. Before the fix it opened a phantom Quoted
+                    // state, and one stray quote ran the scan off EOF and
+                    // hid everything after it from every consumer.
+                    b'"' | b'\'' => {
+                        self_closing = false;
+                        has_attr_name = true;
+                    }
+                    b'=' => {
+                        self_closing = false;
+                        if has_attr_name {
+                            // attribute-name / after-attribute-name: `=`
+                            // ends the name and opens the value. The
+                            // ordinary `name=value` shape lands here.
+                            attr = AttrState::BeforeValue;
+                            has_attr_name = false;
+                        } else {
+                            // before-attribute-name: `=` is a parse error
+                            // that STARTS an attribute whose name is `=`
+                            // (measured in headless Chromium: `<div =">`
+                            // is one attribute named `="` and the tag ends
+                            // at the first `>`). No value state — the
+                            // quote after it joins the NAME.
+                            has_attr_name = true;
+                        }
+                    }
+                    b'/' => {
+                        // self-closing-start-tag: anything but `>`
+                        // reconsumes in before-attribute-name, so the
+                        // name track resets with it.
+                        self_closing = true;
+                        has_attr_name = false;
+                    }
+                    _ if c.is_ascii_whitespace() => self_closing = false,
+                    _ => {
+                        self_closing = false;
+                        has_attr_name = true;
+                    }
+                },
+```
+  The `BeforeValue`, `Quoted` and `Unquoted` arms are untouched: `has_attr_name` is already `false` whenever they run, because entering `BeforeValue` reset it. (This match is over `u8`, not one of this crate's enums, so its `_` arms are exempt from the catch-all constraint; every byte the fixes are about is a named arm regardless.) The split of the old `_ => self_closing = false` into a whitespace guard and a name-byte arm changes nothing for `self_closing` — both still clear it — and only whitespace's *non*-participation in the name track is new.
+  3. **`AttrState::Outside`'s variant doc** gains the new facts. Replace:
+```rust
+    /// Between attributes, or after a quoted value: `/` here is a marker.
+```
+  with:
+```rust
+    /// Between attributes, or after a quoted value: `/` here is a marker,
+    /// a bare `"` / `'` is an ordinary name byte, and `=` opens a value
+    /// only after a consumed attribute name — a stray `=` starts an
+    /// attribute NAMED `=` instead (ti 549b20; both measured against a
+    /// real browser).
+```
+  4. **`TagToken::Skip`'s doc** gains the fourth region. Replace its first sentence (`/// A region the scanner recognizes and steps over: a comment, a CDATA` … `or a bogus comment (`<!…>` / `<?…>`).`) with:
+```rust
+    /// A region the scanner recognizes and steps over: a comment, a CDATA
+    /// section (either terminator mode), a bogus comment (`<!…>` / `<?…>`),
+    /// or a tag left unterminated at EOF (ti 549b20 — a browser abandons a
+    /// tag cut off before its `>`, minting no element and no attributes, so
+    /// the bytes are a passed-over region, not markup).
+```
+  The rest of the variant doc (`It carries no name…`) stands as written.
+  5. **The strip's match-arm comment** stops claiming the bytes cannot exist. In `strip_reserved_sync_attrs`, replace:
+```rust
+            // A close tag carries no attribute list, and a skipped region is
+            // not markup at all: neither can hold a reserved name.
+```
+  with:
+```rust
+            // A close tag carries no attribute list. A skipped region —
+            // comment, CDATA, bogus comment, or a tag left unterminated at
+            // EOF (ti 549b20) — never mints an element in a browser, so
+            // reserved-name-shaped bytes inside one cannot become live
+            // attributes; leaving them unstripped is fail-safe, not an
+            // oversight.
+```
+  6. **The strip's fn doc** gains its malformed-markup posture, appended as a new paragraph after the `Only names are matched…` paragraph:
+```rust
+///
+/// Malformed markup is tokenized the way a browser tokenizes it where the
+/// two were measured to disagree (ti 549b20): a bare quote between
+/// attributes is a NAME byte, never a value opener; a stray `=` in
+/// attribute-name position STARTS an attribute named `=` rather than
+/// opening a value, so the strip neither misses a plant hidden behind one
+/// nor deletes text a browser paints after the tag's real end; and a tag
+/// left unterminated at EOF is a passed-over [`TagToken::Skip`] region a
+/// browser abandons. That exhausts the known divergences in the regions
+/// this fix touched; two remain one state earlier — HTML's tag-name state
+/// consumes `=` and quote bytes into the ELEMENT name until the first
+/// whitespace, where this scanner ends the name earlier, and HTML's
+/// end-tag-open state opens a bogus comment on `</` before a non-letter,
+/// where this scanner sees plain text and keeps tokenizing — both
+/// recorded in DCR-0032's 2026-08-21 amendment. Neither yields a
+/// live-anchor construction through the pane path: a diverging element
+/// name can never match a sanitizer's allowlist, and a browser mints no
+/// element at all from a bogus comment's interior.
+```
+  7. **`ElementExtent`'s struct doc** gains the sentence wave 6 will read as binding, appended after the existing `**Not every tag mints one.**` paragraph:
+```rust
+///
+/// **A truncated tag is not an element either.** A tag with no closing `>`
+/// before EOF is a [`TagToken::Skip`], not an `Open` (ti 549b20): it mints
+/// no extent, exactly as a browser abandons a tag cut off at EOF. An
+/// element whose open tag is complete but whose end tag never arrives is
+/// different — it still gets an extent with `close: None` and
+/// `content_end == html.len()`.
+```
+
+- [ ] **Step 8: Green in-crate — and the pin goes red. The red is the deliverable, capture it before touching the goldens.**
+```bash
+echo 'cargo test -p transync-html --lib -- --test-threads=4' > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-green.txt
+cargo test -p transync-html --lib -- --test-threads=4 >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-green.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-green.txt
+echo 'cargo test -p transync-html --test token_stream_pin -- --test-threads=4' > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-pin-red.txt
+cargo test -p transync-html --test token_stream_pin -- --test-threads=4 >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-pin-red.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-pin-red.txt
+```
+Read both separately. Expected: `t8-green.txt` — `CARGO_EXIT=0`, `test result: ok. 71 passed; 0 failed` (62 + the 9 from Step 4), **no pre-existing assertion edited**. `t8-pin-red.txt` — `CARGO_EXIT=101`, `0 passed; 2 failed; 1 ignored`: the token test's diff moving only in the three `stray-*` sections, and the balanced test failing for `stray-quote-bare` and **no other name** (`balance_fragment moved for \`stray-quote-bare\``). This red is the instrument reading the fix. It is evidence, not an obstacle — preserve the capture; it rides the final report.
+
+- [ ] **Step 9: Re-bless through the hatch, then review the diff as the evidence it exists to be.** The second sanctioned `regenerate_goldens` run:
+```bash
+echo 'TRANSYNC_REGEN_GOLDENS=1 cargo test -p transync-html regenerate_goldens -- --ignored --test-threads=4' > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-bless2.txt
+TRANSYNC_REGEN_GOLDENS=1 cargo test -p transync-html regenerate_goldens -- --ignored --test-threads=4 >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-bless2.txt 2>&1
+echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t8-bless2.txt
+git diff --name-only -- crates/transync-html/tests/goldens > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-golden-files.txt
+git diff -- crates/transync-html/tests/goldens > /Volumes/Temp/claude/ti490d97-wave0/gate/t8-golden-diff.txt
+```
+Then **review, against this exact prediction**:
+  1. `t8-golden-files.txt` holds **exactly two lines**:
+```text
+crates/transync-html/tests/goldens/balanced/stray-quote-bare.txt
+crates/transync-html/tests/goldens/token-stream.txt
+```
+  2. `t8-golden-diff.txt`'s hunks, in full — **only the `-`/`+` lines below are the prediction**; the real diff also carries `@@` hunk headers, up to three context lines reaching into the `### doctype-lower` section above the first hunk, and two `\ No newline at end of file` markers on the `stray-quote-bare` hunk (neither version of that file ends in a newline) — that dressing is mechanical and not part of the check. `token-stream.txt` — the file's final nine lines (the three new sections; nothing above them):
+```diff
+ ### stray-quote-bare
+-inventory: 
+-stream: 
++inventory: div|p|/p
++stream: O:div:false|O:p:false|C:p@29..33
+ ### stray-quote-doubled
+-inventory: 
+-stream: 
++inventory: div|/div
++stream: O:div:false|C:div@30..36
+ ### stray-equals
+-inventory: 
+-stream: 
++inventory: div|/div
++stream: O:div:false|C:div@27..33
+```
+  (`C:p@29..33` is `</p>` in `<div "> <p data-sync-id="v">x</p>`; `C:div@30..36` is `</div>` in `<div a="x"" data-sync-id="v">y</div>`; `C:div@27..33` is `</div>` in `<div ="> data-sync-id="v">x</div>`, whose open tag is the eight bytes `<div =">` ending at the **first** `>`, exactly where Chromium ends it — half-open byte offsets, derivable by hand from the three corpus strings.) `balanced/stray-quote-bare.txt` — one line changes, gaining the same `</div>` the measured DOMPurify DOM has:
+```diff
+-<div "> <p data-sync-id="v">x</p>
++<div "> <p data-sync-id="v">x</p></div>
+```
+  3. **The safety property, asserted, with a STOP attached.** `balanced/stray-quote-doubled.txt` and `balanced/stray-equals.txt` do **not** appear — both inputs carry an explicit `</div>` that closes the div the fixed scanner now sees, so the balancer changes nothing for either. And none of the fifteen wave-0-era entries (three fixtures + twelve edge cases) appears anywhere in either file: none contains a bare quote reachable in `Outside` state, a stray `=` in attribute-name position, or an unterminated tag (re-proved in Step 0), so their goldens **must not move**. If any pre-existing golden appears in `t8-golden-files.txt`, or any hunk in `token-stream.txt` sits outside the final nine lines, **that is a finding about the fix's blast radius, not a bad bless**: STOP, write `REFUSED_AT=golden-blast-radius` to `/Volumes/Temp/claude/ti490d97-wave0/gate/t8-commitB.marker`, and report which entry moved and how. Do not re-bless it away and do not commit.
+  4. Re-run the pin (capture as `t8-pin-green.txt`, same form): expected `CARGO_EXIT=0`, `2 passed; 0 failed; 1 ignored`.
+
+- [ ] **Step 10: Commit B — the three fixes, their tests, their docs, and the reviewed re-bless, in one commit.** One detached background chain (workspace run + ~15-minute hook fit the ~60-minute background budget), one commit, marker last:
+```bash
+cd /Volumes/Common/QJoon/transync || exit 1
+G=/Volumes/Temp/claude/ti490d97-wave0/gate
+M="$G/t8-commitB.marker"
+mkdir -p "$G"; rm -f "$M"
+run() {
+  local stage="$1"; shift
+  echo "$*" > "$G/t8b-$stage.txt"
+  "$@" >> "$G/t8b-$stage.txt" 2>&1
+  echo "CARGO_EXIT=$?" >> "$G/t8b-$stage.txt"
+  [ "$(tail -n 1 "$G/t8b-$stage.txt")" = "CARGO_EXIT=0" ] || { echo "REFUSED_AT=$stage" > "$M"; exit 1; }
+}
+ws() {
+  echo 'cargo test --workspace -- --test-threads=4' > "$G/$1"
+  cargo test --workspace -- --test-threads=4 >> "$G/$1" 2>&1
+  echo "CARGO_EXIT=$?" >> "$G/$1"
+  [ "$(tail -n 1 "$G/$1")" = "CARGO_EXIT=0" ]
+}
+run fmt cargo fmt --all
+run clippy cargo clippy --all-targets --all-features -- -D warnings
+run crate cargo test -p transync-html -- --test-threads=4
+if ! ws t8b-workspace.txt; then
+  if grep -q 'cancellation' "$G/t8b-workspace.txt"; then
+    # Ticket d41782: preserve the red, re-run once, report BOTH files.
+    # Never adjust the assertion.
+    mv "$G/t8b-workspace.txt" "$G/t8b-workspace-LOADFLAKE-1.txt"
+    ws t8b-workspace.txt || { echo "REFUSED_AT=workspace" > "$M"; exit 1; }
+  else
+    echo "REFUSED_AT=workspace" > "$M"; exit 1
+  fi
+fi
+git status --porcelain -- 'crates/*/tests/fixtures' > "$G/t8b-fixtures.txt"
+if [ -s "$G/t8b-fixtures.txt" ]; then echo "REFUSED_AT=fixtures" > "$M"; exit 1; fi
+git diff --name-only -- crates/transync-html/tests/goldens > "$G/t8b-golden-files.txt"
+if ! diff -q "$G/t8b-golden-files.txt" - <<'EOF' >/dev/null
+crates/transync-html/tests/goldens/balanced/stray-quote-bare.txt
+crates/transync-html/tests/goldens/token-stream.txt
+EOF
+then echo "REFUSED_AT=golden-blast-radius" > "$M"; exit 1; fi
+git add crates/transync-html/src/lib.rs \
+  crates/transync-html/tests/goldens/token-stream.txt \
+  crates/transync-html/tests/goldens/balanced/stray-quote-bare.txt
+git commit -m "fix(transync-html): AttrState::Outside aligns with the browser on quotes, stray equals, and unterminated tags
+
+Three scanner divergences from HTML lived in one state. A bare quote
+opened a phantom quoted value where a browser grows an attribute name -
+composed with the silent unterminated-tag abort, that was the strip
+bypass ti 549b20 measured through the vendored DOMPurify. And a stray
+equals sign entered the value state where a browser starts an attribute
+NAMED equals - measured in headless Chromium, which ends that tag at the
+first closing angle bracket and paints the rest as text. Fixing only the
+ruled pair converted the bypass into a strip that DELETES painted text,
+and the midpoint capture in the gate directory shows that red. As
+landed: a bare quote is a name byte, equals opens a value only after a
+consumed attribute name (has_attr_name is the bit that tells HTML's
+before-attribute-name state apart from attribute-name), and a tag with
+no closing angle bracket before EOF is pushed as TagToken::Skip spanning
+to end of input before the scan stops.
+
+The pin moved and was re-blessed with the diff reviewed: exactly the
+three stray-markup entries added in the previous commit, and nothing
+else - the fifteen pre-existing goldens are byte-identical. tag_inventory
+filters Skip by construction, so the layer-3 ledger is untouched;
+balance_fragment closes what the sanitized DOM closes; element_extents
+mints what the old scanner never saw, and a truncated tag mints none;
+the strip reaches both plants and no longer cuts what a browser paints.
+
+TRACE: ti 490d97 wave 0
+TRACE: ti 549b20
+TRACE: DCR-0032
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" > "$G/t8b-commit.txt" 2>&1
+echo "COMMIT_EXIT=$?" >> "$G/t8b-commit.txt"
+[ "$(tail -n 1 "$G/t8b-commit.txt")" = "COMMIT_EXIT=0" ] || { echo "REFUSED_AT=pre-commit-hook" > "$M"; exit 1; }
+echo "COMPLETED=t8-commitB COMMIT=$(git rev-parse HEAD)" > "$M"
+```
+Expected: `COMPLETED=t8-commitB COMMIT=<hash>`; `t8b-crate.txt` shows `71 passed` (lib) and `2 passed; 1 ignored` (pin). If a `t8b-workspace-LOADFLAKE-1.txt` exists, both workspace files go in the report. If the workspace stage fails in files this task never touched (other agents' in-flight edits are in the tree), that is `REFUSED_AT=workspace-foreign` territory: report it and stop; do not fix or revert their work.
+
+- [ ] **Step 11: File the remainder ticket — the two divergences that outlive the three-arm alignment.** With `Outside` fixed, two constructible divergences remain — the owner's 2026-08-21 ruling comment on ti `549b20` names both as deliberately unfixed, with measurements — and both live earlier in the tokenizer than the attribute machine this task aligned. **First, HTML's *tag name* state consumes every non-whitespace, non-`/`, non-`>` byte — `=` and quotes included — into the ELEMENT name until the first whitespace**, while the scanner's name loop stops at the first byte outside `[A-Za-z0-9:-]` and attribute-walks the rest. So `<divq"x=" data-sync-id="v">z` is, to a browser, an element *named* `divq"x="` carrying a **real** `data-sync-id` attribute — while the scanner reads tag `divq` and files the plant inside a phantom quoted value its `collect_reserved_attr_spans` walk never examines as a name, leaving it unstripped. Why this is a remainder and not a re-opened bypass: the pane path mounts through DOMPurify fail-closed, and a tag name that diverges *necessarily* contains a byte (`"`, `'`, `=`) no allowlisted element name has — the sanitizer drops the unknown element and its attributes die with it, so no live-anchor construction through the pane path is known. **Verify rather than trust that claim when picking the fix.** Secondary consequences: `balance_fragment` can omit a close the browser would add (or append one the browser reads as orphan junk), and `element_extents` mis-names the element. **Second, HTML's *end-tag-open* state has no counterpart in `scan_tags`**: `</` followed by a non-letter is a parse error that opens a **bogus comment** consuming to the first `>`, while the scanner's `j == name_start` fall-through treats those bytes as plain text and keeps scanning. Measured in headless Chromium:
+```text
+</1 <div>x  →  html "<!--1 <div-->x"  ·  elements []  ·  comments ["1 <div"]
+</ <div>x   →  html "<!-- <div-->x"   ·  elements []  ·  comments [" <div"]
+<div>x      →  html "<div>x</div>"    ·  elements ["DIV"]      (control)
+```
+  The browser creates **zero elements**; the scanner emits `Open{div}` — so `balance_fragment` would append a `</div>` the browser reads as orphan junk after the comment, and `element_extents` would mint a phantom extent wave 6 walks. This is the phantom-structure class (R0003-0066), *not* a bypass, and the strip direction is fail-safe: a plant in that region is comment interior a browser mints no element from. Fix shape, one shared surface (HTML's tag-open / end-tag-open / tag-name states): extend the scanner's tag-name loop to HTML's tag-name state — after the leading ASCII letter, consume every byte until whitespace, `/`, or `>` — and route `</` before a non-letter into the existing bogus-comment skip (the branch `<!` and `<?` already take) instead of the plain-text fall-through, with the same two-bless golden discipline as this task if the corpus gains entries. Write the body to `/Volumes/Temp/claude/ti490d97-wave0/t8-remainder-ticket.md` — title on line 1, then both divergences above with their measurements, the trace, the DOMPurify-drops-unknown-elements argument for the tag-name case, and the comment-interior fail-safe argument for the end-tag-open case. Then:
+```bash
+ti new -F /Volumes/Temp/claude/ti490d97-wave0/t8-remainder-ticket.md \
+  -g "490d97,finding,transync-html,security,scanner" --id-only
+```
+Record the printed id — Steps 12 and 14 cite it as `<remainder-id>`.
+
+- [ ] **Step 12: Amend DCR-0032 — dated, appended, in ADR-0003's house form — and give the changelog its Fixed entry.**
+  1. `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md`: append at the **end of the file**, after the final section's last line (locate `## Migration / follow-up` by heading; modify nothing above the append point). The amendment's `###` heading level is deliberate: as in ADR-0003's house form, an amendment nests under the record's final `##` section — here `## Migration / follow-up` — rather than opening a new top-level section. Substitute `<remainder-id>` from Step 11:
+```markdown
+
+### Amendment 2026-08-21 (ti 549b20) — the scanner aligns with the browser it was measured against, and an unterminated tag becomes a named region
+
+*Appended, not a rewrite. Everything above stands as written.*
+
+Wave 0 task 6's adversarial review broke `strip_reserved_sync_attrs` on a
+constructed input, the owner ruled on the fix, and task 8 landed it —
+plus one sibling divergence in the same scanner state, measured into
+scope during the task. Three tokenizer divergences, all in
+`AttrState::Outside`:
+
+- **A bare quote opened a phantom value.** HTML's tokenizer makes a quote
+  not preceded by `=` part of the attribute **name**; the scanner opened
+  a quoted value instead. One stray quote desynchronized its quote state
+  from every browser's.
+- **An unterminated tag aborted the whole scan.** The post-attribute-loop
+  `break` left the *document* loop, so every byte after the desync point
+  was invisible to the scanner — and to the strip. Measured through the
+  vendored DOMPurify 3.2.6: `<div "> <p data-sync-id="v">x</p>` kept a
+  live `P#v` anchor the strip never saw, while the well-formed control
+  was stripped correctly. That contrast was the finding.
+- **A stray `=` opened a value the browser never opens.** HTML's
+  *before attribute name* state makes `=` a parse error that **starts an
+  attribute named `=`**, and a following quote joins that name. Measured
+  in headless Chromium: `<div ="> data-sync-id="v">x</div>` parses as one
+  attribute named `="` with the tag ending at the **first** `>` and
+  ` data-sync-id="v">x` painted as text (`live_sync_ids` empty — not an
+  anchor bypass). A scanner that opens a value there swallows that `>`,
+  and the strip then deletes text a browser paints.
+
+The third fix is inside the ruling, not an expansion of it: the chosen
+option is "align `AttrState::Outside` with HTML", the `=` transition is
+that same arm, and the task's midpoint capture
+(`t8-mid-red.txt`, preserved with the wave's gate evidence) shows what
+stopping at the two previewed lines produces — the strip turning the
+bypass into a *deletion* of painted text, the content-mutation class
+invariant 6 forbids. Fixing one divergence in the arm while knowingly
+leaving a sibling would also have falsified this amendment's own
+rationale sentence, and the golden blast-radius window this task opens
+(corpus commit, re-bless, reviewed diff) would have had to open twice.
+
+The fix as landed: a bare quote in `Outside` is an ordinary name byte; a
+new `has_attr_name` bit distinguishes HTML's *before attribute name*
+state (stray `=` starts an attribute named `=`, no value state) from
+*attribute name* / *after attribute name* (`=` after a consumed name
+opens the value, the ordinary shape, unaffected); and a tag with no `>`
+before EOF is pushed as `TagToken::Skip { span: (start, len) }` before
+the scan stops — the passed-over region is named instead of silently
+dropped. Blast radius, per consumer: `tag_inventory` filters `Skip` by
+construction, so the layer-3 ledger is unaffected; `balance_fragment`
+now closes what a browser closes on stray-quote input (`<div "> …` gains
+the same `</div>` the sanitized DOM has) and is pinned unchanged on the
+other two constructions, whose divs close explicitly; `element_extents`
+mints the extents the old scanner never saw, and a truncated tag mints
+none — a browser abandons it; the strip reaches both planted attributes
+and no longer cuts bytes a browser paints.
+
+**The token-stream pin moved, deliberately, twice.** Task 8 first taught
+the corpus the blind spot — three `stray-*` entries blessed from the
+broken scanner, which emits zero tokens for all three — then fixed the
+scanner and re-blessed through the `TRANSYNC_REGEN_GOLDENS=1` hatch with
+the diff reviewed: exactly the three new entries moved in
+`token-stream.txt`, exactly one balanced golden moved
+(`stray-quote-bare`), and the fifteen pre-existing goldens are
+byte-identical. The corpus learning a gap and the fix are separate
+commits, so the diff between the two blessings is itself the record of
+how tokenization changed.
+
+**Two remainder divergences outlive this amendment, filed together
+rather than fixed** (ti `<remainder-id>`; the owner's ruling comment on
+ti 549b20 names both as deliberately unfixed). First, HTML's *tag name*
+state consumes `=` and quote bytes into the element name until the first
+whitespace, where this scanner ends the name at the first byte outside
+`[A-Za-z0-9:-]` — so an element a browser names `divq"x="` can carry a
+real attribute the scanner files inside a phantom value. Second, HTML's
+*end-tag-open* state makes `</` before a non-letter a parse error that
+opens a bogus comment consuming to the first `>`, where this scanner's
+name fall-through treats the bytes as plain text and keeps tokenizing
+markup a browser never mints.
+
+  **Both measured while landing this task, so the record states them
+  rather than defers them.** Parsed raw, `<divq"x=" data-sync-id="v">z`
+  yields an element `DIVQ"X="` carrying a **real** `data-sync-id` — a
+  live anchor in an unsanitized DOM. Through the vendored DOMPurify the
+  whole element is gone (`after_sanitize: "z"`, zero live ids), because
+  its name can never match an allowlisted tag. So no live-anchor
+  construction through the pane path is known — **and the safety is the
+  sanitizer dropping an unknown element**, the same mechanism behind the
+  custom-element collision measured in wave 6's pane plan (an anchor
+  self-injected into an unknown element dies in the DOMPurify mount),
+  here working in our favour. That remainder is therefore safe *only
+  while every mount sanitizes*, which panes do, fail-closed by design.
+  And in headless Chromium `</1 <div>x` parses to a comment `1 <div`
+  plus text `x` — zero elements — while the scanner emits `Open{div}`:
+  phantom structure (the R0003-0066 class), not a bypass, fail-safe in
+  the strip direction because a plant there is comment interior a
+  browser mints nothing from. The ticket states both dependencies
+  rather than implying either divergence is harmless in itself.
+
+The section *Two things added, one of them with no caller yet* above
+describes `strip_reserved_sync_attrs`' guarantee as it stood at wave-0
+landing; this amendment is the record that the guarantee was false for
+stray-markup constructions until 2026-08-21, and of what made it true.
+```
+  2. `CHANGELOG.md`: under `## [Unreleased]`, after the final entry of the `### Added` block Task 7 wrote (immediately before the `## [0.4.0]` heading), insert — or, if a `### Fixed` subsection already exists there by the time this runs, append the bullet to it:
+```markdown
+
+### Fixed
+
+- `scan_tags` tokenizes malformed attribute regions the way a browser does (ti `549b20`; DCR-0032 amendment 2026-08-21): a bare quote in attribute-name position is a name byte instead of opening a phantom quoted value; a stray `=` starts an attribute named `=` instead of opening a value, so the strip neither misses a plant behind one nor deletes text a browser paints; and a tag left unterminated at EOF becomes a `TagToken::Skip` spanning to end of input instead of a silent whole-suffix abort. One stray byte could previously desynchronize the scanner and hide everything after it from `tag_inventory`, `balance_fragment`, `element_extents` and `strip_reserved_sync_attrs` — including a planted `data-sync-id` that DOMPurify keeps as a live anchor.
+```
+
+- [ ] **Step 13: Commit C — the records.** One detached background chain (docs-only, but the hook still runs its ~15 minutes), one commit, marker last. Substitute `<remainder-id>`:
+```bash
+cd /Volumes/Common/QJoon/transync || exit 1
+G=/Volumes/Temp/claude/ti490d97-wave0/gate
+M="$G/t8-commitC.marker"
+mkdir -p "$G"; rm -f "$M"
+git add docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md CHANGELOG.md
+git commit -m "docs: DCR-0032 records what the stray-markup divergences cost and what closed them
+
+The dated amendment carries ti 549b20's finding, the owner's ruling, the
+measured stray-equals sibling and why fixing it sits inside the ruling
+rather than beside it, the midpoint capture that shows the ruled pair
+alone turning the bypass into a deletion of painted text, the two-bless
+golden protocol, the blast radius on the four scan_tags consumers, and
+the two remainder divergences in the tag-name and end-tag-open states -
+filed together as <remainder-id> rather than fixed, with the sanitizer
+and comment-interior arguments the ticket tells its taker to verify
+rather than trust. The changelog gains the
+Fixed entry under Unreleased.
+
+TRACE: ti 490d97 wave 0
+TRACE: ti 549b20
+TRACE: DCR-0032
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" > "$G/t8c-commit.txt" 2>&1
+echo "COMMIT_EXIT=$?" >> "$G/t8c-commit.txt"
+[ "$(tail -n 1 "$G/t8c-commit.txt")" = "COMMIT_EXIT=0" ] || { echo "REFUSED_AT=pre-commit-hook" > "$M"; exit 1; }
+echo "COMPLETED=t8-commitC COMMIT=$(git rev-parse HEAD)" > "$M"
+```
+
+- [ ] **Step 14: Close ti `549b20` with the evidence that closes it, and assemble the report.**
+  1. Confirm the ticket is still open and unclaimed by anyone else (`ti show 549b20` — the ti-finish discipline: verify the work, confirm ownership, then close).
+  2. Write the closure evidence to `/Volumes/Temp/claude/ti490d97-wave0/t8-close-evidence.md`, substituting the three commit hashes from the markers and `<remainder-id>`:
+```markdown
+Closed by ti 490d97 wave 0 task 8. The ruled pair landed exactly as
+written, plus the sibling `=` divergence in the same `AttrState::Outside`
+arm, measured into scope (headless Chromium) and fixed in the same task.
+
+Fix (commit <B>): a bare quote in `Outside` is an ordinary name byte; a
+stray `=` starts an attribute named `=` instead of opening a value
+(`has_attr_name` distinguishes HTML's before-attribute-name state from
+attribute-name, so ordinary `name=value` is untouched); a tag with no
+`>` before EOF is pushed as `TagToken::Skip { span: (start, len) }`
+before the scan stops.
+
+Evidence:
+- strip_tests::a_stray_quote_cannot_hide_a_planted_sync_attr and
+  strip_tests::a_doubled_quote_cannot_hide_a_planted_sync_attr — red
+  before the fix (both inputs came back byte-unchanged, plants intact),
+  green after: `<div "> <p data-sync-id="v">x</p>` -> `<div "> <p>x</p>`
+  and `<div a="x"" data-sync-id="v">y</div>` -> `<div a="x"">y</div>`.
+- strip_tests::text_the_browser_paints_is_never_cut_by_the_strip —
+  `<div ="> data-sync-id="v">x</div>` survives byte-identical, matching
+  Chromium (one attribute named `="`, tag ends at the first `>`, the
+  plant is painted text, live_sync_ids empty). The midpoint capture
+  t8-mid-red.txt shows the ruled pair alone DELETING those painted
+  bytes, leaving `<div =">>x</div>` — the swallowed first `>` left
+  behind beside the tag's own — the measured reason the third arm was
+  fixed here and not deferred.
+- The token-stream pin moved and the movement was reviewed, not blessed
+  away (commit <A> taught the corpus the three constructions and pinned
+  the BROKEN behaviour — empty stream, balancer pass-through; commit <B>
+  re-blessed through TRANSYNC_REGEN_GOLDENS=1): the diff touched exactly
+  the three stray-* sections of token-stream.txt and
+  balanced/stray-quote-bare.txt, which gained the same `</div>`
+  DOMPurify 3.2.6 was measured to add. The other two balanced goldens
+  and the fifteen pre-existing goldens are byte-identical, as predicted
+  from the corpus's and fixtures' verified freedom from Outside-state
+  quotes, stray `=`, and unterminated tags.
+- Blast radius, per consumer: tag_inventory — Skip filtered by
+  construction, ledger unchanged (pinned by
+  inventory_tests::the_ledger_never_carries_a_skipped_suffix);
+  balance_fragment — closes what the sanitized DOM closes on stray-quote
+  input, inert on the other two constructions; element_extents — mints
+  the extents the old scanner never saw, a truncated tag mints none;
+  strip — reaches both plants and cuts nothing a browser paints.
+- Remainders, both filed together as ti <remainder-id> (the owner's
+  ruling comment names both as deliberately unfixed): HTML's tag-name
+  state consumes `=`/quote bytes into the ELEMENT name where this
+  scanner ends the name earlier (no live-anchor construction known
+  because a diverging name cannot match a sanitizer allowlist), and
+  HTML's end-tag-open state opens a bogus comment on `</` before a
+  non-letter where this scanner sees plain text and keeps tokenizing
+  (phantom structure, fail-safe in the strip direction: a browser mints
+  no element from a bogus comment's interior) — verify, don't trust;
+  DCR-0032 amendment 2026-08-21 (commit <C>) records finding, ruling,
+  scope argument, midpoint evidence, protocol and remainders.
+```
+  3. Then:
+```bash
+ti comment -t 549b20 "$(cat /Volumes/Temp/claude/ti490d97-wave0/t8-close-evidence.md)"
+ti close 549b20
+ti show 549b20
+```
+  Expected: the final `ti show` prints `Status` resolved/closed with the comment attached.
+  4. **The task's report** (to the wave controller) carries: the three `COMPLETED=` markers with hashes; `t8-mid-red.txt` (the ruled pair alone turning the bypass into a deletion), `t8-pin-red.txt` (the instrument reading the full fix) and `t8-golden-diff.txt` (the reviewed movement) verbatim; the Step 5 red capture; any `-LOADFLAKE-` pair from Step 10, both files; the remainder ticket id; and an explicit statement of the safety property's outcome — which golden entries moved (all three `stray-*` sections in `token-stream.txt`; `stray-quote-bare` alone in `balanced/`), which were pinned unmoved (`stray-quote-doubled` and `stray-equals` in `balanced/`), and that the fifteen wave-0-era entries did not move at all. The report also carries one cross-plan hazard for the controller: Step 12's CHANGELOG guard is one-directional — wave 1's plan (`2026-08-20-html-wave1-oi0035-anchor-trust.md`, Task 4 Step 5) inserts its own `### Fixed` immediately before `## [0.4.0]` with no already-exists guard, so with Task 8 landed first its literal execution would duplicate the heading. The controller files the one-line wave-1 correction; do not edit wave 1's plan from this task.
+---
+
+## Wave acceptance — check all five before declaring wave 0 done
+
+**Read the fourth and fifth items together.** This section was written when the wave had seven tasks, all of which froze the token-stream goldens; Task 8 was added afterwards and *deliberately moves them*, twice. The pin criterion therefore splits: frozen across Tasks 1–7, moved-with-evidence at Task 8. Nothing about the pin's purpose changed — a golden that moves without a reviewed diff is still the failure it was always guarding against.
 
 - [ ] Full workspace suite green with **zero fixture or expectation edits**: `git diff --stat <baseline-commit>..HEAD -- 'crates/*/tests/fixtures' 'crates/*/tests/scenarios' 'web/tests'` prints nothing. (`<baseline-commit>` is in `/Volumes/Temp/claude/ti490d97-wave0/gate/baseline-commit.txt`.)
 - [ ] The two-package wasm gate exit 0, captured bare-to-file, string unchanged: `cargo check -p transync-syntax -p transync-wasm --target wasm32-unknown-unknown`.
 - [ ] `workspace_publication.rs` green with the seven-member roster in dependency order.
-- [ ] The `tag_inventory`-unchanged pin green with its goldens byte-identical to the ones generated before the token change, and a reviewer-checkable diff whose only non-mechanical hunks are the splice signature, the policy constructor, the two token changes, and the visibility changes.
+- [ ] **Across Tasks 1–7:** the `tag_inventory`-unchanged pin green with its goldens byte-identical to the ones generated before the token change (`git diff --stat e52ea44..<task-7-head> -- crates/transync-html/tests/goldens` prints nothing), and a reviewer-checkable diff whose only non-mechanical hunks are the splice signature, the policy constructor, the two token changes, and the visibility changes.
+- [ ] **At Task 8, the goldens move — and the movement is the deliverable, not a waiver.** Two blessings through the env-var-interlocked `regenerate_goldens` hatch, each committed on its own: the first teaches the corpus three constructions it was blind to (so the goldens capture the *broken* tokenization), the second records what the fix changed. Both diffs must be reported and reviewed, and **the fifteen wave-0-era entries must not move at either blessing** — any pre-existing golden moving is a blast-radius finding and a STOP (`REFUSED_AT=golden-blast-radius`), never a re-bless. The pin is doing its job in both directions here: it stayed silent for seven tasks because nothing changed, and it speaks at Task 8 because something did.
+
 
 ---
 
@@ -1974,5 +2901,5 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - **A crate extraction is not TDD-shaped, and this plan does not pretend otherwise.** Tasks 3–6 are red-first because they add behaviour. Task 1 is *characterized*: the existing suite is the test, the baseline capture in Step 1 is the "before", and Step 17's empty fixture diff is what makes "unchanged" checkable rather than hoped for. Task 2 exists because the one change in this wave that could silently move a shipped consumer — the token stream — has no natural red test, so it gets a golden generated from the pre-change code instead.
 - **The one behavioural change in the wave is the bogus-comment state** (Task 4). It is browser-correct and it is inert over the corpus (verified: the three HTML-bearing fixtures contain only `<!--` comments), but it is not a no-op in general: `<! <div> >` no longer tokenizes the `<div>`. If the Task 2 pin ever goes red on it, that is the pin doing its job.
-- **Do not run `regenerate_goldens` to make a red pin green.** It is `#[ignore]`d for that reason; the only legitimate reason to run it is a deliberate change to `FIXTURES` / `EDGE_CASES`.
+- **Do not run `regenerate_goldens` to make a red pin green.** It is `#[ignore]`d for that reason; the legitimate reasons to run it are a deliberate change to `FIXTURES` / `EDGE_CASES` — and Task 8's two sanctioned blessings, the named and bounded exception for a deliberate, reviewed tokenizer change: corpus commit first, fix commit second, both diffs reviewed and reported. Everywhere else the prohibition keeps its full force.
 - **`transync-html` gets no `[features]` table and no workspace-member dependency**, ever. `transync-syntax` keeps both prohibitions plus the no-`transync-core`-dev-dependency rule.
