@@ -43,3 +43,12 @@ stream: O:p:false|C:p@24..28
 ### doctype-lower
 inventory: p|/p
 stream: O:p:false|C:p@24..28
+### stray-quote-bare
+inventory: 
+stream: 
+### stray-quote-doubled
+inventory: 
+stream: 
+### stray-equals
+inventory: 
+stream: 

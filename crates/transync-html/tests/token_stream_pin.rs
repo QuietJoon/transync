@@ -12,7 +12,12 @@
 //! The goldens are regenerated only by running the `#[ignore]`d
 //! `regenerate_goldens` below deliberately. **If the pin goes red, the token
 //! change was not inert — do not re-bless the golden, find out which region
-//! moved.**
+//! moved.** The one sanctioned exception is a deliberate, reviewed tokenizer
+//! change landed through the two-bless protocol the `stray-*` entries
+//! document (ti 549b20, task 8): bless the broken behaviour first, fix,
+//! re-bless, and review the diff between the blessings as the record of the
+//! movement. The prohibition on blessing a red pin *instead of* reviewing it
+//! stands everywhere else.
 //!
 //! TRACE: ti 490d97 wave 0
 //! TRACE: DCR-0032
@@ -52,8 +57,10 @@ const FIXTURES: &[(&str, &str)] = &[
 ];
 
 /// The regions the R0002-* / R0003-* incidents were about, plus the two
-/// doctype spellings. Every one tokenizes the same way before and after
-/// wave 0, which is what makes this golden a valid before/after comparison.
+/// doctype spellings, plus (task 8) the three stray-markup constructions
+/// of ti 549b20. The twelve wave-0-era entries tokenize the same way
+/// before and after wave 0's token change, which is what made this golden
+/// a valid before/after comparison for that change.
 ///
 /// Two of them — `doctype-upper` and `doctype-lower` — *are* bare `<!…>`
 /// regions, i.e. exactly the region where wave 0 changes tokenization. They
@@ -71,6 +78,18 @@ const FIXTURES: &[(&str, &str)] = &[
 /// the CDATA branch, with both terminator modes, shipped with R0003-0067
 /// long before this wave, so those regions were already skipped and their
 /// tokenization does not move either.
+///
+/// The three `stray-*` entries are different in kind (ti 549b20, task 8):
+/// they are the corpus learning a blind spot. Until task 8 no entry held a
+/// bare quote in attribute position, a stray `=` in attribute-name
+/// position, or an unterminated tag, so the pin could not see the
+/// scanner's stray-markup divergences from a real browser. Their goldens
+/// are blessed twice, deliberately: the commit that adds them blesses the
+/// BROKEN scanner's behaviour — empty stream, input passed through the
+/// balancer unchanged — and the fix re-blesses them through the same
+/// interlocked hatch, so the diff between the two blessings is the
+/// reviewable record of exactly how tokenization changed. Unlike every
+/// entry above, they exist because their tokenization moved inside wave 0.
 const EDGE_CASES: &[(&str, &str)] = &[
     (
         "cdata-foreign",
@@ -93,6 +112,12 @@ const EDGE_CASES: &[(&str, &str)] = &[
     ("comment", "<div><!-- hidden -->visible</div>"),
     ("doctype-upper", "<!DOCTYPE html>\n<p>after</p>"),
     ("doctype-lower", "<!doctype html>\n<p>after</p>"),
+    ("stray-quote-bare", "<div \"> <p data-sync-id=\"v\">x</p>"),
+    (
+        "stray-quote-doubled",
+        "<div a=\"x\"\" data-sync-id=\"v\">y</div>",
+    ),
+    ("stray-equals", "<div =\"> data-sync-id=\"v\">x</div>"),
 ];
 
 /// Every corpus entry as `(name, source)`, fixtures first.
@@ -200,8 +225,10 @@ fn balance_fragment_output_is_byte_identical_to_the_golden() {
 
 /// Regenerate both goldens. `#[ignore]`d **and** env-var interlocked so no
 /// ordinary run — including `--include-ignored` — can rewrite a pin. Run it
-/// deliberately, and only when the corpus itself changes — never to turn a
-/// red pin green:
+/// deliberately, and only when the corpus itself changes or a deliberate,
+/// reviewed tokenizer change lands through the two-bless protocol (ti
+/// 549b20, task 8) — never to turn a red pin green as a shortcut past
+/// reviewing what moved:
 ///
 /// `TRANSYNC_REGEN_GOLDENS=1 cargo test -p transync-html regenerate_goldens -- --ignored --test-threads=4`
 #[test]
