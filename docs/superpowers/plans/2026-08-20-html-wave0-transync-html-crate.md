@@ -1883,9 +1883,9 @@ the HTML→HTML feature (spec `docs/superpowers/specs/2026-08-20-html-to-html-tr
     everything after it.
 ```
 
-- [ ] **Step 5: `docs/index.md`.** In the record list, add the DCR link beside DCR-0031 in the shape the neighbouring entries use:
+- [ ] **Step 5: `docs/index.md`.** In the record list, add the DCR link beside DCR-0031 **in the shape the neighbouring entries use** — and note that the shape is load-bearing here, because the literal below is what a reviewer diffs against. Every one of the 31 neighbours is `- [DCR-NNNN — Title (ticket X)](path) — description`, with the number, an em dash, the title **and the ticket all inside the link text**. An earlier revision of this step supplied a literal using `DCR-NNNN: Title` that put the ticket nowhere, contradicting its own sentence — which forces an implementer to choose between the prose and the code block, and makes either choice a deviation. If they ever disagree again, the prose wins and the divergence is a finding:
 ```markdown
-- [DCR-0032: The HTML mechanics become a workspace member](project/design-change-records/DCR-0032-transync-html-crate-extraction.md) — `htmlseg` becomes `transync-html`, the scanner grows `Open.span` and `TagToken::Skip`, and the balancer's walk becomes `element_extents`.
+- [DCR-0032 — The HTML mechanics become a workspace member, and the record names what stopped being called htmlseg (ticket 490d97)](project/design-change-records/DCR-0032-transync-html-crate-extraction.md) — `htmlseg` becomes `transync-html`, the scanner grows `Open.span` and `TagToken::Skip`, and the balancer's walk becomes `element_extents`.
 ```
 
 - [ ] **Step 6: `CLAUDE.md` — the file every future agent reads before touching this repository.** It is not a record of what happened; it is a description of what *is*, and after Tasks 1–6 four of its statements are false. Leaving them is worse than leaving a stale changelog entry: a stale record misinforms a reader who went looking, while a stale `CLAUDE.md` misinforms every agent that never went looking at all. Four edits, all in statements this wave made wrong.

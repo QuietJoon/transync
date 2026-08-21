@@ -87,7 +87,7 @@ Three things sit outside the rule on purpose, because they are not this index's 
 - [DCR-0029 — `transync-anthropic`, the second provider crate (ticket bda471; slices SL-115..SL-119)](project/design-change-records/DCR-0029-transync-anthropic-second-provider.md)
 - [DCR-0030 — Review 0004 hardening: a credential stops crossing origins, a server names the authority it answers for, and section identity becomes canonical](project/design-change-records/DCR-0030-review-0004-credential-and-origin-hardening.md)
 - [DCR-0031 — An indented code block is normalized on translate: re-fenced for the wire, re-emitted fenced in the output (ticket 457e51)](project/design-change-records/DCR-0031-indented-code-normalize-on-translate.md)
-- [DCR-0032: The HTML mechanics become a workspace member](project/design-change-records/DCR-0032-transync-html-crate-extraction.md) — `htmlseg` becomes `transync-html`, the scanner grows `Open.span` and `TagToken::Skip`, and the balancer's walk becomes `element_extents`.
+- [DCR-0032 — The HTML mechanics become a workspace member, and the record names what stopped being called htmlseg (ticket 490d97)](project/design-change-records/DCR-0032-transync-html-crate-extraction.md) — `htmlseg` becomes `transync-html`, the scanner grows `Open.span` and `TagToken::Skip`, and the balancer's walk becomes `element_extents`.
 
 ## Project state
 

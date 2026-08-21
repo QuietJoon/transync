@@ -17,8 +17,9 @@ status: stable
   Wave 0 is the base of that dependency order (0 → 2 → {3, 4} → 5 → 6 → 7,
   with wave 1 parallel to 2–5); every later wave sits on the crate this one
   creates.
-- **Post-implementation**, in the DCR-0031 mold: the record follows the code
-  it describes and lands in the same change as the last of it. Nine commits
+- **Post-implementation**: the record follows the code it describes and lands
+  as the wave's **closing commit** — not inside the last code commit, which is
+  `272be80`. Nine commits
   carry the wave — `1d6f19d` (the extraction, 28 paths), `e52ea44` (the
   token-stream pin), `240868d` (`BlankLinePolicy`), `61adf66` (the golden
   hatch's env-var interlock), `ac2e0bd` (`Open.span` + `TagToken::Skip`),
@@ -60,7 +61,8 @@ need reverting.
 
 `crates/transync-syntax/src/htmlseg.rs` became `crates/transync-html/src/lib.rs`
 as a `git mv`, so the diff reads as a rename: 52 insertions and 14 deletions
-over a 1316-line file, all of them crate-doc rewording and the visibility
+over a **1278**-line file, landing at 1316 — all of them crate-doc rewording and
+the visibility
 changes listed below. Not one line of the extract/splice algorithm, the
 tokenizer, or the balancer changed in that commit. `transync-syntax` dropped
 `lol_html` and `htmlize` and gained `transync-html`; `transync-core` gained it
@@ -84,9 +86,16 @@ alias looks like kindness and is not:
   would have stayed unrepointed, and wave 3's intake would have been written
   against whichever spelling its author reached for first.
 
-The cost of no alias is that the identifier `htmlseg` now exists **nowhere in
-the tree** while six shipped records still name it. That cost is paid in the
-next section rather than avoided.
+The cost of no alias is that **no module path `htmlseg` exists anywhere in the
+tree**, while the shipped dated records that name it — the ones spec §10
+enumerates, and a good many more besides — go on naming it. (Two scoping notes,
+because the loose version of this sentence invites a reader to disprove it and
+stop trusting the rest: the *string* `htmlseg` does survive in-tree, in
+`public_surface.rs`'s forbidden list, in `docs_ownership_drift.rs`'s comment,
+and in this crate's own doc — deliberately, since that doc is where a reader who
+greps the old name is meant to land. And the record count is larger than spec
+§10's enumeration, which strengthens the name-continuity note rather than
+weakening it.) That cost is paid in the next section rather than avoided.
 
 ## The name, and the two notes it owes
 
