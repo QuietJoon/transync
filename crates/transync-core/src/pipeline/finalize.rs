@@ -230,8 +230,11 @@ mod reparse_policy_tests {
         // EXT-2026-07 P1-4: `finalize_…` now returns the typed
         // `ReparseFailure` on Hard so the pipeline can evict the
         // implicated keys before mapping it to a `TransyncError`. The
-        // `"full reparse failed: {reason}"` string mapping is pinned at
-        // the pipeline level (`hard_policy_maps_error_and_evicts`).
+        // `"full reparse failed: {reason}"` string mapping is pinned
+        // out-of-crate, by the facade's
+        // `boundary_v02::hard_failure_maps_error_and_evicts_implicated_keys`
+        // (it asserts the prefix on the `TransyncError::Validation` a Hard
+        // run surfaces).
         let failure =
             finalize_regen_with_reparse_policy(&doc, &mut accepted, FullReparseFailure::Hard)
                 .expect_err("Hard policy must surface the failure");

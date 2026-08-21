@@ -1783,7 +1783,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md`
-- Modify: `CHANGELOG.md`, `docs/project/status.md`, `docs/project/phase-state.yaml`, `docs/index.md`, `CLAUDE.md`
+- Modify: `CHANGELOG.md`, `docs/project/status.md`, `docs/project/phase-state.yaml`, `docs/index.md`
+- Modify **on disk only, never staged**: `CLAUDE.md` — it is **untracked in this repository by owner decision** (`.gitignore`: "CLAUDE.md stays ignored by the same owner decision", 2026-08-06 / OI-0020; `git log -- CLAUDE.md` is empty). Editing it is correct and necessary — that file is where every agent reads the repository's description of itself — but `git add CLAUDE.md` **aborts the whole staging command**, and `git add -f` would defy the decision. Edit it, verify it, do not stage it.
 
 **Interfaces:**
 - Consumes: everything Tasks 1–6 landed. The DCR number `DCR-0032` is the next free one (DCR-0031 is the highest on disk) and is what the code comments written in Tasks 1–6 already cite — the record must exist or those `TRACE: DCR-0032` lines point at nothing.
@@ -1924,7 +1925,7 @@ the one member carrying `publish = false`, so the publication roster is the othe
   grep -n 'v0\.3\.0' CLAUDE.md
 } > /Volumes/Temp/claude/ti490d97-wave0/gate/t7-claude-md.txt 2>&1
 ```
-  Expected: `transync-html` **≥ 3**; `seven members` **0**; `htmlseg` **≥ 2** (the two deliberate name-continuity mentions — the crate's provenance and the dated-records note — survive on purpose, so a reader who greps the old name still lands somewhere); and no `v0.3.0` line except inside a dated historical statement, if one exists. Note that `grep -c` **exits non-zero on a zero count**, so do not run this under `set -e` — the `seven members` line is *expected* to be 0 and would abort the block.
+  Expected: `transync-html` — **2 lines / 4 occurrences**. Note the distinction, because it is the trap here: **`grep -c` counts LINES, not matches**, and `CLAUDE.md`'s Project paragraph is a single long line, so the two edits inside it collapse into one counted line. Use `grep -o … | wc -l` if you want occurrences. **Do not add a fifth mention to make a line-count target come out** — that is adjusting the artifact to fit the gate. `seven members` **0**; `htmlseg` **≥ 2** (the two deliberate name-continuity mentions — the crate's provenance and the dated-records note — survive on purpose, so a reader who greps the old name still lands somewhere); and no `v0.3.0` line except inside a dated historical statement, if one exists. Note that `grep -c` **exits non-zero on a zero count**, so do not run this under `set -e` — the `seven members` line is *expected* to be 0 and would abort the block.
 
 - [ ] **Step 7: Verify — the docs-drift welds are the gate here.**
 ```bash
@@ -1943,7 +1944,7 @@ echo "SMOKE_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t7-smoke.txt
 Read the file separately. Expected: `SMOKE_EXIT=0`. This is the run that proves the rustdoc-gate completeness check accepts the seven-member list (Task 1 Step 14) — the workspace test suite never exercises it.
 ```bash
 git add docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md \
-  CHANGELOG.md docs/project/status.md docs/project/phase-state.yaml docs/index.md CLAUDE.md
+  CHANGELOG.md docs/project/status.md docs/project/phase-state.yaml docs/index.md
 git commit -m "docs: wave 0 gets its record, and the record names what stopped being called htmlseg
 
 DCR-0032 carries the extraction, the four non-mechanical changes inside it,

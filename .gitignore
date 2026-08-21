@@ -48,8 +48,13 @@ out/
 *.tmp.json
 
 # Korean translation sidecars (out of scope for the assistant; managed by
-# external translation tooling)
+# external translation tooling). Not only `.md`: the tooling mirrors whatever
+# it is pointed at, and during ti 490d97 wave 0 it produced a `.ko.txt` beside
+# every file in `crates/transync-html/tests/goldens/`. Those goldens are
+# byte-exact pins inside a TRACKED test directory, so an untracked sidecar
+# there is one `git add <dir>` away from being committed as if it were a pin.
 *.ko.md
+*.ko.txt
 
 # Committed lockfile — the known-good resolution satisfying the wasm-bindgen
 # exact pin (owner decision 2026-08-06, oi-0020); overrides the machine-global
