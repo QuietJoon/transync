@@ -854,6 +854,137 @@ pub fn element_extents(html: &str) -> Vec<ElementExtent> {
     walk_elements(html).extents
 }
 
+/// The reserved sync-attribute namespace: the four `render::attrs` writes,
+/// plus `data-skipped` (the placeholder label) and `data-parent-id` (reserved
+/// and never emitted, contracts.md §4a). We own this namespace in DOM we
+/// mount, and nowhere else.
+const RESERVED_SYNC_ATTRS: &[&str] = &[
+    "data-sync-id",
+    "data-block-kind",
+    "data-order",
+    "data-fallback",
+    "data-parent-id",
+    "data-skipped",
+];
+
+/// Remove every `RESERVED_SYNC_ATTRS` attribute from `html`'s element open
+/// tags, case-insensitively, taking each one's leading whitespace with it.
+///
+/// (Plain backticks, not an intra-doc link: `RESERVED_SYNC_ATTRS` is private
+/// and this fn is `pub`, so a link would trip rustdoc's
+/// `private_intra_doc_links` lint — warn-by-default, but the pre-commit
+/// rustdoc gate runs `-D warnings` over `transync-html` without
+/// `--document-private-items`, which makes it a hard commit block. Same rule
+/// wave 3's plan states for `intake::html`. Do not "restore" the link.)
+///
+/// This is **pane-only** (OI-0035 route (c), render half): strip-then-inject
+/// is what makes "ours are the only sync attributes in this DOM" a
+/// construction rather than a scan. Published output keeps the author's
+/// bytes — their `data-sync-id` is their content — and stripping never
+/// changes rendered appearance, because attributes do not paint.
+///
+/// Only names are matched, and only inside an open tag: attribute values and
+/// text are content, and RCDATA / comment interiors are never tokenized by
+/// [`scan_tags`] in the first place, so the strip cannot reach into them.
+/// Borrows when nothing matched.
+pub fn strip_reserved_sync_attrs(html: &str) -> Cow<'_, str> {
+    let mut cuts: Vec<(usize, usize)> = Vec::new();
+    for token in scan_tags(html) {
+        // Exhaustive, and every arm named (wave 0's standing constraint): a
+        // token variant added later must stop the compiler here rather than
+        // slip past an `if let`'s implicit else and leave its attributes
+        // unstripped.
+        match token {
+            TagToken::Open { span, .. } => collect_reserved_attr_spans(html, span, &mut cuts),
+            // A close tag carries no attribute list, and a skipped region is
+            // not markup at all: neither can hold a reserved name.
+            TagToken::Close { .. } | TagToken::Skip { .. } => {}
+        }
+    }
+    if cuts.is_empty() {
+        return Cow::Borrowed(html);
+    }
+
+    let mut out = String::with_capacity(html.len());
+    let mut cursor = 0usize;
+    for (s, e) in cuts {
+        out.push_str(&html[cursor..s]);
+        cursor = e;
+    }
+    out.push_str(&html[cursor..]);
+    Cow::Owned(out)
+}
+
+/// Byte ranges of the reserved attributes inside one open tag, appended to
+/// `out` in ascending order. Walks HTML's attribute states directly rather
+/// than reusing [`AttrState`], which answers a different question (where the
+/// tag ends).
+fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(usize, usize)>) {
+    let bytes = html.as_bytes();
+    let (start, end) = span;
+    // `end` is one past the `>`; never look at the `>` itself.
+    let limit = end.saturating_sub(1);
+
+    // Step over `<` and the tag name — `scan_tags` already proved one is here.
+    let mut i = start + 1;
+    while i < limit && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b':') {
+        i += 1;
+    }
+
+    while i < limit {
+        if bytes[i].is_ascii_whitespace() || bytes[i] == b'/' {
+            i += 1;
+            continue;
+        }
+        let name_start = i;
+        while i < limit && !bytes[i].is_ascii_whitespace() && bytes[i] != b'=' && bytes[i] != b'/' {
+            i += 1;
+        }
+        if i == name_start {
+            i += 1; // a stray `=`: not a name, and the walk must not stall
+            continue;
+        }
+        let name = html[name_start..i].to_ascii_lowercase();
+
+        // The optional `= value`, in HTML's three value shapes.
+        let mut j = i;
+        while j < limit && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        let mut attr_end = i;
+        if j < limit && bytes[j] == b'=' {
+            j += 1;
+            while j < limit && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < limit && (bytes[j] == b'"' || bytes[j] == b'\'') {
+                let quote = bytes[j];
+                j += 1;
+                while j < limit && bytes[j] != quote {
+                    j += 1;
+                }
+                attr_end = (j + 1).min(limit);
+            } else {
+                while j < limit && !bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                attr_end = j;
+            }
+        }
+
+        if RESERVED_SYNC_ATTRS.contains(&name.as_str()) {
+            // Take the leading whitespace along, so removing an attribute
+            // does not leave a double space behind.
+            let mut cut_start = name_start;
+            while cut_start > start + 1 && bytes[cut_start - 1].is_ascii_whitespace() {
+                cut_start -= 1;
+            }
+            out.push((cut_start, attr_end));
+        }
+        i = attr_end;
+    }
+}
+
 /// Render-path auto-balancing (spec §3.4): tags opened but never closed in
 /// the fragment are closed at its end, and orphan close tags are DROPPED.
 /// `out.md` never sees this — it exists so an unbalanced fragment cannot
@@ -1223,6 +1354,68 @@ mod extent_tests {
             .collect();
         assert_eq!(unclosed, vec!["div", "span"]);
         assert_eq!(balance_fragment(html), "<div><span>x</span></div>");
+    }
+}
+
+// Spec 2026-08-20 §8, OI-0035 route (c), render half.
+#[cfg(test)]
+mod strip_tests {
+    use super::*;
+
+    #[test]
+    fn every_reserved_attribute_is_removed_case_insensitively() {
+        let html = "<div data-sync-id=\"p-0001\" DATA-Block-Kind='paragraph' data-order=3 \
+                    data-fallback=\"none\" data-parent-id=\"x\" data-skipped=\"html-block\">t</div>";
+        assert_eq!(strip_reserved_sync_attrs(html), "<div>t</div>");
+    }
+
+    #[test]
+    fn non_reserved_attributes_and_content_survive_untouched() {
+        let html = "<a href=\"https://example.com/?a=1&amp;b=2\" data-sync-id=\"p-0001\" \
+                    title=\"data-sync-id\">data-sync-id</a>";
+        assert_eq!(
+            strip_reserved_sync_attrs(html),
+            "<a href=\"https://example.com/?a=1&amp;b=2\" title=\"data-sync-id\">data-sync-id</a>",
+            "only NAMES are matched: the value and the text are content"
+        );
+    }
+
+    #[test]
+    fn markup_with_nothing_reserved_is_borrowed_not_rebuilt() {
+        let html = "<p class=\"x\">hello</p>";
+        assert!(matches!(strip_reserved_sync_attrs(html), Cow::Borrowed(_)));
+        assert_eq!(strip_reserved_sync_attrs(html), html);
+    }
+
+    #[test]
+    fn a_reserved_attribute_inside_rcdata_or_a_comment_is_text_not_markup() {
+        // `scan_tags` never tokenizes RCDATA or comment content, so the strip
+        // cannot reach in and silently edit what the reader sees — the exact
+        // failure R0002-0020 was.
+        let textarea = "<textarea><div data-sync-id=\"p-0001\"></textarea>";
+        assert_eq!(strip_reserved_sync_attrs(textarea), textarea);
+        let comment = "<!-- <div data-sync-id=\"p-0001\"> -->";
+        assert_eq!(strip_reserved_sync_attrs(comment), comment);
+    }
+
+    #[test]
+    fn self_closing_and_close_tags_are_handled() {
+        assert_eq!(
+            strip_reserved_sync_attrs("<img data-sync-id=\"i-1\" src=\"a.png\"/>"),
+            "<img src=\"a.png\"/>"
+        );
+        // A close tag carries no attributes: nothing to do, nothing to break.
+        assert_eq!(strip_reserved_sync_attrs("</div>"), "</div>");
+    }
+
+    #[test]
+    fn stripping_never_changes_the_tag_inventory() {
+        // Attributes do not paint and they are not structure: layer 3's
+        // skeleton check must see the same thing before and after.
+        let html = "<div data-sync-id=\"p-0001\"><b data-order=\"2\">x</b></div>";
+        let stripped = strip_reserved_sync_attrs(html);
+        assert_eq!(tag_inventory(&stripped), tag_inventory(html));
+        assert_eq!(stripped, "<div><b>x</b></div>");
     }
 }
 
