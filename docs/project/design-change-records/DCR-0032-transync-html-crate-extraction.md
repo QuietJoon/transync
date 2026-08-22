@@ -477,3 +477,125 @@ The section *Two things added, one of them with no caller yet* above
 describes `strip_reserved_sync_attrs`' guarantee as it stood at wave-0
 landing; this amendment is the record that the guarantee was false for
 stray-markup constructions until 2026-08-21, and of what made it true.
+
+### Amendment 2026-08-23 (ti 490d97 wave 1) — the walk aligns with the browser too, and the strip's cut stops welding bytes
+
+*Appended, not a rewrite. Everything above stands as written.*
+
+The 2026-08-21 amendment aligned the **tokenizer** with the browser it was
+measured against. Two defects one layer up outlived it, both found by wave 1's
+adversarial review and both measured in headless Chromium before anything was
+changed.
+
+**The walk modelled the self-closing flag the way XML means it.** The section
+*Two things added, one of them with no caller yet* says `9d39e43` "wrote down
+what the walk already enforced": that a self-closing tag outside
+raw-text/RCDATA is never pushed. That sentence recorded a real invariant of the
+code and a wrong reading of HTML. A browser honours the flag in exactly **two**
+places — inside foreign content, and on the `<svg>`/`<math>` start tags that
+enter it — and everywhere else it is a parse error the parser **ignores**: the
+element opens. Measured: `<div/>y</div>` is a div containing `y`;
+`<div/ >y</div>` is the same tree, because a space after the slash defeats the
+flag too; `<svg><rect/><circle/></svg>` really does make rect and circle empty
+siblings; `<svg/>after` really is an empty svg with `after` outside it.
+
+Because `walk_elements` never pushed a flagged non-void tag, the author's own
+end tag matched nothing on the stack, became an orphan, and `balance_fragment`
+**deleted** it. On the pane path — `render.rs`'s
+`balance_fragment(&strip_reserved_sync_attrs(md))`, wave 1's first and only
+call site — the fragment then reached the wrapper still open, the wrapper's own
+`</div>` closed the fragment instead of the wrapper, and the **next block's
+anchor mounted inside the html block's wrapper**: the contracts.md §4a
+direct-child violation, which §4's own "a fragment can never consume the
+wrapper's own `</div>`" sentence promised could not happen. Measured on a real
+`--html-out` bundle on both sides of the fix: before it, `source.html` carried
+one `</div>` after the block where it now carries two.
+
+**The defect predates wave 1 entirely.** The strip's residue
+(`<div/data-sync-id="…">` → `<div/>`) is merely the first *generated* input
+that trips it; a plain author-written `<div/>` — a JSX habit — trips it from
+the day the walk existed. That is why the fix is in the walk and not in the
+strip: repairing only the residue would have left the authored hole open and
+left `element_extents` wrong for every flagged non-void tag, which wave 3's
+intake would have inherited.
+
+**The strip's cut lost token separation.** `collect_reserved_attr_spans` takes
+each removed attribute's leading whitespace with it, unconditionally. Where the
+next surviving byte is a name byte — reachable in malformed markup, after a
+quoted value whose closing quote the author misplaced — the deletion removes
+the only separator and the following bytes weld onto the tag name. Measured:
+`<div data-sync-id="a b="c">x` stripped to `<divc">x`, moving `tag_inventory`
+from `["div"]` to `["divc"]` and, in a browser, renaming the element to
+`divc"`. (The one-byte difference between `divc` and `divc"` is the tag-name
+state remainder this DCR's 2026-08-21 amendment already filed as ti `e20490`,
+not a new divergence. Moving off `["div"]` at all is the defect.) The sibling
+case: where the byte before the cut is `/` and the byte after is `>`, deleting
+**creates** a `/>` adjacency the input never had — it *sets* a flag the
+author's tag did not carry, which on a foreign root changes the tree
+(`<svg/>y</svg>` is an empty svg with `y` outside; `<svg/ >y</svg>` is an open
+svg containing it).
+
+So contracts.md §4's "it never moves the tag inventory, **because attributes
+are not structure**" was false until this fix, and is now true **because of the
+seam rule**: adjacent cuts are coalesced into one run first — judging per-cut
+reads bytes inside a neighbouring cut and turns
+`<div/data-sync-id="a" data-order="b">x` into the wrong `<div/>x` — and the run
+is replaced by one U+0020 rather than deleted when the next byte is a name
+byte, `=` or a quote, or when the previous byte is `/` and the next is `>`.
+Nowhere else, so `<div data-sync-id="x">` still strips to `<div>` byte-exact
+and every pre-existing strip expectation is unmoved.
+
+**The walk now tracks foreign context**, as a bool per open-stack entry: an
+entry is foreign iff it is an `<svg>`/`<math>` root or its parent entry was,
+and the bit is read after the implied-close pops. It is deliberately **not**
+`scan_tags`' `foreign_depth`, which is a saturating counter with no stack
+scoping, adequate only for choosing a CDATA terminator. Without the bit,
+pushing flagged tags would have nested `circle` inside `rect` and appended a
+phantom `</svg>` after `<svg/>`.
+
+**What it deliberately does not model**, each measured here and each left as
+filed follow-up rather than silently accepted:
+
+- **HTML integration points and breakout tags.** `<svg><foreignObject><div/>x`
+  leaves that div **open** in a browser; our model treats it self-closing.
+  Divergent before and after, in the same direction — bytes stay safe, extents
+  diverge.
+- **Foreign raw-text/RCDATA.** `scan_tags` enters raw-text state for
+  `script`/`style`/`textarea`/`title` even inside svg/math, where a browser
+  does not: `<svg><title>a<b>c</b></title>` mints a real `b` element, and
+  `<svg><script/>x` self-closes the script. Scanner-level and pre-existing
+  (R0002-0020 made the entry unconditional); untouched here.
+- **Void names used as real foreign elements.** `is_void` wins globally, so a
+  genuine `<svg><link>…</link>`'s closer is still dropped as an orphan. The
+  trade is deliberate: an appended `</br>` would be turned back into a fresh
+  `<br>` by HTML's end-tag-`br` rule, so the balancer would *mint* structure
+  instead of repairing it — worse than dropping a closer.
+
+**`VOID_ELEMENTS` gained four names** — `basefont`, `bgsound`, `frame`,
+`keygen` — each measured never-open in Chromium (`<keygen>x` leaves `x` a
+sibling). They are elements the spec dropped while the tree-construction rule
+that makes them void survived; `param`, already on the list, is the same
+category, and the earlier claim that the current syntax list has only thirteen
+entries is why it was there. Without the four, the new push rule would have
+newly appended junk closes for their flagged spellings. `image` is deliberately
+excluded: `svg:image` is a real, closable foreign element, and calling it void
+would delete an author's `</image>` closers.
+
+**The pin moved, deliberately, twice — and this time it was a WALK change.**
+The corpus commit added five `selfclose-*` entries blessed from the broken
+behaviour (`selfclose-div` losing its final `</div>`, `selfclose-span` and
+`selfclose-p` gaining no appended close, `selfclose-svg` and
+`selfclose-svg-root` passing through as no-regression guards over the two real
+carve-outs); the fix commit re-blessed through the same `TRANSYNC_REGEN_GOLDENS=1`
+hatch. Exactly **three** balanced goldens moved between the blessings —
+`selfclose-div`, `selfclose-span`, `selfclose-p`, all three added by the corpus
+commit — and **`token-stream.txt` did not move at all**, because `scan_tags` is
+untouched. That is the record that this was a walk change: a green token-stream
+pin proved nothing here, which is why the never-re-bless doctrine was widened
+from "a deliberate, reviewed **tokenizer** change" to "tokenizer **or walk**"
+in the pin's module doc, its regeneration hatch doc and its token-stream
+assertion, and why the `balance_fragment` assertion — the message a walk change
+reaches **first** — gained the doctrine sentence it had never carried.
+
+The corpus could not have caught either defect before: it held **zero**
+`:true` tokens, i.e. not one self-closing spelling of any tag.

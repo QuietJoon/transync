@@ -577,8 +577,12 @@ fn render_block<'a>(
             //
             // Pane-only. `out.md` keeps the author's bytes: their
             // `data-sync-id` is their content, and we own this namespace only
-            // in DOM we mount. Stripping never changes rendered appearance,
-            // because attributes do not paint.
+            // in DOM we mount. Stripping changes paint only for markup that
+            // borrowed the engine-owned namespace's own presentation — the
+            // bundle shell tints `[data-fallback=…]` and `pre[data-skipped]`
+            // — which is ours to decide rather than the author's. ("Stripping
+            // never changes rendered appearance, because attributes do not
+            // paint" was an overclaim; corrected ti 490d97 wave 1.)
             //
             // The failure arm above needs none of this: its payload is
             // HTML-escaped, so an impostor attribute there is text.

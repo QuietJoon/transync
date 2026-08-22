@@ -816,14 +816,25 @@ pub fn implicitly_closes(name: &str) -> &'static [&'static str] {
 /// One element the [`element_extents`] walk found, in source order by its
 /// open tag.
 ///
-/// **Not every tag mints one.** A void element (`img`, `br`, `hr`, …) and a
-/// self-closing tag outside raw-text/RCDATA are never pushed onto the walk's
-/// stack, so they produce **no** `ElementExtent` at all — they have no content
-/// and nothing to close. A consumer that needs "the element around these
-/// bytes" must handle the empty case rather than assuming one extent per tag.
-/// (ti 490d97 wave 0 Task 5 review; wave 6's pane derivation depends on it —
-/// a block whose only element is a lone `<img>` has zero extents, which is why
-/// it takes the transparent wrapper rather than self-injection.)
+/// **Not every tag mints one.** A void element (`img`, `br`, `hr`, …) is never
+/// pushed onto the walk's stack, so it produces **no** `ElementExtent` at all
+/// — it has no content and nothing to close. Neither does a self-closing tag
+/// in the two places HTML actually honours that flag: inside foreign content,
+/// and on the `<svg>` / `<math>` start tags that enter it. A consumer that
+/// needs "the element around these bytes" must handle the empty case rather
+/// than assuming one extent per tag. (ti 490d97 wave 0 Task 5 review; wave 6's
+/// pane derivation depends on it — a block whose only element is a lone
+/// `<img>` has zero extents, which is why it takes the transparent wrapper
+/// rather than self-injection.)
+///
+/// **A self-closing spelling of an ordinary HTML tag DOES mint one** (ti
+/// 490d97 wave 1). Outside those two carve-outs the `/` is a parse error the
+/// parser ignores and the element opens, so `<div/>y</div>` is one `div`
+/// extent whose `close` is the author's own end tag. This paragraph used to
+/// say "and a self-closing tag outside raw-text/RCDATA", which read the flag
+/// the way XML means it: the walk never pushed such a tag, the author's end
+/// tag matched nothing on the stack, and [`balance_fragment`] deleted it as
+/// an orphan.
 ///
 /// **A truncated tag is not an element either.** A tag with no closing `>`
 /// before EOF is a [`TagToken::Skip`], not an `Open` (ti 549b20): it mints
@@ -976,7 +987,17 @@ const RESERVED_SYNC_ATTRS: &[&str] = &[
 ];
 
 /// Remove every `RESERVED_SYNC_ATTRS` attribute from `html`'s element open
-/// tags, case-insensitively, taking each one's leading whitespace with it.
+/// tags, case-insensitively, taking each one's leading whitespace with it —
+/// except where that whitespace was the only token separation left.
+///
+/// That exception is the **seam rule** (ti 490d97 wave 1). Adjacent removals
+/// are coalesced into one run first, and a run is replaced by a single U+0020
+/// rather than deleted when the first surviving byte is a name byte, `=` or a
+/// quote — reachable only in malformed markup, where the plain delete welded
+/// `<div data-sync-id="a b="c">x` into `<divc">x` and moved the tag inventory
+/// off `["div"]` — and when deleting would weld a preceding `/` onto the `>`
+/// and SET a self-closing flag the source never carried. Nowhere else:
+/// `<div data-sync-id="x">` still strips to `<div>` byte-exact.
 ///
 /// (Plain backticks, not an intra-doc link: `RESERVED_SYNC_ATTRS` is private
 /// and this fn is `pub`, so a link would trip rustdoc's
@@ -988,8 +1009,16 @@ const RESERVED_SYNC_ATTRS: &[&str] = &[
 /// This is **pane-only** (OI-0035 route (c), render half): strip-then-inject
 /// is what makes "ours are the only sync attributes in this DOM" a
 /// construction rather than a scan. Published output keeps the author's
-/// bytes — their `data-sync-id` is their content — and stripping never
-/// changes rendered appearance, because attributes do not paint.
+/// bytes — their `data-sync-id` is their content.
+///
+/// Stripping DOES change rendered appearance for markup that borrowed this
+/// namespace's own presentation: the shipped bundle shell tints
+/// `[data-fallback=…]` and `pre[data-skipped]`, so an author's copy of one
+/// loses that tint. That is correct — the presentation is engine-owned — but
+/// "stripping never changes rendered appearance, because attributes do not
+/// paint" was an overclaim, corrected in ti 490d97 wave 1. What holds is
+/// narrower: only names in the reserved namespace are removed, only inside
+/// element open tags, and no element name and no other attribute moves.
 ///
 /// Only names are matched, and only inside an open tag: attribute values and
 /// text are content, and RCDATA / comment interiors are never tokenized by
