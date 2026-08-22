@@ -1568,6 +1568,63 @@ mod html_render_tests {
             "still the live-render arm, not the escaped placeholder:\n{html}"
         );
     }
+
+    /// ti 490d97 wave 1, the composed pane chain at its only call site:
+    /// `balance_fragment(&strip_reserved_sync_attrs(md))`.
+    ///
+    /// The strip removes the impostor attribute and leaves `<div/>` — a
+    /// self-closing spelling of a non-void tag. HTML honours that flag in
+    /// exactly two places, foreign content and the `<svg>`/`<math>` start
+    /// tags; everywhere else it is a parse error and the element OPENS. The
+    /// walk used to read it the way XML means it, so it never pushed the
+    /// tag, classified the author's own `</div>` an orphan, and the balancer
+    /// DELETED it. The fragment then reached the pane still open, the
+    /// wrapper's own `</div>` closed it instead, and the wrapper stayed open
+    /// — so the next block's anchor mounted INSIDE the html block's wrapper,
+    /// which contracts.md §4a forbids (every anchor a direct child of
+    /// `<main>`, list items excepted).
+    ///
+    /// The depth count below is the assertion that matters: between the
+    /// wrapper's own attribute and the paragraph's, every `<div` opened must
+    /// be closed. Before the fix it was 2 opens against 1 close.
+    #[test]
+    fn a_self_closing_html_block_does_not_swallow_the_next_anchor() {
+        let html = render_with_status(
+            "<div data-sync-id=\"p-0002\"/>x</div>\n\npara\n",
+            FallbackStatus::Preserved,
+        );
+        assert!(
+            !html.contains("data-skipped=\"html-block\""),
+            "the assertions below are only meaningful on the live-render \
+             arm:\n{html}"
+        );
+        assert!(
+            html.contains("<div/>x</div></div>"),
+            "the strip leaves a flagged tag and the balancer must keep the \
+             author's closer, so the wrapper gets to close itself:\n{html}"
+        );
+        let wrapper = html
+            .find("<div data-sync-id=\"html-0001\"")
+            .expect("the html block's wrapper anchor");
+        let para = html
+            .find("data-sync-id=\"p-0002\"")
+            .expect("the paragraph's anchor");
+        assert!(wrapper < para, "document order:\n{html}");
+        let between = &html[wrapper..para];
+        assert_eq!(
+            between.matches("<div").count(),
+            between.matches("</div>").count(),
+            "the paragraph's anchor sits inside an unclosed div — the html \
+             block consumed the wrapper's own </div> (contracts.md \
+             §4a):\n{html}"
+        );
+        // And the strip still did its own job on the same bytes.
+        assert_eq!(
+            html.matches("data-sync-id=\"p-0002\"").count(),
+            1,
+            "only the real paragraph may claim p-0002:\n{html}"
+        );
+    }
 }
 
 // A6 / invariant 7: a `Skipped` top-level node still renders as an inert,

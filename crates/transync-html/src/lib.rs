@@ -42,9 +42,28 @@ use std::rc::Rc;
 
 /// HTML void elements: they never get an end tag, so pushing them onto the
 /// open-element stack would poison the parent label of every later text node.
+///
+/// Eighteen names: the thirteen on HTML's current *syntax* list, plus five
+/// whose elements the spec dropped while the tree-construction rule that
+/// makes them void survived — `basefont`, `bgsound`, `frame`, `keygen`,
+/// `param`. All five measured never-open in headless Chromium (`<keygen>x`
+/// leaves `x` a SIBLING, not a child). The four beyond `param` joined when
+/// [`walk_elements`] began pushing self-closing non-void tags: without them,
+/// `<keygen/>` would newly earn an appended `</keygen>` a browser never
+/// mints.
+///
+/// The rule is **global** — foreign content included. Appending a close tag
+/// for a void name is worse than leaving one out, because HTML's end-tag-`br`
+/// rule turns an emitted `</br>` back into a fresh `<br>`: the balancer would
+/// mint structure instead of repairing it. The cost is that a real foreign
+/// `<svg><link>…</link>` still has its closer dropped as an orphan; that
+/// trade is deliberate.
+///
+/// `image` is deliberately NOT here. `svg:image` is a real, closable foreign
+/// element, so calling it void would delete an author's `</image>` closers.
 const VOID_ELEMENTS: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
-    "track", "wbr",
+    "area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input",
+    "keygen", "link", "meta", "param", "source", "track", "wbr",
 ];
 
 /// Elements whose content HTML tokenizes as raw text / RCDATA. HTML ignores
@@ -845,8 +864,14 @@ struct Walk {
 fn walk_elements(html: &str) -> Walk {
     let tokens = scan_tags(html);
     let mut extents: Vec<ElementExtent> = Vec::new();
-    // (name, index into `extents`) for each element still open.
-    let mut open_stack: Vec<(String, usize)> = Vec::new();
+    // (name, index into `extents`, in-foreign-content) for each element still
+    // open. The third field is a STACK property — an entry is foreign iff it
+    // is an `<svg>`/`<math>` root or its parent entry was — and it exists
+    // because foreign content is one of the two places HTML honours the
+    // self-closing flag. It is deliberately not `scan_tags`' `foreign_depth`:
+    // that is a saturating counter with no stack scoping, adequate only for
+    // choosing a CDATA terminator.
+    let mut open_stack: Vec<(String, usize, bool)> = Vec::new();
     let mut orphan_closes: Vec<(usize, usize)> = Vec::new();
 
     for tok in &tokens {
@@ -861,15 +886,31 @@ fn walk_elements(html: &str) -> Walk {
                 let implied = implicitly_closes(name);
                 while open_stack
                     .last()
-                    .is_some_and(|(top, _)| implied.contains(&top.as_str()))
+                    .is_some_and(|(top, _, _)| implied.contains(&top.as_str()))
                 {
-                    let (_, idx) = open_stack.pop().expect("just inspected the top");
+                    let (_, idx, _) = open_stack.pop().expect("just inspected the top");
                     extents[idx].content_end = span.0;
                 }
-                // HTML ignores `/` on raw-text/RCDATA start tags: `<textarea/>`
-                // still opens RCDATA and swallows every later sibling
+                // HTML honours the self-closing flag in exactly TWO places:
+                // inside foreign content, and on the `<svg>`/`<math>` start
+                // tags that enter it. Everywhere else the `/` is a parse
+                // error the parser IGNORES — the element opens, and the
+                // author's end tag is a real closer rather than an orphan
+                // the balancer deletes. Modelling it the way XML means it
+                // cost exactly that deletion (ti 490d97 wave 1); before
+                // that, `<div/>y</div>` lost its `</div>` and the fragment
+                // went on to consume the sync wrapper's own one.
+                //
+                // Read AFTER the implied-close pops, so the parent is the
+                // element this tag actually lands in.
+                let in_foreign = open_stack.last().is_some_and(|(_, _, f)| *f);
+                // Raw text sits ABOVE the foreign rule on purpose:
+                // `scan_tags` enters raw-text state for these four names
+                // unconditionally, so the appended closer is what keeps
+                // `balance_fragment` idempotent under its own re-scan
                 // (DCR-0016 Part D).
-                if !is_void(name) && (!self_closing || is_raw_text(name)) {
+                let honours_flag = !is_raw_text(name) && (in_foreign || is_foreign_root(name));
+                if !is_void(name) && !(*self_closing && honours_flag) {
                     extents.push(ElementExtent {
                         name: name.clone(),
                         depth: open_stack.len(),
@@ -877,16 +918,20 @@ fn walk_elements(html: &str) -> Walk {
                         close: None,
                         content_end: html.len(),
                     });
-                    open_stack.push((name.clone(), extents.len() - 1));
+                    open_stack.push((
+                        name.clone(),
+                        extents.len() - 1,
+                        in_foreign || is_foreign_root(name),
+                    ));
                 }
             }
             TagToken::Close { name, span } => {
-                if let Some(pos) = open_stack.iter().rposition(|(t, _)| t == name) {
+                if let Some(pos) = open_stack.iter().rposition(|(t, _, _)| t == name) {
                     // Everything above `pos` is closed implicitly by this tag.
-                    for (_, idx) in open_stack.drain(pos + 1..) {
+                    for (_, idx, _) in open_stack.drain(pos + 1..) {
                         extents[idx].content_end = span.0;
                     }
-                    let (_, idx) = open_stack.pop().expect("rposition found it");
+                    let (_, idx, _) = open_stack.pop().expect("rposition found it");
                     extents[idx].close = Some(*span);
                     extents[idx].content_end = span.0;
                 } else {
@@ -900,7 +945,7 @@ fn walk_elements(html: &str) -> Walk {
         }
     }
 
-    let unclosed = open_stack.into_iter().map(|(name, _)| name).collect();
+    let unclosed = open_stack.into_iter().map(|(name, _, _)| name).collect();
     Walk {
         extents,
         orphan_closes,
@@ -990,11 +1035,59 @@ pub fn strip_reserved_sync_attrs(html: &str) -> Cow<'_, str> {
         return Cow::Borrowed(html);
     }
 
+    let bytes = html.as_bytes();
     let mut out = String::with_capacity(html.len());
     let mut cursor = 0usize;
-    for (s, e) in cuts {
-        out.push_str(&html[cursor..s]);
-        cursor = e;
+    let mut k = 0usize;
+    while k < cuts.len() {
+        // Coalesce the maximal run of ADJACENT cuts before judging the seam.
+        // Adjacency is exact: each cut's leading-whitespace backover consumes
+        // the whole run down to the previous cut's end, so two reserved
+        // attributes separated only by whitespace produce touching spans.
+        // Judging per-cut instead would read bytes that lie inside a
+        // neighbouring cut — `<div/data-sync-id="a" data-order="b">` would
+        // see whitespace after the first cut, delete plainly, and produce
+        // `<div/>`, a self-closing flag the author never wrote.
+        let cut_start = cuts[k].0;
+        let mut cut_end = cuts[k].1;
+        while k + 1 < cuts.len() && cuts[k + 1].0 == cut_end {
+            k += 1;
+            cut_end = cuts[k].1;
+        }
+        out.push_str(&html[cursor..cut_start]);
+        // Both indices are inside the tag by construction: the backover stops
+        // at `span.0 + 1`, and every `attr_end` is clamped to the `>`'s own
+        // index. So neither read can leave the tag or the string.
+        let prev = bytes[cut_start - 1];
+        let next = bytes[cut_end];
+        // Deleting the run also deletes the token separation it carried. Put
+        // ONE space back exactly where its absence would change the parse:
+        //
+        // - next is whitespace or `/` — a separator survives; a space here
+        //   would be a second one.
+        // - next is `>` and prev is not `/` — the well-formed case;
+        //   `<div data-sync-id="x">` must still strip to `<div>` byte-exact.
+        // - next is `>` and prev IS `/` — deleting would weld `/` onto `>`
+        //   and SET a self-closing flag the source never had. Measured: on a
+        //   foreign root that changes the tree (`<svg/>y</svg>` is an empty
+        //   svg with `y` outside it, `<svg/ >y</svg>` is an open svg
+        //   containing `y`).
+        // - anything else (a name byte, `=`, a quote — reachable only in
+        //   malformed markup) — deleting welds the following bytes onto
+        //   whatever precedes. Measured: `<div data-sync-id="a b="c">x`
+        //   became `<divc">x`, an element a browser names `divc"`, moving
+        //   the tag inventory off `["div"]`.
+        let needs_separator = match next {
+            b'>' => prev == b'/',
+            b'/' => false,
+            n if n.is_ascii_whitespace() => false,
+            _ => true,
+        };
+        if needs_separator {
+            out.push(' ');
+        }
+        cursor = cut_end;
+        k += 1;
     }
     out.push_str(&html[cursor..]);
     Cow::Owned(out)
@@ -1456,7 +1549,7 @@ mod extent_tests {
     }
 
     #[test]
-    fn void_and_self_closing_elements_mint_no_extent() {
+    fn void_elements_mint_no_extent_and_a_flagged_non_void_one_does() {
         assert!(element_extents("<br><img src=\"a.png\"/>").is_empty());
         // …but a self-closing raw-text start tag DOES open one, exactly as
         // the balancer treats it: HTML ignores `/` there (DCR-0016 Part D).
@@ -1464,6 +1557,66 @@ mod extent_tests {
         assert_eq!(ex.len(), 1);
         assert_eq!(ex[0].name, "textarea");
         assert!(ex[0].close.is_none());
+        // ti 490d97 wave 1. The old name said "and self-closing", which was
+        // an XML reading of the flag: outside foreign content HTML ignores it
+        // and the element opens, so a flagged non-void tag mints an extent
+        // like any other. Every assertion above survived the fix unchanged —
+        // its only flagged tags are a VOID `img` and a RAW-TEXT `textarea`,
+        // the two carve-outs — which is why the lie needed a positive arm
+        // rather than a rewrite.
+        let ex = element_extents("<span/>x");
+        assert_eq!(ex.len(), 1, "a flagged non-void tag opens: {ex:?}");
+        assert_eq!(ex[0].name, "span");
+        assert!(ex[0].close.is_none());
+    }
+
+    /// ti 490d97 wave 1: the author's own end tag is the extent's `close`,
+    /// not an orphan the balancer deletes.
+    #[test]
+    fn a_flagged_non_void_element_owns_the_close_tag_that_follows_it() {
+        let html = "<div/>y</div>";
+        let ex = element_extents(html);
+        assert_eq!(ex.len(), 1, "{ex:?}");
+        assert_eq!(ex[0].name, "div");
+        assert_eq!(ex[0].depth, 0);
+        assert_eq!(&html[ex[0].open.0..ex[0].open.1], "<div/>");
+        let close = ex[0].close.expect("the author's </div> closes it");
+        assert_eq!(&html[close.0..close.1], "</div>");
+        assert_eq!(&html[ex[0].open.1..ex[0].content_end], "y");
+    }
+
+    /// The carve-out, from the extents side: foreign content and the
+    /// `<svg>`/`<math>` roots are the two places HTML really does honour the
+    /// flag, so a flagged tag there mints nothing. Every arm but the last was
+    /// green before the wave-1 fix too — they guard it from over-reaching.
+    /// The last arm is the new one: `in_foreign` is a STACK property, so past
+    /// `</svg>` the flag is ignored again, and a fix that latched a counter
+    /// instead would leave that `<span/>` unpushed.
+    #[test]
+    fn a_flagged_tag_in_foreign_content_mints_no_extent() {
+        let names: Vec<String> = element_extents("<svg><rect/><circle/></svg>")
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, vec!["svg"], "rect and circle are empty siblings");
+        assert!(
+            element_extents("<svg/>after").is_empty(),
+            "the foreign ROOT honours its own flag"
+        );
+        assert!(element_extents("<math/>x").is_empty());
+        // Nested foreign descendants inherit the bit through the stack.
+        let names: Vec<String> = element_extents("<svg><g><rect/></g></svg>")
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, vec!["svg", "g"]);
+        // …and it is a stack property, not a latch: past `</svg>` the flag
+        // is ignored again.
+        let names: Vec<String> = element_extents("<svg><rect/></svg><span/>x")
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, vec!["svg", "span"]);
     }
 
     #[test]
@@ -1574,12 +1727,115 @@ mod strip_tests {
 
     #[test]
     fn stripping_never_changes_the_tag_inventory() {
-        // Attributes do not paint and they are not structure: layer 3's
-        // skeleton check must see the same thing before and after.
+        // Layer 3's skeleton check must see the same thing before and after.
+        // The guarantee is not free, and it is not "because attributes are
+        // not structure": the CUT carries the token separation an attribute
+        // stood in for, so it is the seam rule below that makes the sentence
+        // true (ti 490d97 wave 1).
         let html = "<div data-sync-id=\"p-0001\"><b data-order=\"2\">x</b></div>";
         let stripped = strip_reserved_sync_attrs(html);
         assert_eq!(tag_inventory(&stripped), tag_inventory(html));
         assert_eq!(stripped, "<div><b>x</b></div>");
+
+        // The weld: a misplaced closing quote leaves a NAME byte as the first
+        // survivor after the cut. Deleting the separator moved the inventory
+        // from ["div"] to ["divc"] — a browser names the welded element
+        // `divc"` (its tag-name state eats the quote; that one-byte remainder
+        // is the divergence already recorded in DCR-0032's 2026-08-21
+        // amendment, ti e20490). Moving off ["div"] at all is the defect.
+        for weld in [
+            "<div data-sync-id=\"a b=\"c\">x",
+            "<div data-order=\"a b=\"c\">x",
+        ] {
+            let stripped = strip_reserved_sync_attrs(weld);
+            assert_eq!(
+                tag_inventory(&stripped),
+                tag_inventory(weld),
+                "the strip welded bytes: {stripped}"
+            );
+            assert_eq!(tag_inventory(&stripped), vec!["div"]);
+        }
+
+        // The residue: a reserved attribute sitting directly behind a stray
+        // `/` (the shape wave 1's own call site generates). Deleting it welds
+        // `/` onto `>` and SETS a flag the source never carried.
+        for residue in [
+            "<div/data-sync-id=\"p-0003\">x</div>",
+            "<svg/data-sync-id=\"x\">y</svg>",
+        ] {
+            let stripped = strip_reserved_sync_attrs(residue);
+            assert_eq!(
+                tag_inventory(&stripped),
+                tag_inventory(residue),
+                "the strip minted a self-closing flag: {stripped}"
+            );
+        }
+    }
+
+    /// ti 490d97 wave 1, measured in headless Chromium. The cut took the
+    /// removed attribute's leading whitespace UNCONDITIONALLY, so when the
+    /// next surviving byte was a name byte it welded onto the tag name:
+    /// `<div data-sync-id="a b="c">x` became `<divc">x`. One U+0020 in the
+    /// cut's place reproduces the pre-strip parse — element `div`, junk
+    /// attribute `c"` — exactly.
+    #[test]
+    fn a_cut_that_would_weld_bytes_leaves_one_space() {
+        assert_eq!(
+            strip_reserved_sync_attrs("<div data-sync-id=\"a b=\"c\">x"),
+            "<div c\">x"
+        );
+        // One space, never two: the run is replaced, not padded.
+        assert_eq!(
+            strip_reserved_sync_attrs("<div  data-sync-id=\"a b=\"c\">x"),
+            "<div c\">x"
+        );
+    }
+
+    /// ti 490d97 wave 1. Two seams that are not welds:
+    ///
+    /// - a cut whose run ends at `>` with a `/` in front of it would create a
+    ///   `/>` adjacency the input never had. Measured, that changes the tree
+    ///   on a foreign root: `<svg/>y</svg>` is an EMPTY svg with `y` outside
+    ///   it, while `<svg/ >y</svg>` is an open svg containing `y`.
+    /// - adjacent cuts must be coalesced first. Judging per-cut reads bytes
+    ///   inside the neighbouring cut and produces `<div/>x`, the wrong tree.
+    #[test]
+    fn a_cut_that_would_mint_a_self_closing_flag_leaves_one_space() {
+        assert_eq!(
+            strip_reserved_sync_attrs("<div/data-sync-id=\"p-0003\">x</div>"),
+            "<div/ >x</div>"
+        );
+        assert_eq!(
+            strip_reserved_sync_attrs("<svg/data-sync-id=\"x\">y</svg>"),
+            "<svg/ >y</svg>"
+        );
+        assert_eq!(
+            strip_reserved_sync_attrs("<div/data-sync-id=\"a\" data-order=\"b\">x"),
+            "<div/ >x",
+            "the cuts merge into one run before the seam is judged"
+        );
+    }
+
+    /// The other half of the seam rule, and the one that has to stay
+    /// byte-exact: a well-formed strip emits NO space. Every existing
+    /// expectation in this module depends on it, and a rule that padded
+    /// unconditionally would move all of them.
+    #[test]
+    fn a_well_formed_strip_leaves_no_space_behind() {
+        assert_eq!(
+            strip_reserved_sync_attrs("<div data-sync-id=\"x\">t</div>"),
+            "<div>t</div>"
+        );
+        // Run ends at whitespace: the survivor already has its separator.
+        assert_eq!(
+            strip_reserved_sync_attrs("<div data-sync-id=\"x\" class=\"a\">t"),
+            "<div class=\"a\">t"
+        );
+        // Run ends at `/` with no `/` in front: the flag was already there.
+        assert_eq!(
+            strip_reserved_sync_attrs("<img data-sync-id=\"x\"/>"),
+            "<img/>"
+        );
     }
 
     /// ti 549b20, measured: DOMPurify 3.2.6 (the vendored copy) sanitizes
@@ -1849,12 +2105,91 @@ mod balance_tests {
         assert_eq!(balance_fragment(script), script);
     }
 
+    /// ti 490d97 wave 1. This test used to be called
+    /// `self_closing_non_raw_text_elements_stay_closed` and asserted that
+    /// `<span/>after` gets no appended close tag. Its premise WAS the defect:
+    /// HTML honours the self-closing flag in exactly two places — foreign
+    /// content and the `<svg>`/`<math>` start tags — and everywhere else the
+    /// `/` is a parse error the parser ignores. Measured in headless
+    /// Chromium, `<span/>after` parses to `<span>after</span>`, so the
+    /// balancer owes it a closer. The `<br/>` arm is unchanged: void wins
+    /// over everything.
     #[test]
-    fn self_closing_non_raw_text_elements_stay_closed() {
-        // The void/self-closing invariant is unchanged for everything outside
-        // the raw-text set: `<br/>` and `<span/>` get no appended close tag.
+    fn only_void_and_foreign_tags_are_closed_by_their_own_slash() {
         assert_eq!(balance_fragment("<br/>after"), "<br/>after");
-        assert_eq!(balance_fragment("<span/>after"), "<span/>after");
+        assert_eq!(balance_fragment("<span/>after"), "<span/>after</span>");
+        // Foreign content and the foreign roots keep the XML reading, because
+        // there HTML really does.
+        assert_eq!(
+            balance_fragment("<svg><rect/><circle/></svg>"),
+            "<svg><rect/><circle/></svg>"
+        );
+        assert_eq!(balance_fragment("<svg/>after"), "<svg/>after");
+        assert_eq!(balance_fragment("<math/>after"), "<math/>after");
+    }
+
+    /// ti 490d97 wave 1, the defect in one line: the author's closing tag.
+    /// The walk refused to push a flagged non-void tag, so `</div>` matched
+    /// nothing on the stack, became an orphan, and was DELETED — and on the
+    /// pane path the still-open fragment then consumed the sync wrapper's own
+    /// `</div>`, nesting the next block's anchor inside the html block's
+    /// wrapper (contracts.md §4a wants it a direct child of `<main>`).
+    #[test]
+    fn a_flagged_non_void_tag_opens_and_keeps_its_own_closer() {
+        let html = "<div class=\"a\">\n<div/>y</div>\n</div>";
+        assert_eq!(
+            balance_fragment(html),
+            html,
+            "both closers are real; neither is an orphan"
+        );
+        // Reachable with no strip at all: `<div/>` is a JSX habit, and it
+        // tripped this from the day the walk existed.
+        assert_eq!(balance_fragment("<div/>y</div>"), "<div/>y</div>");
+        assert_eq!(balance_fragment("<span/>tail"), "<span/>tail</span>");
+        // Implied closes compose with the new push: one appended `</p>`, not
+        // two, and not zero.
+        assert_eq!(balance_fragment("<p/>a"), "<p/>a</p>");
+        assert_eq!(balance_fragment("<p/>a<p/>b"), "<p/>a<p/>b</p>");
+    }
+
+    /// Guards the ORDER of the push rule: `is_void` is checked first and
+    /// globally, so the four parser-voids `VOID_ELEMENTS` gained in ti 490d97
+    /// wave 1 (`basefont`, `bgsound`, `frame`, `keygen`, all measured
+    /// never-open in Chromium) mint no appended close. The flagged arms were
+    /// green before that fix — landing the walk change WITHOUT the void
+    /// extension turns each of them red, which is what they are here for. The
+    /// unflagged arm was red before it: `<keygen>x` used to earn a
+    /// `</keygen>` a browser never mints.
+    #[test]
+    fn the_parser_voids_earn_no_appended_close_for_a_flagged_spelling() {
+        assert_eq!(balance_fragment("<keygen/>x"), "<keygen/>x");
+        assert_eq!(balance_fragment("<basefont/>x"), "<basefont/>x");
+        assert_eq!(balance_fragment("<bgsound/>x"), "<bgsound/>x");
+        assert_eq!(balance_fragment("<frame/>x"), "<frame/>x");
+        // Unflagged too — they were never open elements to begin with.
+        assert_eq!(balance_fragment("<keygen>x"), "<keygen>x");
+    }
+
+    /// The composed pane chain, in the order `render.rs` calls it:
+    /// `balance_fragment(&strip_reserved_sync_attrs(md))`. Each half is
+    /// pinned on its own above; this is the seam between them, which is where
+    /// the wave-1 defect actually reached a reader.
+    #[test]
+    fn the_pane_chain_survives_a_reserved_attribute_behind_a_slash() {
+        let md = "<div/data-sync-id=\"p-0003\">x</div>";
+        assert_eq!(
+            balance_fragment(&strip_reserved_sync_attrs(md)),
+            "<div/ >x</div>",
+            "the strip must not mint a flag, and the walk must not drop the \
+             author's closer"
+        );
+        // The foreign root is where minting one would change the TREE, not
+        // just the extents.
+        let svg = "<svg/data-sync-id=\"x\">y</svg>";
+        assert_eq!(
+            balance_fragment(&strip_reserved_sync_attrs(svg)),
+            "<svg/ >y</svg>"
+        );
     }
 
     #[test]
@@ -2056,18 +2391,26 @@ mod balance_tests {
         assert_eq!(tag_inventory("<svg><![CDATA[<b>"), vec!["svg"]);
     }
 
+    /// ti 490d97 wave 1 retitled this from
+    /// `a_slash_outside_any_attribute_value_still_self_closes`. The scanner
+    /// half is unchanged — a slash outside a value still SETS the flag — but
+    /// "self-closes" was the walk's old conclusion, and it now holds only for
+    /// void and foreign tags. The `<span/>tail` arm moved with the fix; every
+    /// other arm here is untouched.
     #[test]
-    fn a_slash_outside_any_attribute_value_still_self_closes() {
+    fn a_slash_outside_any_attribute_value_sets_the_flag() {
         // Void, so it must not be pushed for two independent reasons.
         assert_eq!(balance_fragment("<br/>"), "<br/>");
-        // Non-void: only the self-closing flag can keep this balanced.
-        assert_eq!(balance_fragment("<span/>tail"), "<span/>tail");
+        // Non-void HTML content: the flag is set and then IGNORED.
+        assert_eq!(balance_fragment("<span/>tail"), "<span/>tail</span>");
         assert_eq!(
             balance_fragment("<img src=\"x.png\"/><i>y"),
             "<img src=\"x.png\"/><i>y</i>"
         );
         // A detached slash is NOT a self-closing marker (HTML reconsumes it
-        // in before-attribute-name state).
+        // in before-attribute-name state). Same output as the flagged
+        // spelling now, for a different reason — which is the point: the
+        // browser cannot tell them apart either.
         assert_eq!(balance_fragment("<span / >tail"), "<span / >tail</span>");
     }
 

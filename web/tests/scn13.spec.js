@@ -655,4 +655,76 @@ test.describe("SCN-13 dual-pane sync", () => {
 
     expect(errors).toEqual([]);
   });
+
+  test("n — a self-closing spelling of a non-void tag does not swallow the next anchor", async ({
+    page,
+  }) => {
+    const errors = collectPageErrors(page);
+
+    // ti 490d97 wave 1, the WALK half of the same bundle. The fixture's second
+    // raw-HTML block opens with `<div class="jsx-habit" data-sync-id="p-0005"/>`
+    // — a self-closing spelling of a non-void tag. HTML honours that flag in
+    // exactly two places, foreign content and the <svg>/<math> start tags;
+    // everywhere else it is a parse error and the element OPENS. The walk read
+    // it the way XML means it, so it never pushed the tag, called the block's
+    // own `</div>` an orphan, and the balancer DELETED it. The fragment then
+    // reached the pane still open, the wrapper's own `</div>` closed it
+    // instead, and `p-0005` mounted INSIDE the html block's wrapper.
+    //
+    // Measured on this exact bundle before the fix: `source.html` carried one
+    // `</div>` after the block instead of two.
+    const sourceHtml = readFixture("oi0035/source.html");
+    // Guard, same shape as test m's: on the escaped-placeholder arm the
+    // fragment never reaches the balancer at all and everything below would
+    // pass without the walk ever running.
+    expect(sourceHtml).toContain('class="jsx-habit"');
+    expect(sourceHtml).not.toContain('data-skipped="html-block"');
+
+    await page.goto("/oi0035/");
+    await waitForMounted(page);
+
+    // contracts.md §4a: an anchor is a direct child of <main>, list items
+    // excepted. Reported by id so a failure names the block that sank.
+    const nested = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("main [data-sync-id]"))
+        .filter(
+          (el) => el.parentElement.tagName !== "MAIN" && el.tagName !== "LI"
+        )
+        .map((el) => el.getAttribute("data-sync-id"))
+    );
+    expect(nested).toEqual([]);
+
+    // The specimen, named: the paragraph after the flagged block is a P and a
+    // direct child of its pane's <main>, in BOTH panes.
+    for (const pane of ["#source", "#target"]) {
+      expect(
+        await page.evaluate(
+          (sel) =>
+            document.querySelector(`${sel} [data-sync-id="p-0005"]`).tagName,
+          pane
+        )
+      ).toBe("P");
+      expect(
+        await page.evaluate(
+          (sel) =>
+            document.querySelector(`${sel} [data-sync-id="p-0005"]`)
+              .parentElement.tagName,
+          pane
+        )
+      ).toBe("MAIN");
+    }
+
+    // And the block above it still owns its own content: the author's closing
+    // tag survived, so the jsx-habit div is INSIDE the html block's wrapper
+    // rather than having swallowed it.
+    expect(
+      await page.evaluate(
+        () =>
+          document.querySelector('#source [data-sync-id="html-0004"] .jsx-habit')
+            !== null
+      )
+    ).toBe(true);
+
+    expect(errors).toEqual([]);
+  });
 });
