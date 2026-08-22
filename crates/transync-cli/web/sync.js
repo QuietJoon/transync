@@ -53,7 +53,8 @@ const SETTLE_THRESHOLD_PX = 0.5;
 /**
  * Mount the sync engine over two pane DOM elements.
  *
- * Caches each pane's `[data-sync-id]` element list and a partner-side
+ * Caches each pane's `[data-sync-id]` element list — the elements whose
+ * ids the validated rows claim (OI-0035) — and a partner-side
  * `id → element` map at mount time, so per-frame scroll handling
  * doesn't repeat a `querySelectorAll` + attribute-selector lookup.
  *
@@ -77,6 +78,23 @@ const SETTLE_THRESHOLD_PX = 0.5;
  * indirection is not routed through, and a map whose row contradicts the
  * identity is refused rather than mounted-but-unsyncable (R0003-0002 —
  * see `validateRows`).
+ *
+ * **The anchor set comes from the validated rows, not from the DOM
+ * (OI-0035).** Every element whose `data-sync-id` is absent from the map's
+ * synchronizable rows is skipped — at mount, where the skip is announced, and
+ * at every reflow recompute, where it is silent — so a `data-sync-id` carried
+ * in by document content is inert forever, including one inserted after
+ * mount. The residual this cannot reach is an impostor with a LISTED id
+ * placed ahead of the genuine anchor, which first-occurrence-wins cannot tell
+ * apart; the renderer closes that one by stripping the reserved namespace out
+ * of raw-HTML blocks (`contracts.md` §4).
+ *
+ * The "no synchronizable row for panes that carry anchors" refusal below is
+ * NOT routed through that set. Whether the panes carry anchors is read
+ * straight off the DOM, before the anchor sets are collected, because it asks
+ * what the panes hold rather than what the engine may drive — and a map with
+ * no synchronizable row lists no ids, so a gated count would be zero for
+ * exactly the maps that refusal exists to refuse.
  *
  * **Refusal is a real outcome, and it is signalled (R0002-0016).** A map this
  * engine cannot drive — unknown major `schema_version`, rows failing the
@@ -159,8 +177,10 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
     lastDriver: null,
   };
 
-  const sourceAnchors = collectAnchors(sourcePane, "source");
-  const targetAnchors = collectAnchors(targetPane, "target");
+  // OI-0035: the anchor set comes from the validated rows, never from whatever
+  // the DOM happens to carry. Built after `loadAlignment` because it is only
+  // meaningful over rows the shape gate has already accepted.
+  const rowIds = synchronizableRowIds(alignmentMap);
 
   // R0002-0047: a map whose rows describe no synchronizable block — `blocks:
   // []`, or every row `non-sync` — has no malformed row for the shape gate to
@@ -170,7 +190,21 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
   // instead. The refusal is conditioned on the panes because an empty
   // document legitimately mounts an empty map over empty panes: nothing to
   // pair on either side is a vacuous mount, not a mismatched one.
-  const anchorCount = sourceAnchors.blocks.length + targetAnchors.blocks.length;
+  //
+  // The count is read straight off the DOM, and this refusal runs BEFORE the
+  // collection below — both deliberate, and both load-bearing since the
+  // OI-0035 gate (ti `490d97` wave 1). Counting collected anchors instead
+  // would make the condition unsatisfiable: the maps refused here are exactly
+  // the maps whose `rowIds` is empty, a gated collection returns nothing for
+  // them, so `anchorCount` would always be 0 and a title-only map over
+  // anchored panes would mount vacuously instead of being refused. This read
+  // is not a hole in the gate — nothing it sees is retained, paired, driven,
+  // or handed to a context; it answers only "do these panes carry anchors at
+  // all", which is the question R0002-0047 asks and the one question the
+  // validated rows cannot answer.
+  const anchorCount =
+    sourcePane.querySelectorAll("[data-sync-id]").length +
+    targetPane.querySelectorAll("[data-sync-id]").length;
   if (anchorCount > 0 && synchronizableRowCount(alignmentMap) === 0) {
     console.warn(
       `transync: rejecting alignment map — it describes no synchronizable ` +
@@ -178,6 +212,9 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
     );
     return null;
   }
+
+  const sourceAnchors = collectAnchors(sourcePane, "source", rowIds);
+  const targetAnchors = collectAnchors(targetPane, "target", rowIds);
 
   warnMapDomDrift(alignmentMap, sourceAnchors.byId, targetAnchors.byId);
   warnOffsetParentDrift(sourcePane, sourceAnchors.blocks, "source");
@@ -214,6 +251,7 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
     sourceCtx,
     targetCtx,
     state,
+    rowIds,
   });
 
   // Spec 2026-08-03 §5 (decision 9): mirror <details> toggle state across
@@ -327,7 +365,7 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
  * delivers `ResizeObserver` entries at frame rate, and one recompute per
  * frame is the most that can be observed anyway.
  */
-function wireReflowRecompute({ sourcePane, targetPane, sourceCtx, targetCtx, state }) {
+function wireReflowRecompute({ sourcePane, targetPane, sourceCtx, targetCtx, state, rowIds }) {
   let torn = false;
   let rafId = null;
 
@@ -335,9 +373,12 @@ function wireReflowRecompute({ sourcePane, targetPane, sourceCtx, targetCtx, sta
     rafId = null;
     if (torn) return;
     // Quiet re-collection: mount is the audit point for duplicate ids, and
-    // a resize drag would otherwise replay the same warning every frame.
-    const source = collectAnchors(sourcePane, "source", true);
-    const target = collectAnchors(targetPane, "target", true);
+    // a resize drag would otherwise replay the same warning every frame. The
+    // row gate is NOT quiet in the same sense — it still applies here, and
+    // that is what makes an anchor inserted after mount inert forever rather
+    // than merely inert until the next reflow (OI-0035).
+    const source = collectAnchors(sourcePane, "source", rowIds, true);
+    const target = collectAnchors(targetPane, "target", rowIds, true);
     sourceCtx.blocks = source.blocks;
     sourceCtx.partnerById = target.byId;
     targetCtx.blocks = target.blocks;
@@ -423,13 +464,57 @@ function destroyExisting(pane) {
  * this on every observed reflow: mount is the audit point for a producer
  * defect, and a window-resize drag would otherwise turn one duplicate into
  * a console message per frame.
+ *
+ * **`rowIds` is the anchor authority, not the DOM (OI-0035).** Source content
+ * can carry a `data-sync-id` — source Markdown is untrusted data
+ * (architectural invariant 7), raw HTML blocks are translatable content that
+ * reaches the pane, and DOMPurify's default keeps `data-*` attributes — and an
+ * anchor the alignment map never claimed used to be indistinguishable from one
+ * the renderer emitted. Every element whose id is absent from the validated
+ * rows is now skipped, at mount and at every reflow recompute alike, so it is
+ * inert forever: an anchor inserted AFTER mount can no longer be folded into
+ * the live set by the next quiet recompute. Skips are announced under the same
+ * first-five-then-a-tally policy as duplicates, and for the same reason they
+ * are silent on reflow.
+ *
+ * **What this cannot do, stated rather than implied.** An impostor carrying a
+ * LISTED id that precedes the genuine anchor in document order still wins,
+ * because first-occurrence-wins has no DOM-visible discriminator to prefer one
+ * over the other. That residual is why OI-0035 was closed at two layers: the
+ * renderer strips the reserved namespace out of raw-HTML blocks
+ * (`contracts.md` §4), so panes transync produces never contain one, and this
+ * gate makes every UNLISTED id inert in any pane, whoever produced it. The
+ * one case neither layer reaches is a listed impostor in a pane transync did
+ * not produce — a third-party producer can still hand the engine one, and the
+ * engine will drive from it.
+ *
+ * What this deliberately does NOT govern is the anchor count R0002-0047 asks
+ * `mountSync` for. "Do these panes carry anchors at all" is a question about
+ * the DOM, answered there by an ungated `querySelectorAll` before this
+ * function runs; routing it through this gate would make that refusal
+ * unsatisfiable, because the maps it refuses are exactly the maps for which
+ * `rowIds` is empty.
  */
-function collectAnchors(pane, label, quiet) {
+function collectAnchors(pane, label, rowIds, quiet) {
   const blocks = [];
   const byId = new Map();
   let duplicates = 0;
+  let unlisted = 0;
   for (const el of pane.querySelectorAll("[data-sync-id]")) {
     const id = el.dataset.syncId;
+    // The map gate runs FIRST, so an unlisted anchor is never reported as a
+    // duplicate: the two are different defects with different owners — one is
+    // a producer emitting a repeated row, the other is content claiming an
+    // anchor it was never given.
+    if (!rowIds.has(id)) {
+      unlisted += 1;
+      if (!quiet && unlisted <= 5) {
+        console.warn(
+          `transync: ignoring anchor "${id}" in ${label} pane — no alignment row claims it`
+        );
+      }
+      continue;
+    }
     if (byId.has(id)) {
       duplicates += 1;
       if (!quiet && duplicates <= 5) {
@@ -442,6 +527,11 @@ function collectAnchors(pane, label, quiet) {
     byId.set(id, el);
     blocks.push(el);
   }
+  if (!quiet && unlisted > 5) {
+    console.warn(
+      `transync: ${unlisted - 5} more unlisted-anchor warnings suppressed (${label} pane)`
+    );
+  }
   if (!quiet && duplicates > 5) {
     console.warn(
       `transync: ${duplicates - 5} more duplicate data-sync-id warnings suppressed (${label} pane)`
@@ -450,20 +540,36 @@ function collectAnchors(pane, label, quiet) {
   return { blocks, byId };
 }
 
-// How many rows of the map claim a DOM anchor. Every `sync_role` other than
+// The ids of every row that claims a DOM anchor. Every `sync_role` other than
 // "non-sync" anchors scroll (contracts.md §3), including the ones a
 // newer-minor map may add — `validateRows` has already decided that an
-// unclassifiable role is either refused or treated as an anchor, so counting
+// unclassifiable role is either refused or treated as an anchor, so taking
 // everything-but-"non-sync" here agrees with what the engine will wire.
-function synchronizableRowCount(alignmentMap) {
+//
+// OI-0035: this set is the engine's anchor authority. `collectAnchors` skips
+// any DOM element whose `data-sync-id` is not in it, so a `data-sync-id` that
+// rode in on document content — source Markdown is untrusted data, raw HTML is
+// translatable content, and DOMPurify's default keeps `data-*` — cannot become
+// a scroll driver or a scroll target.
+function synchronizableRowIds(alignmentMap) {
   const rows = Array.isArray(alignmentMap && alignmentMap.blocks)
     ? alignmentMap.blocks
     : [];
-  let count = 0;
+  const ids = new Set();
   for (const row of rows) {
-    if (row && row.sync_role !== "non-sync") count += 1;
+    if (row && row.sync_role !== "non-sync") ids.add(row.source_block_id);
   }
-  return count;
+  return ids;
+}
+
+// How many rows claim a DOM anchor — derived from the set above rather than
+// counted again, so the predicate that gates the mount and the predicate that
+// gates the anchors are one function and cannot drift apart (OI-0035). The two
+// numbers agree because `validateRows` refuses a duplicate `source_block_id`
+// before either is asked, so rows and distinct ids are the same count for
+// every map that reaches here.
+function synchronizableRowCount(alignmentMap) {
+  return synchronizableRowIds(alignmentMap).size;
 }
 
 // loadAlignment gates the schema version and the row shape; this surfaces

@@ -138,6 +138,22 @@ function appendBlock(page, id, px) {
   );
 }
 
+/** Plant one anchor carrying `id` at the top or the bottom of a rig pane. */
+function plantAnchor(page, paneId, id, px, where) {
+  return page.evaluate(
+    ([paneId, id, px, where]) => {
+      const pane = document.getElementById(paneId);
+      const el = document.createElement("p");
+      el.dataset.syncId = id;
+      el.style.cssText = `height:${px}px;margin:0;padding:0`;
+      el.textContent = id;
+      if (where === "top") pane.insertBefore(el, pane.firstChild);
+      else pane.appendChild(el);
+    },
+    [paneId, id, px, where]
+  );
+}
+
 test.describe("sync.js mount contract", () => {
   test("a — a refused re-mount returns null and takes the live engine with it", async ({
     page,
@@ -205,8 +221,20 @@ test.describe("sync.js mount contract", () => {
       expect(await mount(page, map), name).toBeNull();
       expect(await rigTagged(page), name).toBe(false);
     }
+    // The refusal message names what the PANES carry, and that number is the
+    // pin. R0002-0047 asks "do these panes carry anchors at all", which is a
+    // question about the DOM — so `mountSync` must keep answering it with an
+    // ungated read. An anchor count taken from `collectAnchors`' output would
+    // be 0 here once the OI-0035 row gate lands, because a map with no
+    // synchronizable row lists no ids and the rig's ten anchors are then all
+    // unlisted; `anchorCount > 0 && rowCount === 0` would become
+    // unsatisfiable and this refusal would quietly turn into a vacuous mount.
     expect(
-      logs.some((m) => m.includes("describes no synchronizable block"))
+      logs.some(
+        (m) =>
+          m.includes("describes no synchronizable block") &&
+          m.includes(`the panes carry ${BLOCK_IDS.length * 2} anchors`)
+      )
     ).toBe(true);
 
     // The bound on that refusal: an empty document legitimately renders
@@ -598,6 +626,117 @@ test.describe("sync.js mount contract", () => {
     const moved = await offsetTopOf(page, TGT, "e-0003");
     expect(moved).toBeGreaterThan(third + 200);
     await waitForScrollNear(page, TGT, moved, 12);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("k — an anchor no alignment row claims cannot drive the follower", async ({
+    page,
+  }) => {
+    const logs = collectConsole(page);
+    const errors = collectPageErrors(page);
+    await installRig(page, BLOCK_IDS);
+
+    // OI-0035 route (c), engine half. Source content is untrusted data
+    // (architectural invariant 7), raw HTML is translatable
+    // structurally-owned content, and DOMPurify's default keeps `data-*` — so
+    // a `data-sync-id` an author writes reaches BOTH panes. DOM membership
+    // used to decide what could drive scroll while map membership decided
+    // nothing at all; the validated rows are the authority now.
+    //
+    // The impostor sits at the TOP of the driver and the BOTTOM of the
+    // follower, so if it were collected it would answer for the reader's very
+    // first block and fling the follower to the other end of the document.
+    await plantAnchor(page, "eng-source", "x-9999", BLOCK_PX, "top");
+    await plantAnchor(page, "eng-target", "x-9999", BLOCK_PX, "bottom");
+
+    expect(await mount(page, mapOf(BLOCK_IDS))).toBe("controller");
+    for (const pane of ["source", "target"]) {
+      expect(
+        logs.some(
+          (m) =>
+            m.includes('ignoring anchor "x-9999"') &&
+            m.includes(`${pane} pane`) &&
+            m.includes("no alignment row claims it")
+        ),
+        pane
+      ).toBe(true);
+    }
+    // Two policies, kept distinct: an unlisted anchor is not a duplicate, and
+    // reporting it as one would send a reader hunting for a producer defect
+    // that is not there.
+    expect(logs.some((m) => m.includes("duplicate data-sync-id"))).toBe(false);
+
+    // Park the reader mid-document, so "the follower came home" is a claim
+    // about a pane that had somewhere else to be.
+    const third = await offsetTopOf(page, TGT, "e-0003");
+    await setScrollTop(page, SRC, await offsetTopOf(page, SRC, "e-0003"));
+    await waitForScrollNear(page, TGT, third, 6);
+    await page.waitForTimeout(160); // let the follower's 90 ms lock decay
+
+    // Back to the top, where the impostor straddles the driver's reference
+    // line. Collected, it pairs with the follower's copy 750 px down and the
+    // follower runs to its maximum; ignored, the scan falls through to
+    // `e-0001` and the follower comes home.
+    await setScrollTop(page, SRC, 0);
+    await waitForScrollNear(page, TGT, 0, 4);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("l — a duplicate the map does claim keeps its first occurrence, and an anchor that arrives after mount stays inert", async ({
+    page,
+  }) => {
+    const logs = collectConsole(page);
+    const errors = collectPageErrors(page);
+    await installRig(page, BLOCK_IDS);
+
+    // First half. The row gate runs BEFORE the duplicate policy, so the policy
+    // has to be shown intact (R0001-0044): a SECOND `e-0001` at the bottom of
+    // the follower is a producer defect, warned about, and the FIRST
+    // occurrence is what both the scan array and the partner lookup name.
+    await plantAnchor(page, "eng-target", "e-0001", BLOCK_PX, "bottom");
+    expect(await mount(page, mapOf(BLOCK_IDS))).toBe("controller");
+    expect(
+      logs.some(
+        (m) =>
+          m.includes("duplicate data-sync-id") &&
+          m.includes("e-0001") &&
+          m.includes("keeping the first occurrence")
+      )
+    ).toBe(true);
+
+    const third = await offsetTopOf(page, TGT, "e-0003");
+    await setScrollTop(page, SRC, await offsetTopOf(page, SRC, "e-0003"));
+    await waitForScrollNear(page, TGT, third, 6);
+    await page.waitForTimeout(160);
+    await setScrollTop(page, SRC, 0);
+    // The first e-0001 at offsetTop 0, never the copy 750 px down.
+    await waitForScrollNear(page, TGT, 0, 4);
+
+    // Second half — the 2026-08-09 correction's residual, closed. A reflow
+    // recompute ACTIVATES an anchor that entered the DOM after mount, with the
+    // duplicate audit deliberately suppressed, so before this gate there was a
+    // way into the live anchor set with no audit at any point. Now the row list
+    // decides: a late arrival is inert on the same terms as one that was there
+    // all along, and the recompute stays quiet about it.
+    // 400 px, not BLOCK_PX: the driver's reachable scroll range is
+    // `content - 200`, so a 150 px tail would sit entirely below the deepest
+    // reference line the pane admits and the case could never be exercised.
+    // At 400 px the band the impostor occupies is genuinely reachable.
+    await appendBlock(page, "x-8888", 400);
+    await setPaneHeight(page, "eng-target", 260);
+    await advanceFrames(page, 6);
+    expect(logs.some((m) => m.includes("x-8888"))).toBe(false);
+    await page.waitForTimeout(160);
+
+    // Drive the reader onto the late anchor's band. Collected, it pairs with
+    // the follower's copy at 900 px and drags the pane there; inert, nothing
+    // straddles the line, `handleScroll` returns early and the follower stays
+    // home at 0.
+    await setScrollTop(page, SRC, (await offsetTopOf(page, SRC, "x-8888")) + 4);
+    await advanceFrames(page, 45);
+    expect(await scrollTopOf(page, TGT)).toBeLessThan(50);
 
     expect(errors).toEqual([]);
   });
