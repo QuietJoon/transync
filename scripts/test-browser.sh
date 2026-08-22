@@ -151,6 +151,68 @@ do
   fi
 done
 
+# --- OI-0035 leg (route (c), render half) ---------------------------------
+#
+# A SECOND `--html-out` bundle, generated from a fixture whose raw-HTML block
+# carries a `data-sync-id` colliding with a real block id. It lives inside the
+# served fixture dir (like the wasm leg above) so `scn13.spec.js` can both read
+# its files off disk and navigate to it; it is scratch only, and nothing here
+# touches the six-file bundle contract or the SCN-14 corpus.
+#
+# The canonical SCN-12/13/14 fixture is deliberately NOT the specimen: an
+# impostor attribute in it would move SCN-13's own expectations for a case
+# that wants its own document.
+echo "[test-browser] regenerating the OI-0035 bundle -> $HTML_OUT/oi0035"
+OI0035_INPUT="$REPO_ROOT/crates/transync/tests/fixtures/oi-0035-impostor-anchor.md"
+if [[ ! -f "$OI0035_INPUT" ]]; then
+  echo "[test-browser] FAIL: OI-0035 fixture not found: $OI0035_INPUT" >&2
+  exit 1
+fi
+"$TRANSYNC_BIN" translate \
+  --input "$OI0035_INPUT" \
+  --output "$WORKDIR/oi0035.md" \
+  --map "$WORKDIR/oi0035.json" \
+  --html-out "$HTML_OUT/oi0035" \
+  --target-language ko
+
+# All six bundle files, mirroring the main leg's loop — purify.min.js
+# included: a sub-bundle missing the sanitizer would otherwise surface as an
+# opaque waitForMounted timeout in test `m` instead of this leg's named FAIL.
+for path in \
+  "$HTML_OUT/oi0035/index.html" \
+  "$HTML_OUT/oi0035/source.html" \
+  "$HTML_OUT/oi0035/target.html" \
+  "$HTML_OUT/oi0035/alignment.json" \
+  "$HTML_OUT/oi0035/sync.js" \
+  "$HTML_OUT/oi0035/purify.min.js"
+do
+  if [[ ! -s "$path" ]]; then
+    echo "[test-browser] FAIL: $path missing or empty" >&2
+    exit 1
+  fi
+done
+
+# The strip is PANE-ONLY: out.md keeps the author's bytes, because their
+# data-sync-id is their content. That sentence is written into render.rs,
+# contracts.md §4, DCR-0033 and the archived issue — and this check is the one
+# place anything READS the published Markdown to hold them to it. Every other
+# assertion in this wave looks at pane HTML, so a strip wired one layer too
+# deep — into regen or the splice, now or by a later "centralization" —
+# changes zero pane bytes, passes everything above, and silently deletes
+# author content from out.md. A contract sentence no test reads is the shape
+# that rots.
+#
+# `-lt 1`, not exactly 1: the attribute survives translation by splice
+# construction (and byte-verbatim through fallback), so >=1 holds on any
+# correct implementation — but its exact multiplicity in the translated
+# document belongs to the stub's behaviour, not to this contract. The only
+# thing pane-only forbids is LOSS, and loss is what -lt 1 catches; pinning
+# the count would turn an unrelated stub change into a false red here.
+if [[ "$(grep -c 'data-sync-id="p-0003"' "$WORKDIR/oi0035.md")" -lt 1 ]]; then
+  echo "[test-browser] FAIL: out.md lost the author's bytes — the strip must be pane-only (OI-0035)" >&2
+  exit 1
+fi
+
 cd "$WEB_DIR"
 
 if [[ -f "pnpm-lock.yaml" ]]; then

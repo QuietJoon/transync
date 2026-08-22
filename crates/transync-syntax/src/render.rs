@@ -567,10 +567,25 @@ fn render_block<'a>(
                 html_escape(md),
             );
         } else {
+            // OI-0035 route (c), render half (spec 2026-08-20 §8): strip the
+            // reserved sync-attribute namespace out of the block's own bytes
+            // before the wrapper writes ours. Strip-then-inject is what makes
+            // "ours are the only sync attributes in this DOM" a construction
+            // rather than a scan — the engine's row gate covers unlisted ids,
+            // but a LISTED id planted ahead of the genuine anchor wins
+            // first-occurrence-wins, and only this layer closes that.
+            //
+            // Pane-only. `out.md` keeps the author's bytes: their
+            // `data-sync-id` is their content, and we own this namespace only
+            // in DOM we mount. Stripping never changes rendered appearance,
+            // because attributes do not paint.
+            //
+            // The failure arm above needs none of this: its payload is
+            // HTML-escaped, so an impostor attribute there is text.
             let _ = writeln!(
                 out,
                 "<div{attrs}>{}</div>",
-                transync_html::balance_fragment(md),
+                transync_html::balance_fragment(&transync_html::strip_reserved_sync_attrs(md)),
             );
         }
         return;
@@ -1512,6 +1527,45 @@ mod html_render_tests {
         assert!(
             html.contains("<pre"),
             "DCR-0013 placeholder element is a <pre>:\n{html}",
+        );
+    }
+
+    /// OI-0035 route (c), render half (spec 2026-08-20 §8). A `data-sync-id`
+    /// written into a source raw-HTML block used to reach the pane verbatim,
+    /// where the engine could not tell it from an anchor the renderer emitted
+    /// — so it could pre-claim a real block's id and become that block's
+    /// scroll driver. Source Markdown is untrusted data (invariant 7) and this
+    /// arm is the only live route by which source-controlled markup reaches a
+    /// Markdown pane, because panes render with `unsafe_ = false`.
+    ///
+    /// The specimen puts the impostor BEFORE the block it impersonates, which
+    /// is the shape the engine layer cannot defeat on its own: a listed id
+    /// preceding the genuine anchor wins `collectAnchors`' first-occurrence
+    /// policy. This is the layer that closes it.
+    #[test]
+    fn html_block_impostor_sync_attributes_never_reach_the_pane() {
+        let html = render_with_status(
+            "<div data-sync-id=\"p-0002\" DATA-Order=\"99\" class=\"note\">side note</div>\n\npara\n",
+            FallbackStatus::Preserved,
+        );
+        assert_eq!(
+            html.matches("data-sync-id=\"p-0002\"").count(),
+            1,
+            "only the real p-0002 paragraph may claim p-0002; the impostor in \
+             the html block's own bytes must not survive into the pane:\n{html}"
+        );
+        assert!(
+            !html.contains("DATA-Order"),
+            "the strip is case-insensitive over the whole reserved namespace:\n{html}"
+        );
+        assert!(
+            html.contains("<div class=\"note\">side note</div>"),
+            "everything outside the namespace is content and survives \
+             untouched, including the block's own text:\n{html}"
+        );
+        assert!(
+            !html.contains("data-skipped=\"html-block\""),
+            "still the live-render arm, not the escaped placeholder:\n{html}"
         );
     }
 }

@@ -586,4 +586,73 @@ test.describe("SCN-13 dual-pane sync", () => {
     await page.unroute("**/target.html");
     expect(errors).toEqual([]);
   });
+
+  test("m — an impostor data-sync-id written into source HTML never reaches a pane", async ({
+    page,
+  }) => {
+    const logs = collectConsole(page);
+    const errors = collectPageErrors(page);
+
+    // OI-0035 route (c), render half, end to end. The fixture's raw-HTML block
+    // claims `p-0003` — the id of the paragraph that FOLLOWS it — so before the
+    // strip the pane held two elements claiming p-0003 and the impostor, being
+    // first in document order, won the engine's first-occurrence lookup and
+    // became that paragraph's scroll driver. The bundle is a second
+    // `--html-out` run inside the fixture dir (scripts/test-browser.sh, the
+    // OI-0035 leg).
+    const sourceHtml = readFixture("oi0035/source.html");
+    const targetHtml = readFixture("oi0035/target.html");
+
+    // Guards first: the assertions below are only meaningful while the block
+    // takes the LIVE-render arm. On the escaped-placeholder arm the impostor's
+    // quotes become `&quot;` and every "does not contain" would pass vacuously.
+    expect(sourceHtml).toContain('class="impostor-marker"');
+    expect(sourceHtml).not.toContain('data-skipped="html-block"');
+    // The target pane carries the guard too: if the stub's translation of the
+    // html block ever fell back, the target block would be the escaped
+    // placeholder — its count of 1 below would then hold without the strip
+    // ever running on that pane. Same vacuous pass, seen from the other side.
+    expect(targetHtml).not.toContain('data-skipped="html-block"');
+
+    expect(sourceHtml.split('data-sync-id="p-0003"').length - 1).toBe(1);
+    expect(targetHtml.split('data-sync-id="p-0003"').length - 1).toBe(1);
+    expect(sourceHtml).not.toContain('data-fallback="translated" class=');
+
+    // And in the DOM the bundle actually mounts.
+    await page.goto("/oi0035/");
+    await waitForMounted(page);
+
+    expect(
+      await page.evaluate(
+        () => document.querySelectorAll('#source [data-sync-id="p-0003"]').length
+      )
+    ).toBe(1);
+    expect(
+      await page.evaluate(
+        () => document.querySelector('#source [data-sync-id="p-0003"]').tagName
+      )
+    ).toBe("P");
+    // A nested anchor is the same defect seen from the other side: the impostor
+    // sat inside the html block's own wrapper (contracts.md §4a wants every
+    // anchor a direct child of <main>, list items excepted).
+    expect(
+      await page.evaluate(
+        () => document.querySelectorAll("[data-sync-id] [data-sync-id]").length
+      )
+    ).toBe(0);
+    expect(logs.some((m) => m.includes("duplicate data-sync-id"))).toBe(false);
+
+    // Spec §15 item 3: DOMPurify's `ALLOW_DATA_ATTR` default was INFERRED when
+    // route (c) was chosen, never measured. Measure it here, against the
+    // vendored build the bundle actually ships, because the render half's
+    // necessity rests on it — a sanitizer that dropped `data-*` would already
+    // have closed this route. The DCR's mechanism sentence quotes this.
+    expect(
+      await page.evaluate(() =>
+        window.DOMPurify.sanitize('<div data-sync-id="p-0003">x</div>')
+      )
+    ).toContain('data-sync-id="p-0003"');
+
+    expect(errors).toEqual([]);
+  });
 });
