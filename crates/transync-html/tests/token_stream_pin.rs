@@ -13,11 +13,14 @@
 //! `regenerate_goldens` below deliberately. **If the pin goes red, the token
 //! change was not inert — do not re-bless the golden, find out which region
 //! moved.** The one sanctioned exception is a deliberate, reviewed tokenizer
-//! change landed through the two-bless protocol the `stray-*` entries
-//! document (ti 549b20, task 8): bless the broken behaviour first, fix,
-//! re-bless, and review the diff between the blessings as the record of the
-//! movement. The prohibition on blessing a red pin *instead of* reviewing it
-//! stands everywhere else.
+//! **or walk** change landed through the two-bless protocol the `stray-*`
+//! and `selfclose-*` entries document (ti 549b20 task 8; ti 490d97 wave 1):
+//! bless the broken behaviour first, fix, re-bless, and review the diff
+//! between the blessings as the record of the movement. The exception names
+//! the walk as well as the tokenizer because `balance_fragment`'s output can
+//! move with `scan_tags` untouched — `walk_elements` decides what counts as
+//! open, and the balanced goldens record its decisions. The prohibition on
+//! blessing a red pin *instead of* reviewing it stands everywhere else.
 //!
 //! TRACE: ti 490d97 wave 0
 //! TRACE: DCR-0032
@@ -90,6 +93,20 @@ const FIXTURES: &[(&str, &str)] = &[
 /// interlocked hatch, so the diff between the two blessings is the
 /// reviewable record of exactly how tokenization changed. Unlike every
 /// entry above, they exist because their tokenization moved inside wave 0.
+///
+/// The five `selfclose-*` entries are the same move one layer up (ti
+/// 490d97 wave 1). Until now no entry held a self-closing spelling of any
+/// tag — the golden contains zero `:true` tokens — so the pin could not see
+/// that the WALK read the `/` the way XML means it: it refused to push a
+/// flagged non-void tag, which made the author's own closing tag an orphan
+/// and let the balancer delete it. They are blessed twice for the reason
+/// the `stray-*` entries are, but the diff between the blessings records a
+/// **walk** movement rather than a tokenizer one — `token-stream.txt` does
+/// not move at all here, because `scan_tags` is not touched.
+/// `selfclose-svg` and `selfclose-svg-root` are no-regression guards rather
+/// than blind spots: foreign content and the `<svg>`/`<math>` start tags
+/// are the two places HTML really does honour the flag, so they must pass
+/// through the balancer unchanged on both sides of the fix.
 const EDGE_CASES: &[(&str, &str)] = &[
     (
         "cdata-foreign",
@@ -118,6 +135,11 @@ const EDGE_CASES: &[(&str, &str)] = &[
         "<div a=\"x\"\" data-sync-id=\"v\">y</div>",
     ),
     ("stray-equals", "<div =\"> data-sync-id=\"v\">x</div>"),
+    ("selfclose-div", "<div class=\"a\">\n<div/>y</div>\n</div>"),
+    ("selfclose-span", "<span/>tail"),
+    ("selfclose-svg", "<svg><rect/><circle/></svg>"),
+    ("selfclose-svg-root", "<svg/>after"),
+    ("selfclose-p", "<p/>a"),
 ];
 
 /// Every corpus entry as `(name, source)`, fixtures first.
@@ -202,10 +224,11 @@ fn the_open_close_stream_and_tag_inventory_are_byte_identical_to_the_golden() {
         "the Open/Close stream or tag_inventory moved. Wave 0's token changes \
          (Open.span, TagToken::Skip) are meant to be inert for both shipped \
          consumers; this says they are not. Do NOT re-bless the golden — \
-         unless this is a deliberate, reviewed tokenizer change landing \
-         through the two-bless protocol (ti 549b20, task 8), in which case \
-         this red IS the deliverable and the diff between the blessings is \
-         its record. Absent that, find out which region moved."
+         unless this is a deliberate, reviewed tokenizer or walk change \
+         landing through the two-bless protocol (ti 549b20 task 8; ti \
+         490d97 wave 1), in which case this red IS the deliverable and the \
+         diff between the blessings is its record. Absent that, find out \
+         which region moved."
     );
 }
 
@@ -222,7 +245,13 @@ fn balance_fragment_output_is_byte_identical_to_the_golden() {
             balance_fragment(&src),
             expected,
             "balance_fragment moved for `{name}` — the render path's output \
-             is not what it was before the token change"
+             is not what it was before the token change. Do NOT re-bless the \
+             golden — unless this is a deliberate, reviewed tokenizer or walk \
+             change landing through the two-bless protocol (ti 549b20 task 8; \
+             ti 490d97 wave 1), in which case this red IS the deliverable. \
+             This is the message a WALK change reaches first: `walk_elements` \
+             can move this output with `scan_tags` byte-identical, so a green \
+             token-stream pin is not evidence that nothing moved."
         );
     }
 }
@@ -230,9 +259,9 @@ fn balance_fragment_output_is_byte_identical_to_the_golden() {
 /// Regenerate both goldens. `#[ignore]`d **and** env-var interlocked so no
 /// ordinary run — including `--include-ignored` — can rewrite a pin. Run it
 /// deliberately, and only when the corpus itself changes or a deliberate,
-/// reviewed tokenizer change lands through the two-bless protocol (ti
-/// 549b20, task 8) — never to turn a red pin green as a shortcut past
-/// reviewing what moved:
+/// reviewed tokenizer **or walk** change lands through the two-bless
+/// protocol (ti 549b20 task 8; ti 490d97 wave 1) — never to turn a red pin
+/// green as a shortcut past reviewing what moved:
 ///
 /// `TRANSYNC_REGEN_GOLDENS=1 cargo test -p transync-html regenerate_goldens -- --ignored --test-threads=4`
 #[test]
