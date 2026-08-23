@@ -566,7 +566,7 @@ Capture the syntax crate:
 cargo check -p transync-syntax --all-targets > /Volumes/Temp/claude/ti490d97-wave2/gate/t3-red2-syntax.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t3-red2-syntax.txt
 ```
-Read the file. Expected: `CARGO_EXIT=101`, and exactly **six** `E0063` diagnostics, every one of them in `transync-syntax`:
+Read the file. Expected: `CARGO_EXIT=101`, and exactly **six** `E0063` **sites**, every one of them in `transync-syntax`. **Six sites is not six printed lines** (measured 2026-08-24): `emit.rs` is reported once for the `lib test` target and again for the `lib` target, so seven `error[E0063]` lines print — and the `lib` unit's summary says `due to 2 previous errors` while showing only one, because cargo cancelled it (`build failed, waiting for other jobs to finish...`) before flushing `parser.rs`'s. Count distinct **file:line** pairs, not diagnostic lines. Same distinction as the census below: lines are not sites.
 
 | Site | Missing field | Answered by |
 |---|---|---|
@@ -589,7 +589,7 @@ rg -n --no-heading -e '(^|[^\w])Block \{' -e '(^|[^\w])Document \{' \
 ```
 
 - [ ] **Step 5: Give `emit` the spelling parameter, and give the island its one home.** In `crates/transync-syntax/src/parser/emit.rs`:
-  - the import becomes:
+  - the import becomes — **the module-level one at the top of the file, not the identical line inside `emit.rs`'s own test module** (there are two; the test module builds no `Block` literal, so giving it `Spelling` would be an unused import and `-D warnings` would block the commit):
 ```rust
 use crate::id::{BlockId, BlockKind, Spelling};
 ```
@@ -698,7 +698,7 @@ use crate::id::{BlockId, BlockKind, Spelling};
     })
 ```
 
-- [ ] **Step 8: Answer the five hand-built `Block` literals.** Each one is a synthetic `Skipped` (or `Paragraph`) block in a test, and each takes `spelling: Spelling::Markdown` immediately after its `kind:` line. Add the import each module needs (`use crate::id::Spelling;` in `align.rs`'s `skipped_row_tests`, `render.rs`'s test module, and `regen.rs`'s test module; `crate::id::Spelling` is already reachable as a path in `parser.rs` and in `transync-core`):
+- [ ] **Step 8: Answer the five hand-built `Block` literals.** Each one is a synthetic `Skipped` (or `Paragraph`) block in a test, and each takes `spelling: Spelling::Markdown` immediately after its `kind:` line. **Add no imports** (corrected 2026-08-24 by Task 3's implementer, who caught it before committing). This preamble used to say to add `use crate::id::Spelling;` to `align.rs`'s `skipped_row_tests` and to `render.rs`'s and `regen.rs`'s test modules — which **contradicts the bullets below**, since every one of them writes the fully-qualified `spelling: crate::id::Spelling::Markdown,`. Following the preamble leaves three unused imports, and the pre-commit hook's `clippy --all-targets --all-features -- -D warnings` turns `unused_imports` into an error, so the commit is **blocked**. Follow the bullets. Only `parser.rs` writes the bare `Spelling::Markdown`, and it resolves through Step 3's module-level import via the test module's `use super::*`:
   - `crates/transync-syntax/src/parser.rs`, `skipped_block_id_round_trips_assign_block_ids` → `spelling: Spelling::Markdown,`
   - `crates/transync-syntax/src/align.rs`, `skipped_row_is_preserved_anchor_and_uncounted` → `spelling: crate::id::Spelling::Markdown,`
   - `crates/transync-syntax/src/render.rs`, `render_with_synthetic_skipped` → `spelling: crate::id::Spelling::Markdown,`
