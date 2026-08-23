@@ -32,7 +32,7 @@
 //! TRACE: SCN-14
 
 use crate::align::ByteRange;
-use crate::id::{BlockId, BlockKind};
+use crate::id::{BlockId, BlockKind, Spelling};
 use crate::parser::{Block, Document};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -93,11 +93,22 @@ pub fn regenerate(doc: &Document, accepted: &HashMap<BlockId, String>) -> (Strin
         // the "by construction" guarantee FallbackAll / stage 3 rely on to
         // skip the verifying reparse (DCR-0002, DCR-0004). Only translated
         // payloads need fence re-wrapping.
-        let to_write: Cow<'_, str> = match &block.kind {
-            BlockKind::CodeBlock { info, .. } if translated => {
-                Cow::Owned(regenerate_code_block(payload, info.as_deref()))
-            }
-            BlockKind::Html { block_type } if translated => {
+        //
+        // ti 490d97 wave 2 (spec §5/§6): the two transforming arms are keyed
+        // on SPELLING, not on kind. That is what makes "(CodeBlock × Html)
+        // never reaches the fence synthesizer" a compile shape rather than a
+        // convention — DCR-0031's `regenerate_code_block` is Markdown-only,
+        // and an HTML document's `<pre>` is a `CodeBlock` that must never be
+        // re-fenced. It is also what puts the splice policy where it belongs:
+        // the spelling decides it, never the kind.
+        let to_write: Cow<'_, str> = match block.spelling {
+            Spelling::Markdown => match &block.kind {
+                BlockKind::CodeBlock { info, .. } if translated => {
+                    Cow::Owned(regenerate_code_block(payload, info.as_deref()))
+                }
+                _ => Cow::Borrowed(payload),
+            },
+            Spelling::Html { block_type } if translated => {
                 let source_bytes = &doc.source_text[bstart..bend];
                 // Validation layer 3 already proved this splice succeeds;
                 // if it still fails, splice the source bytes — out.md stays
@@ -108,9 +119,7 @@ pub fn regenerate(doc: &Document, accepted: &HashMap<BlockId, String>) -> (Strin
                         transync_html::splice(
                             source_bytes,
                             &segs,
-                            transync_html::BlankLinePolicy::from_commonmark_html_block_type(
-                                *block_type,
-                            ),
+                            Spelling::blank_line_policy_for(block_type),
                         )
                         .ok()
                     }) {
@@ -118,7 +127,7 @@ pub fn regenerate(doc: &Document, accepted: &HashMap<BlockId, String>) -> (Strin
                     None => Cow::Borrowed(source_bytes),
                 }
             }
-            _ => Cow::Borrowed(payload),
+            Spelling::Html { .. } => Cow::Borrowed(payload),
         };
 
         output.push_str(&to_write);

@@ -1452,7 +1452,7 @@ mod run_level_tests {
         use crate::llm::{BlockConstraints, HtmlSegmentConstraints, InputMode};
 
         let mut unit = paragraph_unit(id, hash);
-        unit.block_kind = BlockKind::Html { block_type: 6 };
+        unit.block_kind = BlockKind::Html;
         unit.input_mode = InputMode::HtmlSegments;
         unit.source_payload = "[\"Click\"]".to_string();
         unit.constraints = BlockConstraints {

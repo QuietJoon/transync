@@ -9,7 +9,7 @@
 //!
 //! TRACE: SCN-01..SCN-06
 
-use crate::id::BlockKind;
+use crate::id::{BlockKind, Spelling};
 use crate::llm::{BlockConstraints, InputMode};
 use crate::parser::{Block, Document};
 use crate::structure::{inspect_blockquote_children, inspect_list_topology, inspect_table};
@@ -27,29 +27,45 @@ use transync_syntax::outcome::block_payload;
 /// *different* document, which is the same-document contract violation
 /// `build_batches` documents.
 pub(crate) fn assemble(doc: &Document, block: &Block) -> (String, InputMode, BlockConstraints) {
-    // Html units carry a JSON segment array, not the block's raw bytes
-    // (spec §4.1); the markup itself never reaches the model, and the
-    // structural facts the validator needs ride in `constraints.html`.
-    if let BlockKind::Html { block_type } = block.kind {
-        let raw = block_payload(doc, block);
-        let segs = transync_html::extract(&raw)
-            .expect("outcome said Unit — extract cannot fail here (same input, same routine)");
-        let payload = serde_json::to_string(&segs.texts)
-            .expect("Vec<String> JSON serialization is infallible");
-        let constraints = BlockConstraints {
-            html: Some(crate::llm::HtmlSegmentConstraints {
-                segment_count: segs.texts.len() as u32,
-                segment_labels: segs.labels,
-                source_bytes: raw,
-                block_type,
-            }),
-            ..BlockConstraints::default()
-        };
-        (payload, InputMode::HtmlSegments, constraints)
-    } else {
-        let payload = code_payload(doc, block);
-        let constraints = constraints_for(&block.kind, &payload);
-        (payload, input_mode_for(&block.kind), constraints)
+    // Spec §6: the branch is on SPELLING, and it is first. Html units carry a
+    // JSON segment array, not the block's raw bytes — the markup never reaches
+    // the model, and the structural facts the validator needs ride in
+    // `constraints.html`. Branching here rather than on the kind is what
+    // structurally prevents `(CodeBlock × Html)` from reaching `code_payload`'s
+    // indented-block re-fencing: DCR-0031's fence synthesizer is Markdown-only,
+    // and an HTML document's `<pre>` is a `BlockKind::CodeBlock`.
+    match block.spelling {
+        Spelling::Html { block_type } => {
+            let raw = block_payload(doc, block);
+            let segs = transync_html::extract(&raw)
+                .expect("outcome said Unit — extract cannot fail here (same input, same routine)");
+            let payload = serde_json::to_string(&segs.texts)
+                .expect("Vec<String> JSON serialization is infallible");
+            let constraints = BlockConstraints {
+                html: Some(crate::llm::HtmlSegmentConstraints {
+                    segment_count: segs.texts.len() as u32,
+                    segment_labels: segs.labels,
+                    source_bytes: raw,
+                    // Spec §6: `0` is the sentinel for "a block of an HTML
+                    // document, where no CommonMark type applies". The field's
+                    // type is frozen (§0 tier (a), no `#[non_exhaustive]`, and
+                    // the v0.4.0 window is closed), so `Option<u8>` was never
+                    // available; `0` and `1` behave identically under the
+                    // `matches!(t, 6 | 7)` rule, and `0` is the one that does
+                    // not claim to be a CommonMark type. The splice policy is
+                    // still derived from the SPELLING — this field is a
+                    // record, not a switch.
+                    block_type: block_type.unwrap_or(0),
+                }),
+                ..BlockConstraints::default()
+            };
+            (payload, InputMode::HtmlSegments, constraints)
+        }
+        Spelling::Markdown => {
+            let payload = code_payload(doc, block);
+            let constraints = constraints_for(&block.kind, &payload);
+            (payload, input_mode_for(&block.kind), constraints)
+        }
     }
 }
 
@@ -181,7 +197,7 @@ mod heading_level_constraint_tests {
             (BlockKind::Blockquote, None),
             (BlockKind::ThematicBreak, None),
             (BlockKind::Image, None),
-            (BlockKind::Html { block_type: 6 }, None),
+            (BlockKind::Html, None),
             (
                 BlockKind::Skipped {
                     label: "front-matter".to_string(),

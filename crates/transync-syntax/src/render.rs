@@ -547,7 +547,7 @@ fn render_block<'a>(
         let _ = writeln!(out, "<{element} data-block-kind=\"thematic-break\">");
         return;
     }
-    if let BlockKind::Html { .. } = kind {
+    if matches!(kind, BlockKind::Html) {
         // Spec §5: live render is a translated/preserved privilege; fallback
         // (and extraction-failure, which align marks fallback_source) keeps
         // the DCR-0013 escaped placeholder. Live output is auto-balanced
@@ -792,7 +792,7 @@ fn wrapper_element_for(kind: &BlockKind) -> &'static str {
         // / blockquote, whose payload already carries its own semantic
         // elements. (The `Html` branch in `render_block` emits the wrapper
         // directly and returns; this arm keeps the match total.)
-        BlockKind::Html { .. } => "div",
+        BlockKind::Html => "div",
         // A6: `<pre>` preserves the source formatting of the escaped
         // placeholder, is visually distinct without CSS, and is inert.
         // (The `Skipped` branch in `render_block` emits the `<pre>`
@@ -1436,7 +1436,7 @@ mod html_render_tests {
         let statuses: HashMap<BlockId, FallbackStatus> = doc
             .blocks
             .iter()
-            .filter(|b| matches!(b.kind, BlockKind::Html { .. }))
+            .filter(|b| matches!(b.kind, BlockKind::Html))
             .map(|b| (b.block_id.clone(), status))
             .collect();
         let map = build_alignment_map(

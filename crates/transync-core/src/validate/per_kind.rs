@@ -31,7 +31,7 @@ pub fn check(
         BlockKind::CodeBlock { .. } => check_code(constraints, result),
         BlockKind::ListItem { .. } => check_list(constraints, result),
         BlockKind::Blockquote => check_blockquote(constraints, result),
-        BlockKind::Html { .. } => check_html(constraints, result),
+        BlockKind::Html => check_html(constraints, result),
         // Skipped blocks are never batched (A3), so this arm is defensive
         // and unreachable — kept to keep the match total.
         BlockKind::ThematicBreak | BlockKind::Image | BlockKind::Skipped { .. } => Ok(()),
@@ -433,7 +433,7 @@ mod tests {
     fn html_payload_that_is_not_json_is_rejected() {
         let err = check(
             &html_constraints(1),
-            &BlockKind::Html { block_type: 6 },
+            &BlockKind::Html,
             &unit_result("not json"),
         )
         .unwrap_err();
@@ -444,7 +444,7 @@ mod tests {
     fn html_segment_count_change_is_rejected() {
         let err = check(
             &html_constraints(2),
-            &BlockKind::Html { block_type: 6 },
+            &BlockKind::Html,
             &unit_result("[\"only one\"]"),
         )
         .unwrap_err();
@@ -455,7 +455,7 @@ mod tests {
     fn empty_html_segment_is_rejected() {
         let err = check(
             &html_constraints(2),
-            &BlockKind::Html { block_type: 6 },
+            &BlockKind::Html,
             &unit_result("[\"ok\",\"\"]"),
         )
         .unwrap_err();
@@ -477,7 +477,7 @@ mod tests {
         ] {
             let verdict = check(
                 &html_constraints(2),
-                &BlockKind::Html { block_type: 6 },
+                &BlockKind::Html,
                 &unit_result(payload),
             );
             let Err(err) = verdict else {
@@ -492,7 +492,7 @@ mod tests {
         assert!(
             check(
                 &html_constraints(2),
-                &BlockKind::Html { block_type: 6 },
+                &BlockKind::Html,
                 &unit_result("[\"하나\",\"둘\"]"),
             )
             .is_ok()

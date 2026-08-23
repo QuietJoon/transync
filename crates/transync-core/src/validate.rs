@@ -20,7 +20,7 @@ pub mod per_kind;
 pub mod schema;
 
 use crate::FallbackStatus;
-use crate::id::{BlockId, BlockKind};
+use crate::id::BlockId;
 use crate::llm::{GlossaryEntry, OutputKind, TranslationBatch, TranslationBatchResult, UnitResult};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -408,9 +408,7 @@ fn validate_unit(
     // therefore cannot make this layer lie about regen's success — it
     // surfaces as regen's own defensive source-bytes fallback, which keeps
     // `out.md` honest rather than corrupt.
-    if let BlockKind::Html { block_type } = &unit.block_kind
-        && let Some(h) = &unit.constraints.html
-    {
+    if let Some(h) = &unit.constraints.html {
         // Deliberately NOT the `reject` shape above: this is the one arm
         // that is not a rejection at all — no layer, no reason, so the
         // pipeline's `rejected_by.is_some()` retry loop skips it (§3.3).
@@ -441,7 +439,7 @@ fn validate_unit(
             Ok(segs) => match transync_html::splice(
                 &h.source_bytes,
                 &segs,
-                transync_html::BlankLinePolicy::from_commonmark_html_block_type(*block_type),
+                transync_html::BlankLinePolicy::from_commonmark_html_block_type(h.block_type),
             ) {
                 Err(e) => return direct_fallback(format!("html splice failed: {e}")),
                 Ok(spliced) => {
@@ -1115,7 +1113,7 @@ mod nul_payload_tests {
         let segs = transync_html::extract(source).expect("source block extracts");
         let mut unit = paragraph_unit(source);
         unit.unit_id = BlockId::new("html", 1);
-        unit.block_kind = BlockKind::Html { block_type: 6 };
+        unit.block_kind = BlockKind::Html;
         unit.input_mode = InputMode::HtmlSegments;
         unit.source_payload = serde_json::to_string(&segs.texts).expect("json");
         unit.constraints = BlockConstraints {
@@ -1282,7 +1280,7 @@ mod html_splice_layer_tests {
         let segs = transync_html::extract(source).expect("source block extracts");
         let unit = TranslationUnit {
             unit_id: BlockId::new("html", 1),
-            block_kind: BlockKind::Html { block_type: 6 },
+            block_kind: BlockKind::Html,
             input_mode: InputMode::HtmlSegments,
             source_payload: serde_json::to_string(&segs.texts).expect("json"),
             context: BlockContext::default(),

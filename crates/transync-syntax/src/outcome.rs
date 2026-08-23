@@ -41,7 +41,7 @@ pub enum HtmlOutcome {
 pub fn html_outcomes(doc: &Document) -> HashMap<BlockId, HtmlOutcome> {
     let mut out = HashMap::new();
     for block in &doc.blocks {
-        if !matches!(block.kind, BlockKind::Html { .. }) {
+        if !matches!(block.kind, BlockKind::Html) {
             continue;
         }
         let payload = block_payload(doc, block);
@@ -79,7 +79,7 @@ pub fn is_translatable_block(block: &Block, html_outcomes: &HashMap<BlockId, Htm
     if !is_translatable(&block.kind) {
         return false;
     }
-    if matches!(block.kind, BlockKind::Html { .. }) {
+    if matches!(block.kind, BlockKind::Html) {
         return matches!(html_outcomes.get(&block.block_id), Some(HtmlOutcome::Unit));
     }
     true

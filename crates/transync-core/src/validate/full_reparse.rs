@@ -354,7 +354,7 @@ mod tests {
         let src = "<div class=\"note\">n</div>\n\nreal paragraph\n";
         let doc = parse(src).expect("source parses");
         assert!(
-            matches!(doc.blocks[0].kind, BlockKind::Html { .. }),
+            matches!(doc.blocks[0].kind, BlockKind::Html),
             "fixture must open with an Html block",
         );
         let offsets = dummy_offsets(&doc);
@@ -369,7 +369,7 @@ mod tests {
         let src = "<div class=\"note\">n</div>\n\nreal paragraph\n";
         let doc = parse(src).expect("source parses");
         let html_id = doc.blocks[0].block_id.clone();
-        assert!(matches!(doc.blocks[0].kind, BlockKind::Html { .. }));
+        assert!(matches!(doc.blocks[0].kind, BlockKind::Html));
 
         // The html block's target range collapsed to empty (dropped); only
         // the paragraph survives in the regenerated MD.

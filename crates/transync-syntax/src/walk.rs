@@ -256,7 +256,7 @@ mod tests {
             (BlockKind::Blockquote, "blockquote"),
             (BlockKind::ThematicBreak, "thematic-break"),
             (BlockKind::Image, "paragraph"),
-            (BlockKind::Html { block_type: 6 }, "html"),
+            (BlockKind::Html, "html"),
             (
                 BlockKind::Skipped {
                     label: "unsupported".to_string(),

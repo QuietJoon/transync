@@ -102,7 +102,7 @@ impl WalkState<'_> {
         let ast_path = self.ast_path.clone();
         self.emit(
             node,
-            BlockKind::Html { block_type },
+            BlockKind::Html,
             Spelling::Html {
                 block_type: Some(block_type),
             },
@@ -339,7 +339,7 @@ mod empty_range_guard_tests {
         let html = doc
             .blocks
             .iter()
-            .find(|b| matches!(b.kind, BlockKind::Html { .. }))
+            .find(|b| matches!(b.kind, BlockKind::Html))
             .expect("html block present");
         assert_eq!(
             html.source_range.start, html.source_range.end,
@@ -403,7 +403,7 @@ mod empty_range_guard_tests {
         // Same empty range, non-list-item kind: out of scope by design.
         warn_on_empty_list_item_range(
             item,
-            &BlockKind::Html { block_type: 2 },
+            &BlockKind::Html,
             &id,
             ByteRange { start: 8, end: 8 },
             &mut warnings,

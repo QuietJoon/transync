@@ -223,7 +223,7 @@ pub fn build_alignment_map(
             match (&block.kind, html_outcomes.get(&block.block_id)) {
                 // Spec §3.2: the rewriter errored — placeholder presentation,
                 // honest fallback status, uncounted.
-                (BlockKind::Html { .. }, Some(HtmlOutcome::ExtractionFailed(_))) => {
+                (BlockKind::Html, Some(HtmlOutcome::ExtractionFailed(_))) => {
                     FallbackStatus::FallbackSource
                 }
                 // OI-0002 / A5: never-batched blocks (thematic-break, image,

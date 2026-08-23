@@ -271,7 +271,7 @@ pub(crate) fn check_payload_bytes(kind: &BlockKind, payload: &str) -> Result<(),
     // `per_kind::check_html` rejects a moment later with a better
     // diagnostic; fall through to the raw scan so no path is left uncovered
     // (a payload holding a *literal* NUL is not valid JSON either).
-    if matches!(kind, BlockKind::Html { .. })
+    if matches!(kind, BlockKind::Html)
         && let Ok(segments) = serde_json::from_str::<Vec<String>>(payload)
     {
         return match segments.iter().position(|s| s.contains('\0')) {
@@ -504,12 +504,12 @@ mod tests {
                 info: None,
                 fenced: true,
             },
-            BlockKind::Html { block_type: 6 },
+            BlockKind::Html,
         ] {
             // The html arm reads its payload as a segment array; the others
             // read raw markdown. Give each the shape it expects so the pass
             // is a real pass and not a decode failure.
-            let payload = if matches!(kind, BlockKind::Html { .. }) {
+            let payload = if matches!(kind, BlockKind::Html) {
                 "[\"하나\", \"둘\"]"
             } else {
                 "표준 문단, U+FFFD도 아니고 NUL도 아님."
@@ -533,7 +533,7 @@ mod tests {
             "the fixture must carry the ESCAPE, not the byte — otherwise \
              this test would pass through the raw scan and prove nothing"
         );
-        let err = check_payload_bytes(&BlockKind::Html { block_type: 6 }, payload)
+        let err = check_payload_bytes(&BlockKind::Html, payload)
             .expect_err("a decoded NUL segment must reject");
         assert_eq!(err, format!("{NUL_IN_PAYLOAD} in html segment 1"));
     }
@@ -549,7 +549,7 @@ mod tests {
             "a raw control character inside a JSON string is malformed JSON, \
              which is what routes this fixture to the raw scan"
         );
-        let err = check_payload_bytes(&BlockKind::Html { block_type: 6 }, &payload)
+        let err = check_payload_bytes(&BlockKind::Html, &payload)
             .expect_err("the raw scan must catch what the decode could not");
         assert_eq!(err, NUL_IN_PAYLOAD);
     }

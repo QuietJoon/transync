@@ -104,7 +104,7 @@ pub fn check_inline(
 ) -> Result<(), String> {
     if matches!(
         unit.block_kind,
-        BlockKind::CodeBlock { .. } | BlockKind::Html { .. }
+        BlockKind::CodeBlock { .. } | BlockKind::Html
     ) {
         // Fences carry no inline nodes; html payloads are JSON (the splice
         // check owns their structure). Skip both parses.
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn html_units_skip_the_inline_layer() {
-        let u = unit(BlockKind::Html { block_type: 6 }, "[\"seg\"]");
+        let u = unit(BlockKind::Html, "[\"seg\"]");
         assert!(check_inline(&policy(None, None), &u, &unit_result("[\"번역\"]"), "").is_ok());
     }
 

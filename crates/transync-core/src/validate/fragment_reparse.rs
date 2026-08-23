@@ -16,7 +16,7 @@ pub fn reparse_fragment(kind: &BlockKind, result: &UnitResult) -> Result<(), Str
         return Err("empty translated payload".into());
     }
 
-    if matches!(kind, BlockKind::Html { .. }) {
+    if matches!(kind, BlockKind::Html) {
         // Spec §4.2: html payloads are JSON segment arrays, not Markdown —
         // structure is owned by the splice check (layer 3, Task 8), not a
         // comrak reparse.
@@ -102,7 +102,7 @@ fn expected_label(kind: &BlockKind) -> &'static str {
         // array (spec §4.1), so `reparse_fragment` returns early for the kind
         // and never asks for its label. Kept to keep the match total; the
         // label is the one a raw HTML block WOULD reparse as.
-        BlockKind::Html { .. } => "html-block",
+        BlockKind::Html => "html-block",
         // Skipped blocks are never batched (A3), so this arm is defensive
         // and unreachable — kept to keep the match total.
         BlockKind::Skipped { .. } => "skipped",

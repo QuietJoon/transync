@@ -660,7 +660,7 @@ mod instruction_reserve_tests {
     fn html(id: &str) -> TranslationUnit {
         TranslationUnit {
             unit_id: BlockId(id.to_string()),
-            block_kind: BlockKind::Html { block_type: 6 },
+            block_kind: BlockKind::Html,
             input_mode: InputMode::HtmlSegments,
             source_payload: "[\"Click\",\"here\"]".to_string(),
             constraints: BlockConstraints {

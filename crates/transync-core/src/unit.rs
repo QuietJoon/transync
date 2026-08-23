@@ -442,7 +442,7 @@ pub(crate) fn html_dominance_warning(
             .end
             .saturating_sub(block.source_range.start) as u64;
         total_bytes += len;
-        if matches!(block.kind, BlockKind::Html { .. }) {
+        if matches!(block.kind, BlockKind::Html) {
             html_bytes += len;
         }
     }

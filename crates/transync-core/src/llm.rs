@@ -310,8 +310,18 @@ pub struct HtmlSegmentConstraints {
     /// Raw source bytes of the block — the splice-check input. Never sent
     /// to the model.
     pub source_bytes: String,
-    /// CommonMark HTML block type (1–7); types 6/7 get blank-line
-    /// normalization at splice, type 1 is exempt (spec §3.3).
+    /// The CommonMark HTML block type of a raw-HTML **island inside a
+    /// Markdown document**: `1`–`7`, where types 6/7 get blank-line
+    /// normalization at splice and type 1 is exempt (spec §3.3).
+    ///
+    /// `0` means **a block of an HTML document**, where no CommonMark type
+    /// applies. It is a record of what the source was, not the switch the
+    /// splice reads: the policy is derived from the block's spelling
+    /// (`Spelling::blank_line_policy_for`), and `0` reaches the same answer
+    /// through `BlankLinePolicy::from_commonmark_html_block_type` because
+    /// anything outside `6 | 7` keeps its blank lines. A doc-comment domain
+    /// widening, not a type change — this struct is a §0 tier-(a) row without
+    /// `#[non_exhaustive]`, so its field types are frozen between windows.
     pub block_type: u8,
 }
 

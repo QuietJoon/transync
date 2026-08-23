@@ -265,7 +265,7 @@ mod tests {
                         fenced: true,
                     },
                 ),
-                unit("html-0006", BlockKind::Html { block_type: 6 }),
+                unit("html-0006", BlockKind::Html),
             ],
             &crate::unit::context::build_index(&doc),
         );

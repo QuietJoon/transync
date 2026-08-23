@@ -79,12 +79,22 @@ pub enum BlockKind {
     Blockquote,
     ThematicBreak,
     Image,
-    /// Block-level raw HTML (spec 2026-08-03). Translatable via segment
-    /// extraction; `block_type` is the CommonMark HTML block type (1–7)
-    /// and drives type-conditional splice normalization.
-    Html {
-        block_type: u8,
-    },
+    /// HTML content with **no semantic equivalent** — a `div`, a custom
+    /// element, an unknown or future tag. Translatable via segment extraction
+    /// (ADR-0018).
+    ///
+    /// The variant carried `block_type: u8` until ti `490d97` wave 2. That
+    /// field was 100 % spelling metadata — its only consumers were splice
+    /// normalization and `HtmlSegmentConstraints` — so it moved to
+    /// [`Spelling::Html`], leaving this variant with one meaning instead of
+    /// two ("no semantic classification" *and* "spelled as HTML").
+    ///
+    /// On the Markdown path every raw-HTML island still lands here, and that
+    /// is deliberate (decision D11): reclassifying `html-0007` to `t-0007`
+    /// would move the block id, and with it the alignment row, the DOM anchor
+    /// and the `block_kind` cache axis. The narrowed meaning binds the HTML
+    /// intake, where a `<table>` really is a [`BlockKind::Table`].
+    Html,
     /// A top-level source node the pipeline does not model as a translatable
     /// kind (footnote definition, front matter, …). Never a
     /// translation unit; regen splices its source bytes verbatim; render
@@ -123,7 +133,7 @@ impl BlockKind {
             BlockKind::Image => "img",
             // Raw HTML blocks get their own `html` prefix — no collision with
             // h1..h6, p, t, c, li, q, hr, img, x.
-            BlockKind::Html { .. } => "html",
+            BlockKind::Html => "html",
             // Skipped nodes get their own `x` prefix — no collision with
             // h1..h6, p, t, c, li, q, hr, img (A1).
             BlockKind::Skipped { .. } => "x",
@@ -179,7 +189,7 @@ impl BlockKind {
             BlockKind::Image => "image",
             // The CommonMark block type is an internal splice detail, not a
             // wire distinction: every raw HTML block is `"html"` on the wire.
-            BlockKind::Html { .. } => "html",
+            BlockKind::Html => "html",
             // Static wire value; the per-node label is carried on the DOM
             // marker attribute (A6), not in the alignment row's block_kind.
             BlockKind::Skipped { .. } => "skipped",

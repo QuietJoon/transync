@@ -477,15 +477,24 @@ mod skipped_node_tests {
 #[cfg(test)]
 mod html_block_tests {
     use super::*;
+    use crate::id::Spelling;
 
     #[test]
-    fn top_level_html_block_becomes_block_kind_html_with_type() {
+    fn top_level_html_block_becomes_kind_html_spelled_html_with_its_type() {
         let doc = parse("<div class=\"note\">side note</div>\n\nreal paragraph\n").expect("parses");
         let html = &doc.blocks[0];
         assert!(
-            matches!(&html.kind, BlockKind::Html { block_type } if *block_type == 6),
-            "expected Html type 6, got {:?}",
+            matches!(html.kind, BlockKind::Html),
+            "expected kind Html, got {:?}",
             html.kind
+        );
+        assert_eq!(
+            html.spelling,
+            Spelling::Html {
+                block_type: Some(6)
+            },
+            "the CommonMark type is SPELLING now, not kind — it moved, it did \
+             not go away",
         );
         assert_eq!(html.block_id.0, "html-0001", "html id prefix");
         assert_eq!(doc.blocks[1].block_id.0, "p-0002");
@@ -499,10 +508,13 @@ mod html_block_tests {
     #[test]
     fn pre_block_records_type_1() {
         let doc = parse("<pre>\nascii art\n</pre>\n").expect("parses");
-        assert!(
-            matches!(&doc.blocks[0].kind, BlockKind::Html { block_type } if *block_type == 1),
+        assert_eq!(
+            doc.blocks[0].spelling,
+            Spelling::Html {
+                block_type: Some(1)
+            },
             "got {:?}",
-            doc.blocks[0].kind
+            doc.blocks[0].spelling
         );
     }
 

@@ -172,7 +172,7 @@ impl InstructionVariant {
 pub(crate) fn has_html_unit(units: &[TranslationUnit]) -> bool {
     units
         .iter()
-        .any(|u| matches!(u.block_kind, crate::id::BlockKind::Html { .. }))
+        .any(|u| matches!(u.block_kind, crate::id::BlockKind::Html))
 }
 
 /// Assemble the constant user-message instruction for `variant`.
@@ -1250,7 +1250,7 @@ mod tests {
     fn html_unit(template: &TranslationUnit) -> TranslationUnit {
         let mut unit = template.clone();
         unit.unit_id = crate::id::BlockId::new("html", 9);
-        unit.block_kind = crate::id::BlockKind::Html { block_type: 6 };
+        unit.block_kind = crate::id::BlockKind::Html;
         unit.input_mode = InputMode::HtmlSegments;
         unit.source_payload = "[\"Click\",\"here\"]".to_string();
         unit.constraints = BlockConstraints {
