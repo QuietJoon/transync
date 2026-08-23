@@ -187,6 +187,104 @@ impl BlockKind {
     }
 }
 
+/// How the source **spelled** a block — the axis orthogonal to [`BlockKind`].
+///
+/// [`BlockKind`] says what a block *is* (a level-2 heading, a table, a list
+/// item); this says how the source *wrote* it. The two were conflated until ti
+/// `490d97` wave 2: `BlockKind::Html { block_type }` meant both "no semantic
+/// classification" and "spelled as HTML", which is harmless while every
+/// document is Markdown and wrong the moment an HTML document's `<h1>` has to
+/// be a heading. Splitting the axes is what lets that `<h1>` be
+/// [`BlockKind::Heading1`] and keep `h1-0001`, its section scope, and its
+/// heading context, while still translating through the segment engine.
+///
+/// [`Copy`] on purpose: it is two words at most, every consumer wants it by
+/// value, and a `Block` field that had to be borrowed would make the dispatch
+/// sites noisier for nothing.
+///
+/// TRACE: ADR-0025
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Spelling {
+    /// GFM syntax. Every consumer that reparses the block under comrak —
+    /// `validate::fragment_reparse`, `validate::full_reparse`, the Markdown
+    /// renderer, `unit::context`'s heading projection — lives behind this arm.
+    Markdown,
+    /// Raw HTML markup, translated through text-segment extraction and
+    /// positional splice-back (ADR-0018). The markup itself never reaches the
+    /// model.
+    Html {
+        /// The CommonMark HTML block type (1–7) comrak reported, when the
+        /// block is a raw-HTML **island inside a Markdown document**. It is
+        /// the only input the blank-line splice policy takes.
+        ///
+        /// `None` for every block of an **HTML document**, where no CommonMark
+        /// context exists and blank-line collapse must never run: collapsing
+        /// exists because a blank line terminates a CommonMark HTML block of
+        /// type 6/7 at reparse, and nothing ever Markdown-reparses an HTML
+        /// document.
+        block_type: Option<u8>,
+    },
+}
+
+impl Spelling {
+    /// THE spelling→splice-policy mapping, and the only place the
+    /// HTML-document case is decided.
+    ///
+    /// An island defers to [`BlankLinePolicy::from_commonmark_html_block_type`]
+    /// — wave 0's one home for the `6 | 7` rule. A block of an HTML document
+    /// answers [`BlankLinePolicy::Keep`], because "a blank line terminates
+    /// this block" is a statement about the *host format* and an HTML document
+    /// has no such rule.
+    ///
+    /// Takes the `Option<u8>` rather than `&self` so the caller that has
+    /// already destructured `Spelling::Html { block_type }` in a match arm can
+    /// use it without a second match and without an `expect` on the
+    /// [`Spelling::Markdown`] arm, which never splices.
+    ///
+    /// [`BlankLinePolicy::from_commonmark_html_block_type`]: transync_html::BlankLinePolicy::from_commonmark_html_block_type
+    /// [`BlankLinePolicy::Keep`]: transync_html::BlankLinePolicy::Keep
+    pub fn blank_line_policy_for(block_type: Option<u8>) -> transync_html::BlankLinePolicy {
+        match block_type {
+            Some(t) => transync_html::BlankLinePolicy::from_commonmark_html_block_type(t),
+            None => transync_html::BlankLinePolicy::Keep,
+        }
+    }
+}
+
+/// Which intake produced a document — the plain two-value format label.
+///
+/// Distinct from [`Spelling`] and doing a different job. Spelling is
+/// **per block**, and it has to be: the Markdown parser's `HtmlBlock` arm
+/// interleaves HTML-spelled blocks with Markdown-spelled ones inside one
+/// document, so no document-level bit can carry that axis. This label is
+/// per *document*, and it exists so a format-committed consumer can **refuse**
+/// the wrong document instead of silently producing garbage — comrak over an
+/// HTML document yields *some* node sequence and would pass a check that is
+/// checking nothing.
+///
+/// Invariant, established at intake: `Html` ⟹ every block's spelling is
+/// `Spelling::Html { block_type: None }`; `Markdown` ⟹ spellings are mixed,
+/// and every HTML island carries `Some(t)`.
+///
+/// The wire form is kebab-case (`"markdown"` / `"html"`). It reaches the wire
+/// in a later wave as the alignment map's `input_format` and each row's
+/// `source_format`; the spelling is fixed here so those two cannot be spelled
+/// differently when they arrive.
+///
+/// [`Default`] is [`SourceFormat::Markdown`] because [`crate::parser::Document`]
+/// derives `Default` and an empty document was a Markdown document before this
+/// field existed. Every producer that is not the Markdown intake sets the
+/// field explicitly.
+///
+/// TRACE: ADR-0025
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceFormat {
+    #[default]
+    Markdown,
+    Html,
+}
+
 /// Walk the document and re-affirm sequential IDs. Idempotent on the
 /// output of [`crate::parser::parse`], which already assigns IDs in
 /// source order. Re-running it after manual mutation lets callers
@@ -288,5 +386,75 @@ mod rekey_tests {
             before, after,
             "assign_block_ids is idempotent on parse output"
         );
+    }
+}
+
+// ti 490d97 wave 2 (spec §3, decision D2): semantic kind and source spelling
+// are orthogonal axes. These pin the new vocabularies before anything
+// consumes them — the projections a later variant or a later intake must
+// extend in lockstep.
+#[cfg(test)]
+mod spelling_tests {
+    use super::*;
+    use transync_html::BlankLinePolicy;
+
+    #[test]
+    fn spelling_is_copy_and_carries_the_commonmark_type_only_for_an_island() {
+        let island = Spelling::Html {
+            block_type: Some(6),
+        };
+        // `Copy`, so a consumer that reads it does not move it out of a Block.
+        let copied = island;
+        assert_eq!(copied, island);
+        assert_ne!(island, Spelling::Html { block_type: None });
+        assert_ne!(island, Spelling::Markdown);
+    }
+
+    #[test]
+    fn the_splice_policy_is_the_spellings_to_decide_and_it_is_total() {
+        // An island inside a Markdown document takes the CommonMark rule,
+        // which wave 0 moved into its one home.
+        for t in 0u8..=7 {
+            assert_eq!(
+                Spelling::blank_line_policy_for(Some(t)),
+                BlankLinePolicy::from_commonmark_html_block_type(t),
+                "an island of type {t} must defer to the CommonMark mapping",
+            );
+        }
+        // A block of an HTML document has no CommonMark context, and nothing
+        // ever Markdown-reparses the output, so a blank line terminates
+        // nothing: Keep, always.
+        assert_eq!(
+            Spelling::blank_line_policy_for(None),
+            BlankLinePolicy::Keep,
+            "collapse is a CommonMark rule; an HTML document has no CommonMark",
+        );
+        // The two agree on the sentinel `constraints.html.block_type` carries
+        // for an HTML-document unit, which is what lets `validate`'s layer 3
+        // reach the same answer from a `u8` it cannot distinguish from a
+        // missing value.
+        assert_eq!(
+            BlankLinePolicy::from_commonmark_html_block_type(0),
+            Spelling::blank_line_policy_for(None),
+        );
+    }
+
+    #[test]
+    fn source_format_wire_form_is_kebab_case_in_both_directions() {
+        assert_eq!(
+            serde_json::to_string(&SourceFormat::Markdown).expect("serializes"),
+            "\"markdown\"",
+        );
+        assert_eq!(
+            serde_json::to_string(&SourceFormat::Html).expect("serializes"),
+            "\"html\"",
+        );
+        assert_eq!(
+            serde_json::from_str::<SourceFormat>("\"html\"").expect("deserializes"),
+            SourceFormat::Html,
+        );
+        // The default is what an empty `Document` means, and it is the format
+        // every document had before this type existed.
+        assert_eq!(SourceFormat::default(), SourceFormat::Markdown);
     }
 }
