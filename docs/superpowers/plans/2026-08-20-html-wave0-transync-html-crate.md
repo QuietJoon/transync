@@ -2906,3 +2906,43 @@ ti show 549b20
 - **The one behavioural change in the wave is the bogus-comment state** (Task 4). It is browser-correct and it is inert over the corpus (verified: the three HTML-bearing fixtures contain only `<!--` comments), but it is not a no-op in general: `<! <div> >` no longer tokenizes the `<div>`. If the Task 2 pin ever goes red on it, that is the pin doing its job.
 - **Do not run `regenerate_goldens` to make a red pin green.** It is `#[ignore]`d for that reason; the legitimate reasons to run it are a deliberate change to `FIXTURES` / `EDGE_CASES` — and Task 8's two sanctioned blessings, the named and bounded exception for a deliberate, reviewed tokenizer change: corpus commit first, fix commit second, both diffs reviewed and reported. Everywhere else the prohibition keeps its full force.
 - **`transync-html` gets no `[features]` table and no workspace-member dependency**, ever. `transync-syntax` keeps both prohibitions plus the no-`transync-core`-dev-dependency rule.
+
+---
+
+## Dated note (2026-08-24) — three citations this plan makes were superseded by wave 1, and one count in a commit message was wrong
+
+*Appended, not a rewrite. This plan ran; everything above stands as the record of
+what it instructed.*
+
+Wave 1's `d146a53` changed the rule this plan's Task 3 wrote, so three passages
+above now describe code that no longer exists. They are left in place; this is
+the forwarding address.
+
+| this plan cites | now | why the name had to change |
+|---|---|---|
+| `void_and_self_closing_elements_mint_no_extent` (×2) | `void_elements_mint_no_extent_and_a_flagged_non_void_one_does` | a flagged non-void element **does** mint an extent now |
+| `a_slash_outside_any_attribute_value_still_self_closes` | `a_slash_outside_any_attribute_value_sets_the_flag` | the scanner still *sets* the flag; setting it no longer means the element closes itself |
+| the guard `!is_void(name) && (!self_closing \|\| is_raw_text(name))` | `!is_void(name) && !(*self_closing && honours_flag)` (`transync-html/src/lib.rs:924`) | HTML honours the flag in exactly two places — inside foreign content, and on the `<svg>`/`<math>` start tags that enter it |
+
+The reasoning is in DCR-0032's 2026-08-23 amendment and is not repeated here.
+
+### And a correction to a claim made *about* this plan
+
+`c5ff3df`'s commit message says the wave-0 + wave-1 arc "removed exactly two"
+`fn` names, and that both were still named in the documents. **The count is
+three.** The third is `void_and_self_closing_elements_mint_no_extent`, which was
+**created inside wave 0 and renamed in wave 1** — so it appears in neither
+endpoint of the single `a96589b..HEAD` intersection that produced the claim, and
+a single pair cannot see it.
+
+A four-baseline run (`59ce8df`, `6fa4e88`, `a96589b`, `1299280`) returns 2 / 2 /
+2 / **3**. The instrument is sound; running it once was not. The generalisation:
+**a symbol intersection is complete only for names that existed at the baseline
+you chose** — a name born and renamed between two commits is invisible to a
+comparison of their endpoints, so the sweep needs several baselines or it is a
+sample wearing a proof's clothes.
+
+The commit message cannot be corrected without rewriting history, so the
+correction lives here, where the three citations it concerns already are. No
+in-tree record repeats the "exactly two" claim.
+

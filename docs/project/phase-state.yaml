@@ -62,7 +62,9 @@ project:
     owner decision. Post-0.3.0 roadmap: six commissioned tickets in recorded
     order fc0304, 43cfb4, d3acc3, b791d6, bda471, f12b8b (docs/backlog.md
     Type 1).
-    TI 490d97 WAVE 0 LANDED 2026-08-20 (DCR-0032): the HTML mechanics left
+    TI 490d97 WAVE 0 LANDED 2026-08-20 TO 2026-08-22 (DCR-0032; Task 1 1d6f19d on
+    the 20th, Task 8 and the close 1299280 on the 22nd - the single 2026-08-20
+    was the plan's writing date, corrected 2026-08-24): the HTML mechanics left
     transync-syntax for a new workspace member, transync-html, with NO
     re-export alias - splice takes a BlankLinePolicy instead of a CommonMark
     u8, TagToken::Open carries the span scan_tags already computed,

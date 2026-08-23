@@ -31,7 +31,9 @@ crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017
     │   ├── sections.rs                 # SectionStack — the one heading-scope algorithm
     │   ├── ranges.rs                   # byte-range recovery from Comrak nodes; CR-aware
     │   │                               #   line table matching comrak (OI-0033)
-    │   └── refdefs.rs                  # link-reference-definition pool (DCR-0013)
+    │   ├── refdefs.rs                  # link-reference-definition pool (DCR-0013)
+    │   └── depth.rs                    # THE one guarded hand-off of raw Markdown to
+    │                                   #   comrak: nesting-depth refusal before parse
     ├── id.rs                           # BlockId assignment + source_hash
     ├── outcome.rs                      # per-block HtmlOutcome closure (DCR-0017 §3.1)
     ├── walk.rs                         # ONE shared top-level normalization + per-list item
@@ -89,8 +91,14 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     │   ├── finalize.rs                 # regen + the DCR-0004 full-reparse cascade
     │   ├── report.rs                   # validation report + summary tallies, and the
     │   │                               #   alignment-map assembly (DCR-0019's open seam)
-    │   └── retry.rs                    # ADR-0009 RetryContext side channel (`contracts.md` §5)
-    ├── cache.rs                        # in-memory composite-key cache
+    │   ├── retry.rs                    # ADR-0009 RetryContext side channel (`contracts.md` §5)
+    │   └── merge.rs                    # row-window reassembly: one table block again
+    │                                   #   before regen, so a window id never reaches
+    │                                   #   the alignment map or the DOM (DCR-0026)
+    ├── cache.rs                        # Cache trait + CacheKey identity + InMemoryCache
+    ├── cache/
+    │   └── disk.rs                     # DiskCache — the disk-backed store (DCR-0028);
+    │                                   #   a §0 tier-(a) export since v0.4.0
     ├── profile.rs                      # TOML loader + ProfileMetadata builder
     └── error.rs                        # TransyncError + sub-errors (Parse wraps syntax's ParseError)
 
@@ -132,8 +140,18 @@ crates/transync-cli/                    # binary; no profiles/ dir — the defau
     │   ├── route.rs                    # THE path-confinement pass: per-segment decode,
     │   │                               #   then canonicalize-and-contain (symlink escape)
     │   ├── mime.rs                     # fixed extension -> content-type table, never sniffing
-    │   └── conn.rs                     # one request per connection: read head, answer, close
+    │   ├── conn.rs                     # one request per connection: read head, answer, close
+    │   └── host.rs                     # which authorities this server answers for; a
+    │                                   #   loopback bind is not an access control
     ├── output.rs                       # atomic write helpers; --html-out templating
+    ├── output/
+    │   └── lock.rs                     # cross-process exclusion for publication
+    │                                   #   (R0001-0034) — staging alone did not cover
+    │                                   #   the rename pass
+    ├── direction.rs                    # bundle text direction, stamped at the PANE
+    │                                   #   level (OI-0032)
+    ├── logging.rs                      # where the library's `tracing` events go in the
+    │                                   #   reference binary
     └── error.rs                        # ExitCode 0..7 + THE TransyncError -> code table
                                         #   (6 = fix the config, 7 = skip the doc; ti e62b59)
 
@@ -181,11 +199,12 @@ scripts/
 
 Module names in the "Crates / modules touched" column are **engine** modules —
 `transync-syntax` owns `parser` (+`options`/`classify`/`emit`/`sections`/
-`ranges`/`refdefs`), `id`, `regen`, `render` (+`attrs`), `align`,
-`outcome`, `walk`; `transync-core` owns `unit` (+`payload`/`budget`/`context`),
-`structure` (+`labels`), `batch`, `llm` (+`prompt`), `validate` (+ its five
-layers), `pipeline` (+`policy`/`dispatch`/`finalize`/`report`/`retry`),
-`cache`, `profile`. Since DCR-0018 they are **not**
+`ranges`/`refdefs`/`depth`), `id`, `regen`, `render` (+`attrs`), `align`,
+`outcome`, `walk`; `transync-core` owns `unit`
+(+`payload`/`budget`/`context`/`split`/`section`), `structure` (+`labels`),
+`batch`, `llm` (+`prompt`), `validate` (+ its five layers), `pipeline`
+(+`policy`/`dispatch`/`finalize`/`report`/`retry`/`merge`), `cache` (+`disk`),
+`profile`. Since DCR-0018 they are **not**
 reachable through the `transync` facade (only `cache`, `llm`, and `profile`
 are), so they are written bare rather than as `transync::…` paths.
 

@@ -619,3 +619,31 @@ reaches **first** — gained the doctrine sentence it had never carried.
 
 The corpus could not have caught either defect before: it held **zero**
 `:true` tokens, i.e. not one self-closing spelling of any tag.
+
+## Amendment (2026-08-24) — the wave's date is a range, and this record's `Date:` is its first day
+
+*Appended, not a rewrite. The `**Date:** 2026-08-20.` line above stands as
+written; this says what it means.*
+
+Wave 0 did not land on 2026-08-20. `git log --date=short` over its own commits:
+
+| commit | date | what |
+|---|---|---|
+| `1d6f19d` | 2026-08-20 | Task 1 — the crate move |
+| `796a97b` | 2026-08-21 | Task 7 — this record |
+| `d2dac83` | 2026-08-21 | Task 8 added to the plan |
+| `37aa0ee` | 2026-08-22 | Task 8's fix |
+| `1299280` | 2026-08-22 | the wave's close |
+
+So the wave ran **2026-08-20 → 2026-08-22**, and the single date above is its
+first day, inherited from the plan's filename. `status.md` and
+`phase-state.yaml` were corrected in place on 2026-08-24 to carry the range;
+this record keeps its original line because a dated record's value is that it
+says what was believed when it was written.
+
+The rule, now recorded three times in this repository and worth stating once
+more plainly: **a date belongs to the work, not to the document that describes
+it**, and `git log --date=short` is the check. DCR-0033 line 29 states it for
+wave 1; the wave 2, 3, 5 and 7 plans carry execution-date placeholders since
+2026-08-23 for the same reason.
+
