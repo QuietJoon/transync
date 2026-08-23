@@ -985,6 +985,12 @@ pub(crate) fn assemble(doc: &Document, block: &Block) -> (String, InputMode, Blo
 ```rust
     if let Some(h) = &unit.constraints.html {
 ```
+  **This step is not import-neutral, despite reading as if it were (corrected 2026-08-24 by Task 4's implementer, who caught it before committing).** The guard you are deleting holds the **last file-scope use of `BlockKind` in `validate.rs`**, so removing it produces `warning: unused import: BlockKind` — which the pre-commit hook's `clippy --all-targets --all-features -- -D warnings` promotes to an **error**. Executed literally, the step cannot be committed.
+
+  Narrow the file-scope import to `use crate::id::BlockId;`. Verified safe when this was written: all six of `validate.rs`'s test modules import `BlockKind` themselves, and Task 5's debug-assert twin is keyed on `InputMode`, not on the kind — so nothing brings the import back. **Re-check both before you delete it**, because either could have moved.
+
+  This is Task 3 Step 8's defect in mirror image: that step *added* an import the code would not use, this one *removes the use* and not the import. Both block the commit through the same clippy leg. When a step changes what a file mentions, ask what its `use` lines still justify.
+
   and, inside, the splice call's third argument:
 ```rust
             Ok(segs) => match transync_html::splice(
@@ -1158,6 +1164,12 @@ Expected: `CARGO_EXIT=0`, `test result: ok. 1 passed`.
         // Spec §7 (the re-keying) with §6's `assemble` as its origin: the
         // layer is keyed on the CONSTRAINTS' presence — the
         // splice check's own input — with the mode as its twin. The documented
+        // NOTE (2026-08-24, from Task 4's report): after Task 4, layer 3's
+        // guard is `constraints.html.is_some()` ALONE -- the kind backstop
+        // is gone, so the guard is strictly WIDER than it was. It is
+        // equivalent today because nothing constructs `constraints.html`
+        // for a non-HTML unit, but this debug-assert twin is the only
+        // thing that re-narrows it. Do not skip it or downgrade it.
         // invariant is `spelling Html ⇔ InputMode::HtmlSegments`, established
         // at `unit::payload::assemble` and never re-derived; a unit carrying
         // `constraints.html` under any other mode was built by hand and is a
@@ -1981,6 +1993,7 @@ status: stable
 - [ ] **Step 2: Write DCR-0034.** `docs/project/design-change-records/DCR-0034-ir-semantic-kind-and-spelling-split.md`, same frontmatter shape (`type: DCR`, `tags: [change, project-control, DCR-0034]`). Body sections:
   - **Date / Source** — **the execution date**, ticket `490d97`, wave 2 of the eight in the spec's §12. Date it from `git log --date=short` over this wave's own commits, not from this plan's filename: waves 0 and 1 both had their landings mis-dated to the plan's writing date, and DCR-0033 line 29 records the rule.
   - **Breaking by policy, behaviour-preserving in fact.** The four changes, each with what a consumer sees: `Block.spelling` and `Document.format` added (tier-(c) engine types — `parser` is a hidden module and the facade re-exports nothing from it, so only a direct `transync-syntax` dependant is affected, under the weaker promise §0 tier (c) grants); `BlockKind::Html { block_type: u8 }` narrowed to a unit variant (a consumer's `BlockKind::Html { .. }` pattern still compiles — braces on a fieldless variant are legal — but `Html { block_type }` does not, and neither does constructing it); `BlockKind::Title` added (every exhaustive match over `BlockKind` in a consumer's tree stops compiling). `BlockKind` is a §0 tier-(a) row, so the last two are facade-visible; §1 records them.
+  - **One thing that DID move, and must be said rather than left for a reader to find (added 2026-08-24 from Task 4's report): `BlockKind`'s serde encoding.** An html block now encodes as `{"kind":"html"}` where it encoded `{"kind":"html","block_type":6}`. This is **inert** — `id.rs` already documents that no shipped artifact serializes this enum, so no wire, no alignment map and no cache entry carries it — but "no wire shape moved" is the wave's headline claim and a derive-level encoding change that nobody records is exactly the kind of thing a future reader finds and mistrusts the rest of the record for. State it, state why it is inert, and name the `id.rs` sentence that makes it so.
   - **What did NOT move**, which is the wave's actual claim: no `id_code`, no `wire_str`, no alignment `schema_version`, no `VALIDATION_SCHEMA_VERSION`, no prompt or instruction bytes, no cache axis. The corpus regenerates, renders and aligns byte-identically with **zero fixture edits**.
   - **The two catch-alls, named.** `align::sync_role_for`'s `_ => SyncRole::Anchor` and `unit::context::document_title`'s `matches!` on `Heading1` alone. Both got explicit arms and both got tests that assert the *answer*; a plan that trusted "the compiler walks us to every match" would have shipped an anchoring `<title>` row and a document title that ignored the page title.
   - **The re-keying, with its warrant.** Nine predicates moved from kind-`Html` to `Spelling::Html` / `InputMode::HtmlSegments` / `constraints.html`; the three sets are identical today and stop being identical the day an HTML document's `<p>` is a `Paragraph` that ships a segment array. `is_translatable_block`'s branch order flipped so the kind exclusions became the Markdown arm. The `(Table × Html)` guard is explicit and tested.
