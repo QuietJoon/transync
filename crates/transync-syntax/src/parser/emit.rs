@@ -7,7 +7,7 @@
 //! currency — a one-file property.
 
 use super::{AstPath, Block, WalkState};
-use crate::id::{BlockId, BlockKind};
+use crate::id::{BlockId, BlockKind, Spelling};
 use crate::parser::ranges::{self, ByteRange};
 use comrak::nodes::AstNode;
 
@@ -39,6 +39,7 @@ impl WalkState<'_> {
         &mut self,
         node: &AstNode<'_>,
         kind: BlockKind,
+        spelling: Spelling,
         section_path: Vec<BlockId>,
         ast_path: Vec<usize>,
     ) -> BlockId {
@@ -52,6 +53,7 @@ impl WalkState<'_> {
         self.blocks.push(Block {
             block_id: id.clone(),
             kind,
+            spelling,
             source_range: range,
             source_hash: hash,
             section_path,
@@ -61,8 +63,16 @@ impl WalkState<'_> {
     }
 
     /// [`WalkState::emit`] for the common case: this node, at the walker's
-    /// current path. Only the `List` arm needs the general form, because its
-    /// items own a path the walker never stands on.
+    /// current path, **spelled Markdown**. Only the `List` arm needs the
+    /// general form, because its items own a path the walker never stands on,
+    /// and only the `HtmlBlock` arm needs [`WalkState::emit_html_here`],
+    /// because it is the one arm whose spelling is not Markdown.
+    ///
+    /// The spelling is written here rather than derived from the kind on
+    /// purpose (decision D2): deriving it would re-create the conflation the
+    /// split removes, and it would collapse the day an intake emits a
+    /// semantic kind with a non-Markdown spelling — which is the whole point
+    /// of the axis.
     pub(super) fn emit_here(
         &mut self,
         node: &AstNode<'_>,
@@ -70,7 +80,35 @@ impl WalkState<'_> {
         section_path: Vec<BlockId>,
     ) -> BlockId {
         let ast_path = self.ast_path.clone();
-        self.emit(node, kind, section_path, ast_path)
+        self.emit(node, kind, Spelling::Markdown, section_path, ast_path)
+    }
+
+    /// The ONE place a raw-HTML island's two axes are stamped together.
+    ///
+    /// `NodeValue::HtmlBlock` is the only Markdown-intake arm that produces a
+    /// non-Markdown spelling, and the CommonMark block type it carries has to
+    /// land on the *spelling*, not on the kind — the kind's job is semantics,
+    /// and an island has none the Markdown intake is willing to guess at
+    /// (decision D11: reclassifying `html-0007` to `t-0007` would move the
+    /// block id, and with it the alignment row, the DOM anchor and the cache
+    /// axis). Keeping both stamps in one function is what stops a future arm
+    /// from setting one and forgetting the other.
+    pub(super) fn emit_html_here(
+        &mut self,
+        node: &AstNode<'_>,
+        block_type: u8,
+        section_path: Vec<BlockId>,
+    ) -> BlockId {
+        let ast_path = self.ast_path.clone();
+        self.emit(
+            node,
+            BlockKind::Html { block_type },
+            Spelling::Html {
+                block_type: Some(block_type),
+            },
+            section_path,
+            ast_path,
+        )
     }
 }
 

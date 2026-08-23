@@ -40,7 +40,7 @@ pub mod refdefs;
 mod sections;
 
 use crate::error::ParseError;
-use crate::id::{BlockId, BlockKind};
+use crate::id::{BlockId, BlockKind, SourceFormat, Spelling};
 use comrak::nodes::{AstNode, NodeValue};
 use ranges::{ByteRange, LineOffsets};
 use sections::SectionStack;
@@ -67,6 +67,16 @@ pub struct Document {
     /// regen's fallback bytes index this field, never the caller's original
     /// `&str`. The two differ only for a source containing NUL.
     pub source_text: String,
+    /// Which intake produced this document, and therefore which reader may
+    /// touch it. `Markdown` is [`parse`]'s answer; a comrak-committed
+    /// consumer (`validate::full_reparse`, the Markdown renderer, the heading
+    /// projection in `transync-core`'s `unit::context`) can refuse anything
+    /// else rather than hand an HTML document to a Markdown parser and
+    /// believe the node sequence it gets back.
+    ///
+    /// Invariant: `Html` ⟹ every block's `spelling` is
+    /// `Spelling::Html { block_type: None }`.
+    pub format: SourceFormat,
     pub blocks: Vec<Block>,
     /// Human-readable notes a reader of the run should see, in emission
     /// order.
@@ -109,6 +119,11 @@ pub struct Document {
 pub struct Block {
     pub block_id: BlockId,
     pub kind: BlockKind,
+    /// How the SOURCE spelled this block — orthogonal to [`Block::kind`]
+    /// (spec 2026-08-20 §3, decision D2). A Markdown document interleaves
+    /// both spellings, which is why this is per block and
+    /// [`Document::format`] is not a substitute for it.
+    pub spelling: Spelling,
     pub source_range: ByteRange,
     pub source_hash: u64,
     pub section_path: Vec<BlockId>,
@@ -244,6 +259,10 @@ pub fn parse(source: &str) -> Result<Document, ParseError> {
 
     Ok(Document {
         source_text: normalized.into_owned(),
+        // The GFM intake, whatever the document happens to contain: a
+        // Markdown file that is 90 % raw HTML is still a Markdown file, and
+        // `html_dominance_warning` is what says so out loud.
+        format: SourceFormat::Markdown,
         blocks,
         warnings,
         ref_defs,
@@ -361,7 +380,7 @@ impl<'s> WalkState<'s> {
                         p.push(item_index);
                         p
                     };
-                    self.emit(child, kind, sp, item_path);
+                    self.emit(child, kind, Spelling::Markdown, sp, item_path);
                 }
             }
             NodeValue::Item(_) | NodeValue::TaskItem(_) => {
@@ -392,14 +411,10 @@ impl<'s> WalkState<'s> {
             NodeValue::HtmlBlock(h) => {
                 // Spec 2026-08-03 §3.1: block-level raw HTML is translatable.
                 // Segment extraction happens at unit construction, not here.
+                // ti 490d97 wave 2: the CommonMark block type is SPELLING, not
+                // kind — `emit_html_here` is the one place both are stamped.
                 let sp = self.sections.current_path();
-                self.emit_here(
-                    node,
-                    BlockKind::Html {
-                        block_type: h.block_type,
-                    },
-                    sp,
-                );
+                self.emit_html_here(node, h.block_type, sp);
             }
             _ => {
                 // R0008-0013: a top-level block node we don't model as a
@@ -434,6 +449,7 @@ mod skipped_node_tests {
                 kind: BlockKind::Skipped {
                     label: "unsupported".to_string(),
                 },
+                spelling: Spelling::Markdown,
                 source_range: ByteRange { start: 0, end: 0 },
                 source_hash: 0,
                 section_path: Vec::new(),
@@ -506,6 +522,68 @@ mod html_block_tests {
         let doc = parse(src).expect("parses");
         let kinds: Vec<&str> = doc.blocks.iter().map(|b| b.kind.wire_str()).collect();
         assert_eq!(kinds, vec!["html", "paragraph", "html"]);
+    }
+}
+
+// ti 490d97 wave 2 (spec §3): the Markdown intake stamps BOTH axes, and this
+// is the Markdown half of the format invariant — `format == Markdown`, every
+// raw-HTML island carrying the CommonMark type comrak reported, and every
+// other block spelled Markdown. The HTML half (`format == Html` ⟹ every
+// spelling is `Html { None }`) has no producer until wave 3.
+#[cfg(test)]
+mod spelling_stamp_tests {
+    use super::*;
+    use crate::id::{SourceFormat, Spelling};
+
+    #[test]
+    fn the_markdown_intake_stamps_markdown_format_and_per_block_spellings() {
+        let src = "# T\n\npara\n\n<div>island</div>\n\n<pre>\nart\n</pre>\n\n- a\n- b\n";
+        let doc = parse(src).expect("parses");
+
+        assert_eq!(
+            doc.format,
+            SourceFormat::Markdown,
+            "the GFM intake is the only producer here, whatever the document holds",
+        );
+
+        let got: Vec<(&str, Spelling)> = doc
+            .blocks
+            .iter()
+            .map(|b| (b.kind.wire_str(), b.spelling))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("heading-1", Spelling::Markdown),
+                ("paragraph", Spelling::Markdown),
+                (
+                    "html",
+                    Spelling::Html {
+                        block_type: Some(6)
+                    }
+                ),
+                (
+                    "html",
+                    Spelling::Html {
+                        block_type: Some(1)
+                    }
+                ),
+                ("list-item", Spelling::Markdown),
+                ("list-item", Spelling::Markdown),
+            ],
+            "a Markdown document interleaves both spellings, which is why the \
+             axis cannot be a document-level bit",
+        );
+    }
+
+    #[test]
+    fn a_document_with_no_island_is_markdown_spelled_throughout() {
+        let doc = parse("# T\n\npara\n\n> quote\n\n```\ncode\n```\n\n---\n").expect("parses");
+        assert!(
+            doc.blocks.iter().all(|b| b.spelling == Spelling::Markdown),
+            "spellings: {:?}",
+            doc.blocks.iter().map(|b| b.spelling).collect::<Vec<_>>(),
+        );
     }
 }
 

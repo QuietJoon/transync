@@ -872,6 +872,7 @@ mod skipped_unit_tests {
                 kind: BlockKind::Skipped {
                     label: "unsupported".to_string(),
                 },
+                spelling: crate::id::Spelling::Markdown,
                 source_range: crate::parser::ranges::ByteRange { start: 0, end: 0 },
                 source_hash: 0,
                 section_path: Vec::new(),

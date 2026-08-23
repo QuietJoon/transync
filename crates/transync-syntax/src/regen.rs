@@ -559,6 +559,7 @@ mod caller_input_tests {
             blocks: vec![Block {
                 block_id: BlockId("p-0001".to_string()),
                 kind: BlockKind::Paragraph,
+                spelling: crate::id::Spelling::Markdown,
                 source_range: ByteRange { start: 1, end: 2 },
                 source_hash: 0,
                 section_path: Vec::new(),

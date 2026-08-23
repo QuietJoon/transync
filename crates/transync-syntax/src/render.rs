@@ -1658,6 +1658,7 @@ mod skipped_render_tests {
                 kind: BlockKind::Skipped {
                     label: "unsupported".to_string(),
                 },
+                spelling: crate::id::Spelling::Markdown,
                 source_range: ByteRange {
                     start,
                     end: start + payload.len(),
