@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-08-20-ti490d97-wave0
+  last_updated: 2026-08-23-ti490d97-wave1
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -74,9 +74,29 @@ project:
     Pure refactor: workspace suite green with zero fixture or expectation
     edits, two-package wasm gate exit 0 with its string unchanged, goldens
     generated before the scanner change byte-identical after it. Waves 1-7 of
-    the HTML->HTML feature are UNSTARTED; wave 2 is the IR split, needs a
-    sanctioned breaking window, carries the version to 0.5.0-dev, and blocks
-    everything after it.
+    the HTML->HTML feature were UNSTARTED at that point; wave 2 is the IR
+    split, needs a sanctioned breaking window, carries the version to
+    0.5.0-dev, and blocks everything after it.
+    TI 490d97 WAVE 1 LANDED (code 2026-08-22, record 2026-08-23; DCR-0033):
+    OI-0035 closed at BOTH layers, route (c). The Markdown pane's html-block
+    success arm strips the six reserved sync-attribute names out of the
+    block's own bytes before the wrapper writes ours - pane-only, out.md keeps
+    the author's bytes - and mountSync builds its anchor set from the
+    validated alignment rows so collectAnchors, the one choke point at mount
+    and at every reflow, ignores an element the map does not claim. An anchor
+    inserted after mount is inert forever, which also closes the 2026-08-09
+    correction's residual. Both sync.js copies moved in one commit;
+    sync_js_drift.rs is the weld. Measured while closing it, correcting an
+    inference the design carried: DOMPurify's default really does keep data-*
+    attributes. Wave 1's own first call site also surfaced a wave-0 defect -
+    the balancer's walk read a start tag's self-closing slash the way XML
+    means it, and the strip welded bytes at its cut - fixed in d146a53 and
+    recorded in DCR-0032's 2026-08-23 amendment, which is where that fix
+    belongs because they are wave 0's functions. THE RESIDUAL IS ACCEPTED AND
+    RECORDED: an impostor carrying a LISTED id ahead of the genuine anchor
+    still wins first-occurrence-wins, which is why the render strip is the
+    other half rather than a nicety. Nothing schema-visible moved; alignment
+    stays 1.2.0. Waves 2-7 are UNSTARTED.
     TRACK C WASM RENDER+EDIT DEMO LANDED 2026-08-05 (ADR-0019 + DCR-0020;
     6 commits 94d7e39..1d04135, branch master). This is TRACK C PROPER - the
     browser integration OI-0028/DCR-0017 deferred after delivering only the
@@ -611,6 +631,7 @@ design:
     - DCR-0030-review-0004-credential-and-origin-hardening
     - DCR-0031-indented-code-normalize-on-translate
     - DCR-0032-transync-html-crate-extraction
+    - DCR-0033-oi0035-anchor-trust-both-layers
   rewind_required_to_phase: null
   status: handoff_complete
 

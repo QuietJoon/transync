@@ -1250,6 +1250,101 @@ NUL").
 
 ***
 
+> Archived 2026-08-23. Reason: resolved at both layers (route (c), DCR-0033) — audit history, and the record of a residual that is accepted rather than fixed.
+
+## OI-0035: A `data-sync-id` injected through raw HTML can pre-claim a real block's anchor
+
+- **Source:** R0002-0018 (Review 0002) (review archived and removed)
+- **Date:** 2026-08-08
+- **Decision:** ACCEPT (track — the mechanism is confirmed, but which layer should close it is a design choice)
+- **Status:** RESOLVED (2026-08-23)
+- **Resolution:** Route **(c) — both layers**, owner-ratified in the 2026-08-20 HTML→HTML design (spec §8) and landed as ti `490d97` wave 1 (DCR-0033; the two code commits are `eedc9e3` and `0972fa2`, 2026-08-22). **Required action 1** is answered by the route itself. **Action 2:** the renderer's Markdown `BlockKind::Html` success arm — the only live route by which source-controlled markup reaches a Markdown pane, since panes render with `unsafe_ = false` — strips the six reserved attribute names (`data-sync-id`, `data-block-kind`, `data-order`, `data-fallback`, `data-parent-id`, `data-skipped`) case-insensitively from every open tag in the block's own bytes before the wrapper writes ours, and `mountSync` builds its anchor set from the validated rows whose `sync_role` is not `non-sync` while `collectAnchors` — the single choke point for both panes at mount and at every reflow recompute — skips what that set does not contain. An unlisted anchor is inert forever, including one inserted after mount, which closes the 2026-08-09 correction's residual as well. Both `sync.js` copies moved in one commit; `sync_js_drift.rs` is the weld. The strip is **pane-only**: `out.md` keeps the author's bytes. **Action 3:** the browser suite gained an end-to-end case over a second `--html-out` bundle whose fixture's raw HTML claims the id of the paragraph that follows it (`web/tests/scn13.spec.js`), plus engine-direct cases (`web/tests/engine.spec.js`) and a Rust unit at the render call site. **Honest residual, accepted:** neither layer alone — and no DOM-visible discriminator — defeats an in-pane impostor carrying a *listed* id placed ahead of the genuine anchor, because `collectAnchors` is first-occurrence-wins. The render strip makes that case unreachable in panes transync produces; the engine gate makes every *unlisted* id inert in any pane, whoever produced it. A *listed* impostor in a pane transync did not produce is reached by neither, and that is the accepted boundary of route (c). **Measured while closing this, correcting an inference:** DOMPurify's default really does keep `data-*` attributes, verified against the vendored build the bundle ships. **A wave-0 defect this wave's own call site surfaced** — the balancer's walk reading a self-closing slash the way XML means it, and the strip welding bytes at its cut — was fixed in `d146a53` and recorded in DCR-0032's 2026-08-23 amendment; the render half depends on that fix, because the strip alone over the old walk traded an impostor anchor for a swallowed one.
+
+### Problem
+
+The browser sync engine builds its anchor sets by collecting **every**
+`data-sync-id` in each pane's DOM. Alignment rows are used for validation and
+warnings, but they are not the source of the anchor set, so membership in the
+map does not gate what can become a scroll driver or target.
+
+Half of that is a recorded decision and is not in question: ID-identity
+pairing (the runtime pairs anchors by identical `data-sync-id` rather than
+routing through the map's source/target indirection) is normative under
+`d3acc3` / OI-0015. The unrecorded half is what this entry is for. Source
+Markdown is untrusted data (architectural invariant 7), and raw HTML blocks
+are translatable, structurally-owned content that reaches the rendered pane.
+A `data-sync-id` attribute written into a source document therefore survives
+the default DOMPurify configuration and lands in the DOM as an anchor that
+the engine cannot distinguish from one the renderer emitted — so it can
+**pre-claim the id of a real block** and become that block's scroll driver.
+
+### Impact
+
+Scroll synchronization can be steered by document content rather than by the
+alignment map: the wrong pane region tracks the reader, or a genuine block's
+anchor is shadowed. It is a correctness-of-presentation failure, not a data
+loss or code-execution one — DOMPurify still bounds what markup renders.
+Reachability requires a source document containing crafted raw HTML, which
+invariant 7 says to expect rather than to rule out.
+
+### Required Actions
+
+1. Decide the layer, which is the reason this is tracked rather than fixed:
+   (a) strip or namespace `data-*` attributes at sanitize time so injected
+   anchors never reach the DOM; (b) build the anchor sets from validated
+   alignment rows so DOM anchors outside the map are inert; or (c) both, if
+   defense in depth is wanted at the render boundary and the engine boundary.
+2. Implement the chosen layer in `web/js/sync.js` **and** its byte-identical
+   embedded CLI twin in the same commit; the drift tests weld the pair.
+3. Extend the browser suite (`scripts/test-browser.sh`) with a document whose
+   raw HTML carries a `data-sync-id` colliding with a real block id.
+
+### Verification
+
+- [x] Code change applied — `crates/transync-syntax/src/render.rs` (render half); `web/js/sync.js` + `crates/transync-cli/web/sync.js` (engine half, one commit, byte-identical)
+- [x] Tests pass — workspace suite and browser suite green; `sync_js_drift.rs` green
+- [x] No regressions observed — SCN-13, the wasm demo and the engine-direct suite all green with no expectation edits outside the new cases
+
+### Related
+
+- `d3acc3` / OI-0015 — the ID-identity pairing decision this does **not**
+  reopen; its packaging half is settled. **(Landed 2026-08-09; it changes
+  nothing here on purpose.)** The anchor sets are still built by
+  `pane.querySelectorAll("[data-sync-id]")`, so DOM membership still decides
+  what can drive scroll and map membership still does not — every one of
+  actions (a), (b) and (c) below is exactly as open as it was. Two facts for
+  whoever routes it. The pass made route **(b)** slightly *cheaper*: reflow
+  recompute re-collects anchors, so `collectAnchors` is now the single choke
+  point every anchor set on either pane passes through, at mount and on every
+  reflow, and it already takes a per-call policy argument — a map-membership
+  gate lands there once and covers both. And the pass touched the existing
+  duplicate-id warning that is today's only signal of a shadowing attempt: the
+  *recompute's* re-collection is deliberately quiet (a resize drag would
+  otherwise replay one warning per frame), while the **mount-time** warning —
+  the one an injected anchor in the initially rendered document actually trips
+  — is unchanged, as is the first-occurrence-wins policy that decides which of
+  two same-id anchors survives. No reflow signal can introduce an anchor.
+  **Correction (2026-08-09), same day, from this pass's own review:** the
+  sentence that stood here — *"so nothing became reachable that was not
+  reachable before"* — overstated that. Reflow inserts no anchor, but the quiet
+  recompute **activates** one that entered the DOM after mount. Before this
+  pass such an anchor stayed inert until a `destroy()` + re-mount, which
+  re-runs the duplicate-id audit; now the next reflow signal — an `<img>` load
+  is enough, and `controller.refresh()` schedules the same quiet recompute —
+  folds it into the live anchor set with the duplicate warning suppressed and
+  no audit at any point (`engine.spec.js` `h` phase 2 drives a post-mount
+  `e-0006` with no re-mount). Under **this entry's** threat model — injection
+  carried by the rendered source document, therefore present at mount — the
+  mount-time audit still fires and exposure is unchanged. What is weaker is the
+  doctrine the layer choice leans on: activation no longer implies an audited
+  mount, so "mount is the audit point" is now an argument **for** route (b),
+  not a substitute for it.
+- ADR-0018 — raw HTML as translatable, structurally-owned content.
+- DCR-0022 — the Review 0002 hardening pass that routed this to tracking.
+- DCR-0033 — the closure: the render-side strip, the engine-side row gate, and the residual neither closes alone.
+
+***
+
 > Archived 2026-08-13. Reason: RESOLVED 2026-08-10 — a sparse allow-listed subset no longer counts as a genuine `--out-dir`.
 
 ## OI-0036: A sparse allow-listed subset counts as a genuine `--out-dir`

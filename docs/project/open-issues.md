@@ -59,98 +59,6 @@ No observed jank; cost grows with document size. Optimize only when profiling sh
 
 ***
 
-## OI-0035: A `data-sync-id` injected through raw HTML can pre-claim a real block's anchor
-
-- **Source:** R0002-0018 (Review 0002) (review archived and removed)
-- **Date:** 2026-08-08
-- **Decision:** ACCEPT (track — the mechanism is confirmed, but which layer should close it is a design choice)
-- **Status:** OPEN
-- **Resolution:** —
-
-### Problem
-
-The browser sync engine builds its anchor sets by collecting **every**
-`data-sync-id` in each pane's DOM. Alignment rows are used for validation and
-warnings, but they are not the source of the anchor set, so membership in the
-map does not gate what can become a scroll driver or target.
-
-Half of that is a recorded decision and is not in question: ID-identity
-pairing (the runtime pairs anchors by identical `data-sync-id` rather than
-routing through the map's source/target indirection) is normative under
-`d3acc3` / OI-0015. The unrecorded half is what this entry is for. Source
-Markdown is untrusted data (architectural invariant 7), and raw HTML blocks
-are translatable, structurally-owned content that reaches the rendered pane.
-A `data-sync-id` attribute written into a source document therefore survives
-the default DOMPurify configuration and lands in the DOM as an anchor that
-the engine cannot distinguish from one the renderer emitted — so it can
-**pre-claim the id of a real block** and become that block's scroll driver.
-
-### Impact
-
-Scroll synchronization can be steered by document content rather than by the
-alignment map: the wrong pane region tracks the reader, or a genuine block's
-anchor is shadowed. It is a correctness-of-presentation failure, not a data
-loss or code-execution one — DOMPurify still bounds what markup renders.
-Reachability requires a source document containing crafted raw HTML, which
-invariant 7 says to expect rather than to rule out.
-
-### Required Actions
-
-1. Decide the layer, which is the reason this is tracked rather than fixed:
-   (a) strip or namespace `data-*` attributes at sanitize time so injected
-   anchors never reach the DOM; (b) build the anchor sets from validated
-   alignment rows so DOM anchors outside the map are inert; or (c) both, if
-   defense in depth is wanted at the render boundary and the engine boundary.
-2. Implement the chosen layer in `web/js/sync.js` **and** its byte-identical
-   embedded CLI twin in the same commit; the drift tests weld the pair.
-3. Extend the browser suite (`scripts/test-browser.sh`) with a document whose
-   raw HTML carries a `data-sync-id` colliding with a real block id.
-
-### Verification
-
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
-
-### Related
-
-- `d3acc3` / OI-0015 — the ID-identity pairing decision this does **not**
-  reopen; its packaging half is settled. **(Landed 2026-08-09; it changes
-  nothing here on purpose.)** The anchor sets are still built by
-  `pane.querySelectorAll("[data-sync-id]")`, so DOM membership still decides
-  what can drive scroll and map membership still does not — every one of
-  actions (a), (b) and (c) below is exactly as open as it was. Two facts for
-  whoever routes it. The pass made route **(b)** slightly *cheaper*: reflow
-  recompute re-collects anchors, so `collectAnchors` is now the single choke
-  point every anchor set on either pane passes through, at mount and on every
-  reflow, and it already takes a per-call policy argument — a map-membership
-  gate lands there once and covers both. And the pass touched the existing
-  duplicate-id warning that is today's only signal of a shadowing attempt: the
-  *recompute's* re-collection is deliberately quiet (a resize drag would
-  otherwise replay one warning per frame), while the **mount-time** warning —
-  the one an injected anchor in the initially rendered document actually trips
-  — is unchanged, as is the first-occurrence-wins policy that decides which of
-  two same-id anchors survives. No reflow signal can introduce an anchor.
-  **Correction (2026-08-09), same day, from this pass's own review:** the
-  sentence that stood here — *"so nothing became reachable that was not
-  reachable before"* — overstated that. Reflow inserts no anchor, but the quiet
-  recompute **activates** one that entered the DOM after mount. Before this
-  pass such an anchor stayed inert until a `destroy()` + re-mount, which
-  re-runs the duplicate-id audit; now the next reflow signal — an `<img>` load
-  is enough, and `controller.refresh()` schedules the same quiet recompute —
-  folds it into the live anchor set with the duplicate warning suppressed and
-  no audit at any point (`engine.spec.js` `h` phase 2 drives a post-mount
-  `e-0006` with no re-mount). Under **this entry's** threat model — injection
-  carried by the rendered source document, therefore present at mount — the
-  mount-time audit still fires and exposure is unchanged. What is weaker is the
-  doctrine the layer choice leans on: activation no longer implies an audited
-  mount, so "mount is the audit point" is now an argument **for** route (b),
-  not a substitute for it.
-- ADR-0018 — raw HTML as translatable, structurally-owned content.
-- DCR-0022 — the Review 0002 hardening pass that routed this to tracking.
-
-***
-
 ## OI-0037: Provider-returned payloads bypass the parser's nesting intake guard
 
 - **Source:** R0003-0004, R0003-0005, R0003-0088 (Review 0003) (review archived and removed)
@@ -274,6 +182,6 @@ no key, or offline.
 | Issue ID | Title                                                  | Status   | Severity |
 |----------|--------------------------------------------------------|----------|----------|
 | OI-0016  | Active-block selection scans per scroll frame            | OPEN   | Low      |
-| OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | OPEN (2026-08-08) | Low |
+| OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | RESOLVED (2026-08-23) — archived | Low |
 | OI-0037  | Provider payloads bypass the parser's nesting intake guard | OPEN (2026-08-09) | Low |
 | OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | OPEN (2026-08-13) | Low |
