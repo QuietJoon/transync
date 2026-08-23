@@ -141,6 +141,89 @@ locally only — no remote, nothing published — so post-release CHANGELOG mate
 findings of `reviews/0001.md`; `ti list --status closed --tag review-0001` enumerates the
 tickets; `CHANGELOG.md` carries the per-ticket entries under `[0.3.0]` and `[Unreleased]`._
 
+### html-walk-foreign-content-breakout — **`e77173`, a live §4a break, and wave 3's precondition**
+
+- **Type:** 1
+- **Verified:** yes — measured 2026-08-23 through the shipped DOMPurify mount by the
+  wave-1 fix review, and again by the 2026-08-24 design review.
+- **Sources:** ti `e77173`, `docs/architecture/contracts.md` §4a (the carve-out),
+  `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md`
+  (2026-08-23 amendment)
+- **First seen:** 2026-08-22 · **Last seen:** 2026-08-24
+
+#### Description
+
+`walk_elements` models neither HTML's foreign-content **breakout** tags nor its
+integration points. `<div class="wrap"><svg><div>x</svg></div>` followed by a block
+mounts that block's anchor **inside** the wrapper rather than as a direct child of
+`<main>` — the §4a rule the engine's `offsetTop` math rests on. Reachable from
+untrusted source Markdown through a type-6 html block, which invariant 7 says to
+assume hostile.
+
+**The self-closing slash is not the mechanism.** The *unflagged* `<svg><div>x</svg>`
+does the same thing: `div` is on HTML's breakout list, so a browser pops the `<svg>`
+at the `<div>` and continues in HTML content, while the walk closes it at `</svg>`
+and passes the fragment through. So this is not wave 1's fix leaking — it is an older
+gap that fix neither introduced nor worsened (`balance_fragment` output is
+byte-identical old-versus-new for every one of these inputs).
+
+#### Background — why it is scheduled rather than parked
+
+The ticket's own words put the fix-or-accept decision **before wave 3 lands**, and the
+2026-08-24 design review found it had no owner: `e77173`, "breakout" and
+`foreignObject` appear **zero** times in the wave 3–7 plans, in `status.md`, in
+`open-issues.md`, and in this file. It lived in three places, none on an execution
+path — which is what this entry exists to end.
+
+Two waves are exposed. **Wave 3** consumes `element_extents` — the same walk — and its
+deviation 6 makes the extents binding on phrasing-run boundaries, so on breakout inputs
+the intake draws block boundaries a browser disagrees with, blesses an identity corpus
+over them, and a later fix then re-derives block sets, **ids and section paths**. Ids
+are this project's only sync currency; re-deriving them is not a code change. **Wave 6**
+mounts every HTML-document block through the same balance pipe, and wave 7's browser
+gate has no case that would catch it.
+
+**Disposition: fix it, between wave 2 closing and wave 3 starting.** It is a live
+correctness break today, its cost grows discontinuously at wave 3's blessing, and
+ti `48f3c6` records that wave 1's stack-scoped foreign bit makes the modelling cheap
+now that the bit exists — the expensive prerequisite is already paid. Not folded into
+wave 2: that is the breaking window, and an orthogonal walk defect does not belong in
+its diff. Wave 1's `transync-html` fix is the precedent for a scoped,
+separately-reviewed fix between waves.
+
+The ticket suggests the corpus entry that would have caught it:
+`("selfclose-breakout", "<div class=\"w\"><svg><div/>x</svg></div>")` — the balanced
+golden corpus has no foreign-content breakout entry at all, which is why five
+`selfclose-*` entries could not see this.
+
+### transync-html-wave-0-1-findings — five tickets from the wave 0/1 reviews
+
+- **Type:** 1
+- **Verified:** yes — each reproduced by the review that filed it.
+- **Sources:** ti `95f55b`, `415cdb`, `4882ac`, `2e2453`, `48f3c6`
+- **First seen:** 2026-08-22 · **Last seen:** 2026-08-24
+
+#### Description
+
+| ticket | finding | class |
+|---|---|---|
+| `95f55b` | `balance_fragment` appends a closer that lands **inside** an unterminated trailing comment/CDATA/tag, so a re-balance adds another. 15,726 violations / 200k fuzz iterations | pre-existing, widened by wave 1's fix; **latent** — balance runs once on the render path, and the mount outcome is identical either way |
+| `415cdb` | `collect_reserved_attr_spans` over-deletes across a stray `=`: `<div =data-sync-id="x">y` → `<div =>y`, moving a **non-reserved** attribute | pre-existing; over-deletion, so the impostor-anchor property holds (51-case probe, zero under-deletions) |
+| `4882ac` | `image` is a documented `VOID_ELEMENTS` exclusion with no test or golden anywhere | test gap; the decision is held only by prose |
+| `2e2453` | `scan_tags` enters raw-text state for `script`/`style`/`textarea`/`title` even inside `svg`/`math`, where a browser does not | scanner-level, pre-existing |
+| `48f3c6` | a void name used as a real foreign element keeps `is_void` globally | deliberate trade, recorded |
+
+#### Background
+
+These were filed rather than fixed because each is pre-existing and orthogonal to the
+wave that found it. `415cdb` additionally **contradicts a shipped contract sentence** —
+`contracts.md` §4's "no element name and no other attribute moves" — so it now carries a
+carve-out beside that sentence, the way §4a's breakout carve-out was added. `48f3c6` and
+`2e2453` are carve-outs the same foreign-content fix as the entry above would naturally
+sweep in, which is a reason to schedule that fix rather than five separate ones.
+
+---
+
 ---
 
 ## Type 2 — needs decision / discussion next
