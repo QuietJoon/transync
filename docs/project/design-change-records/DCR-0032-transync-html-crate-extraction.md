@@ -558,8 +558,28 @@ filed follow-up rather than silently accepted:
 
 - **HTML integration points and breakout tags.** `<svg><foreignObject><div/>x`
   leaves that div **open** in a browser; our model treats it self-closing.
-  Divergent before and after, in the same direction — bytes stay safe, extents
-  diverge.
+  Divergent before and after this amendment, in the same direction, and
+  **untouched by it** — the balancer's output for these inputs is byte-identical
+  old-versus-new.
+
+  *Corrected 2026-08-23, hours after this bullet was written, by the wave's own
+  review.* The bullet first read "bytes stay safe, extents diverge". **"Bytes
+  stay safe" is false**, and it is the same overclaim this amendment was written
+  to retire, made one paragraph after retiring it. Measured through the shipped
+  DOMPurify mount: `<div class="wrap"><svg><div/>x</svg></div>` followed by a
+  block mounts that block's anchor with parent `DIV.wrap`, not `<main>` —
+  `contracts.md` §4a's direct-child rule, broken. The sharper form is that the
+  self-closing flag is **not the mechanism at all**: the unflagged
+  `<svg><div>x</svg>` does the same thing, because `div` is on HTML's
+  foreign-content *breakout* list, so a browser pops the `<svg>` at the `<div>`
+  and leaves the div open in HTML content, while our walk closes it at
+  `</svg>` and passes the fragment through. `element_extents` having no in-tree
+  callers is the wrong consumer to reason from: the same `walk_elements` feeds
+  `balance_fragment`, whose caller is the shipped pane path. Reachable from
+  untrusted source Markdown through a type-6 html block. Still a follow-up
+  rather than this wave's work — it is pre-existing and orthogonal to the slash
+  — but it is a **live §4a break**, not a benign extent divergence, and ticket
+  `e77173` is re-ranked accordingly.
 - **Foreign raw-text/RCDATA.** `scan_tags` enters raw-text state for
   `script`/`style`/`textarea`/`title` even inside svg/math, where a browser
   does not: `<svg><title>a<b>c</b></title>` mints a real `b` element, and

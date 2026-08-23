@@ -513,3 +513,69 @@ stale, all found by review 0003.*
   the adjusted current node, and counting the two integration-point roots is
   the honest limit. Extraction is unaffected either way — `lol_html` never
   delivers CDATA to a text handler, as Part A already records.
+
+## Amendment (2026-08-23) — Part D's self-closing carve-out was one step short, and two of the tests it names have been renamed
+
+*Appended, not a rewrite. Everything above stands as written, including the
+sentence this amendment supersedes — it records what the project believed
+between 2026-08-04 and 2026-08-23, which is the point of dating a record.*
+
+Part D says, of the raw-text carve-out it added on 2026-08-04:
+
+> `balance_fragment` now pushes that element set onto the open stack even when
+> self-closing and appends the close tag. **The void/self-closing invariant is
+> unchanged for every other element** (pinned by
+> `self_closing_non_raw_text_elements_stay_closed`).
+
+**The emphasised clause is superseded.** As of ti `490d97` wave 1
+(`d146a53`, 2026-08-23) the balancer honours a start tag's self-closing `/` in
+exactly two places — inside foreign content, and on the `<svg>`/`<math>` start
+tags that enter it. Everywhere else the slash is a parse error the HTML parser
+ignores, so a flagged non-void tag **opens** and the author's matching end tag
+is its real closer rather than an orphan to delete. The reasoning, the
+measurements and the consequences are in **DCR-0032's amendment of the same
+date**; they are not repeated here.
+
+### Why this record reached the smaller rule
+
+Part D's argument was already the right one — it is quoted here because it is
+worth seeing that the conclusion was contained in the premise:
+
+> HTML ignores the self-closing flag on `script`, `style`, `textarea`, and
+> `title`, and the module's own tokenizer already enters raw-text state for
+> `<script/>` / `<style/>` regardless of the flag, so honouring the flag in the
+> balancer was *inconsistent with the tokenizer*, not a defence of an invariant.
+
+HTML ignores the flag on `div` and `span` too. The 2026-08-04 wave was fixing a
+`<textarea/>` incident and generalised only as far as the incident reached —
+four names — while the argument it had just made covered every non-void,
+non-foreign element. What made the remainder invisible was that nothing was
+calling the balancer on adversarial input yet: the defect became reachable when
+wave 1 gave `strip_reserved_sync_attrs` its first call site, and a stripped
+`<div/data-sync-id="x">` left exactly the `<div/>` spelling Part D had left
+unmodelled.
+
+Worth naming, since it is the second occurrence: the paragraph being amended is
+*itself* a correction — "corrected 2026-08-04; the first draft of this record
+claimed `<script/>` was deliberately left unbalanced because 'fixing it would
+contradict the void/self-closing invariant' — that reasoning was **wrong**."
+Twice now this record has been wrong about the same flag, in the same
+direction, for the same reason: reading the slash the way XML means it. The
+generalisable form is not about HTML at all — **a carve-out written to the size
+of the incident that prompted it will be re-opened by the next incident**,
+because the argument that justified it was always broader than the case.
+
+### Two test names in this record no longer exist
+
+Both were renamed by `d146a53`, and both are named above — in Part D and in the
+`### Discriminating tests` list. The names are left in place; this table is the
+forwarding address.
+
+| named in this record | now called | why the name had to change |
+|---|---|---|
+| `self_closing_non_raw_text_elements_stay_closed` | `only_void_and_foreign_tags_are_closed_by_their_own_slash` | its premise **was** the defect: it asserted `<span/>after` gets no appended closer. Measured in headless Chromium, `<span/>after` parses to `<span>after</span>`. |
+| `a_slash_outside_any_attribute_value_still_self_closes` | `a_slash_outside_any_attribute_value_sets_the_flag` | the scanner still *sets* the flag there; what changed is that setting it no longer means the element closes itself. |
+
+The surviving tests carry doc comments naming their predecessors, so the code
+was never silent about the rename. This record was — which is why the amendment
+exists.

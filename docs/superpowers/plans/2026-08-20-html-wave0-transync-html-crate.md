@@ -391,8 +391,8 @@ Read all five files as a separate step. Expected: `CARGO_EXIT=0` in every one, n
 
 - [ ] **Step 17: Verify — zero fixture or expectation edits.** This is the wave's acceptance gate and it is a *checkable step*, not a hope:
 ```bash
-git status --porcelain -- 'crates/*/tests/fixtures' 'web/tests' > /Volumes/Temp/claude/ti490d97-wave0/gate/t1-fixtures.txt
-git diff --stat HEAD -- 'crates/*/tests/scenarios' >> /Volumes/Temp/claude/ti490d97-wave0/gate/t1-fixtures.txt
+git status --porcelain -- 'crates/*/tests/fixtures/*' 'web/tests' > /Volumes/Temp/claude/ti490d97-wave0/gate/t1-fixtures.txt
+git diff --stat HEAD -- 'crates/*/tests/scenarios/*' >> /Volumes/Temp/claude/ti490d97-wave0/gate/t1-fixtures.txt
 ```
 Expected: the file is **empty**. Any line at all means a fixture or a scenario expectation moved — STOP and report; the refactor changed behaviour.
 
@@ -869,7 +869,7 @@ cargo clippy --all-targets --all-features -- -D warnings > /Volumes/Temp/claude/
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t3-clippy.txt
 cargo test --workspace -- --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave0/gate/t3-workspace.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t3-workspace.txt
-git status --porcelain -- 'crates/*/tests/fixtures' > /Volumes/Temp/claude/ti490d97-wave0/gate/t3-fixtures.txt
+git status --porcelain -- 'crates/*/tests/fixtures/*' > /Volumes/Temp/claude/ti490d97-wave0/gate/t3-fixtures.txt
 ```
 Expected: `CARGO_EXIT=0` in both cargo files; `t3-fixtures.txt` empty.
 ```bash
@@ -1752,7 +1752,7 @@ cargo clippy --all-targets --all-features -- -D warnings > /Volumes/Temp/claude/
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t6-clippy.txt
 cargo test --workspace -- --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave0/gate/t6-workspace.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave0/gate/t6-workspace.txt
-git status --porcelain -- 'crates/*/tests/fixtures' crates/transync-html/tests/goldens > /Volumes/Temp/claude/ti490d97-wave0/gate/t6-fixtures.txt
+git status --porcelain -- 'crates/*/tests/fixtures/*' crates/transync-html/tests/goldens > /Volumes/Temp/claude/ti490d97-wave0/gate/t6-fixtures.txt
 ```
 Expected: `CARGO_EXIT=0` in both cargo files; `t6-fixtures.txt` empty.
 
@@ -2611,7 +2611,7 @@ if ! ws t8b-workspace.txt; then
     echo "REFUSED_AT=workspace" > "$M"; exit 1
   fi
 fi
-git status --porcelain -- 'crates/*/tests/fixtures' > "$G/t8b-fixtures.txt"
+git status --porcelain -- 'crates/*/tests/fixtures/*' > "$G/t8b-fixtures.txt"
 if [ -s "$G/t8b-fixtures.txt" ]; then echo "REFUSED_AT=fixtures" > "$M"; exit 1; fi
 git diff --name-only -- crates/transync-html/tests/goldens > "$G/t8b-golden-files.txt"
 if ! diff -q "$G/t8b-golden-files.txt" - <<'EOF' >/dev/null
@@ -2888,7 +2888,10 @@ ti show 549b20
 
 **Read the fourth and fifth items together.** This section was written when the wave had seven tasks, all of which froze the token-stream goldens; Task 8 was added afterwards and *deliberately moves them*, twice. The pin criterion therefore splits: frozen across Tasks 1–7, moved-with-evidence at Task 8. Nothing about the pin's purpose changed — a golden that moves without a reviewed diff is still the failure it was always guarding against.
 
-- [ ] Full workspace suite green with **zero fixture or expectation edits**: `git diff --stat <baseline-commit>..HEAD -- 'crates/*/tests/fixtures' 'crates/*/tests/scenarios' 'web/tests'` prints nothing. (`<baseline-commit>` is in `/Volumes/Temp/claude/ti490d97-wave0/gate/baseline-commit.txt`.)
+- [ ] Full workspace suite green with **zero fixture or expectation edits**: `git diff --stat <baseline-commit>..HEAD -- 'crates/*/tests/fixtures/*' 'crates/*/tests/scenarios/*' 'web/tests'` prints nothing. (`<baseline-commit>` is in `/Volumes/Temp/claude/ti490d97-wave0/gate/baseline-commit.txt`.)
+
+  > **Pathspec corrected 2026-08-23 (ti `490d97` wave 1).** Both globs gained a trailing `/*`. Without it the pathspec matches **nothing**: git runs the pattern against the whole path and `*` matches `/`, but the pattern ended at `fixtures`, so only a path *ending* there could match — and every corpus file is one level deeper. Measured: `git ls-files -- 'crates/*/tests/fixtures'` prints 0 files, `git ls-files -- 'crates/*/tests/fixtures/*'` prints 16. The wave ran this gate in its vacuous form eight times and its recorded claim nevertheless survives re-checking with the corrected glob: over `a96589b..1299280` the corrected pathspec also prints nothing, so wave 0 really did move no corpus file. The verdict was right; the instrument was not measuring. The lesson is not "test your gates" but the narrower one: **a filter that matches nothing is indistinguishable from a filter whose subject is clean** — both print silence — so a gate built on a pathspec, a grep pattern or a test-name filter needs a companion assertion that the selector selects something.
+
 - [ ] The two-package wasm gate exit 0, captured bare-to-file, string unchanged: `cargo check -p transync-syntax -p transync-wasm --target wasm32-unknown-unknown`.
 - [ ] `workspace_publication.rs` green with the seven-member roster in dependency order.
 - [ ] **Across Tasks 1–7:** the `tag_inventory`-unchanged pin green with its goldens byte-identical to the ones generated before the token change (`git diff --stat e52ea44..<task-7-head> -- crates/transync-html/tests/goldens` prints nothing), and a reviewer-checkable diff whose only non-mechanical hunks are the splice signature, the policy constructor, the two token changes, and the visibility changes.

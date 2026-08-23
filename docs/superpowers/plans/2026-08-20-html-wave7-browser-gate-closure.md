@@ -78,6 +78,12 @@ This is the wave's real work surface. Every row was collected from the seven wav
 
 ---
 
+- **The corpus gate's pathspec ends in `/*`, and it must stay that way (added 2026-08-23, ti `490d97` wave 1).** `git diff -- 'crates/*/tests/fixtures'` matches **nothing** — git runs the pattern against the whole path and `*` matches `/`, but the pattern ends at `fixtures`, so only a path *ending* there could match, and every corpus file is one level deeper. Waves 0 and 1 both ran this gate in its vacuous form; both verdicts happened to survive re-checking, which is luck, not evidence. Before trusting any run of it, prove the selector selects something:
+```bash
+git ls-files -- 'crates/*/tests/fixtures/*' | wc -l   # must be > 0
+```
+  A filter that matches nothing and a filter whose subject is clean both print silence. That is why the assertion above exists and why the `/*` is not a typo to tidy away.
+
 ## File Structure
 
 | Path | Change | Responsibility |
@@ -1060,7 +1066,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 2. **The gate can fail:** `gate/probe1.txt`, `probe2.txt`, `probe3.txt`, `probe4.txt` each show `PW_EXIT` non-zero with the probe's named assertion in the failure output; the probe fixture was deleted after.
 3. **Every docs-drift weld green:** `gate/t8-workspace.txt` + `gate/t8-cli.txt` show the full suites green under the standing `docs_index_drift` carve-out — which covers `docs_browser_suite_drift` (now four files), `docs_gate_claims_drift`, `docs_ownership_drift`, `reader_honesty`, `public_surface`, `workspace_publication`, `docs_cli_flags_drift`, `exit_code_docs_drift`, `sync_js_drift` — the last three at **zero edits** to their test files. What `sync_js_drift` proves is that the two shipped `sync.js` copies still match each other and mirror `ALIGNMENT_SCHEMA_VERSION`; that the engine moved zero bytes this wave is acceptance 5's `git diff`, not this weld's claim.
 4. **The suite grew without a count appearing anywhere:** `gate/t3-green.txt`, `gate/t4-weld.txt` and `gate/t5-weld.txt` show `docs_browser_suite_drift` green around each commit that touches a GUARDED document (Tasks 3, 4 and 5; Tasks 6–7 touch no GUARDED file, and Task 8's workspace run re-covers the suite).
-5. **The code surface is exactly one weld test:** `git diff <baseline-commit>..HEAD --stat -- crates/ web/js/` names only `crates/transync/tests/docs_browser_suite_drift.rs`; `git diff <baseline-commit>..HEAD --stat -- 'crates/*/tests/fixtures' web/js web/tests/support` is empty. Capture to `gate/acceptance-surface.txt`.
+5. **The code surface is exactly one weld test:** `git diff <baseline-commit>..HEAD --stat -- crates/ web/js/` names only `crates/transync/tests/docs_browser_suite_drift.rs`; `git diff <baseline-commit>..HEAD --stat -- 'crates/*/tests/fixtures/*' web/js web/tests/support` is empty. Capture to `gate/acceptance-surface.txt`.
 6. **The ledger is total:** for each of DCR-0032…0038, grep its hand-forward/owed section (`grep -n -A6 -i 'handed forward\|owed' docs/project/design-change-records/DCR-003[2-8]-*.md > /Volumes/Temp/claude/ti490d97-wave7/gate/acceptance-ledger.txt`) and check every named item appears in DCR-0039's ledger with a disposition. A hand-forward absent from the ledger is the closure failing at its one job — fix before declaring done.
 7. **The controller hand-off is complete and explicit:** DCR-0039's index line, the spec-annotation replacement, and the A–I amendment batch all present in the DCR and the Task 8 commit message; status.md names them as pending controller action.
 

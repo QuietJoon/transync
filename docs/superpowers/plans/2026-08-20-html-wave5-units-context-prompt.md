@@ -49,6 +49,12 @@ Three items land on this wave from the earlier records, and each gets a step rat
 
 ---
 
+- **The corpus gate's pathspec ends in `/*`, and it must stay that way (added 2026-08-23, ti `490d97` wave 1).** `git diff -- 'crates/*/tests/fixtures'` matches **nothing** — git runs the pattern against the whole path and `*` matches `/`, but the pattern ends at `fixtures`, so only a path *ending* there could match, and every corpus file is one level deeper. Waves 0 and 1 both ran this gate in its vacuous form; both verdicts happened to survive re-checking, which is luck, not evidence. Before trusting any run of it, prove the selector selects something:
+```bash
+git ls-files -- 'crates/*/tests/fixtures/*' | wc -l   # must be > 0
+```
+  A filter that matches nothing and a filter whose subject is clean both print silence. That is why the assertion above exists and why the `/*` is not a typo to tidy away.
+
 ## File Structure
 
 | Path | Change | Responsibility |
@@ -1974,7 +1980,7 @@ Expected: `0` (grep exit 1 — the good outcome). On `1` or more: **STOP and rec
 BASE=$(cat /Volumes/Temp/claude/ti490d97-wave5/gate/baseline-commit.txt)
 git diff --stat "$BASE"..HEAD -- 'crates/transync-core/src/validate' 'crates/transync-core/src/pipeline/finalize.rs' 'crates/transync-syntax' 'crates/transync-html' 'crates/transync-cli' 'crates/transync-wasm' 'crates/transync-openai' 'crates/transync-anthropic' web 'crates/*/Cargo.toml' Cargo.toml Cargo.lock > /Volumes/Temp/claude/ti490d97-wave5/gate/accept-containment.txt 2>&1
 echo "GIT_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave5/gate/accept-containment.txt
-git diff --stat "$BASE"..HEAD -- 'crates/*/tests/fixtures' 'crates/transync-core/src/llm/prompt/golden' web/tests > /Volumes/Temp/claude/ti490d97-wave5/gate/accept-zero-fixture.txt 2>&1
+git diff --stat "$BASE"..HEAD -- 'crates/*/tests/fixtures/*' 'crates/transync-core/src/llm/prompt/golden' web/tests > /Volumes/Temp/claude/ti490d97-wave5/gate/accept-zero-fixture.txt 2>&1
 echo "GIT_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave5/gate/accept-zero-fixture.txt
 cargo test --workspace -- --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave5/gate/accept-workspace.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave5/gate/accept-workspace.txt

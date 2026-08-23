@@ -33,6 +33,12 @@
 
 ---
 
+- **The corpus gate's pathspec ends in `/*`, and it must stay that way (added 2026-08-23, ti `490d97` wave 1).** `git diff -- 'crates/*/tests/fixtures'` matches **nothing** — git runs the pattern against the whole path and `*` matches `/`, but the pattern ends at `fixtures`, so only a path *ending* there could match, and every corpus file is one level deeper. Waves 0 and 1 both ran this gate in its vacuous form; both verdicts happened to survive re-checking, which is luck, not evidence. Before trusting any run of it, prove the selector selects something:
+```bash
+git ls-files -- 'crates/*/tests/fixtures/*' | wc -l   # must be > 0
+```
+  A filter that matches nothing and a filter whose subject is clean both print silence. That is why the assertion above exists and why the `/*` is not a typo to tidy away.
+
 ## File Structure
 
 | Path | Change | Responsibility |
@@ -718,7 +724,7 @@ Expected: `CARGO_EXIT=0` in both; `test result: ok. 2 passed` for the filtered r
 
 - [ ] **Step 10: Verify the fixtures did not move, then commit.**
 ```bash
-git status --porcelain -- 'crates/*/tests/fixtures' > /Volumes/Temp/claude/ti490d97-wave2/gate/t3-fixtures.txt
+git status --porcelain -- 'crates/*/tests/fixtures/*' > /Volumes/Temp/claude/ti490d97-wave2/gate/t3-fixtures.txt
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings > /Volumes/Temp/claude/ti490d97-wave2/gate/t3-clippy.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t3-clippy.txt
@@ -1015,7 +1021,7 @@ Expected: `CARGO_EXIT=0` in both. **This is the wave's first real proof of behav
 
 - [ ] **Step 11: Verify the fixtures did not move, run the wasm gate, then commit.**
 ```bash
-git status --porcelain -- 'crates/*/tests/fixtures' > /Volumes/Temp/claude/ti490d97-wave2/gate/t4-fixtures.txt
+git status --porcelain -- 'crates/*/tests/fixtures/*' > /Volumes/Temp/claude/ti490d97-wave2/gate/t4-fixtures.txt
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings > /Volumes/Temp/claude/ti490d97-wave2/gate/t4-clippy.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t4-clippy.txt
@@ -1456,7 +1462,7 @@ Expected: `CARGO_EXIT=0` in both.
 
 - [ ] **Step 17: Verify the fixtures did not move, run the wasm gate, then commit.**
 ```bash
-git status --porcelain -- 'crates/*/tests/fixtures' > /Volumes/Temp/claude/ti490d97-wave2/gate/t5-fixtures.txt
+git status --porcelain -- 'crates/*/tests/fixtures/*' > /Volumes/Temp/claude/ti490d97-wave2/gate/t5-fixtures.txt
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings > /Volumes/Temp/claude/ti490d97-wave2/gate/t5-clippy.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t5-clippy.txt
@@ -1824,7 +1830,7 @@ Expected: `CARGO_EXIT=0` in both.
 
 - [ ] **Step 9: Verify the fixtures did not move, run the wasm gate, then commit.**
 ```bash
-git status --porcelain -- 'crates/*/tests/fixtures' > /Volumes/Temp/claude/ti490d97-wave2/gate/t6-fixtures.txt
+git status --porcelain -- 'crates/*/tests/fixtures/*' > /Volumes/Temp/claude/ti490d97-wave2/gate/t6-fixtures.txt
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings > /Volumes/Temp/claude/ti490d97-wave2/gate/t6-clippy.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t6-clippy.txt
@@ -2090,9 +2096,9 @@ by the v0.5.0 release.
 - [ ] **Step 12: The acceptance check that this whole wave rests on — zero fixture edits, over the recorded baseline.**
 ```bash
 BASE=$(cat /Volumes/Temp/claude/ti490d97-wave2/gate/baseline-commit.txt)
-git diff --stat "$BASE"..HEAD -- 'crates/*/tests/fixtures' 'crates/*/tests/scenarios' 'web/tests' > /Volumes/Temp/claude/ti490d97-wave2/gate/t8-zero-fixture.txt 2>&1
+git diff --stat "$BASE"..HEAD -- 'crates/*/tests/fixtures/*' 'crates/*/tests/scenarios/*' 'web/tests' > /Volumes/Temp/claude/ti490d97-wave2/gate/t8-zero-fixture.txt 2>&1
 echo "GIT_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t8-zero-fixture.txt
-git status --porcelain -- 'crates/*/tests/fixtures' 'crates/*/tests/scenarios' 'web/tests' >> /Volumes/Temp/claude/ti490d97-wave2/gate/t8-zero-fixture.txt
+git status --porcelain -- 'crates/*/tests/fixtures/*' 'crates/*/tests/scenarios/*' 'web/tests' >> /Volumes/Temp/claude/ti490d97-wave2/gate/t8-zero-fixture.txt
 ```
 Read the file. Expected: **`GIT_EXIT=0` and no diff lines at all** — the file holds nothing but that one line. A single changed fixture, scenario or browser test means this wave changed behaviour somewhere; it is a plan failure, not something to accept. Stop and report what moved.
 
@@ -2151,7 +2157,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ## Wave acceptance — check all six before declaring wave 2 done
 
-- [ ] **Corpus byte-identical, zero fixture edits.** `git diff --stat <baseline-commit>..HEAD -- 'crates/*/tests/fixtures' 'crates/*/tests/scenarios' 'web/tests'` prints nothing, and `cargo test --workspace -- --test-threads=4` plus `cargo test -p transync-cli --features test-stub-provider -- --test-threads=4` are both exit 0, captured bare-to-file. (`<baseline-commit>` is in `/Volumes/Temp/claude/ti490d97-wave2/gate/baseline-commit.txt`.)
+- [ ] **Corpus byte-identical, zero fixture edits.** `git diff --stat <baseline-commit>..HEAD -- 'crates/*/tests/fixtures/*' 'crates/*/tests/scenarios/*' 'web/tests'` prints nothing, and `cargo test --workspace -- --test-threads=4` plus `cargo test -p transync-cli --features test-stub-provider -- --test-threads=4` are both exit 0, captured bare-to-file. (`<baseline-commit>` is in `/Volumes/Temp/claude/ti490d97-wave2/gate/baseline-commit.txt`.)
 - [ ] **The two-package wasm gate exit 0, string unchanged:** `cargo check -p transync-syntax -p transync-wasm --target wasm32-unknown-unknown`.
 - [ ] **The `Title => NonSync` test and the `document_title` tests exist and are non-vacuous** — each was observed failing on a *value* (`Anchor` vs `NonSync`; `Some("Heading one")` vs `Some("Doc name")`) before its arm was written, with the capture files to show for it.
 - [ ] **contracts §0 prose + §1 bullet + CHANGELOG BREAKING entries** all present, and all four changes named in each.

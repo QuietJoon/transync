@@ -35,6 +35,15 @@
 
 ---
 
+- **The corpus gate's pathspec ends in `/*`, and it must stay that way (added 2026-08-23, ti `490d97` wave 1).** `git diff -- 'crates/*/tests/fixtures'` matches **nothing** — git runs the pattern against the whole path and `*` matches `/`, but the pattern ends at `fixtures`, so only a path *ending* there could match, and every corpus file is one level deeper. Waves 0 and 1 both ran this gate in its vacuous form; both verdicts happened to survive re-checking, which is luck, not evidence. Before trusting any run of it, prove the selector selects something:
+```bash
+git ls-files -- 'crates/*/tests/fixtures/*' | wc -l   # must be > 0
+```
+  A filter that matches nothing and a filter whose subject is clean both print silence. That is why the assertion above exists and why the `/*` is not a typo to tidy away.
+
+- **The pairing discipline changed under this plan on 2026-08-23 (ti `490d97` wave 1, DCR-0032 amendment). Read this before the Task 2 sketch.** This plan was written against a `walk_elements` that read a start tag's self-closing `/` the way XML means it, so a `<div/>` minted **no** extent. It now opens: HTML honours the flag in exactly two places — inside foreign content, and on the `<svg>`/`<math>` start tags that enter it — and everywhere else the slash is a parse error the parser ignores. Three passages in the Task 2 sketch state the old model and carry inline `SUPERSEDED 2026-08-23` markers; **re-derive each against `walk_elements` as it now stands rather than transcribing the sketch.** Implemented verbatim, the sketch re-introduces the defect wave 1 removed — a fragment left open consumes the sync wrapper's own `</div>` and takes the next block's anchor out of `<main>`, which `contracts.md` §4a forbids.
+
+
 ## File Structure
 
 | Path | Change | Responsibility |
@@ -898,11 +907,16 @@ impl<'s> HtmlWalk<'s> {
 
     /// An `Open` token at segmentation level: classify and act.
     fn open(&mut self, name: &str, _self_closing: bool, span: (usize, usize)) {
-        // The self-closing flag is deliberately unread here: the pairing
-        // discipline already folded it into the extents (a self-closing
-        // non-raw-text element minted no extent; a self-closing raw-text
-        // element minted one — DCR-0016 Part D), and reading it again would
-        // be a second opinion.
+        // SUPERSEDED 2026-08-23 (ti 490d97 wave 1, DCR-0032 amendment):
+        // this comment's parenthetical is now FALSE. A self-closing
+        // non-raw-text element DOES mint an extent — `walk_elements`
+        // honours the flag in exactly two places, inside foreign content
+        // and on the `<svg>`/`<math>` start tags that enter it, and
+        // everywhere else the `/` is a parse error the parser ignores, so
+        // the element opens. The conclusion still holds and for a better
+        // reason: the flag stays unread here because the extents already
+        // model it correctly. Re-derive the branch below against
+        // `walk_elements` as it now stands before implementing.
         if is_phrasing(name) {
             self.run.tags.push(span);
             if name == "img" {
@@ -934,8 +948,12 @@ impl<'s> HtmlWalk<'s> {
                 let closed = self.extents[idx].close.is_some();
                 self.enter_container(name, end, closed);
             }
-            // A self-closing `<div/>` counts as closed under the pairing
-            // discipline and minted no extent: pure gap.
+            // SUPERSEDED 2026-08-23 (ti 490d97 wave 1): a self-closing
+            // `<div/>` is NOT closed and DOES mint an extent — a browser
+            // ignores the flag on a non-void, non-foreign element, so the
+            // tag opens and the author's end tag is its real closer. This
+            // branch is therefore reachable by the container path, not the
+            // pure-gap path. Re-derive it before implementing.
             self.seg_start = span.1;
             return;
         }
@@ -995,6 +1013,10 @@ impl<'s> HtmlWalk<'s> {
     /// (spec §4): close-tag end when closed; boundary minus trailing ASCII
     /// whitespace when force-closed; the open-tag span alone when the
     /// pairing discipline says a self-closing element is already closed.
+    ///
+    /// SUPERSEDED 2026-08-23 (ti 490d97 wave 1): the last clause now
+    /// applies only to a foreign-content element or an `<svg>`/`<math>`
+    /// root. A self-closing spelling of any other non-void element opens.
     fn emit_extent_leaf(
         &mut self,
         kind: BlockKind,
@@ -2174,7 +2196,7 @@ echo "GIT_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave3/gate/accept-no-core.tx
 ```
 Expected: an **empty diff** (`GIT_EXIT=0`, no file lines). Any hunk here is a plan violation — wave 4 owns core's validate/finalize, wave 5 owns units/prompt, wave 6 owns the CLI. Also confirm zero edits to pre-existing fixtures:
 ```bash
-git diff --name-only "$(cat /Volumes/Temp/claude/ti490d97-wave3/gate/baseline-commit.txt)"..HEAD -- 'crates/*/tests/fixtures' > /Volumes/Temp/claude/ti490d97-wave3/gate/accept-fixtures.txt 2>&1
+git diff --name-only "$(cat /Volumes/Temp/claude/ti490d97-wave3/gate/baseline-commit.txt)"..HEAD -- 'crates/*/tests/fixtures/*' > /Volumes/Temp/claude/ti490d97-wave3/gate/accept-fixtures.txt 2>&1
 ```
 Expected: exactly the three **new** files (`scn-16-html-document.html`, `marketing-page.html`, `docs-fragment.html`) and nothing else.
 
