@@ -10,7 +10,7 @@
 
 **Spec:** docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md
 
-**Depends on:** **wave 0, complete** (`docs/superpowers/plans/2026-08-20-html-wave0-transync-html-crate.md`) — all seven of its tasks, not just the crate move. Task 1 Step 2 is a hard precondition gate on that, because this plan's regen and validate edits call `transync_html::BlankLinePolicy`, which wave 0 Task 3 introduces. The spec's dependency graph is `0 → 2 → {3, 4} → 5 → 6 → 7`, with wave 1 parallel to 2–5. **Nothing after this wave can start without it**, and it is the only part of the feature that cannot slip past a version window.
+**Depends on:** **wave 0, complete** (`docs/superpowers/plans/2026-08-20-html-wave0-transync-html-crate.md`) — all **eight** of its tasks, not just the crate move (Task 8 was added 2026-08-21 in `d2dac83`; "seven" here was correct when written and corrected 2026-08-23). Task 1 Step 2 is a hard precondition gate on that, because this plan's regen and validate edits call `transync_html::BlankLinePolicy`, which wave 0 Task 3 introduces. The spec's dependency graph is `0 → 2 → {3, 4} → 5 → 6 → 7`, with wave 1 parallel to 2–5. **Nothing after this wave can start without it**, and it is the only part of the feature that cannot slip past a version window.
 
 **Overlap with wave 1, which may or may not have landed:** wave 1 edits `web/js/sync.js` (both copies) and the `BlockKind::Html` success arm in `crates/transync-syntax/src/render.rs`. This plan touches **no JS at all**, and its single edit to that render arm is to the arm's *head* (`if let BlockKind::Html { .. } = kind` → `if matches!(kind, BlockKind::Html)`), never its body. Task 4 Step 9 says so explicitly. The two waves are otherwise disjoint; either order works.
 
@@ -581,9 +581,11 @@ Read the file. Expected: `CARGO_EXIT=101`, and exactly **six** `E0063` diagnosti
 
 If the syntax count is not six, do **not** treat the difference as noise: a construction site was added or removed since this plan was written. Fix it the same way and record the deviation in Task 8's DCR.
 
-**What is and is not evidence here.** Neither capture on its own proves the census is complete — each proves only that the compiler had nothing further to say about the crate it compiled. The completeness claim is Step 9's, and it rests on two facts together: the workspace builds clean, and this literal census returns exactly the seven sites above and no eighth.
+**What is and is not evidence here.** Neither capture on its own proves the census is complete — each proves only that the compiler had nothing further to say about the crate it compiled. The completeness claim is Step 9's, and it rests on two facts together: the workspace builds clean, and this literal census accounts for every one of the seven sites above — see Step 9's 2026-08-23 correction for why "and no eighth" was the wrong shape for that check.
 ```bash
-rg -n --no-heading -e '(^|[^:\w])Block \{' -e '(^|[^:\w])Document \{' crates/transync-syntax/src crates/transync-core/src
+rg -n --no-heading -e '(^|[^\w])Block \{' -e '(^|[^\w])Document \{' \
+  crates/transync-syntax/src crates/transync-core/src \
+  | grep -v 'pub struct ' | grep -v -- '->'
 ```
 
 - [ ] **Step 5: Give `emit` the spelling parameter, and give the island its one home.** In `crates/transync-syntax/src/parser/emit.rs`:
@@ -712,7 +714,9 @@ echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t3-red2-core.tx
 
   **Change nothing else in these five tests.** They are characterization pins for `Skipped` blocks; the spelling of a synthetic Markdown-document block is Markdown and the assertions below each literal stay exactly as they are.
 
-- [ ] **Step 9: Run the new tests and the whole suite, then close the census.** After the suite is green, run the literal census from Step 4 and confirm it returns **exactly the seven sites** Step 4 and Step 8 between them enumerated — six in `transync-syntax`, one in `transync-core` — each now carrying a `spelling:` (or `format:`) line. An eighth hit means a site the compiler answered for you in a way you did not read; go look at it. This pairing is what makes "no construction site can be missed" a checked claim rather than an assertion.
+- [ ] **Step 9: Run the new tests and the whole suite, then close the census.** After the suite is green, run the literal census from Step 4 and confirm it covers **the seven sites** Step 4 and Step 8 between them enumerated — six in `transync-syntax`, one in `transync-core` — each now carrying a `spelling:` (or `format:`) line. **Corrected 2026-08-23 (drift sweep).** The pattern used to be `[^:\w]`, which excludes the `:` immediately before `Block`, so the two literals spelled `crate::parser::Block {` — `align.rs:370` and `unit.rs:870` — could **never** appear in it. Measured at `6f7b3c4`, the old command returned **eight** lines of which those two were absent and three were not sites at all (`parser.rs:63`/`:109`, the `pub struct` declarations). The instrument was broken in both directions while the E0063 table it was meant to check was correct.
+
+  The corrected command drops `pub struct` declarations and `->` return types, and at `6f7b3c4` returns **eight lines for seven sites**: `parser.rs:245` (`Ok(Document {`), `parser.rs:432`, `emit.rs:52` (`self.blocks.push(Block {`), `regen.rs:557`+`:559` — **one** literal spanning two lines, `let doc = Document { blocks: vec![Block { … }] }` — `render.rs:1656`, `align.rs:370`, and `unit.rs:870`. Six in `transync-syntax`, one in `transync-core`, exactly as Step 4 enumerates. Do not treat the line count as the site count. What this must prove is that **every one of the seven carries a stamp** and that no hit is a construction Step 4 did not enumerate; a hit you cannot place is a site the compiler answered for you in a way you did not read; go look at it. This pairing is what makes "no construction site can be missed" a checked claim rather than an assertion.
 
 ```bash
 cargo test -p transync-syntax spelling_stamp_tests -- --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave2/gate/t3-green1.txt 2>&1
@@ -816,7 +820,7 @@ Fix those six, then capture core:
 cargo check -p transync-core --all-targets > /Volumes/Temp/claude/ti490d97-wave2/gate/t4-red-core.txt 2>&1
 echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t4-red-core.txt
 ```
-Expected: `CARGO_EXIT=101` and the **eighteen core sites** — `unit/payload.rs` ×1 and `validate.rs` ×1 (`E0026`), and the fifteen `E0559` constructions in `validate/schema.rs`, `validate/per_kind.rs`, `validate/inline.rs`, `unit/section.rs`, `unit/payload.rs`, `llm/prompt.rs`, `batch.rs`, `pipeline.rs` and `validate.rs`.
+Expected: `CARGO_EXIT=101` and the **eighteen core sites** — `unit/payload.rs` ×1 and `validate.rs` ×1 (`E0026`), and the **sixteen** `E0559` constructions ("fifteen" until 2026-08-23; the per-file list below sums to sixteen for core, which is what makes the "eighteen core sites" and "twenty-four, 5 + 19" totals consistent — the nineteen minus `emit.rs` ×2 and `walk.rs` ×1, which are `transync-syntax`) in `validate/schema.rs`, `validate/per_kind.rs`, `validate/inline.rs`, `unit/section.rs`, `unit/payload.rs`, `llm/prompt.rs`, `batch.rs`, `pipeline.rs` and `validate.rs`.
 
 Across the two captures, two error classes and nothing else — **twenty-four sites, 5 + 19**:
   - `error[E0026]: variant `BlockKind::Html` does not have a field named `block_type`` — **five pattern sites**, the ones that *bound* the field: `parser.rs` ×2 (`top_level_html_block_becomes_block_kind_html_with_type`, `pre_block_records_type_1`), `regen.rs` ×1 (the splice arm), `unit/payload.rs` ×1 (`assemble`'s `if let`), `validate.rs` ×1 (layer 3's `if let`).
@@ -1957,14 +1961,14 @@ description: One architectural commitment covering the twelve ratified decisions
 tags: [decision, architecture, ADR-0025]
 generated:
   by: claude-code/claude-opus-5
-  at: 2026-08-20T00:00:00Z
+  at: <execution date>T00:00:00Z    # the day this ADR is written, from `date -u`; NOT the plan's writing date
 status: stable
 ---
 
 # ADR-0025: HTML documents are a second intake into one pipeline
 ```
   The body carries these sections, each stating a fact this design settled:
-  - **Status / Date / Source** — accepted 2026-08-20, ticket `490d97`, spec `docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md`. ADR-0018 is the precedent for one ADR carrying several decisions.
+  - **Status / Date / Source** — accepted **on the execution date** (DCR-0033's rule: the plan's 2026-08-20 was its writing date, and `git log --date=short` is the check), ticket `490d97`, spec `docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md`. ADR-0018 is the precedent for one ADR carrying several decisions.
   - **Context** — the CLI refuses HTML-shaped input with a pointer at this ticket; the shipped IR conflates semantic kind with source spelling; everything downstream of the IR is already format-agnostic or one dispatch away from it.
   - **Decision** — the twelve, in the spec's own order and wording (D1 staged waves; D2 kind ⊥ spelling; D3 crates on the layer axis with the format seam a module boundary; D4 structural pass-through / content stop / unknown stop; D5 `<title>` translated but anchor-less, attribute text untranslated; D6 panes are a sync surface; D7 entity drift accepted; D8 explicit `--input-format`, the sniff stays a refusal; D9 `<li>` is the block; D10 the crate is `transync-html`; D11 island reclassification deferred; D12 one v0.5.0 window).
   - **Rejected alternatives**, each with its ground: top-level `<body>` children as blocks (a wrapper-heavy page becomes one giant block); a format-axis crate split (intake classification names `BlockKind`, so a format crate either depends on the IR or duplicates it); panes as a fidelity preview (breaks contracts §4a's direct-child invariant, corrupts `offsetTop` geometry via source-controlled `style`, re-opens OI-0035's surface); sniff-as-router (silent format selection is the class of guess ADR-0017's refusals exist to prevent); an HTML→Markdown round-trip.
@@ -1975,7 +1979,7 @@ status: stable
   - **Consequences** — one pipeline with two intakes; four breaking-by-policy IR changes riding one v0.5.0 window; the layer-6 twin becomes a hard precondition for any HTML run.
 
 - [ ] **Step 2: Write DCR-0034.** `docs/project/design-change-records/DCR-0034-ir-semantic-kind-and-spelling-split.md`, same frontmatter shape (`type: DCR`, `tags: [change, project-control, DCR-0034]`). Body sections:
-  - **Date / Source** — 2026-08-20, ticket `490d97`, wave 2 of the eight in the spec's §12.
+  - **Date / Source** — **the execution date**, ticket `490d97`, wave 2 of the eight in the spec's §12. Date it from `git log --date=short` over this wave's own commits, not from this plan's filename: waves 0 and 1 both had their landings mis-dated to the plan's writing date, and DCR-0033 line 29 records the rule.
   - **Breaking by policy, behaviour-preserving in fact.** The four changes, each with what a consumer sees: `Block.spelling` and `Document.format` added (tier-(c) engine types — `parser` is a hidden module and the facade re-exports nothing from it, so only a direct `transync-syntax` dependant is affected, under the weaker promise §0 tier (c) grants); `BlockKind::Html { block_type: u8 }` narrowed to a unit variant (a consumer's `BlockKind::Html { .. }` pattern still compiles — braces on a fieldless variant are legal — but `Html { block_type }` does not, and neither does constructing it); `BlockKind::Title` added (every exhaustive match over `BlockKind` in a consumer's tree stops compiling). `BlockKind` is a §0 tier-(a) row, so the last two are facade-visible; §1 records them.
   - **What did NOT move**, which is the wave's actual claim: no `id_code`, no `wire_str`, no alignment `schema_version`, no `VALIDATION_SCHEMA_VERSION`, no prompt or instruction bytes, no cache axis. The corpus regenerates, renders and aligns byte-identically with **zero fixture edits**.
   - **The two catch-alls, named.** `align::sync_role_for`'s `_ => SyncRole::Anchor` and `unit::context::document_title`'s `matches!` on `Heading1` alone. Both got explicit arms and both got tests that assert the *answer*; a plan that trusted "the compiler walks us to every match" would have shipped an anchoring `<title>` row and a document title that ignored the page title.
@@ -2054,23 +2058,29 @@ by the v0.5.0 release.
 - [ ] **Step 10: `docs/project/status.md` — two edits, both in sections that already exist.**
   1. The `- Workspace version:` line at the top. Keep the whole v0.4.0 sentence (it is still the last release and its record stands) and **prepend**:
 ```markdown
-- Workspace version: **`0.5.0-dev`** — the **sanctioned v0.5.0 breaking window is OPEN**, opened 2026-08-20 by ti `490d97` wave 2 (ADR-0025 / DCR-0034: the block IR splits semantic kind from source spelling). Four breaking-by-policy changes ride it, batched: `Block.spelling`, `Document.format`, `BlockKind::Html` narrowed to a unit variant, and `BlockKind::Title` added. Nothing user-visible changed — the corpus regenerates, renders and aligns byte-identically with zero fixture edits. Last release:
+- Workspace version: **`0.5.0-dev`** — the **sanctioned v0.5.0 breaking window is OPEN**, opened **on the execution date** by ti `490d97` wave 2 (ADR-0025 / DCR-0034: the block IR splits semantic kind from source spelling). Four breaking-by-policy changes ride it, batched: `Block.spelling`, `Document.format`, `BlockKind::Html` narrowed to a unit variant, and `BlockKind::Title` added. Nothing user-visible changed — the corpus regenerates, renders and aligns byte-identically with zero fixture edits. Last release:
 ```
   (so the existing `**v0.4.0** — **released 2026-08-20**…` text becomes the tail of the same bullet).
   2. `## Immediate Next Actions` — a new bullet immediately **after** wave 0's (the one beginning `**Action (HTML→HTML feature, ti `490d97`):** ~~wave 0`):
 ```markdown
-- **Action (HTML→HTML feature, ti `490d97`):** ~~wave 2 — the IR split, the breaking window~~ **LANDED 2026-08-20** (ADR-0025 / DCR-0034): `Spelling` and `SourceFormat` joined `BlockKind` in `transync-syntax::id`, `Block` gained `spelling` and `Document` gained `format`, `BlockKind::Html` narrowed to a unit variant, and `BlockKind::Title` landed with the **two explicit arms the compiler could not ask for** — `align::sync_role_for` ends in `_ => SyncRole::Anchor` and would have made a title an anchoring row, and `unit::context::document_title` matched `Heading1` alone, so a title did not enter the document title for free. Both got tests that assert the answer, not the compile. Nine dispatch sites were re-keyed onto `Spelling::Html` / `InputMode::HtmlSegments` / `constraints.html`, and the `(Table × Html)` split exclusion is explicit and tested. The workspace is at **`0.5.0-dev`** and the **v0.5.0 window is open**. Acceptance held: workspace + CLI suites green with **zero fixture edits**, the two-package wasm gate exit 0 with its string unchanged. **Waves 3–7 are unblocked** (dependency order `0 → 2 → {3, 4} → 5 → 6 → 7`); wave 4's layer-6 twin is a **hard precondition for any HTML translation run**.
+- **Action (HTML→HTML feature, ti `490d97`):** ~~wave 2 — the IR split, the breaking window~~ **LANDED <execution date>** (ADR-0025 / DCR-0034): `Spelling` and `SourceFormat` joined `BlockKind` in `transync-syntax::id`, `Block` gained `spelling` and `Document` gained `format`, `BlockKind::Html` narrowed to a unit variant, and `BlockKind::Title` landed with the **two explicit arms the compiler could not ask for** — `align::sync_role_for` ends in `_ => SyncRole::Anchor` and would have made a title an anchoring row, and `unit::context::document_title` matched `Heading1` alone, so a title did not enter the document title for free. Both got tests that assert the answer, not the compile. Nine dispatch sites were re-keyed onto `Spelling::Html` / `InputMode::HtmlSegments` / `constraints.html`, and the `(Table × Html)` split exclusion is explicit and tested. The workspace is at **`0.5.0-dev`** and the **v0.5.0 window is open**. Acceptance held: workspace + CLI suites green with **zero fixture edits**, the two-package wasm gate exit 0 with its string unchanged. **Waves 3–7 are unblocked** (dependency order `0 → 2 → {3, 4} → 5 → 6 → 7`); wave 4's layer-6 twin is a **hard precondition for any HTML translation run**.
 ```
 
+  3. **`## Immediate Next Actions`, wave 1's bullet — retire its closing sentence (added 2026-08-23, after this plan's last correction pass).** That bullet now ends `**Waves 2–7 remain unstarted.**`, written by `9cbb39a` when wave 1 landed. Edit 2 above inserts a "wave 2 LANDED" bullet directly after it, so executing Step 10 without this third edit leaves `status.md` asserting both at once. Change it to:
+```markdown
+**Waves 2–7 were unstarted at that point.**
+```
+  Same treatment wave 1's Task 4 applied to wave 0's identical clause, and for the same reason: the sentence was true about the moment it describes, so it is dated rather than deleted. Check `phase-state.yaml`'s wave-1 note for the same clause while you are there — if it carries one, it needs the same past tense.
+
 - [ ] **Step 11: `docs/project/phase-state.yaml` — three edits, and one non-edit.** The file has **three** `status:` keys, not two: two section-level phase keys (`design.status: handoff_complete`, `implementation.status: mvp_complete`) and one pointer entry (`status: docs/project/status.md`), plus `baseline_status:` and `sync_status:` that a bare `grep -c 'status:'` also matches. **None of them moves**; wave 2 changes no phase. Do not use a `status:` count as a verification for this step — count the three edits below instead.
-  1. `project.last_updated:` → `2026-08-20-ti490d97-wave2`.
+  1. `project.last_updated:` → `<execution date>-ti490d97-wave2` — the day the wave lands, not this plan's writing date.
   2. `design.closed_change_records:` — append, at the file's four-space list indent, after wave 0's and (if present) wave 1's entries:
 ```yaml
     - DCR-0034-ir-semantic-kind-and-spelling-split
 ```
   3. `project.notes:` is a `|` literal block of unformatted prose — no backticks, no markdown, `->` for arrows. Insert after wave 0's paragraph, at the block's existing four-space indent:
 ```yaml
-    TI 490d97 WAVE 2 LANDED 2026-08-20 (ADR-0025 / DCR-0034): the block IR
+    TI 490d97 WAVE 2 LANDED <execution date> (ADR-0025 / DCR-0034): the block IR
     split semantic kind from source spelling. Spelling and SourceFormat joined
     BlockKind in transync-syntax::id, Block gained spelling and Document
     gained format, BlockKind::Html narrowed to a unit variant (its CommonMark
