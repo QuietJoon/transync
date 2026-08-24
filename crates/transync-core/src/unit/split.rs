@@ -113,6 +113,15 @@ fn windows_of(
     factor: f64,
     bpe: &CoreBPE,
 ) -> Option<Vec<Vec<String>>> {
+    // Spec §7: the explicit `(Table × Html)` exclusion. Keyed on the input
+    // mode because that is the unit-level carrier of spelling (§6): after the
+    // HTML intake lands, an HTML `<table>` is `BlockKind::Table` with an
+    // `HtmlSegments` payload, and everything below this line assumes pipe
+    // syntax. `inspect_table` would refuse it anyway; an accident is not a
+    // guard.
+    if matches!(unit.input_mode, InputMode::HtmlSegments) {
+        return None;
+    }
     if !matches!(unit.block_kind, BlockKind::Table) {
         return None;
     }
@@ -586,5 +595,41 @@ mod tests {
                 "{ordinary:?} is not a window id"
             );
         }
+    }
+
+    /// Spec §7: `(Table × Html)` is excluded from the GFM row-window splitter
+    /// **explicitly**. `inspect_table` would return `None` on an HTML table's
+    /// segment-array payload anyway, but "it happens to fail" is not a guard:
+    /// this splitter is a Markdown-table machine that slices header, delimiter
+    /// and body ROWS out of pipe syntax, and an HTML `<table>` is one leaf
+    /// block whose payload is a JSON array. The HTML segment-window splitter
+    /// is future work (spec §15 item 4).
+    ///
+    /// The control case is what makes the assertion mean something: the same
+    /// payload under the same budget DOES split when the mode is Markdown.
+    #[test]
+    fn an_html_segments_unit_is_never_row_window_split_even_when_its_kind_is_table() {
+        let bpe = resolve_encoder(None, "gpt-4o-mini");
+        let factor = crate::batch::resolve_expansion_factor(None);
+        let payload = table(40);
+
+        let markdown_table = TranslationUnit::new(
+            BlockId::new("t", 1),
+            BlockKind::Table,
+            InputMode::FullTableMarkdown,
+            payload.clone(),
+            0,
+        );
+        assert!(
+            windows_of(&markdown_table, 400, factor, &bpe).is_some(),
+            "the control case must split, or this test proves nothing",
+        );
+
+        let mut html_table = markdown_table.clone();
+        html_table.input_mode = InputMode::HtmlSegments;
+        assert!(
+            windows_of(&html_table, 400, factor, &bpe).is_none(),
+            "an html-segments unit must never reach the GFM row-window splitter",
+        );
     }
 }

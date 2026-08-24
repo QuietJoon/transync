@@ -8,11 +8,11 @@
 //!
 //! TRACE: DCR-0017
 
-use crate::id::{BlockId, BlockKind};
+use crate::id::{BlockId, BlockKind, Spelling};
 use crate::parser::{Block, Document};
 use std::collections::HashMap;
 
-/// Per-block extraction outcome for `BlockKind::Html` blocks (spec §3.2).
+/// Per-block extraction outcome for **HTML-spelled** blocks (spec §3.2).
 /// Computed once per run by [`html_outcomes`] and threaded to batching,
 /// alignment, and the report so the three stay in agreement.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +27,7 @@ pub enum HtmlOutcome {
     ExtractionFailed(String),
 }
 
-/// Run `transync_html::extract` over every `BlockKind::Html` block once
+/// Run `transync_html::extract` over every **HTML-spelled** block once
 /// and record what it produced (spec §3.2).
 ///
 /// Computing the map once per run is what keeps every html-aware stage in
@@ -41,7 +41,7 @@ pub enum HtmlOutcome {
 pub fn html_outcomes(doc: &Document) -> HashMap<BlockId, HtmlOutcome> {
     let mut out = HashMap::new();
     for block in &doc.blocks {
-        if !matches!(block.kind, BlockKind::Html) {
+        if !matches!(block.spelling, Spelling::Html { .. }) {
             continue;
         }
         let payload = block_payload(doc, block);
@@ -58,9 +58,9 @@ pub fn html_outcomes(doc: &Document) -> HashMap<BlockId, HtmlOutcome> {
 /// Whether a block kind participates in translation. Thematic breaks and
 /// images carry no translatable text; `Skipped` nodes are preserved
 /// verbatim and rendered as inert placeholders, so they are never batched
-/// (A3, invariant 7). `Html` is kind-level translatable — whether a given
-/// html *block* becomes a unit is decided per block by
-/// [`is_translatable_block`].
+/// (A3, invariant 7). An HTML-spelled block is kind-level translatable
+/// whatever its kind — whether a given html *block* becomes a unit is decided
+/// per block by [`is_translatable_block`].
 ///
 /// TRACE: SCN-01..SCN-06
 pub(crate) fn is_translatable(kind: &BlockKind) -> bool {
@@ -70,19 +70,24 @@ pub(crate) fn is_translatable(kind: &BlockKind) -> bool {
     )
 }
 
-/// Per-block translatability (spec §3.2): kind-level for every kind except
-/// Html, where the extraction outcome decides. MUST stay in exact agreement
-/// with `unit::build_batches` and `align::build_alignment_map`.
+/// Per-block translatability (spec §3.2): the extraction outcome decides for
+/// an HTML-spelled block, kind-level for a Markdown-spelled one. MUST stay in
+/// exact agreement with `unit::build_batches` and `align::build_alignment_map`.
 // pub only because the crate boundary forces it — not curated API (DCR-0017 hands this list to OI-0027)
 #[doc(hidden)]
 pub fn is_translatable_block(block: &Block, html_outcomes: &HashMap<BlockId, HtmlOutcome>) -> bool {
-    if !is_translatable(&block.kind) {
-        return false;
-    }
-    if matches!(block.kind, BlockKind::Html) {
+    // Spec §7: for an HTML-spelled block the extraction outcome decides,
+    // whatever its semantic kind — an HTML document's `<h1>` is a `Heading1`
+    // and still translates through the segment engine, and its `<hr>` is a
+    // `ThematicBreak` that extracts zero segments and lands
+    // `PreservedZeroSegment`. The kind-level exclusions below are therefore
+    // the MARKDOWN arm; asking them first would have excluded a
+    // ThematicBreak-kinded HTML block before the outcome map ever saw it,
+    // which is the same answer by a route that stops being right.
+    if matches!(block.spelling, Spelling::Html { .. }) {
         return matches!(html_outcomes.get(&block.block_id), Some(HtmlOutcome::Unit));
     }
-    true
+    is_translatable(&block.kind)
 }
 
 /// Whether the document contains at least one block `unit::build_batches`

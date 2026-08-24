@@ -4,7 +4,7 @@
 //! TRACE: contracts.md §3
 //! TRACE: ADR-0001
 
-use crate::id::{BlockId, BlockKind};
+use crate::id::BlockId;
 use crate::outcome::{HtmlOutcome, is_translatable_block};
 use crate::parser::Document;
 use crate::regen::BlockOffsets;
@@ -220,10 +220,14 @@ pub fn build_alignment_map(
         } else if translatable {
             FallbackStatus::FallbackSource
         } else {
-            match (&block.kind, html_outcomes.get(&block.block_id)) {
+            match (block.spelling, html_outcomes.get(&block.block_id)) {
                 // Spec §3.2: the rewriter errored — placeholder presentation,
-                // honest fallback status, uncounted.
-                (BlockKind::Html, Some(HtmlOutcome::ExtractionFailed(_))) => {
+                // honest fallback status, uncounted. Keyed on SPELLING since
+                // ti 490d97 wave 2: an HTML document's `<p>` whose extraction
+                // failed is a `Paragraph`, and a kind-keyed arm would fall
+                // through to `Preserved` and claim the block was carried over
+                // intact.
+                (crate::id::Spelling::Html { .. }, Some(HtmlOutcome::ExtractionFailed(_))) => {
                     FallbackStatus::FallbackSource
                 }
                 // OI-0002 / A5: never-batched blocks (thematic-break, image,
@@ -359,6 +363,7 @@ fn sync_role_for(kind: &crate::id::BlockKind) -> SyncRole {
 #[cfg(test)]
 mod skipped_row_tests {
     use super::*;
+    use crate::id::BlockKind;
 
     #[test]
     fn skipped_row_is_preserved_anchor_and_uncounted() {

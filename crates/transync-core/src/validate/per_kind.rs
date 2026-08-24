@@ -1,11 +1,25 @@
 //! Per-block-kind structural validators.
 //!
+//! **Why an html-segments unit takes one arm for every kind (spec §6).** For
+//! an HTML-spelled unit, structure never crosses the wire: `assemble` sends a
+//! JSON array of decoded text segments and keeps the markup in
+//! `constraints.html.source_bytes`, documented "never sent to the model". The
+//! model physically cannot change a column count, a heading level or a list
+//! topology it never saw. The enforcement point is layer 3's splice plus its
+//! ordered tag ledger, which proves the output block's tag skeleton equals the
+//! source's exactly — and tag-sequence identity SUBSUMES column-count
+//! identity. So per-kind structural validation for (any kind × html-segments)
+//! is satisfied by construction, and `check_table` deliberately gains no html
+//! variant: an HTML `<table>` does have a column count, and checking it here
+//! would be strictly weaker than the ledger. The honest shape is an early
+//! dispatch, not an added case.
+//!
 //! TRACE: SCN-02
 //! TRACE: SCN-04
 //! TRACE: SCN-05
 
 use crate::id::BlockKind;
-use crate::llm::{BlockConstraints, ListTopologyEntry, UnitResult};
+use crate::llm::{BlockConstraints, InputMode, ListTopologyEntry, UnitResult};
 use crate::structure::{inspect_blockquote_children, inspect_list_topology, inspect_table};
 
 /// Dispatch to the per-kind validator for `kind`. Returns `Ok(())` if no
@@ -17,8 +31,15 @@ use crate::structure::{inspect_blockquote_children, inspect_list_topology, inspe
 pub fn check(
     constraints: &BlockConstraints,
     kind: &BlockKind,
+    input_mode: &InputMode,
     result: &UnitResult,
 ) -> Result<(), String> {
+    // The first arm, and it is first for the reason in the module doc: an
+    // html-segments unit's shape question is answered by `check_html` whatever
+    // its semantic kind is.
+    if matches!(input_mode, InputMode::HtmlSegments) {
+        return check_html(constraints, result);
+    }
     match kind {
         BlockKind::Heading1
         | BlockKind::Heading2
@@ -31,6 +52,9 @@ pub fn check(
         BlockKind::CodeBlock { .. } => check_code(constraints, result),
         BlockKind::ListItem { .. } => check_list(constraints, result),
         BlockKind::Blockquote => check_blockquote(constraints, result),
+        // Defensive: a kind-Html unit is an html-segments unit by the §6
+        // invariant, so the arm above already answered. Kept because the kind
+        // still exists and the match is exhaustive by policy.
         BlockKind::Html => check_html(constraints, result),
         // Skipped blocks are never batched (A3), so this arm is defensive
         // and unreachable — kept to keep the match total.
@@ -434,6 +458,7 @@ mod tests {
         let err = check(
             &html_constraints(1),
             &BlockKind::Html,
+            &InputMode::HtmlSegments,
             &unit_result("not json"),
         )
         .unwrap_err();
@@ -445,6 +470,7 @@ mod tests {
         let err = check(
             &html_constraints(2),
             &BlockKind::Html,
+            &InputMode::HtmlSegments,
             &unit_result("[\"only one\"]"),
         )
         .unwrap_err();
@@ -456,6 +482,7 @@ mod tests {
         let err = check(
             &html_constraints(2),
             &BlockKind::Html,
+            &InputMode::HtmlSegments,
             &unit_result("[\"ok\",\"\"]"),
         )
         .unwrap_err();
@@ -478,6 +505,7 @@ mod tests {
             let verdict = check(
                 &html_constraints(2),
                 &BlockKind::Html,
+                &InputMode::HtmlSegments,
                 &unit_result(payload),
             );
             let Err(err) = verdict else {
@@ -493,6 +521,7 @@ mod tests {
             check(
                 &html_constraints(2),
                 &BlockKind::Html,
+                &InputMode::HtmlSegments,
                 &unit_result("[\"하나\",\"둘\"]"),
             )
             .is_ok()
@@ -521,6 +550,9 @@ mod tests {
         let err = check(
             &code_constraints(None),
             &code_kind(None),
+            &InputMode::FullCodeBlock {
+                language_info: None,
+            },
             &unit_result("```rust\nlet x = 1;\n```\n"),
         )
         .unwrap_err();
@@ -539,6 +571,9 @@ mod tests {
                 check(
                     &code_constraints(None),
                     &code_kind(None),
+                    &InputMode::FullCodeBlock {
+                        language_info: None
+                    },
                     &unit_result(payload)
                 )
                 .is_ok(),
@@ -556,12 +591,23 @@ mod tests {
             check(
                 &c,
                 &code_kind(Some("rust")),
+                &InputMode::FullCodeBlock {
+                    language_info: None
+                },
                 &unit_result("```rust\nlet x = 1;\n```\n")
             )
             .is_ok()
         );
         for payload in ["```python\nx = 1\n```\n", "```\nlet x = 1;\n```\n"] {
-            let err = check(&c, &code_kind(Some("rust")), &unit_result(payload)).unwrap_err();
+            let err = check(
+                &c,
+                &code_kind(Some("rust")),
+                &InputMode::FullCodeBlock {
+                    language_info: None,
+                },
+                &unit_result(payload),
+            )
+            .unwrap_err();
             assert!(err.contains("code fence info changed"), "got: {err}");
         }
     }

@@ -89,7 +89,7 @@ pub(crate) struct InstructionVariant {
     /// `preserve_code_identifiers = Some(true)` (the default profile does).
     pub(crate) code_spans: bool,
     /// The html-segment contract, which rides on a batch holding at least one
-    /// [`crate::id::BlockKind::Html`] unit.
+    /// [`InputMode::HtmlSegments`] unit.
     pub(crate) html_segments: bool,
     /// The row-window contract (DCR-0026), which rides on a batch holding at
     /// least one [`InputMode::TableRowWindow`] unit.
@@ -169,10 +169,15 @@ impl InstructionVariant {
 /// segments? The one predicate behind the html-segment instruction clause,
 /// read through [`DocumentFacts`] so the prompt and the packer's reserve
 /// cannot ask it differently (ti aa92d6).
+///
+/// ti 490d97 wave 2: keyed on `InputMode::HtmlSegments`, which is exactly the
+/// question the clause answers — "is there a unit whose payload is a segment
+/// array" — rather than on the block kind, which stops being that question the
+/// day an HTML document's `<p>` ships one.
 pub(crate) fn has_html_unit(units: &[TranslationUnit]) -> bool {
     units
         .iter()
-        .any(|u| matches!(u.block_kind, crate::id::BlockKind::Html))
+        .any(|u| matches!(u.input_mode, crate::llm::InputMode::HtmlSegments))
 }
 
 /// Assemble the constant user-message instruction for `variant`.

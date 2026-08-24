@@ -25,8 +25,8 @@
 //! TRACE: OI-0031
 //! TRACE: OI-0034
 
-use crate::id::{BlockId, BlockKind};
-use crate::llm::{TranslationBatch, TranslationBatchResult};
+use crate::id::BlockId;
+use crate::llm::{InputMode, TranslationBatch, TranslationBatchResult};
 use std::collections::HashMap;
 // Only `check_schema` (test-only since OI-0027) needs set semantics.
 #[cfg(test)]
@@ -262,7 +262,7 @@ pub(crate) const NUL_IN_PAYLOAD: &str = "translated payload contains a NUL byte 
 ///
 /// TRACE: SCN-07
 /// TRACE: OI-0034
-pub(crate) fn check_payload_bytes(kind: &BlockKind, payload: &str) -> Result<(), String> {
+pub(crate) fn check_payload_bytes(input_mode: &InputMode, payload: &str) -> Result<(), String> {
     // An html unit's payload is a JSON array of text segments, and regen
     // splices the *decoded* segments — so a NUL rides in escaped
     // (as the six characters `\u0000`), invisible to a scan of the
@@ -271,7 +271,11 @@ pub(crate) fn check_payload_bytes(kind: &BlockKind, payload: &str) -> Result<(),
     // `per_kind::check_html` rejects a moment later with a better
     // diagnostic; fall through to the raw scan so no path is left uncovered
     // (a payload holding a *literal* NUL is not valid JSON either).
-    if matches!(kind, BlockKind::Html)
+    //
+    // ti 490d97 wave 2: keyed on the MODE, which is what makes the decode
+    // question answerable at all — the payload shape is the mode's statement,
+    // not the kind's, and after the HTML intake lands the two disagree.
+    if matches!(input_mode, InputMode::HtmlSegments)
         && let Ok(segments) = serde_json::from_str::<Vec<String>>(payload)
     {
         return match segments.iter().position(|s| s.contains('\0')) {
@@ -490,33 +494,44 @@ mod tests {
     #[test]
     fn a_markdown_payload_carrying_a_nul_is_rejected() {
         let payload = format!("안녕{NUL}하세요.");
-        let err = check_payload_bytes(&BlockKind::Paragraph, &payload)
+        let err = check_payload_bytes(&InputMode::TextFragment, &payload)
             .expect_err("a NUL in a markdown payload must reject");
         assert_eq!(err, NUL_IN_PAYLOAD);
     }
 
     #[test]
-    fn a_nul_free_payload_passes_on_every_kind() {
-        for kind in [
-            BlockKind::Paragraph,
-            BlockKind::Heading2,
-            BlockKind::CodeBlock {
-                info: None,
-                fenced: true,
+    fn a_nul_free_payload_passes_in_every_input_mode() {
+        for mode in [
+            InputMode::TextFragment,
+            InputMode::FullTableMarkdown,
+            InputMode::FullCodeBlock {
+                language_info: None,
             },
-            BlockKind::Html,
+            InputMode::ListItemContent,
+            InputMode::BlockquoteContent,
+            InputMode::HtmlSegments,
+            // The seventh variant. A window's payload is a whole GFM table
+            // and takes the same raw scan `FullTableMarkdown` does, so
+            // omitting it would leave the test's name claiming a totality
+            // its body does not have -- the exact name-vs-body drift this
+            // repository's tests are policed for.
+            InputMode::TableRowWindow {
+                parent_block_id: crate::id::BlockId("t-0001".to_string()),
+                window_index: 0,
+                window_count: 2,
+            },
         ] {
             // The html arm reads its payload as a segment array; the others
             // read raw markdown. Give each the shape it expects so the pass
             // is a real pass and not a decode failure.
-            let payload = if matches!(kind, BlockKind::Html) {
+            let payload = if matches!(mode, InputMode::HtmlSegments) {
                 "[\"하나\", \"둘\"]"
             } else {
                 "표준 문단, U+FFFD도 아니고 NUL도 아님."
             };
             assert!(
-                check_payload_bytes(&kind, payload).is_ok(),
-                "{kind:?} rejected a clean payload"
+                check_payload_bytes(&mode, payload).is_ok(),
+                "{mode:?} rejected a clean payload"
             );
         }
     }
@@ -533,7 +548,7 @@ mod tests {
             "the fixture must carry the ESCAPE, not the byte — otherwise \
              this test would pass through the raw scan and prove nothing"
         );
-        let err = check_payload_bytes(&BlockKind::Html, payload)
+        let err = check_payload_bytes(&InputMode::HtmlSegments, payload)
             .expect_err("a decoded NUL segment must reject");
         assert_eq!(err, format!("{NUL_IN_PAYLOAD} in html segment 1"));
     }
@@ -549,7 +564,7 @@ mod tests {
             "a raw control character inside a JSON string is malformed JSON, \
              which is what routes this fixture to the raw scan"
         );
-        let err = check_payload_bytes(&BlockKind::Html, &payload)
+        let err = check_payload_bytes(&InputMode::HtmlSegments, &payload)
             .expect_err("the raw scan must catch what the decode could not");
         assert_eq!(err, NUL_IN_PAYLOAD);
     }

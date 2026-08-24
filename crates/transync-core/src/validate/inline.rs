@@ -10,8 +10,8 @@
 //! reason to alter operational markup. It is therefore hoisted above the
 //! destination/code-span gates, which is why the two payload parses now
 //! run even for a fully permissive profile (accepted cost, spec §4.3).
-//! `BlockKind::Html` units skip the whole layer: their payload is a JSON
-//! segment array, whose structure the splice check owns.
+//! `InputMode::HtmlSegments` units skip the whole layer: their payload is a
+//! JSON segment array, whose structure the splice check owns.
 //!
 //! The compare is post-translation: the source payload and the
 //! translated payload are each walked with the canonical
@@ -47,7 +47,7 @@
 //! TRACE: ADR-0012 (amendment §4)
 
 use crate::id::BlockKind;
-use crate::llm::{TranslationUnit, UnitResult};
+use crate::llm::{InputMode, TranslationUnit, UnitResult};
 use crate::profile::ProfileConstraints;
 
 /// Whether a destination came from a link or an image node — part of the
@@ -86,9 +86,9 @@ struct InlineInventory {
 /// - inline code-span identity is enforced only when
 ///   `preserve_code_identifiers == Some(true)`.
 ///
-/// `BlockKind::CodeBlock` and `BlockKind::Html` units return early: fence
-/// bodies carry no inline nodes, and an html unit's payload is a JSON
-/// segment array validated by the splice check instead.
+/// `BlockKind::CodeBlock` units and `InputMode::HtmlSegments` units return
+/// early: fence bodies carry no inline nodes, and an html unit's payload is
+/// a JSON segment array validated by the splice check instead.
 ///
 /// `ref_defs` is the document's link-reference-definition pool
 /// ([`crate::parser::refdefs`]); appended to both payloads so reference-style
@@ -102,12 +102,14 @@ pub fn check_inline(
     result: &UnitResult,
     ref_defs: &str,
 ) -> Result<(), String> {
-    if matches!(
-        unit.block_kind,
-        BlockKind::CodeBlock { .. } | BlockKind::Html
-    ) {
-        // Fences carry no inline nodes; html payloads are JSON (the splice
-        // check owns their structure). Skip both parses.
+    // Fences carry no inline nodes; html payloads are JSON (the splice check
+    // owns their structure). Skip both parses. ti 490d97 wave 2: the html half
+    // is keyed on the MODE — an HTML document's `<p>` is a Paragraph whose
+    // payload is a segment array, and running the inline inventory over JSON
+    // would compare bracket counts and call them links.
+    if matches!(unit.block_kind, BlockKind::CodeBlock { .. })
+        || matches!(unit.input_mode, InputMode::HtmlSegments)
+    {
         return Ok(());
     }
 
@@ -575,8 +577,25 @@ mod tests {
 
     #[test]
     fn html_units_skip_the_inline_layer() {
-        let u = unit(BlockKind::Html, "[\"seg\"]");
-        assert!(check_inline(&policy(None, None), &u, &unit_result("[\"번역\"]"), "").is_ok());
+        // The payload carries a raw tag on the source side and none on the
+        // translated side, so the always-on tag-identity guard WOULD reject it
+        // if this layer ran. That is what makes the `is_ok()` below a
+        // statement about the skip rather than about two payloads that happen
+        // to contain nothing the layer inspects.
+        let mut u = unit(BlockKind::Html, "[\"press <kbd>Ctrl</kbd>\"]");
+        u.input_mode = InputMode::HtmlSegments;
+        assert!(
+            check_inline(&policy(None, None), &u, &unit_result("[\"누르세요\"]"), "").is_ok(),
+            "an html-segments unit must not reach the inline layer at all",
+        );
+
+        // The contrast: the same two payloads under a Markdown mode DO reject,
+        // which is the layer this skip is bypassing.
+        let md = unit(BlockKind::Paragraph, "press <kbd>Ctrl</kbd>");
+        assert!(
+            check_inline(&policy(None, None), &md, &unit_result("누르세요"), "").is_err(),
+            "the guard the skip bypasses must be live, or the skip proves nothing",
+        );
     }
 
     // Spec §4.3 known false-reject, pinned as accepted behavior: a tag

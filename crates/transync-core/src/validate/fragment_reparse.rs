@@ -5,21 +5,28 @@
 //! TRACE: SCN-04
 
 use crate::id::BlockKind;
-use crate::llm::UnitResult;
+use crate::llm::{InputMode, UnitResult};
 use comrak::nodes::NodeValue;
 
 /// Reparse one translated payload under GFM and assert kind equality.
 ///
 /// TRACE: SCN-02
-pub fn reparse_fragment(kind: &BlockKind, result: &UnitResult) -> Result<(), String> {
+pub fn reparse_fragment(
+    kind: &BlockKind,
+    input_mode: &InputMode,
+    result: &UnitResult,
+) -> Result<(), String> {
     if result.translated_payload.trim().is_empty() {
         return Err("empty translated payload".into());
     }
 
-    if matches!(kind, BlockKind::Html) {
+    if matches!(input_mode, InputMode::HtmlSegments) {
         // Spec §4.2: html payloads are JSON segment arrays, not Markdown —
-        // structure is owned by the splice check (layer 3, Task 8), not a
-        // comrak reparse.
+        // structure is owned by the splice check (layer 3), not a comrak
+        // reparse. ti 490d97 wave 2 re-keyed this from the kind onto the MODE:
+        // an HTML document's `<p>` is `BlockKind::Paragraph` and still ships a
+        // segment array, so a kind-keyed early return would hand its JSON to
+        // comrak and reject every unit in the document.
         return Ok(());
     }
 
@@ -99,9 +106,10 @@ fn expected_label(kind: &BlockKind) -> &'static str {
         BlockKind::ThematicBreak => "thematic-break",
         BlockKind::Image => "paragraph",
         // Defensive and unreachable: an html unit's payload is a JSON segment
-        // array (spec §4.1), so `reparse_fragment` returns early for the kind
-        // and never asks for its label. Kept to keep the match total; the
-        // label is the one a raw HTML block WOULD reparse as.
+        // array (spec §4.1), so `reparse_fragment` returns early on the MODE
+        // (ti 490d97 wave 2) and never asks for its label — a kind-Html unit
+        // is an html-segments unit by the §6 invariant. Kept to keep the match
+        // total; the label is the one a raw HTML block WOULD reparse as.
         BlockKind::Html => "html-block",
         // Skipped blocks are never batched (A3), so this arm is defensive
         // and unreachable — kept to keep the match total.

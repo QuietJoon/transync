@@ -21,7 +21,9 @@ pub mod schema;
 
 use crate::FallbackStatus;
 use crate::id::BlockId;
-use crate::llm::{GlossaryEntry, OutputKind, TranslationBatch, TranslationBatchResult, UnitResult};
+use crate::llm::{
+    GlossaryEntry, InputMode, OutputKind, TranslationBatch, TranslationBatchResult, UnitResult,
+};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -354,7 +356,7 @@ fn validate_unit(
     // through comrak, which substitutes U+FFFD before a node exists
     // (CommonMark §2.3) — and because the `Preserved` proof below is the one
     // check that would notice, and would blame the wrong thing.
-    if let Err(reason) = schema::check_payload_bytes(&unit.block_kind, &result.translated_payload) {
+    if let Err(reason) = schema::check_payload_bytes(&unit.input_mode, &result.translated_payload) {
         return reject(ValidationLayer::Schema, reason);
     }
 
@@ -374,10 +376,17 @@ fn validate_unit(
         );
     }
 
-    if let Err(reason) = per_kind::check(&unit.constraints, &unit.block_kind, result) {
+    if let Err(reason) = per_kind::check(
+        &unit.constraints,
+        &unit.block_kind,
+        &unit.input_mode,
+        result,
+    ) {
         return reject(ValidationLayer::PerKindShape, reason);
     }
-    if let Err(reason) = fragment_reparse::reparse_fragment(&unit.block_kind, result) {
+    if let Err(reason) =
+        fragment_reparse::reparse_fragment(&unit.block_kind, &unit.input_mode, result)
+    {
         return reject(ValidationLayer::FragmentReparse, reason);
     }
     // EXT-2026-07 P1-5: link/image destinations, policy-gated inline code
@@ -408,7 +417,34 @@ fn validate_unit(
     // therefore cannot make this layer lie about regen's success — it
     // surfaces as regen's own defensive source-bytes fallback, which keeps
     // `out.md` honest rather than corrupt.
+    //
+    // ti 490d97 wave 2: keyed on `constraints.html` rather than on
+    // `BlockKind::Html`, because the kind stops being the html axis once an
+    // HTML document's `<p>` is a Paragraph. The splice policy is derived from
+    // the recorded CommonMark type, whose `0` sentinel resolves to `Keep` —
+    // the same answer `Spelling::blank_line_policy_for(None)` gives.
     if let Some(h) = &unit.constraints.html {
+        // Spec §7 (the re-keying) with §6's `assemble` as its origin: the
+        // layer is keyed on the CONSTRAINTS' presence — the
+        // splice check's own input — with the mode as its twin. The documented
+        // NOTE (2026-08-24, from Task 4's report): after Task 4, layer 3's
+        // guard is `constraints.html.is_some()` ALONE -- the kind backstop
+        // is gone, so the guard is strictly WIDER than it was. It is
+        // equivalent today because nothing constructs `constraints.html`
+        // for a non-HTML unit, but this debug-assert twin is the only
+        // thing that re-narrows it. Do not skip it or downgrade it.
+        // The invariant is `spelling Html ⇔ InputMode::HtmlSegments`,
+        // established at `unit::payload::assemble` and never re-derived; a unit
+        // carrying `constraints.html` under any other mode was built by hand
+        // and is a caller bug, not a provider fault, so it belongs in a debug
+        // assertion rather than in a rejection.
+        debug_assert!(
+            matches!(unit.input_mode, InputMode::HtmlSegments),
+            "unit {} carries constraints.html under {:?}; the invariant is \
+             spelling Html <=> InputMode::HtmlSegments",
+            unit.unit_id,
+            unit.input_mode,
+        );
         // Deliberately NOT the `reject` shape above: this is the one arm
         // that is not a rejection at all — no layer, no reason, so the
         // pipeline's `rejected_by.is_some()` retry loop skips it (§3.3).

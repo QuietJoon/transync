@@ -12,7 +12,7 @@ pub(crate) mod section;
 pub(crate) mod split;
 
 use crate::TranslateOptions;
-use crate::id::{BlockId, BlockKind};
+use crate::id::BlockId;
 use crate::llm::{BatchId, TokenizerHint, TranslationBatch, TranslationUnit};
 use crate::parser::Document;
 use crate::profile::{default_profile, render_prompt_body};
@@ -442,7 +442,9 @@ pub(crate) fn html_dominance_warning(
             .end
             .saturating_sub(block.source_range.start) as u64;
         total_bytes += len;
-        if matches!(block.kind, BlockKind::Html) {
+        // The sentence this feeds is about how much of a MARKDOWN document is
+        // written as raw HTML, which is a spelling question, not a kind one.
+        if matches!(block.spelling, crate::id::Spelling::Html { .. }) {
             html_bytes += len;
         }
     }
