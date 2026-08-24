@@ -1,11 +1,13 @@
 # transync
 
-**Status:** v0.3.0 (released 2026-08-07). The review-0001 hardening release: 52 review findings triaged into 20 tickets, 26 follow-ups surfaced while resolving them, all 46 closed across seven implement-review waves, and the sanctioned 0.3.0 breaking window used and closed. Work since then rides the **open v0.4.0 window** — unreleased, recorded in the CHANGELOG's `[Unreleased]` section, and shipping **untagged** by owner decision (2026-08-13; `docs/project/release-checklist.md`, under *When it applies*, records why). That window is where the second in-tree provider (`transync-anthropic`), the on-disk cache and its document-level metadata, section-coherent batching, header-carrying table row windows, and `transync serve` — all described below — have landed. The OpenAI provider supports model-driven Chat Completions and Responses dispatch. Local offline verification uses an in-process `EchoTranslator` behind the `test-stub-provider` Cargo feature.
-
 A Rust library that does two things:
 
 1. **Translates [GitHub Flavored Markdown](https://github.github.com/gfm/) documents** with a consumer-supplied LLM, preserving every structural invariant the markup carries (heading levels, table column counts and alignment, list topology, code-fence safety, blockquote nesting).
 2. **Synchronizes the source and translated panes by semantic block ID**, not by scroll percentage — so the panes stay anchored across translation-induced length changes (CJK doubling source byte width, 50-row tables wrapping differently, code blocks staying fixed-height while their neighboring prose grows).
+
+Use it as a library behind your own LLM provider, or through the bundled `transync` CLI: `transync translate` runs the pipeline end to end and publishes the whole output set — translated Markdown, alignment map, validation report and a ready-to-open side-by-side HTML bundle — into one directory, and `transync serve` hands that bundle to a browser on `127.0.0.1`.
+
+**Status:** v0.4.0 — released and tagged 2026-08-20; depend on the annotated `v0.4.0` tag. Release history is in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Feature 1 — Translation pipeline
 
