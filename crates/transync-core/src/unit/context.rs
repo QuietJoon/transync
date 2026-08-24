@@ -71,8 +71,16 @@ pub fn build_index(doc: &Document) -> ContextIndex<'_> {
     }
 }
 
-/// The document's title: the plain text of its **first level-1 heading**, or
-/// `None` when the document has none.
+/// The document's title: the plain text of its **`Title` block** when it has
+/// one, else of its **first level-1 heading**, else `None`.
+///
+/// The `Title` preference is explicit, and it has to be (ti 490d97 wave 2):
+/// [`BlockKind::Title`]'s `heading_level()` is `None` — a page title is not a
+/// heading level — so "the first block with a heading level" would never find
+/// it, and this `.find` matched `Heading1` and nothing else before the arm
+/// below existed. A Markdown document has no `Title` block, so its answer is
+/// unchanged, which is what `without_a_title_block_the_first_h1_still_wins`
+/// pins.
 ///
 /// This is the one place the title rule lives. The provider reads it as
 /// [`BlockContext::document_title`] on every unit, and the pipeline hands the
@@ -93,7 +101,12 @@ pub fn build_index(doc: &Document) -> ContextIndex<'_> {
 pub(crate) fn document_title(doc: &Document) -> Option<String> {
     doc.blocks
         .iter()
-        .find(|b| matches!(b.kind, BlockKind::Heading1))
+        .find(|b| matches!(b.kind, BlockKind::Title))
+        .or_else(|| {
+            doc.blocks
+                .iter()
+                .find(|b| matches!(b.kind, BlockKind::Heading1))
+        })
         .map(|b| heading_plain_text(doc, b))
 }
 
@@ -424,5 +437,94 @@ body paragraph
             ctx.preceding_block.map(|n| n.summary),
             Some("# The `transync` **Guide** #".to_string()),
         );
+    }
+}
+
+// ti 490d97 wave 2 (spec §3 / §6): `document_title` matched `BlockKind::Heading1`
+// and nothing else — not "the first block with a heading level" — so a `Title`
+// block does NOT enter the document title for free, and extending it is
+// explicit work. These pin the selection rule; the TEXT projection for a real
+// `<title>…</title>` slice is wave 5's, and the third test says so out loud
+// rather than leaving the gap to be discovered.
+#[cfg(test)]
+mod document_title_tests {
+    use super::*;
+    use crate::id::{SourceFormat, Spelling};
+    use crate::parser::AstPath;
+    use crate::parser::ranges::ByteRange;
+
+    /// A hand-built HTML document: a `Title` block over the first line, an H1
+    /// over the last, gap in between. Hand-built because no intake emits a
+    /// `Title` until wave 3, and the H1 is there so the test can tell the new
+    /// rule from the old one.
+    fn hand_built_titled_document(title_slice: &str) -> Document {
+        let source_text = format!("{title_slice}\n\n# Heading one\n");
+        let h1_start = title_slice.len() + 2;
+        let end = source_text.len();
+        Document {
+            source_text,
+            format: SourceFormat::Html,
+            blocks: vec![
+                Block {
+                    block_id: BlockId::new("title", 1),
+                    kind: BlockKind::Title,
+                    spelling: Spelling::Html { block_type: None },
+                    source_range: ByteRange {
+                        start: 0,
+                        end: title_slice.len(),
+                    },
+                    source_hash: 0,
+                    section_path: Vec::new(),
+                    ast_path: AstPath(vec![0]),
+                },
+                Block {
+                    block_id: BlockId::new("h1", 2),
+                    kind: BlockKind::Heading1,
+                    spelling: Spelling::Html { block_type: None },
+                    source_range: ByteRange {
+                        start: h1_start,
+                        end,
+                    },
+                    source_hash: 0,
+                    section_path: Vec::new(),
+                    ast_path: AstPath(vec![1]),
+                },
+            ],
+            ..Document::default()
+        }
+    }
+
+    #[test]
+    fn a_title_block_wins_the_document_title_over_the_first_h1() {
+        let doc = hand_built_titled_document("Doc name");
+        assert_eq!(
+            document_title(&doc).as_deref(),
+            Some("Doc name"),
+            "D5 / spec §6: an HTML run's document title is its <title>, not \
+             the first heading the page happens to contain",
+        );
+    }
+
+    #[test]
+    fn without_a_title_block_the_first_h1_still_wins() {
+        // The Markdown rule, unchanged — this is the regression guard on the
+        // half that must not move.
+        let doc =
+            crate::parser::parse("intro\n\n# Heading one\n\n# Heading two\n").expect("parses");
+        assert_eq!(document_title(&doc).as_deref(), Some("Heading one"));
+    }
+
+    /// The projection gap, pinned rather than left to be found later: a REAL
+    /// `<title>…</title>` slice reads as empty prose today, because
+    /// `heading_plain_text` runs comrak over the slice and comrak sees one
+    /// `HtmlBlock` node with no inline children to walk. Wave 5 replaces the
+    /// projection for Html-spelled blocks with `transync_html::extract(…)`
+    /// (spec §6); wave 2 owns only the SELECTION rule above. When wave 5
+    /// lands, this expectation becomes `Some("Doc name")` and this test's
+    /// name and comment go with it.
+    #[test]
+    fn a_real_title_element_projects_to_empty_prose_until_wave_5() {
+        let doc = hand_built_titled_document("<title>Doc name</title>");
+        assert_eq!(document_title(&doc).as_deref(), Some(""));
     }
 }

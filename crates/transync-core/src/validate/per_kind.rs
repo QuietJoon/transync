@@ -56,9 +56,13 @@ pub fn check(
         // invariant, so the arm above already answered. Kept because the kind
         // still exists and the match is exhaustive by policy.
         BlockKind::Html => check_html(constraints, result),
-        // Skipped blocks are never batched (A3), so this arm is defensive
-        // and unreachable — kept to keep the match total.
-        BlockKind::ThematicBreak | BlockKind::Image | BlockKind::Skipped { .. } => Ok(()),
+        // Skipped blocks are never batched (A3), and a `Title` unit is an
+        // html-segments unit that the first arm already answered, so both are
+        // defensive and unreachable — kept to keep the match total.
+        BlockKind::ThematicBreak
+        | BlockKind::Image
+        | BlockKind::Title
+        | BlockKind::Skipped { .. } => Ok(()),
     }
 }
 

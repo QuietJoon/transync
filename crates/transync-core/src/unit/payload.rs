@@ -197,6 +197,12 @@ mod heading_level_constraint_tests {
             (BlockKind::Blockquote, None),
             (BlockKind::ThematicBreak, None),
             (BlockKind::Image, None),
+            // D5: a page title is not a heading level. `heading_level` reaches
+            // it through `_ => None`, so this row is what says the answer is
+            // intended rather than incidental — and it is what
+            // `partition_by_section` reads to leave a title in the preamble
+            // section.
+            (BlockKind::Title, None),
             (BlockKind::Html, None),
             (
                 BlockKind::Skipped {

@@ -346,6 +346,13 @@ fn sync_role_for(kind: &crate::id::BlockKind) -> SyncRole {
     use crate::id::BlockKind::*;
     match kind {
         ThematicBreak => SyncRole::NonSync,
+        // D5 (ti 490d97 wave 2): a `<title>` is translated and aligned but is
+        // NOT page content — the browser chrome renders it, so the pane has
+        // nothing to anchor. EXPLICIT, and pinned by `sync_role_tests`,
+        // because the `_` arm below answers `Anchor` and would have made this
+        // row anchoring — the precise opposite of the decision — without one
+        // word of warning from the compiler.
+        Title => SyncRole::NonSync,
         Blockquote => SyncRole::Container,
         // R0006-0042: items render as top-level `<li>` sync anchors (no
         // list-level row exists), so `anchor` is the honest role —
@@ -416,6 +423,38 @@ mod skipped_row_tests {
             map.validation_summary.total_units, 1,
             "validation_summary must exclude the skipped block",
         );
+    }
+}
+
+// ti 490d97 wave 2 (spec §3 / decision D5): `sync_role_for` ends in
+// `_ => SyncRole::Anchor`, so a new kind is silently an ANCHORING row unless
+// someone writes the arm — the precise opposite of the decision for `<title>`.
+// The compiler cannot say so; this test can. It asserts the ROLE, not that the
+// code compiles, which is the only assertion a catch-all cannot satisfy.
+#[cfg(test)]
+mod sync_role_tests {
+    use super::*;
+    // `align.rs` imports `crate::id::BlockId` at module scope, not `BlockKind`,
+    // so `use super::*` does not bring it in — same explicit import
+    // `skipped_row_tests` above already carries.
+    use crate::id::BlockKind;
+
+    #[test]
+    fn a_title_row_is_non_sync_while_the_catch_all_still_anchors_everything_else() {
+        assert_eq!(
+            sync_role_for(&BlockKind::Title),
+            SyncRole::NonSync,
+            "D5: the <title> is rendered by browser chrome, not by the pane — \
+             there is nothing there to anchor",
+        );
+        // The contrast that makes the assertion above non-vacuous: the
+        // catch-all this arm escapes is what every other kind still takes.
+        assert_eq!(sync_role_for(&BlockKind::Heading1), SyncRole::Anchor);
+        assert_eq!(sync_role_for(&BlockKind::Paragraph), SyncRole::Anchor);
+        // The kind that has answered `non-sync` since schema 1.0, so the row
+        // shape a title ships is not a new one.
+        assert_eq!(sync_role_for(&BlockKind::ThematicBreak), SyncRole::NonSync);
+        assert_eq!(sync_role_for(&BlockKind::Blockquote), SyncRole::Container);
     }
 }
 

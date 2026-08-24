@@ -79,6 +79,27 @@ pub enum BlockKind {
     Blockquote,
     ThematicBreak,
     Image,
+    /// An HTML document's `<title>` — real translatable content that is
+    /// **not page content** (decision D5).
+    ///
+    /// It gets a real block, a real translation unit and a real alignment row,
+    /// and it gets **no DOM anchor**: the browser chrome renders it, not the
+    /// pane, so there is nothing in the pane to anchor. Its row therefore
+    /// carries `sync_role: "non-sync"` — the shape a thematic break has had
+    /// since schema 1.0 — which is why `align::sync_role_for` has an
+    /// **explicit** arm for this variant rather than letting it reach the
+    /// `_ => SyncRole::Anchor` default. This amends architectural invariant 1:
+    /// the DOM-anchor leg of the chain is conditional on being page content,
+    /// not on the kind.
+    ///
+    /// `heading_level()` is `None`: a page title is not a heading level, it
+    /// opens no section scope, and `partition_by_section` puts it in the
+    /// preamble section — correct, since no glossary section selector can
+    /// mean a page title. `unit::context::document_title` prefers it over the
+    /// first `Heading1` by an explicit arm, for the same reason.
+    ///
+    /// TRACE: ADR-0025
+    Title,
     /// HTML content with **no semantic equivalent** — a `div`, a custom
     /// element, an unknown or future tag. Translatable via segment extraction
     /// (ADR-0018).
@@ -131,6 +152,9 @@ impl BlockKind {
             BlockKind::Blockquote => "q",
             BlockKind::ThematicBreak => "hr",
             BlockKind::Image => "img",
+            // An HTML document's page title. No collision with h1..h6, p, t,
+            // c, li, q, hr, img, html, x.
+            BlockKind::Title => "title",
             // Raw HTML blocks get their own `html` prefix — no collision with
             // h1..h6, p, t, c, li, q, hr, img, x.
             BlockKind::Html => "html",
@@ -187,6 +211,7 @@ impl BlockKind {
             BlockKind::Blockquote => "blockquote",
             BlockKind::ThematicBreak => "thematic-break",
             BlockKind::Image => "image",
+            BlockKind::Title => "title",
             // The CommonMark block type is an internal splice detail, not a
             // wire distinction: every raw HTML block is `"html"` on the wire.
             BlockKind::Html => "html",

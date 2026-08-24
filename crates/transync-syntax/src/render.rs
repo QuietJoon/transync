@@ -788,6 +788,11 @@ fn wrapper_element_for(kind: &BlockKind) -> &'static str {
         BlockKind::Blockquote => "div",
         BlockKind::ThematicBreak => "hr",
         BlockKind::Image => "figure",
+        // D5: a `<title>` is never in a pane — it has no anchor and no
+        // presentation here, and the Markdown renderer never sees an HTML
+        // document at all. A transparent `<div>` keeps the match total without
+        // inventing a presentation for a block that has none.
+        BlockKind::Title => "div",
         // Spec §5: a transparent `<div>` — same pattern as table / code-block
         // / blockquote, whose payload already carries its own semantic
         // elements. (The `Html` branch in `render_block` emits the wrapper

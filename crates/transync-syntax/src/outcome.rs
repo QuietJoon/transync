@@ -131,3 +131,19 @@ pub fn block_payload(doc: &Document, block: &Block) -> String {
     }
     doc.source_text[start..end].to_string()
 }
+
+// D5: a `<title>` is real translatable content — the single highest-value
+// string on many pages — so it gets a real unit and a real row. The kind-level
+// predicate says so by NOT excluding it; this pins that the omission is the
+// decision and not an oversight, beside the two kinds that ARE excluded.
+#[cfg(test)]
+mod title_translatability_tests {
+    use super::*;
+
+    #[test]
+    fn a_title_is_kind_level_translatable_and_the_excluded_kinds_still_are_not() {
+        assert!(is_translatable(&BlockKind::Title));
+        assert!(!is_translatable(&BlockKind::ThematicBreak));
+        assert!(!is_translatable(&BlockKind::Image));
+    }
+}

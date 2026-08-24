@@ -230,7 +230,7 @@ mod tests {
     /// wire label and this test names the break.
     #[test]
     fn label_for_pins_every_kind() {
-        let cases: [(BlockKind, &str); 15] = [
+        let cases: [(BlockKind, &str); 16] = [
             (BlockKind::Heading1, "heading-1"),
             (BlockKind::Heading2, "heading-2"),
             (BlockKind::Heading3, "heading-3"),
@@ -256,6 +256,11 @@ mod tests {
             (BlockKind::Blockquote, "blockquote"),
             (BlockKind::ThematicBreak, "thematic-break"),
             (BlockKind::Image, "paragraph"),
+            // `label_for` delegates to `wire_str` here, and `walk` is the
+            // MARKDOWN layer-6/renderer pairing — a Title cannot occur in a
+            // Markdown document, so this row pins the delegation rather than a
+            // reachable case.
+            (BlockKind::Title, "title"),
             (BlockKind::Html, "html"),
             (
                 BlockKind::Skipped {

@@ -111,6 +111,11 @@ fn expected_label(kind: &BlockKind) -> &'static str {
         // is an html-segments unit by the §6 invariant. Kept to keep the match
         // total; the label is the one a raw HTML block WOULD reparse as.
         BlockKind::Html => "html-block",
+        // Defensive and unreachable for the same reason as `Html`: a Title
+        // unit's payload is a JSON segment array, so `reparse_fragment`
+        // returns early on the mode and never asks for a label. `title` is a
+        // CommonMark type-6 tag, so `html-block` is what one WOULD reparse as.
+        BlockKind::Title => "html-block",
         // Skipped blocks are never batched (A3), so this arm is defensive
         // and unreachable — kept to keep the match total.
         BlockKind::Skipped { .. } => "skipped",
