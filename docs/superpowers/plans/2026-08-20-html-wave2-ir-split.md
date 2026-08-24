@@ -1040,7 +1040,11 @@ echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t4-wasm.txt
 ```
 Expected: `t4-fixtures.txt` empty; `CARGO_EXIT=0` in both.
 ```bash
-git add crates/transync-syntax/src crates/transync-core/src
+# Stage the EXACT paths this task touched, listed one per line -- never a
+# directory. Corrected 2026-08-24: `git add <dir>` sweeps in anything else
+# under that tree, which is how an unrelated edit rides a task's commit.
+# `git status --porcelain` names them; `git diff --stat` confirms the set.
+git add <the exact files this task modified, one per line>
 git commit -m "feat(id)!: BlockKind::Html stops carrying the CommonMark type, because that was never a kind
 
 The field was 100 % spelling metadata: its only two consumers were splice
@@ -1170,7 +1174,7 @@ Expected: `CARGO_EXIT=0`, `test result: ok. 1 passed`.
         // equivalent today because nothing constructs `constraints.html`
         // for a non-HTML unit, but this debug-assert twin is the only
         // thing that re-narrows it. Do not skip it or downgrade it.
-        // invariant is `spelling Html ⇔ InputMode::HtmlSegments`, established
+        // The invariant is `spelling Html ⇔ InputMode::HtmlSegments`, established
         // at `unit::payload::assemble` and never re-derived; a unit carrying
         // `constraints.html` under any other mode was built by hand and is a
         // caller bug, not a provider fault, so it belongs in a debug assertion
@@ -1457,6 +1461,10 @@ pub fn is_translatable_block(block: &Block, html_outcomes: &HashMap<BlockId, Htm
             }
 ```
 
+  **Check `align.rs`'s imports after this edit (added 2026-08-24 by Task 5's implementer, who caught it before compiling).** Removing the `BlockKind::Html` arm leaves `BlockKind` **unused in the lib target** — its other uses in that file are either fully qualified or behind `cfg(test)` — so `unused import` fires and the hook's `clippy --all-targets --all-features -- -D warnings` makes it an error. Move the import into `mod skipped_row_tests`. **Step 15 has the same latent shape**; check it too.
+
+  This is the **third** step in this plan to block its own commit on an import: Task 3's Step 8 added one the code would not use, Task 4's Step 8 removed a use and not the import, and this one removes the last lib-target use. Three different steps, three different directions, one clippy leg. **After every re-key, re-read the file's `use` lines and ask what still justifies each one.**
+
 - [ ] **Step 15: `html_dominance_warning`'s mass predicate keys on spelling.** In `crates/transync-core/src/unit.rs`:
 ```rust
         // The sentence this feeds is about how much of a MARKDOWN document is
@@ -1487,7 +1495,11 @@ echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t5-wasm.txt
 ```
 Expected: `t5-fixtures.txt` empty; `CARGO_EXIT=0` in both.
 ```bash
-git add crates/transync-syntax/src crates/transync-core/src
+# Stage the EXACT paths this task touched, listed one per line -- never a
+# directory. Corrected 2026-08-24: `git add <dir>` sweeps in anything else
+# under that tree, which is how an unrelated edit rides a task's commit.
+# `git status --porcelain` names them; `git diff --stat` confirms the set.
+git add <the exact files this task modified, one per line>
 git commit -m "refactor: every html dispatch site keys on the axis it actually meant
 
 Nine predicates asked 'is this block kind Html?' when they meant one of three
@@ -1855,7 +1867,11 @@ echo "CARGO_EXIT=$?" >> /Volumes/Temp/claude/ti490d97-wave2/gate/t6-wasm.txt
 ```
 Expected: `t6-fixtures.txt` empty; `CARGO_EXIT=0` in both.
 ```bash
-git add crates/transync-syntax/src crates/transync-core/src
+# Stage the EXACT paths this task touched, listed one per line -- never a
+# directory. Corrected 2026-08-24: `git add <dir>` sweeps in anything else
+# under that tree, which is how an unrelated edit rides a task's commit.
+# `git status --porcelain` names them; `git diff --stat` confirms the set.
+git add <the exact files this task modified, one per line>
 git commit -m "feat(id)!: BlockKind gains Title, and the two arms the compiler could not ask for
 
 Five matches over BlockKind are exhaustive, so adding a variant breaks them all
@@ -2177,6 +2193,24 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
 ---
+
+### A caveat on the per-binary count evidence (added 2026-08-24 by Task 5's implementer)
+
+Tasks 2–5 all proved "behaviour-preserving" partly by diffing **per-binary test
+counts** against the baseline, which is stronger than a total: a test vanishing
+while another appears survives a total and dies against per-binary counts.
+
+**But `cargo test --workspace` orders its binaries nondeterministically.** An
+unsorted diff between two *identical* runs shows roughly thirty phantom changed
+lines. Task 4's report does not mention sorting, so its per-binary claim should
+be read as "sorted, or the ordering happened to match" — it was cross-checked by
+a name-level diff, which is order-independent, so its conclusion stands either
+way.
+
+**Sort both sides before diffing**, and prefer the name-level diff where you can
+afford it: extracting every test *name* from both runs with the same extractor
+and diffing those is order-independent and catches the vanish-and-reappear case
+that even a per-binary count can hide behind a stable per-binary total.
 
 ## Wave acceptance — check all six before declaring wave 2 done
 
