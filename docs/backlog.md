@@ -146,7 +146,7 @@ tickets; `CHANGELOG.md` carries the per-ticket entries under `[0.3.0]` and `[Unr
 - **Type:** 1
 - **Verified:** yes — measured 2026-08-23 through the shipped DOMPurify mount by the
   wave-1 fix review, and again by the 2026-08-24 design review.
-- **Sources:** ti `e77173`, `docs/architecture/contracts.md` §4a (the carve-out),
+- **Sources:** ticgit:e77173bb, `docs/architecture/contracts.md` §4a (the carve-out),
   `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md`
   (2026-08-23 amendment)
 - **First seen:** 2026-08-22 · **Last seen:** 2026-08-24
@@ -200,7 +200,7 @@ golden corpus has no foreign-content breakout entry at all, which is why five
 
 - **Type:** 1
 - **Verified:** yes — each reproduced by the review that filed it.
-- **Sources:** ti `95f55b`, `415cdb`, `4882ac`, `2e2453`, `48f3c6`
+- **Sources:** ticgit:95f55b3a, ticgit:415cdb7f, ticgit:4882ac7d, ticgit:2e2453dd, ticgit:48f3c6d8
 - **First seen:** 2026-08-22 · **Last seen:** 2026-08-24
 
 #### Description
@@ -226,6 +226,191 @@ sweep in, which is a reason to schedule that fix rather than five separate ones.
 
 ---
 
+### git-object-loss-residual-blobs
+
+- **Type:** 1
+- **Verified:** partly — reopen verified 2026-08-24: `git diff --stat HEAD` now succeeds; the two named blobs still answer `could not get object info`
+- **Sources:** ticgit:494a754c
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+Two blobs the ticket names are still unreadable in `.git`, but they are no longer HEAD blobs and the symptom the ticket is titled after — `git diff` over the whole tree aborting — no longer reproduces.
+
+#### Background
+
+Filed when a plain `git diff --stat` aborted with `fatal: unable to read 1b7a866f…`. The 2026-08-17 restart at `59ce8df` re-created those paths as fresh blobs, so the unreadable objects became unreferenced debris rather than tree content. Nothing at HEAD depends on them and `git fsck` is clean. It is type 1 because the remaining action is a decision-free re-scope or close, not a repair — there is nothing left to recover, and the objects cannot be reconstructed. Left open rather than closed here because this command never closes a ticket it did not file. The related standing record is `ticgit:6b43008a`.
+
+### developer-guide-names-two-of-three-browser-specs
+
+- **Type:** 1
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:729ec8ec
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`docs/Developer_Guide.md` describes the browser suite as SCN-13 plus the wasm demo, but `web/tests/` holds a third spec — `engine.spec.js`, `sync.js`'s mount contract driven over a bare two-pane rig — which the same runner executes.
+
+#### Background
+
+`playwright.config.js` sets `testDir: "./tests"` and `scripts/test-browser.sh` ends in a bare `pnpm exec playwright test`, so all three specs run. The weld `docs_browser_suite_drift.rs` requires living documents to name the spec files rather than publish a count, and it can only pin what the document names. A spec the guide omits is therefore a spec no weld protects: it could be deleted and both the document and the test would stay green. The fix is a one-line documentation edit plus confirming the weld then covers all three. Type 1 — nothing to decide, no prerequisite.
+
+### playwright-outside-the-runner-validates-a-stale-bundle
+
+- **Type:** 1
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:ed2e73c9
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+A bare `pnpm exec playwright test` from `web/` skips the rebuild that `scripts/test-browser.sh` performs, so it validates whatever bundle the last full run left behind.
+
+#### Background
+
+The script rebuilds the stub CLI, regenerates every bundle and rebuilds the wasm module on each invocation. The inner loop is documented in the wave plans as a legitimate speed-up with the caveat that any pass must be re-confirmed by a full run — but nothing enforces the caveat, and a green inner-loop run looks identical to a green full run. Pre-existing and suite-wide; surfaced by the adversarial review of wave 1 Task 2. Type 1 because the shape of the fix is settled: make the fast path announce what it did not rebuild, or make it refuse when the bundle is older than its inputs.
+
+### cancellation-tests-assert-wall-clock-bounds
+
+- **Type:** 1
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:d4178267
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+Two tests in `crates/transync/tests/cancellation.rs` end in a 5-second wall-clock assertion against 30 s and 600 s regression signatures, and flake under load.
+
+#### Background
+
+The bound exists to prove a sleep was raced against a cancellation token rather than waited out. It is a real property worth pinning, but wall-clock is the wrong instrument on a machine where this session measured `syspolicyd` parking fresh binaries at `_dyld_start` for 30–40 minutes and five foreign cargo processes contending for one target dir. A flake here reads as a cancellation regression, which is the most expensive possible false positive: it points an investigator at the retry policy. Type 1 — the fix is to assert on the observable (the token was observed, the provider was dropped) rather than on elapsed time.
+
+### scratch-scripts-fall-back-to-tmpdir
+
+- **Type:** 1
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:13a73be0
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+Five scripts prefer `/Volumes/Temp/claude/<name>` and silently fall back to `${TMPDIR:-/tmp}/<name>` when that parent is absent.
+
+#### Background
+
+`test-browser.sh`, `smoke.sh`, `smoke-live.sh`, `smoke-live-long.sh` and one more all carry the same two-step rule. The workspace's standing rule is that every temporary artifact lives under `/Volumes/Temp/claude/` and that an unreachable volume is a stop-and-ask, not a fallback — precisely because a silent fallback puts build artifacts somewhere nobody is looking and nobody cleans. The fallback also makes the failure invisible: a run that should have halted instead succeeds against a different directory, and the operator learns nothing. Type 1 — replace the fallback with a refusal that names the missing path.
+
+### transync-html-token-pin-reads-another-crates-fixtures
+
+- **Type:** 1
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:4fb85819
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`crates/transync-html`'s `token_stream_pin.rs` reads fixtures from `crates/transync/tests/fixtures/` via `CARGO_MANIFEST_DIR/../..`, which a published tarball does not contain.
+
+#### Background
+
+The crate carries no `publish = false`, so it sits on the publication roster. A tarball ships the crate's own `tests/` but not another member's fixtures, so the pin cannot run from it. Nothing breaks today only because nothing has published from a tarball. The second consequence is worse in daily use: when the fixtures move, the pin fails with a file-not-found that reads like a corpus regression rather than a path problem, so the red misdiagnoses itself. Type 1 — either vendor the fixtures the pin needs into the crate, or gate the pin behind a feature that a tarball run does not enable.
+
+### sync-role-for-catch-all-would-mis-classify-a-new-kind
+
+- **Type:** 1
+- **Verified:** yes — gated finding register; **wave 2 Task 6 demonstrated it live**
+- **Sources:** ticgit:9ffb97ee
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`align::sync_role_for` ends in `_ => SyncRole::Anchor`, so any `BlockKind` nobody named silently anchors — and `SyncRole` is wire-visible, deciding whether a row gets a DOM anchor and whether the engine counts it synchronizable.
+
+#### Background
+
+This is no longer a hypothesis. Wave 2 Task 6 added `BlockKind::Title` and captured the catch-all swallowing it: the trap test failed with `left: Anchor, right: NonSync` before the explicit arm was written. That red is the ticket's claim, reproduced. Wave 2 worked around it deliberately rather than fixing it, because removing a catch-all is a change to every kind's dispatch and did not belong in a breaking-window wave. The related and sharper instance is `ticgit:18b9c34b`, where the renderer decides the same question from a literal match instead of asking this function at all. Type 1 — the approach is settled: enumerate the arms and delete the catch-all, letting the compiler demand a decision per variant.
+
+### render-block-decides-anchoring-without-asking-sync-role-for
+
+- **Type:** 1
+- **Verified:** yes — reopen verified 2026-08-24: `grep -c sync_role_for crates/transync-syntax/src/render.rs` returns 0
+- **Sources:** ticgit:18b9c34b
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`render_block` enforces the non-sync-implies-no-anchor rule with a literal `matches!(kind, BlockKind::ThematicBreak)` rather than by consulting `sync_role_for`, so a `Title` block would get a DOM anchor its own alignment row denies.
+
+#### Background
+
+Verified: the renderer never calls the role function at all. Unreachable at wave 2's HEAD because nothing mints a `BlockKind::Title` yet — the Markdown intake cannot, and the HTML intake that will is wave 3's — so wave 2's suite is green on the merits rather than by luck. Wave 3 mints titles and wave 6 builds the HTML panes, which is where such a block first reaches a renderer on a live path. Wave 6 must extend the guard or state why a literal list is the right shape. Deriving it is the better fix and matches what wave 1 already did one layer up, when it made `synchronizableRowCount` derive from `synchronizableRowIds(...)` precisely so the mount predicate and the anchor predicate could not drift. Type 1 — the approach is settled and the deadline is wave 6.
+
+### scan-tags-tag-name-and-end-tag-open-divergences
+
+- **Type:** 1
+- **Verified:** yes — gated finding register; owner ruled both in scope for a later task
+- **Sources:** ticgit:e20490fe
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+Two deliberate divergences from HTML survive in `scan_tags`: one plants a real attribute the strip never examines, the other invents structure a browser never mints.
+
+#### Background
+
+Wave 0 task 8 (`ti 549b20`) aligned `AttrState::Outside` with the browser and closed a measured strip bypass. The owner's 2026-08-21 ruling named these two as out of scope for that task and asked for them to be filed together, because they share a fix. Both are on the untrusted-source path that architectural invariant 7 says to assume hostile, and one is explicitly security-shaped: an attribute the strip never examines is an attribute the strip cannot remove. Type 1 — the owner already ruled, so nothing is undecided; what remains is the work. Related foreign-content gaps that the same stack-scoped bit would sweep in: `ticgit:2e2453dd`, `ticgit:48f3c6d8`, `ticgit:e77173bb`.
+
+### manual-still-calls-serve-a-deferred-stub
+
+- **Type:** 1
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:0eee5c55
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`manual/` still describes `transync serve` as a deferred stub that never binds, two weeks after the real loopback static file server shipped.
+
+#### Background
+
+`transync serve` became real on 2026-08-09 (ticket `b791d6`); `contracts.md` §6 records that it supersedes the deferred-stub contract that stood from SL-13. The `docs/` bundle moved with it. `manual/` is derived one-way from `docs/` and did not. Found while working the exit-code tables, whose scope was table content only — this needs whole sections rewritten, which is a different job. The reason it went unnoticed is `ticgit:7e2fd068`: no weld machine-checks the manual's CLI reference, so a section can describe software that no longer exists and nothing fails. Type 1 — the correct text already exists in `docs/`; this is a derivation the manual pipeline owes.
+
+### provider-payload-intake-guard (OI-0037)
+
+- **Type:** 1
+- **Verified:** yes — Review 0003 findings (R0003-0004, R0003-0005, R0003-0088), gate-accepted, user-routed track
+- **Sources:** ticgit:148fcf83, `docs/project/open-issues.md#OI-0037`
+- **First seen:** 2026-08-09
+- **Last seen:** 2026-08-09
+
+#### Description
+
+Source Markdown enters through `parser::intake` and its depth pre-scan
+(ticket `07844d`); provider-returned payloads call `comrak::parse_document`
+directly at five sites (`validate/fragment_reparse.rs`, `validate/inline.rs`,
+`validate/per_kind.rs`, `structure.rs`, `validate/full_reparse.rs`), so the
+ceiling that exists because stack exhaustion is an uncatchable abort governs
+what the user wrote but not what the model returned. Route provider payloads
+through one guarded entry point and convert a refusal into `ReparseFailure`
+with attributed fallback ids, so the existing retry-then-fallback machinery
+carries it.
+
+#### Background
+
+Type 1, not 2: the approach is settled (one guarded entry point, refusal ->
+`ReparseFailure`) and nothing has to land first — it is tracked rather than
+fixed only because it spans five call sites and has **no reachable failure
+today**. The reviewer's stack-exhaustion impact was refuted by the measured,
+regression-pinned record in `parser/depth.rs`: comrak 0.27's block parse is
+iterative, every untrusted-tree walker here was made iterative for exactly
+this path, and memory is linear in the 32 MiB response cap. What survives is
+that the safety rests on comrak internals rather than on anything this
+repository asserts — a dependency upgrade could reintroduce a recursive block
+parse with nothing going red. R0003-0088 is the test gap and cannot land
+before the guard.
+
+
 ## Type 2 — needs decision / discussion next
 
 The open design questions here carry an `OI-` id rather than a ticket: a review gate
@@ -241,6 +426,8 @@ by the marker-file rule and is retained only for its record. `provider-payload-i
 the one that genuinely needs a product answer before any code.
 
 ### publish-lock-nested-tree-boundary (ticket `40e2a5`)
+
+> **reopen 2026-08-24: ticgit:40e2a5 is RESOLVED.** Verified with `ti show 40e2a5 --json`. Kept for audit; it is not open work and does not count against the v0.5.0 gate.
 
 - **Description:** DCR-0021's publication lock serializes two runs publishing *into* the
   same directory, but `--out-dir X` locks the directory that **holds** `X` (where the
@@ -297,6 +484,8 @@ the one that genuinely needs a product answer before any code.
 
 ### out-dir-foreign-staging-temp (ticket `66339b`)
 
+> **reopen 2026-08-24: ticgit:66339b is RESOLVED.** Verified with `ti show 66339b --json`. Kept for audit; not open work.
+
 - **Description:** `ensure_out_dir_replaceable` admits only `out.md`, `alignment.json`,
   `validation-report.json`, `html` and the `.transync-publish.lock` marker at an
   `--out-dir` target's top level; any other name makes the target foreign and the publish
@@ -323,10 +512,11 @@ the one that genuinely needs a product answer before any code.
 
 ### out-dir-sparse-bundle-subset (OI-0036)
 
+> **reopen 2026-08-24: OI-0036 lives in `open-issues-archive.md`,** i.e. resolved and archived by `indy-review-prune`. Kept for audit; not open work.
+
 - **Type:** 2
 - **Verified:** yes — Review 0002 finding (R0002-0028), gate-accepted, user-routed track
 - **Sources:** `docs/project/open-issues-archive.md#OI-0036`
-- **Unfiled:** gate registers documents only — queue it through `reopen`'s selection gate
 - **First seen:** 2026-08-08
 - **Last seen:** 2026-08-08
 
@@ -361,10 +551,11 @@ RESOLVED.
 
 ### sync-anchor-injection-via-raw-html (OI-0035)
 
+> **reopen 2026-08-24: OI-0035 was RESOLVED 2026-08-23 and archived** (route (c), DCR-0033). Verified: 0 hits in `open-issues.md`, 1 in `open-issues-archive.md`. Kept for audit; not open work.
+
 - **Type:** 2
 - **Verified:** yes — Review 0002 finding (R0002-0018), gate-accepted, user-routed track
-- **Sources:** `docs/project/open-issues.md#OI-0035`
-- **Unfiled:** gate registers documents only — queue it through `reopen`'s selection gate
+- **Sources:** `docs/project/open-issues-archive.md#OI-0035` (RESOLVED 2026-08-23, archived — was `open-issues.md` until then)
 - **First seen:** 2026-08-08
 - **Last seen:** 2026-08-08
 
@@ -392,47 +583,11 @@ engine route cheaper: reflow recompute re-collects anchors through the same
 `collectAnchors`, which is now the single place every anchor set passes through, at mount
 and on every reflow, and it already takes a per-call policy argument.)*
 
-### provider-payload-intake-guard (OI-0037)
-
-- **Type:** 1
-- **Verified:** yes — Review 0003 findings (R0003-0004, R0003-0005, R0003-0088), gate-accepted, user-routed track
-- **Sources:** `docs/project/open-issues.md#OI-0037`
-- **Unfiled:** gate registers documents only — queue it through `reopen`'s selection gate
-- **First seen:** 2026-08-09
-- **Last seen:** 2026-08-09
-
-#### Description
-
-Source Markdown enters through `parser::intake` and its depth pre-scan
-(ticket `07844d`); provider-returned payloads call `comrak::parse_document`
-directly at five sites (`validate/fragment_reparse.rs`, `validate/inline.rs`,
-`validate/per_kind.rs`, `structure.rs`, `validate/full_reparse.rs`), so the
-ceiling that exists because stack exhaustion is an uncatchable abort governs
-what the user wrote but not what the model returned. Route provider payloads
-through one guarded entry point and convert a refusal into `ReparseFailure`
-with attributed fallback ids, so the existing retry-then-fallback machinery
-carries it.
-
-#### Background
-
-Type 1, not 2: the approach is settled (one guarded entry point, refusal ->
-`ReparseFailure`) and nothing has to land first — it is tracked rather than
-fixed only because it spans five call sites and has **no reachable failure
-today**. The reviewer's stack-exhaustion impact was refuted by the measured,
-regression-pinned record in `parser/depth.rs`: comrak 0.27's block parse is
-iterative, every untrusted-tree walker here was made iterative for exactly
-this path, and memory is linear in the 32 MiB response cap. What survives is
-that the safety rests on comrak internals rather than on anything this
-repository asserts — a dependency upgrade could reintroduce a recursive block
-parse with nothing going red. R0003-0088 is the test gap and cannot land
-before the guard.
-
 ### warm-cache-run-needs-no-credentials (OI-0038)
 
 - **Type:** 2
 - **Verified:** yes — Review 0004 finding (R0004-0069), gate-accepted, user-routed track
-- **Sources:** `docs/project/open-issues.md#OI-0038`
-- **Unfiled:** gate registers documents only — queue it through `reopen`'s selection gate
+- **Sources:** ticgit:30a744f1, `docs/project/open-issues.md#OI-0038`
 - **First seen:** 2026-08-13
 - **Last seen:** 2026-08-13
 
@@ -601,6 +756,81 @@ the deliberately no-build `web/` demos); the doc-hidden `build_batches` gate shi
 
 ---
 
+### validation-report-schema-bump-for-document-level-entry
+
+- **Type:** 2
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:52109b22
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`ValidationReport::skipped_source_nodes` now carries a document-level entry alongside the per-block notes it carried before, which changes the ordering contract `contracts.md` §3a states — and `VALIDATION_REPORT_SCHEMA_VERSION` stayed at `1.1.0`.
+
+#### Background
+
+The precedent for the 1.0.0 → 1.1.0 bump (DCR-0026) was exactly 'a new row shape a 1.0.0 consumer never met'. This is a new entry shape by the same description, so either the precedent applies and the constant owes a bump, or the precedent is narrower than it reads and the difference should be written down. A consumer that iterates the array positionally is the one that would break. Type 2 because it is a versioning decision with a real cost either way: bumping obliges consumers, and not bumping weakens what the version number promises. Nobody can start until that is chosen.
+
+### review-round-registry-number-collision
+
+- **Type:** 2
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:bdf8d981
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`reviews/README.md` is the resolver for bare finding ids and states that rounds 0002 and up never collide. Three gated 2026-08 rounds reused 0002, 0003 and 0004, and 508 live citations depend on the rule that is now false.
+
+#### Background
+
+The registry's rule 4 says verbatim that each number was used once, so `R0002-…` through `R0008-…` are unambiguous bare and need no marker. That is what makes a bare citation resolvable. With three numbers reused, a bare `R0002-0047` has two possible referents and a reader has no way to tell which. The collision is live right now: `reviews/0002.md` exists again today as a fresh `STATUS: CLAIMED` stub. Type 2 and tagged owner-decision because the repair is a choice between renumbering the newer rounds, qualifying every affected citation, or amending the rule and accepting ambiguity — each with a different cost across 508 citations.
+
+### wrapper-ruling-leaves-named-default-stop-elements-exposed
+
+- **Type:** 2
+- **Verified:** yes — gated finding register
+- **Sources:** ticgit:d4bce239
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+The owner's 2026-08-21 wrapper ruling closed the custom-element anchor hole, but it is keyed on elements unknown to spec §4's tables — and DOMPurify also removes some elements those tables do name.
+
+#### Background
+
+The ruling fixed a measured defect: a block whose outermost element is unknown to the tables now takes a transparent `<div{attrs}>` wrapper instead of having the anchor injected into its own open tag, because the sanitizer was removing the element and the anchor with it. Verified against the vendored purify 3.2.6. The residue is that 'unknown to our tables' and 'removed by the sanitizer' are different sets, and the ruling covers only the first. A named DEFAULT-STOP element the sanitizer strips still loses its anchor. Type 2 and owner-decision because widening the rule means either deriving it from the sanitizer's behaviour — which the project has elsewhere refused, on the ground that a second opinion about HTML is how anchors drift — or enumerating a second list that must be maintained against a vendored dependency.
+
+### html-to-html-document-translation-epic
+
+- **Type:** 2
+- **Verified:** yes — owner-commissioned roadmap ticket
+- **Sources:** ticgit:490d9712
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+The HTML→HTML feature: a second intake producing the same block IR, delivered as eight waves. **In flight** — waves 0 and 1 are closed, wave 2 is at seven of eight tasks.
+
+#### Background
+
+This is the umbrella the current work runs under, and it is recorded here because a backlog that omits the largest open item in the tree is not a census. Waves 0 and 1 landed and are recorded in DCR-0032 and DCR-0033. Wave 2 is the sanctioned breaking window carrying the workspace to `0.5.0-dev`; the remaining order is 2 → 3 → 4 → 5 → 6 → 7, corrected from the spec's original graph by wave 4's deviation 1. It stays type 2 rather than type 1 because it is an epic, not a task: each wave needs its own plan reviewed before it starts, and `ticgit:e77173bb` is a precondition that must be discharged between wave 2 and wave 3. Nothing about it is blocked; it is simply larger than a pick-up-and-start item.
+
+### git-history-lost-twice-standing-record
+
+- **Type:** 2
+- **Verified:** partly — reopen verified 2026-08-24: 48 commits and a v0.4.0 tag now exist, so the stated symptom is stale; the loss itself is permanent
+- **Sources:** ticgit:6b43008a
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+The pre-restart history is unreachable and always will be. The ticket's stated symptom — exactly one commit, no tags — has been overtaken by subsequent work.
+
+#### Background
+
+Verified: `git rev-list --count HEAD` is 48, `git tag` prints `v0.4.0`, `git fsck` is clean, and the root commit is `59ce8df723b4`, the 2026-08-17 restart rather than the original root. So half the claim stands permanently and half no longer reproduces. `docs/project/git-history-loss-2026-08-17.md` and its 2026-08-10 sibling record both events. Type 2 rather than type 1 because there is nothing to implement: what remains is a decision about what this ticket is *for*. Read as a defect it is unreproducible and should close; read as the standing record that this object store has now lost history twice — and that `/Volumes/Common` is therefore not reliable storage — it should stay open and be re-titled. That is an owner call, not a maintenance one.
+
 ## Type 3 — blocked
 
 Every blocking reason below was re-checked against the code and the arc's commits at the
@@ -676,6 +906,8 @@ paid out._
   tracker.
 
 ### oi-0016-active-block-scan-perf
+
+- **Sources:** ticgit:dd21ad59, `docs/project/open-issues.md#OI-0016`
 
 - **Description:** `activeBlockWithProgress` linearly scans all blocks every RAF frame; a
   sorted-offset cache + binary search is the named alternative, needing reflow
@@ -843,3 +1075,52 @@ paid out._
   segment scan tracks `template_depth` specifically to exclude it).
 - **Background:** DCR-0016 / 2026-08-03 design §9.
 - **Blocked by:** stated gate — "revisit only on demonstrated need"; none demonstrated.
+
+### no-cli-surface-selects-the-second-provider
+
+- **Type:** 3
+- **Verified:** yes — reopen verified 2026-08-24: `grep -c transync-anthropic crates/transync-cli/Cargo.toml` returns 0
+- **Blocked by:** an owner decision on whether the CLI links a second provider at all (ADR-0002 currently says compile-time choice)
+- **Sources:** ticgit:473dd1e0
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`transync-anthropic` implements `Translator` and reads its three environment variables, but `transync-cli` does not depend on the crate, so no flag, environment variable or profile key can select it.
+
+#### Background
+
+This is a dependency-graph fact rather than a missing-argument fact: the binary does not link the crate, so a flag could not reach it even if one existed. The user-visible trap is that someone who already has `ANTHROPIC_API_KEY` exported can reasonably conclude the CLI will use it, and it silently will not — the run goes to OpenAI. ADR-0002 records that the CLI's provider is a compile-time choice, so the current state is intentional, but the manual and the crate's presence together imply otherwise. Blocked on a decision: adding the dependency widens the CLI's build surface and its credential story, and the alternative is documenting the asymmetry loudly enough that nobody is caught by it.
+
+### no-machine-check-of-the-manual-cli-reference
+
+- **Type:** 3
+- **Verified:** yes — reopen verified 2026-08-24: `grep -c manual crates/transync-cli/tests/docs_cli_flags_drift.rs` returns 0
+- **Blocked by:** a decision on whether the guard belongs on `manual/`'s generated output or on the generator that produces it
+- **Sources:** ticgit:7e2fd068
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`docs_cli_flags_drift.rs` guards `contracts.md` §6 and `docs/Developer_Guide.md` only. `manual/reference/user/en/cli.md` is a third full CLI reference with no machine guard.
+
+#### Background
+
+It has already fallen two flags behind (`--cache-dir`, `--table-strategy`) and kept a whole `transync serve` section describing a deferred stub for days after the real server shipped, with nothing failing. `ticgit:0eee5c55` is that same drift, still open — so this gap has a demonstrated cost, not a theoretical one. The reason it is blocked rather than ready is that `manual/` is generated one-way from `docs/` by `write-diataxis-manual`, so a weld pointed at it would pin generated output: either the generator must guarantee the reference, or the weld must be placed at the generator rather than at its product. That is a design decision about where the guard belongs.
+
+### disk-cache-capacity-policy-unreachable-from-the-cli
+
+- **Type:** 3
+- **Verified:** yes — reopen verified 2026-08-24: `grep -rc DiskCacheOptions crates/transync-cli/src/` sums to 0
+- **Blocked by:** an owner decision between adding a CLI surface and documenting the policy as library-only
+- **Sources:** ticgit:650bbba6
+- **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
+
+#### Description
+
+`DiskCacheOptions` carries a byte budget and an entry cap; no CLI surface reaches either, so every `--cache-dir` run takes the defaults with no way to change them.
+
+#### Background
+
+Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The ticket itself frames this as a decision rather than a defect, and names the two acceptable outcomes — a way to set the policy from the CLI, or an explicit statement in the CLI reference and the DCR that the defaults are fixed for CLI runs and the policy is a library-only knob. Either closes it honestly; leaving it silent does not, because a user who finds `DiskCacheOptions` in the API docs has no way to learn it is unreachable from the binary they are running. Blocked on that choice.
+
