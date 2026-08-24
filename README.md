@@ -61,7 +61,10 @@ A consumer that only needs the translation half can ignore the rendered HTML and
 ```
 transync/                     # Cargo workspace root
 ├── crates/
-│   ├── transync-syntax/      # syntax layer — parser, IR + IDs, regen, render, align; wasm32-clean
+│   ├── transync-html/        # HTML mechanics — tag scanning, element extents, fragment
+│   │                        #   balancing, text-segment extract/splice; wasm32-clean
+│   ├── transync-syntax/      # syntax layer — parser, IR + IDs, regen, render, align;
+│   │                        #   sits on transync-html; wasm32-clean
 │   ├── transync-core/        # translation pipeline on top — HTTP-free, no LLM dep
 │   ├── transync/             # curated public facade — explicit re-export list (contracts.md §0)
 │   ├── transync-cli/         # `transync` binary

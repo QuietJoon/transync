@@ -1734,6 +1734,10 @@ mod document_title_tests {
 }
 ```
 
+  **The align trap needs an import this step does not mention (added 2026-08-24 by Task 6's implementer).** Written verbatim it produces five `E0433`s — a **compile** red, which is exactly the red this task must not have, because a test that fails to compile proves nothing about a catch-all. `align.rs` imports `crate::id::BlockId`, not `BlockKind`, so `use super::*;` does not supply it; the sibling `skipped_row_tests` module already carries `use crate::id::BlockKind;` and this module needs the same.
+
+  **This is the fourth step in this plan to trip on imports** — Task 3's Step 8 added one the code would not use, Task 4's Step 8 removed a use and not the import, Task 5's Step 14 removed the last lib-target use, and this one omits a needed one. Four steps, four directions, none of them mentioning imports. Before running any red in this plan, check that the test module can see every type it names.
+
 - [ ] **Step 3: Run both and see them fail on the value.**
 ```bash
 cargo test -p transync-syntax sync_role_tests -- --test-threads=4 > /Volumes/Temp/claude/ti490d97-wave2/gate/t6-red-role.txt 2>&1
