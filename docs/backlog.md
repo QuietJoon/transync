@@ -935,6 +935,8 @@ paid out._
 
 ### nested-block-ast-splicing
 
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: dated owner-delegated decision (2026-08-06): invest at nested-editing time; no consumer needs the splice today. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
+
 - **Description:** The regen splice walks only top-level source ranges; nested
   list/blockquote units ride parent payload coverage. SL-05/SL-06 name AST-aware
   recursive splicing as the successor — required before any finer-grained nested-unit
@@ -946,6 +948,8 @@ paid out._
   so the item waits for a nested-editing feature to be commissioned.
 
 ### deep-blockquote-fingerprint-depth (R0001-0008 residual)
+
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: OI-0022's own gate — “extend if drift is observed in practice”; no drift observed. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
 - **Description:** Blockquote structural fingerprints recurse one level; structure deeper
   than one level below a blockquote can drift without validator rejection.
@@ -960,6 +964,8 @@ paid out._
 
 ### html-same-parent-segment-grouping
 
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: telemetry gate — build only if segment-count rejections dominate ValidationReport data. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
+
 - **Description:** Grouping same-parent HTML text segments via opaque placeholder tokens
   to reduce segment-count rejections; recorded fast-follow, not built.
 - **Background:** DCR-0016 decision 6.
@@ -967,6 +973,8 @@ paid out._
   ValidationReport data; no such data yet.
 
 ### html-native-array-wire-field
+
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: telemetry gate — build only if double-encoding proves a top validation-rejection cause. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
 - **Description:** An additive native-array wire field for HTML payloads as an
   inner-escaping escape hatch; recorded, not built.
@@ -976,12 +984,16 @@ paid out._
 
 ### html-br-normalization-guard
 
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: DCR-0016's named revisit trigger, behind a telemetry gate. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
+
 - **Description:** The byte-verbatim comparison guard is the named revisit point if models
   normalizing `<br>` vs `<br/>` becomes a top inline-rejection cause.
 - **Background:** DCR-0016 revisit trigger.
 - **Blocked by:** telemetry gate — no rejection-cause instrumentation evidence.
 
 ### per-kind-expansion-factors
+
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: DCR-0012's deferred refinement, behind an evidence gate. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
 - **Description:** Output-aware batching uses one global expansion factor (2.0) for all
   block kinds; per-kind factors (code ≈ 1.0) were deliberately deferred to keep one knob.
@@ -1025,12 +1037,16 @@ paid out._
 
 ### intersection-observer-active-block
 
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: rides OI-0016's profiling gate, now ticketed as dd21ad59. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
+
 - **Description:** Whether to replace/augment the scroll-listener engine with an
   IntersectionObserver-based active-block pick.
 - **Background:** DCR-0008 open judgment call (OI-0006 third action).
 - **Blocked by:** deferred to a future performance pass — rides OI-0016's profiling gate.
 
 ### dialect-trait
+
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: explicit YAGNI condition — a real second dialect must supply constraints first. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
 - **Description:** A `Dialect` trait + front-end crates abstracting the parser beyond
   GFM/comrak; the syntax-crate split created the boundary but deliberately not the trait.
@@ -1040,6 +1056,8 @@ paid out._
   before the trait is designed; none exists.
 
 ### nested-anchor-scheme
+
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: the hierarchical-alignment revision is uncommissioned; no active demand. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
 - **Description:** `sync_role: child-only` and `data-parent-id` are reserved wire values
   never emitted; the `Section` IR type is shape-frozen with no producer, reserved for the
@@ -1051,6 +1069,8 @@ paid out._
 
 ### wasm-in-cli-bundle
 
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: ADR-0019's recorded size economics (~41× the bundle's whole JS payload). **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
+
 - **Description:** The wasm renderer ships only as the standalone demo; CLI `--html-out`
   bundle integration is deliberately excluded.
 - **Background:** Track C scope across DCR-0017/ADR-0019/DCR-0020.
@@ -1059,6 +1079,8 @@ paid out._
   changes dramatically.
 
 ### live-edit-reanchoring
+
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: contradicts architectural invariant 8; needs a baseline-level design revision. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
 - **Description:** Block-ID survival across structural source edits (insert/delete blocks
   with stable IDs) is unsupported; the wasm demo deliberately never restructures either
@@ -1069,6 +1091,8 @@ paid out._
   needs a baseline-level design revision before any implementation.
 
 ### template-webcomponent-extraction
+
+> **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: stated gate — “revisit only on demonstrated need”; none demonstrated. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
 - **Description:** Text inside `<template>` elements (and web-component content) is
   bucketed with `script`/`style` and left untranslated (`transync-html`'s
