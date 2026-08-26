@@ -64,7 +64,20 @@ const UNSUPPORTED_KEYWORDS: &[&str] = &[
 /// named `maxItems` must keep it, because at that position the string is a
 /// field name in the translated payload's shape and not a constraint on it.
 /// Recursing blindly would delete it.
-const NAMED_SUBSCHEMA_MAPS: &[&str] = &["properties", "patternProperties", "$defs", "definitions"];
+///
+/// The list is the standard JSON-Schema set of name→schema maps, not just the
+/// ones a shared schema reaches today: `dependentSchemas` joined on that rule
+/// (R0009-0086), where the map's keys are *property names* that trigger their
+/// sub-schema. No shared object in `transync::llm::prompt` emits one yet, so
+/// this is the traversal being right rather than a live defect being fixed —
+/// which is the same reason `patternProperties` and `definitions` are here.
+const NAMED_SUBSCHEMA_MAPS: &[&str] = &[
+    "properties",
+    "patternProperties",
+    "dependentSchemas",
+    "$defs",
+    "definitions",
+];
 
 /// Render one shared schema object into the provider's dialect.
 ///
@@ -262,6 +275,55 @@ mod tests {
             "a field named like a subschema map is still just a field: {profiled}"
         );
         assert_eq!(profiled["required"], serde_json::json!(["maxItems"]));
+    }
+
+    /// `dependentSchemas` is a name→schema map like `properties`, so its keys
+    /// are property names too: a field called `pattern` that triggers a
+    /// sub-schema must survive, while the constraints *inside* that sub-schema
+    /// still go (R0009-0086). Latent today — no shared schema emits the
+    /// keyword — so this test is what makes the traversal right in advance
+    /// rather than after a shared schema grows one.
+    #[test]
+    fn a_dependent_subschema_map_keeps_its_property_names() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "dependentSchemas": {
+                "pattern": {
+                    "type": "object",
+                    "properties": { "flags": { "type": "string", "maxLength": 4 } },
+                    "minProperties": 1
+                },
+                "maxItems": { "type": "object", "required": ["units"] }
+            }
+        });
+        let profiled = to_provider_dialect(schema);
+        let mut dependents: Vec<&str> = map_of(&profiled["dependentSchemas"])
+            .keys()
+            .map(String::as_str)
+            .collect();
+        dependents.sort_unstable();
+        assert_eq!(
+            dependents,
+            vec!["maxItems", "pattern"],
+            "a dependent's name is a property name, not a keyword: {profiled}"
+        );
+        assert!(
+            profiled["dependentSchemas"]["pattern"]
+                .get("minProperties")
+                .is_none(),
+            "a constraint inside the dependent schema still goes: {profiled}"
+        );
+        assert!(
+            profiled["dependentSchemas"]["pattern"]["properties"]["flags"]
+                .get("maxLength")
+                .is_none(),
+            "…and the pass reaches the whole way down: {profiled}"
+        );
+        assert_eq!(
+            profiled["dependentSchemas"]["maxItems"]["required"],
+            serde_json::json!(["units"])
+        );
     }
 
     /// Composition keywords carry arrays of schemas, and the pass has to

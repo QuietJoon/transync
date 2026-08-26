@@ -97,15 +97,31 @@ pub struct HtmlSegments {
 
 /// Is `tag` an HTML void element? Void elements never get an end tag, so a
 /// stack walker must not push them and a balancer must not close them.
+///
+/// **ASCII-case-insensitive**, because HTML tag names are: `<BR>` names the
+/// same element as `<br>`, and a helper that answered `false` for the first
+/// would tell an external caller to push a void tag onto its open-element
+/// stack. Every in-crate caller already hands over a lowercased name
+/// ([`scan_tags`] and the `lol_html` pass both normalize at the point they
+/// read the name), so the fold decides nothing here and everything for a
+/// caller outside this crate — which is who the `pub` is for (R0009-0064).
 pub fn is_void(tag: &str) -> bool {
-    VOID_ELEMENTS.contains(&tag)
+    VOID_ELEMENTS
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(tag))
 }
 
 /// Does `tag` hold raw text / RCDATA (`script`, `style`, `textarea`,
 /// `title`)? A browser never tokenizes their content as markup, and HTML
 /// ignores the self-closing flag on them (DCR-0016 Part D).
+///
+/// ASCII-case-insensitive for the same reason as [`is_void`]: `<SCRIPT>` is
+/// raw text, and answering otherwise would invite a caller to scan its
+/// contents for markup (R0009-0064).
 pub fn is_raw_text(tag: &str) -> bool {
-    RAW_TEXT_ELEMENTS.contains(&tag)
+    RAW_TEXT_ELEMENTS
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(tag))
 }
 
 /// The two elements that switch an HTML parser into *foreign content*, where
@@ -443,13 +459,21 @@ pub fn splice(
     // Pass agreement is the whole basis of positional splicing: if phase B
     // saw a different number of text nodes than phase A, every action after
     // the divergence landed on the wrong node. Unreachable by construction
-    // (one Settings source, one text-type filter), so it is a debug check
-    // rather than a new production failure mode.
-    debug_assert_eq!(
-        node_index.get(),
-        plan.len(),
-        "splice phase B counted a different number of text nodes than phase A"
-    );
+    // (one Settings source, one text-type filter) — but the release failure
+    // mode of an unchecked divergence is SILENT, not loud: `actions.get(idx)`
+    // simply answers `None` past the end, so a short phase B drops the tail of
+    // the translation and a long one shifts every later replacement onto the
+    // wrong node, both with a successful `Ok`. So it is a real error rather
+    // than a `debug_assert` (R0009-0066): a refusal here rides the same
+    // splice-failure degrade path the count mismatch above already uses, and
+    // the block falls back to source instead of shipping mis-spliced text.
+    let seen = node_index.get();
+    if seen != plan.len() {
+        return Err(format!(
+            "html splice pass disagreement: phase B saw {seen} text nodes, phase A planned {}",
+            plan.len()
+        ));
+    }
 
     let bytes = Rc::try_unwrap(output)
         .map(RefCell::into_inner)
@@ -2179,6 +2203,26 @@ mod balance_tests {
         // two, and not zero.
         assert_eq!(balance_fragment("<p/>a"), "<p/>a</p>");
         assert_eq!(balance_fragment("<p/>a<p/>b"), "<p/>a<p/>b</p>");
+    }
+
+    /// R0009-0064: the two `pub` tag predicates answer HTML's question, and
+    /// HTML tag names are ASCII-case-insensitive. In-crate every caller has
+    /// already lowercased, so only an external caller can observe this — and
+    /// for that caller a `false` on `BR` means pushing a void element onto an
+    /// open-element stack, which poisons the parent label of every later text
+    /// node. Non-tags stay `false` in every casing.
+    #[test]
+    fn the_tag_predicates_ignore_ascii_case() {
+        for spelling in ["br", "BR", "Br"] {
+            assert!(is_void(spelling), "{spelling} is a void element");
+        }
+        for spelling in ["script", "SCRIPT", "ScRiPt", "TEXTAREA", "Title"] {
+            assert!(is_raw_text(spelling), "{spelling} holds raw text/RCDATA");
+        }
+        for spelling in ["div", "DIV", "", "b r", "brr"] {
+            assert!(!is_void(spelling), "{spelling} is not void");
+            assert!(!is_raw_text(spelling), "{spelling} is not raw text");
+        }
     }
 
     /// Guards the ORDER of the push rule: `is_void` is checked first and

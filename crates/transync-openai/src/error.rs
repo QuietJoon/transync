@@ -18,13 +18,13 @@ pub enum ProviderError {
     #[error("authentication: {0}")]
     Auth(String),
 
-    #[error("rate limited")]
-    RateLimited,
-
-    /// Rate-limit response that carried a parsed `Retry-After` hint.
-    /// Use this variant in preference to `RateLimited` when the header
-    /// was present so callers can pace their retries from the
-    /// provider's own guidance.
+    /// Rate-limit response, carrying whatever the `Retry-After` header
+    /// parsed to — **including its absence**, as `None`. The one rate-limit
+    /// variant on purpose (R0009-0085): a bare `RateLimited` alongside it
+    /// described the same fault twice, only ever appeared in mapping code,
+    /// and invited later code and tests to disagree about which one a 429
+    /// actually produces. `provider_error_for_status` has always answered
+    /// this one.
     #[error("rate limited (retry after {0:?})")]
     RateLimitedAfter(Option<Duration>),
 
@@ -69,8 +69,8 @@ pub enum ProviderError {
 /// One-for-one: this adapter classifies at the site that reads the signal
 /// (a status code, a `finish_reason`, a `status`, a refusal field, the size
 /// cap) and this function only renames. Picking a variant there is still the
-/// retry decision — `Transport` and the two rate-limit variants are the
-/// retryable ones (see the `client::classify` module doc) — and it is now
+/// retry decision — `Transport` and `RateLimitedAfter` are the retryable
+/// ones (see the `client::classify` module doc) — and it is now
 /// also the **taxonomy** decision a consumer reads off
 /// `TranslatorError::stable_code()` (ti 1a85f3).
 ///
@@ -79,7 +79,6 @@ pub fn map_provider_error(err: ProviderError) -> TranslatorError {
     match err {
         ProviderError::Transport(s) => TranslatorError::Network(s),
         ProviderError::Auth(s) => TranslatorError::Authentication(s),
-        ProviderError::RateLimited => TranslatorError::RateLimited { retry_after: None },
         ProviderError::RateLimitedAfter(retry_after) => {
             TranslatorError::RateLimited { retry_after }
         }

@@ -154,9 +154,16 @@ pub(crate) fn merge_row_windows(
             window_records,
         };
     }
+    // Only a split parent's source is ever read below, and `block_payload`
+    // materializes an owned `String` per block it is asked about. Filtering on
+    // the plan first keeps a document with one split table from allocating a
+    // copy of every other block's markdown (R0009-0072). The early return
+    // above already spares a run in which nothing split; this spares the run in
+    // which something did.
     let source_of: HashMap<&BlockId, String> = doc
         .blocks
         .iter()
+        .filter(|b| plan.by_parent.contains_key(&b.block_id))
         .map(|b| (&b.block_id, transync_syntax::outcome::block_payload(doc, b)))
         .collect();
 

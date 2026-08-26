@@ -516,8 +516,37 @@ fn trim_to_budget(replayed: &mut Replayed, opts: &DiskCacheOptions, path: &Path)
     dropped > 0
 }
 
-/// Rewrite the log as exactly its live set: a header, then every live record in
-/// the order it was originally written.
+/// Total order over a [`DocumentMetaKey`], for compaction's deterministic
+/// output. **Every** field is in it — a partial order would leave two keys
+/// that differ only in the omitted field tied, and a tie is exactly the
+/// `HashMap` nondeterminism this exists to remove.
+fn meta_key_order(k: &DocumentMetaKey) -> (&str, u32, &str, &str, &str, u64) {
+    (
+        k.provider_fingerprint.as_str(),
+        k.validation_schema_version,
+        k.model_id.as_str(),
+        k.source_lang.as_str(),
+        k.target_lang.as_str(),
+        k.doc_source_hash,
+    )
+}
+
+/// Total order over a [`GlossaryExtractionKey`], on the same rule as
+/// [`meta_key_order`]: every field, so no two distinct keys tie.
+fn glossary_key_order(k: &GlossaryExtractionKey) -> (&str, u32, &str, u64) {
+    (
+        k.provider_fingerprint.as_str(),
+        k.validation_schema_version,
+        k.model_id.as_str(),
+        k.request_hash,
+    )
+}
+
+/// Rewrite the log as exactly its live set: a header, then every live unit
+/// entry in the order it was originally written, then the document-scoped
+/// records in key order. Both orders are *deterministic* — that is the point:
+/// two caches holding the same live set compact to the same bytes, so a
+/// compacted log can be diffed and compared across runs.
 ///
 /// Written to a temp file in the **same directory** and moved into place with
 /// one `rename`, so a crash leaves either the old complete log or the new
@@ -579,7 +608,16 @@ fn compact_log(dir: &Path, path: &Path, replayed: &Replayed) -> Result<(), Cache
             },
         )?;
     }
-    for (key, meta) in &replayed.meta {
+    // The two document-scoped maps have no `seq` to ride, and `HashMap`
+    // iteration order varies between processes, so writing them as they come
+    // out would make two byte-identical logical caches compact to two
+    // different files (R0009-0083). Nothing functional depends on the order —
+    // replay is last-wins per key and the size accounting is order-independent
+    // — but a reproducible artifact is worth two sorts on a path that runs at
+    // most once per open.
+    let mut ordered_meta: Vec<(&DocumentMetaKey, &DocumentMeta)> = replayed.meta.iter().collect();
+    ordered_meta.sort_by(|(a, _), (b, _)| meta_key_order(a).cmp(&meta_key_order(b)));
+    for (key, meta) in ordered_meta {
         buffer_record(
             &mut writer,
             &Record::DocMeta {
@@ -588,7 +626,10 @@ fn compact_log(dir: &Path, path: &Path, replayed: &Replayed) -> Result<(), Cache
             },
         )?;
     }
-    for (key, extraction) in &replayed.glossary {
+    let mut ordered_glossary: Vec<(&GlossaryExtractionKey, &GlossaryExtraction)> =
+        replayed.glossary.iter().collect();
+    ordered_glossary.sort_by(|(a, _), (b, _)| glossary_key_order(a).cmp(&glossary_key_order(b)));
+    for (key, extraction) in ordered_glossary {
         buffer_record(
             &mut writer,
             &Record::Glossary {
@@ -2131,6 +2172,55 @@ mod tests {
             DiskCache::open_with(&dir, unbounded()).unwrap().len(),
             2,
             "an append after compaction is readable"
+        );
+    }
+
+    /// R0009-0083: compaction is *reproducible*. Two caches holding the same
+    /// live set — written in opposite orders, into two directories — compact
+    /// to the same bytes. The unit entries always rode their replay sequence;
+    /// the two document-scoped maps are `HashMap`s, and before the sort they
+    /// came out in whatever order a separately-seeded table happened to
+    /// produce, so one logical cache could compact two ways.
+    #[test]
+    fn compaction_is_byte_reproducible_for_the_same_live_set() {
+        fn compacted_log(dir: &Path, hashes: &[u64]) -> String {
+            {
+                let cache = DiskCache::open_with(dir, unbounded()).expect("opens");
+                for h in hashes {
+                    cache
+                        .put_document_meta(
+                            meta_key(*h),
+                            DocumentMeta {
+                                detected_source_language: Some(format!("l{h}")),
+                            },
+                        )
+                        .unwrap();
+                    cache
+                        .put_glossary_extraction(glossary_key(*h), extraction(&format!("t{h}")))
+                        .unwrap();
+                }
+                // Dead weight, so the reopen below actually compacts: the
+                // trigger wants at least as many dead records as live ones.
+                for i in 0..16 {
+                    cache.put(key(1), result(&format!("v{i}"))).unwrap();
+                }
+            }
+            drop(DiskCache::open_with(dir, unbounded()).expect("reopens and compacts"));
+            std::fs::read_to_string(log_path(dir)).expect("the compacted log is readable")
+        }
+
+        let forward = scratch("transync-diskcache-repro-fwd");
+        let reverse = scratch("transync-diskcache-repro-rev");
+        let a = compacted_log(&forward, &[1, 2, 3, 4, 5, 6]);
+        let b = compacted_log(&reverse, &[6, 5, 4, 3, 2, 1]);
+        assert_eq!(
+            a.lines().count(),
+            1 + 1 + 6 + 6,
+            "header, the one live entry, and the twelve document-scoped records: {a}"
+        );
+        assert_eq!(
+            a, b,
+            "the same live set must compact to the same bytes\n--- forward ---\n{a}\n--- reverse ---\n{b}"
         );
     }
 
