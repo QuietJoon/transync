@@ -411,6 +411,215 @@ parse with nothing going red. R0003-0088 is the test gap and cannot land
 before the guard.
 
 
+### pre-network-recomputation (OI-0041)
+
+- **Type:** 1
+- **Verified:** yes — Review 0009 findings (R0009-0044, R0009-0045, R0009-0046,
+  R0009-0047, R0009-0049, R0009-0050, R0009-0051, R0009-0073), gate-accepted,
+  user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0041, reviews/0009.md#R0009-0044,
+  reviews/0009.md#R0009-0045, reviews/0009.md#R0009-0046,
+  reviews/0009.md#R0009-0047, reviews/0009.md#R0009-0049,
+  reviews/0009.md#R0009-0050, reviews/0009.md#R0009-0051,
+  reviews/0009.md#R0009-0073
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+Eight findings in `transync-core`'s once-per-run, pre-network phase, each
+recomputing something it already had. Two edits cover all eight. In
+`unit/split.rs`, `split_oversize_tables` prices the window plan twice —
+`if !units.iter().any(|u| windows_of(…).is_some()) { return; }` immediately
+followed by the same `windows_of` call in the loop — and `window_units` then
+re-parses the parent a third time (`split_table_rows(&parent.source_payload)`,
+a full comrak parse, under a comment reading `// Re-sliced rather than threaded
+through:`). In `profile.rs`, `default_profile()` re-parses the embedded TOML
+with no `OnceLock`, `load_profile` decodes the same text twice (typed
+`toml::from_str`, then `toml_text.parse::<toml::Value>()` for the unknown-key
+warnings), `entry_applies_to_section` allocates a fresh canonical `String` per
+comparison, `effective_glossary` canonicalizes each term twice per section, and
+`unit.rs` walks the glossary twice per section for two different questions.
+
+#### Background
+
+Type 1: every fix shape is settled and nothing must land first. Six of the
+eight were filed above their verified severity, and the register exists partly
+to say so — all eight run before the first provider request and are invisible
+next to one round trip; the glossary loop is dwarfed even locally by the
+tiktoken encode in the same loop. Verification also corrected three claims that
+would otherwise misdirect the work. R0009-0073's headline ("`SplitPlan` owns
+cloned `TranslationUnit` values") is **refuted** — `merge.rs`'s `Window` holds
+only `unit_id` and `source_payload`, and the copy is documented as deliberate —
+but verification found a bigger clone the review walked past in the same file,
+`window_records.push(vu.clone())` on a whole `ValidatedUnit`. R0009-0044's
+double planning is bounded by `.any()`'s short-circuit, so a document with no
+oversize table pays one pass; the unnamed and genuinely quadratic cost is
+`greedy_plan` re-encoding the whole growing window payload once per body row.
+And R0009-0051's two glossary passes must **not** be merged by reusing
+`cohort_key`: `ever_applied` is DCR-0027's G7 obligation and must count entries
+that applied but were shadowed, which `cohort_key` excludes. The sharpest thing
+in the cluster is not a cost at all — `impl Default for ProfileMetadata` parses
+TOML and can panic.
+
+### degraded-regen-cascade-scans (OI-0042)
+
+- **Type:** 1
+- **Verified:** yes — Review 0009 findings (R0009-0033, R0009-0079),
+  gate-accepted, user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0042, reviews/0009.md#R0009-0033,
+  reviews/0009.md#R0009-0079
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+Two scans that are worse than linear, both on the path that runs only after
+regeneration has already failed. `validate/full_reparse.rs`'s
+`attribute_offenders` filters the whole `regen_top` collection once per entry,
+with both collections sized by the document's top-level block count; its two
+call sites are inside terminal error branches of `reparse_full` that return
+`Err` immediately. `pipeline/finalize.rs`'s `widen_to_neighbors` does a linear
+`BlockId` string comparison per seed (`top_level.iter().position(|id| *id == seed)`)
+over the whole identity walk, and is reached only at stage 2 of the cascade,
+after `reparse_full` failed **and** the stage-1 re-regeneration failed too.
+
+#### Background
+
+Type 1: both fixes are settled and unblocked — one `HashMap<&BlockId, usize>`
+for the seed lookup, and a sorted sweep or binary search over `regen_top` by
+`start` for the offender scan. The review filed both as Medium hot-path
+problems; verification placed both on a cold failure path that runs at most a
+handful of times per run, up to three through the DCR-0004 cascade. Recording
+that is the entry's main value — the next reader of the review should not
+re-raise these as throughput issues. Verification also corrected the proposed
+fix for R0009-0033: containment there is **range**-based (`top.start` inside the
+entry's offset span), not id-based, so an ID lookup table is the wrong shape.
+
+### module-size-versus-inline-tests (OI-0043)
+
+- **Type:** 1
+- **Verified:** yes — Review 0009 findings (R0009-0068, R0009-0069,
+  R0009-0070, R0009-0071), gate-accepted, user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0043, reviews/0009.md#R0009-0068,
+  reviews/0009.md#R0009-0069, reviews/0009.md#R0009-0070,
+  reviews/0009.md#R0009-0071
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+Four files the review called oversized concern bundles from raw `wc -l`.
+Re-split on `#[cfg(test)]` with brace tracking, three of the four are mostly
+inline test code: `transync-html/src/lib.rs` is 2,550 lines but 1,242
+production; `transync-core/src/profile.rs` is 4,035 but 1,738; and
+`transync-core/src/pipeline.rs` is 4,981 but only 1,457 — 71% tests, with
+`dispatch`, `finalize`, `merge`, `policy`, `report` and `retry` already living
+in their own files. The exception is `transync-cli/src/output.rs`: 3,967 lines,
+**2,041 of them production**, with only `lock.rs` extracted, so target
+resolution, staging, bundle rendering and filesystem policy genuinely share one
+module.
+
+#### Background
+
+Type 1: the approach for each is settled — split `output.rs` under the repo's
+file-as-module convention, and for the other two move the inline test modules
+out (deciding per module between `tests/`, which loses access to private items,
+and `src/<name>/tests.rs`, which keeps it). No behavioural defect anywhere; all
+four are Low. The value of the verified table is that it stops the wrong work:
+acting on the raw counts would mean re-cutting `pipeline.rs`'s orchestration,
+which is already cut. R0009-0068 is a **re-raise of a known open item** —
+DCR-0032's "Handed forward" section already names the file-as-module split, and
+`crates/transync/tests/docs_ownership_drift.rs` encodes it as a `CRATE_ROOTS`
+floor of 0, "a state nobody has decided against rather than a shape anyone
+chose" — so it rides DCR-0032 and should be sequenced behind the HTML→HTML
+waves still landing in that crate rather than racing them.
+
+### disk-cache-log-edges (OI-0044)
+
+- **Type:** 1
+- **Verified:** yes — Review 0009 findings (R0009-0080, R0009-0081,
+  R0009-0082), gate-accepted, user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0044, reviews/0009.md#R0009-0080,
+  reviews/0009.md#R0009-0081, reviews/0009.md#R0009-0082
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+One finding on each of `crates/transync-core/src/cache/disk.rs`'s three paths.
+Replay: `scan_log` reads a physical line with `.read_until(b'\n', &mut line)`
+into an uncapped `Vec<u8>` and only decides the header afterwards, so a foreign
+file with no newline is materialized whole before rejection — contradicting the
+function's own claim that "peak memory is the index it is building plus one
+record". Write: `buffer_record` returns `Err` with the `BufWriter<File>` still
+installed in `DiskState`, and the next `put`/`evict` writes onto it; there is no
+last-good-offset and `truncate_to` is never called from the write path. Trim:
+`trim_to_budget` measures `header_bytes() + meta_bytes` plus entries but drops
+only entries, so when `oldest_first` is exhausted the loop ends with the budget
+still exceeded — while DCR-0028 §4 promises entries are dropped "until within
+budget" and the public `max_bytes` doc names no exemption.
+
+#### Background
+
+Type 1: each fix shape is settled — a floor plus a doc sentence for the trim, a
+last-good offset or a poisoned writer for the write, `Read::take` (or a
+corrected doc claim) for the read — and nothing must land first. Verification
+narrowed two of the three substantially and sharpened the third. The write
+poisoning is **one welded line, not open-ended corruption**: sub-capacity
+records self-heal because `BufWriter::flush_buf` re-queues the remainder, so
+damage needs a record at or above the 8 KiB buffer; the result is an unparseable
+line `scan_log` skips with a warning, and a truncated JSON object concatenated
+with a whole one cannot deserialize, so **no wrong value is ever served** — the
+cost is two lost entries, inside DCR-0028's stated degrade-to-re-translation
+envelope. The unbounded read's security framing was already answered: ADR-0022
+puts a local writer to the cache path outside the threat model, naming
+R0004-0024 — this same memory concern — by number. The trim is **worse than
+filed**: if header plus `meta_bytes` alone exceeds `max_bytes`, every open drops
+every unit entry and still forces a compaction, so the cache permanently retains
+nothing across opens. No test covers a failing writer.
+
+### serve-body-and-authority-reporting (OI-0045)
+
+- **Type:** 1
+- **Verified:** yes — Review 0009 findings (R0009-0002, R0009-0008,
+  R0009-0009), gate-accepted, user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0045, reviews/0009.md#R0009-0002,
+  reviews/0009.md#R0009-0008, reviews/0009.md#R0009-0009
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+Three residual `transync serve` findings after the Review 0009 fix pass. In
+`serve_cmd/conn.rs`, the streaming branch announces `len` and then discards the
+count `tokio::io::copy` returns (`.map(|_| ())`), so a file past the 8 MiB
+in-memory limit that shrinks mid-response sends fewer bytes than its
+`Content-Length`; the in-memory branch, by contrast, announces
+`body.len() as u64`, and `read_capped`'s doc comment reasons only about a file
+that *grows*. In `serve_cmd/host.rs`, one `is_unspecified()` branch pushes both
+loopback families without consulting `local.ip()`, so a `0.0.0.0` bind — which
+is IPv4-only — advertises `[::1]:port` in startup output and 421 bodies; and
+derived entries plus every `--allow-host` go into one un-normalized `Vec`, so
+`--bind 127.0.0.1 --allow-host localhost` prints `localhost:7470` twice.
+
+#### Background
+
+Type 1: three small, settled fixes, nothing blocked. All three were filed above
+their verified severity. The truncated-body case reaches only the >8 MiB branch
+— the serve test's own comment says "Nothing in a bundle is this big" — and the
+client sees a short read on a `Connection: close` socket rather than silent
+corruption. The IPv6 advertisement costs guidance accuracy and one unreachable
+allowlist entry; no verdict changes, because a client using `http://[::1]:port/`
+never reaches the socket. The duplicate authority is cosmetic: lookup is
+`self.answered.iter().any(...)`. Two constraints the work must respect: the
+`::` case is **correct as written** (a dual-stack `::` listener does answer at
+`127.0.0.1`), so only the IPv4 branch changes — and the fix is three edits, the
+code plus the test that pins the wrong expectation plus the `contracts.md`
+sentence that repeats it in prose; and the dedup must be order-preserving
+retain-first, because `the_authorities_print_the_way_they_are_typed`
+deliberately pins ordering.
+
 ## Type 2 — needs decision / discussion next
 
 The open design questions here carry an `OI-` id rather than a ticket: a review gate
@@ -830,6 +1039,274 @@ The pre-restart history is unreachable and always will be. The ticket's stated s
 #### Background
 
 Verified: `git rev-list --count HEAD` is 48, `git tag` prints `v0.4.0`, `git fsck` is clean, and the root commit is `59ce8df723b4`, the 2026-08-17 restart rather than the original root. So half the claim stands permanently and half no longer reproduces. `docs/project/git-history-loss-2026-08-17.md` and its 2026-08-10 sibling record both events. Type 2 rather than type 1 because there is nothing to implement: what remains is a decision about what this ticket is *for*. Read as a defect it is unreproducible and should close; read as the standing record that this object store has now lost history twice — and that `/Volumes/Common` is therefore not reliable storage — it should stay open and be re-titled. That is an owner call, not a maintenance one.
+
+### js-lint-gate-exit-status-is-dishonest (OI-0039)
+
+- **Type:** 2
+- **Verified:** yes — Review 0009 finding (R0009-0014), gate-accepted,
+  user-routed **fix**; the visibility half landed in `88964df` and the
+  exit-status half was deliberately refused there as a decision above a fix
+  route
+- **Sources:** docs/project/open-issues.md#OI-0039, reviews/0009.md#R0009-0014
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+`scripts/hooks/pre-commit` — the only hook copy, the one `core.hooksPath`
+points at — runs a JavaScript/TypeScript leg over `web/` whose `run_js_tool`
+helper prints a SKIP line and `return 0` when the tool binary is absent.
+`web/node_modules/.bin/` holds exactly one entry, `playwright`;
+`web/package.json`'s only devDependency is `@playwright/test`; and there is no
+`web/tsconfig.json`. **Every probe therefore misses**, and the leg's
+contribution to the exit status is always zero. Measured by running the hook
+against a scratch tree mirroring `web/` with no `Cargo.toml`:
+`SKIP: prettier not installed in web`, `SKIP: eslint not installed in web`,
+`HOOK_EXIT=0`. The consequence is that `web/js/sync.js` — 52,996 bytes, the
+sync engine — plus `web/js/wasm-demo.js`, `web/playwright.config.js` and the
+three spec files ship with zero format or lint coverage, and the hook is the
+only automatic gate this repository has.
+
+#### Background
+
+Type 2, and this is the whole point of the entry: the fixing agent did the
+visibility half and **refused the substantive half on the record**. The hook now
+ends with a framed block reading `THE JAVASCRIPT/TYPESCRIPT GATE DID NOT RUN.`,
+naming the missing tools and stating that "a successful exit below covers the
+Rust gates ONLY". The status is still 0. Making it honest requires choosing
+between two routes, each with a named cost. **(a) Adopt and pin a linter** — the
+hook already has a biome-first branch, so `pnpm add -D @biomejs/biome` alone
+makes it fire, but the price is conforming roughly 190 KB of existing JavaScript
+including `sync.js`, whose byte-identical twin at `crates/transync-cli/web/sync.js`
+is pinned by `crates/transync-cli/tests/sync_js_drift.rs` — any reformat is a
+two-file commit or that test goes red. **(b) Fail only on staged JavaScript** —
+narrower, but it blocks work in progress, stopping the first developer to touch
+a JS file mid-feature. Verification also narrowed the finding itself: the
+reviewer's "as if the language gate ran" is wrong (two SKIP lines with the exact
+remediation have always printed, and skip-with-notice is DCR-0018's recorded
+design, which both 2026-08-20 wave plans call "normal output here, not a
+failure"), and there is no correctness exposure because Playwright covers
+browser behaviour. Do **not** close this by improving the message again — the
+message is already as loud as a message can be; what is unresolved is the
+status.
+
+### repeated-parsing-on-the-accepted-path (OI-0040)
+
+- **Type:** 2
+- **Verified:** yes — Review 0009 findings (R0009-0031, R0009-0034,
+  R0009-0035, R0009-0037, R0009-0043, R0009-0065), gate-accepted, user-routed
+  track
+- **Sources:** docs/project/open-issues.md#OI-0040, reviews/0009.md#R0009-0031,
+  reviews/0009.md#R0009-0034, reviews/0009.md#R0009-0035,
+  reviews/0009.md#R0009-0037, reviews/0009.md#R0009-0043,
+  reviews/0009.md#R0009-0065
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+Six findings, one shape: no seam in this workspace carries a parsed artifact,
+so every layer that needs an AST — or a spliced HTML fragment — builds its own
+from the same bytes. Per attempt, one candidate payload goes to comrak up to
+four times (`validate/per_kind.rs`'s `check_heading`,
+`validate/fragment_reparse.rs`, `validate/inline.rs` → `inline_inventory`, and
+`structure.rs` for table/list/blockquote kinds); none of the four accepts a
+pre-parsed AST. `inline_inventory` additionally appends and reparses the
+**whole-document** reference-definition pool for both sides of every unit
+(`format!("{payload}\n\n{ref_defs}")`, with `ref_defs` coming straight from
+`doc.ref_defs`), and `pipeline/dispatch.rs` recomputes the source side once per
+retry round because `TranslationUnit` memoizes nothing. An accepted HTML unit is
+spliced at least twice — once in `validate.rs` purely for a `tag_inventory`
+comparison, then again in `regen.rs`, and up to three more times through
+`pipeline/finalize.rs`'s repair ladder — and `transync_html::splice` itself runs
+two complete `HtmlRewriter` passes over the same bytes. A WASM `rebuild_impl` is
+**four** whole-document parses, not two.
+
+#### Background
+
+Type 2: three of the six cannot be started without a decision, so the cluster
+tie-breaks up. R0009-0031's fix pushes an arena lifetime through
+`transync-syntax`'s public render signature, because `parser::parse` owns its
+arena and returns owned IR. R0009-0043 must **not** be fixed by carrying the
+validated splice into regen: the two calls take different inputs — validation
+uses `constraints.html.source_bytes` from `outcome::block_payload`, regen slices
+`doc.source_text` via `parser::ranges::clamped_char_bounds` — and `validate.rs`
+documents the divergence as load-bearing ("cannot make this layer lie about
+regen's success"), so sharing collapses a deliberate independent double-check.
+R0009-0065's recommended one-scan staging is not implementable as written, since
+lol_html's `TextChunk` exposes no source byte offsets. Verification found five
+of the six overstated — microsecond-scale work on one block in a network-bound
+pipeline — with exactly one exception that is worth doing on its own merit:
+R0009-0035 is O(units × |ref_defs|) in both allocation and parse time, i.e.
+quadratic in document size for a reference-definition-heavy document, and its
+cheapest sound fix is a per-side prefilter (skip the append when the payload
+contains no `[`), not the label-matching reimplementation the review proposed.
+R0009-0034 and R0009-0037 are **not blocked** by anything and should ride
+OI-0037, whose Required Action 1 already mandates funnelling exactly those
+`comrak::parse_document` sites through one guarded entry point — the same
+refactor with a second justification, not a prerequisite.
+
+### checking-apparatus-holes (OI-0046)
+
+- **Type:** 2
+- **Verified:** yes — Review 0009 findings (R0009-0015, R0009-0018,
+  R0009-0067), gate-accepted, user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0046, reviews/0009.md#R0009-0015,
+  reviews/0009.md#R0009-0018, reviews/0009.md#R0009-0067
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+Three findings about what this repository's checks cover rather than about
+shipped behaviour. The rustdoc **completeness** check — the loop that catches a
+library member nobody added to the gate, ending in
+`[smoke] FAIL: library member(s) outside the rustdoc gate` — exists only in
+`scripts/smoke.sh`; the pre-commit hook sources `scripts/lib/rustdoc-gate.sh`
+and fails only if `RUSTDOC_GATE_ARGS` is empty, so a new library crate can be
+committed undocumented with the hook green. `web/playwright.config.js`
+hard-codes `const HOST = "127.0.0.1"` and `const PORT = 4319` with no
+`process.env` fallback, and `scripts/test-browser.sh` passes no port at all, so
+two concurrent runs collide — and the port is not the only shared resource, since
+that script also `rm -rf`s a single default `WORKDIR`. And there is no committed
+fuzz, property or differential harness anywhere in the repository: a grep for
+`proptest|quickcheck|arbitrary|cargo-fuzz|libfuzzer|afl` across the manifests
+returns nothing, `find . -type d -name 'fuzz*'` returns nothing, and
+`crates/transync-html/tests/` holds only a three-fixture golden pin, leaving a
+hand-rolled tokenizer on the untrusted-input path validated by 79 handpicked
+cases.
+
+#### Background
+
+Type 2: two of the three need a choice before code. The browser harness needs a
+decision about how a second concurrent run gets **both** its port and its
+workdir — a port-only change would leave the destructive resource shared — and
+the missing generative harness needs its shape chosen (in-crate property tests,
+a `cargo-fuzz` target, or a differential oracle against a browser parse) and its
+home decided, given there is no CI and the hook is the only automatic gate.
+R0009-0015 alone is settled and cheap. Verification narrowed it twice: the
+smoke/hook split is **documented and deliberate** (`rustdoc-gate.sh` says "What
+keeps it total is the completeness check in `scripts/smoke.sh`") and there is no
+live gap today, since all seven members with a `src/lib.rs` are in
+`RUSTDOC_GATE_CRATES` — but the check is a pure bash glob with no cargo cost, so
+moving it into the shared library closes the window for free. The fuzz item has
+the strongest expected value in the entry, and it is not speculative: this file
+already records "15,726 violations / 200k fuzz iterations" behind ticket
+`95f55b` — someone fuzzed this crate ad hoc, found a real defect, and did not
+keep the harness. R0009-0017, the sibling foreign-server finding, was fixed in
+`88964df`; build on it rather than duplicating it.
+
+### sync-engine-dead-zone-and-quiet-reflow (OI-0047)
+
+- **Type:** 2
+- **Verified:** yes — Review 0009 findings (R0009-0021, R0009-0025),
+  gate-accepted, user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0047, reviews/0009.md#R0009-0021,
+  reviews/0009.md#R0009-0025
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+Two findings in `web/js/sync.js`. `activeBlockWithProgress` returns `null` once
+the reference line (`scrollTop + REFERENCE_OFFSET_PX`, with the constant at 4)
+passes the last anchor's bottom, and `handleScroll` bails on `null` — so the
+follower pane freezes. Measured against a stub DOM with three anchors ending at
+y=900 and 1200px of unanchored trailing content: `scrollTop=896` gives
+`{"id":"p-3","progress":1}`, `scrollTop=897` gives `null`, and so does
+`scrollTop=1500`. Separately, `recompute` calls
+`collectAnchors(pane, label, rowIds, true)` — quiet — and calls neither
+`warnMapDomDrift` nor `warnOffsetParentDrift`: after mutating a mounted pane to
+hold a duplicate id, an unlisted id and a block whose `offsetParent` is a
+`<figure>`, `controller.refresh()` emitted **0** warnings where a fresh mount of
+the same DOM emitted **3**.
+
+#### Background
+
+Type 2: the clamp is settled, but the diagnostics question is not.
+`contracts.md` §4a states a mount-time budget — "One property read per pane at
+mount, never per frame" — so re-running the probes on every coalesced reflow
+frame changes a documented budget rather than merely adding a call; the
+candidate shapes are re-running only on the explicit `controller.refresh()`, or
+re-running and latching so a warning fires only when the verdict changes.
+Verification narrowed both members and corrected the review's paths. Neither
+shipped shell can scroll into the dead zone: it needs more than a viewport of
+unanchored content **inside the scroll box**, and shipped panes carry only the
+sanitized `<main>` plus 12px of padding while the sole non-anchoring kinds are
+`ThematicBreak` and `Title` — a third-party pane with a tall in-pane footer can.
+Half the review's recommendation is already implemented (a viewport above the
+first anchor already returns it at progress 0), so what is missing is the
+symmetric bottom clamp, about three lines. On the quiet reflow, what is lost is
+**reporting, not behaviour** — the `rowIds` gate is not quiet, so an unlisted
+anchor stays inert and a duplicate keeps its first occurrence — and part of the
+silence is deliberate and recorded: §4a says the skip warnings are "silent on
+reflow" by design. What no record covers is that `warnMapDomDrift` and
+`warnOffsetParentDrift` never re-run at all. The review's third path,
+`crates/transync-wasm/demo/sync.js`, does not exist; the byte-identical twin is
+`crates/transync-cli/web/sync.js`, pinned by
+`crates/transync-cli/tests/sync_js_drift.rs`, so either fix is a two-file commit.
+
+### boundary-checks-weaker-than-contract (OI-0048)
+
+- **Type:** 2
+- **Verified:** yes — Review 0009 findings (R0009-0052, R0009-0053,
+  R0009-0075, R0009-0078), gate-accepted, user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0048, reviews/0009.md#R0009-0052,
+  reviews/0009.md#R0009-0053, reviews/0009.md#R0009-0075,
+  reviews/0009.md#R0009-0078
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+
+#### Description
+
+Four places where the library enforces less than its record implies, each
+visible only to a consumer that is not the CLI. `profile.rs` resolves the table
+strategy with `match … { Some("row-window-first") => RowWindowFirst, _ => WholeBlock }`
+and warns about an unrecognized value only in `load_profile`, so a programmatic
+caller who sets `Some("rowwindow")` on the `#[non_exhaustive]`
+`ProfileConstraints` gets whole-block with no warning. `transync-core/src/lib.rs`
+returns `TransyncError::Internal` for an empty `target_language`, which
+`error.rs` maps to the wire code `internal` — the code reserved for engine
+faults — for what is a caller input error. `transync-syntax/src/align.rs`
+synthesizes `FallbackStatus::FallbackSource` for a block the status map does not
+name, with no `tracing::warn` (unlike the missing-offset path right below it),
+guarded only by a `debug_assert!` in `pipeline/report.rs`. And
+`render.rs`'s `PaneCtx::new` performs exactly three checks — duplicate
+`source_block_id`, `UncoveredBlock`, `range_fault` — while `Pane::range` reads
+`block.source_range` for the source pane, so the **row's** `source_range` is
+never read or bounds-checked even though row fields do reach the DOM.
+
+#### Background
+
+Type 2: two of the four cannot be closed without a choice, and grouping them
+prevents four inconsistent answers about how much a programmatic caller is owed.
+R0009-0053 needs a new `TransyncError` variant plus a `stable_code()` row, which
+means editing contracts.md §1 where it states "The complete set is **twenty**
+codes" — a wire-vocabulary change, not a one-liner. R0009-0078 offers two routes
+and neither is obviously right: assert `row.source_range == block.source_range`
+in `PaneCtx::new`, or state in §4a that the source pane reads the block's range
+and the row's field is advisory; §4a's current sentence — "Each pane is measured
+against what it slices: `source_range` against the source text" — does not say
+*whose*, which is the ambiguity. Verification also refused two of the review's
+recommendations outright. Converting `default_table_strategy` to an enum
+collides with the TOML wire shape and §0's frozen-field policy; the cheap fix is
+to repeat the loader's unknown-value warning at the translate boundary, as
+R0001-0020 did for prompt template variables — and the impact is loud but
+**mis-diagnosed**, not silent, since an unsplit oversize table is still named by
+`output_budget_warnings` and aborts at the provider under ADR-0017. Making
+`build_alignment_map` strict is **not available**: `transync-wasm`'s
+`engine.rs` documents that "a block absent from `statuses_json` gets the same
+synthesized status the pipeline would give it" and
+`omitted_unit_backed_html_row_is_fallback_source_not_translated` pins it, so
+hardening belongs at the `report.rs` seam. R0009-0075's artifact is not
+corrupted either — the row is labelled `fallback_source`, the least-integrity
+status, and counted into `summary.fallback_source`; what is lost is the
+distinction between "validated and rejected" and "dropped by a bug". Most of
+R0009-0078 describes a documented boundary rather than a broken promise: §4a
+enumerates the renderer's three refusals, the CLI never renders a foreign map,
+the shipped JS gates two of the listed fields, `data-order` has no consumer in
+`web/`, and the only live foreign-map path is the WASM view mode ADR-0023
+assigns to the demo.
 
 ## Type 3 — blocked
 
