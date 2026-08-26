@@ -133,8 +133,14 @@ impl HostPolicy {
             if line.starts_with(' ') || line.starts_with('\t') {
                 return Verdict::Malformed;
             }
+            // A field line with no colon is not a field (RFC 9112 §5), and
+            // this parser is one of two that read this head — the browser is
+            // the other. Skipping it (R0009-0005) meant judging a head some
+            // conforming reader refuses, which is the parser disagreement the
+            // obs-fold arm right above refuses to enter. Same posture, same
+            // verdict.
             let Some((name, value)) = line.split_once(':') else {
-                continue;
+                return Verdict::Malformed;
             };
             // `name` is taken verbatim: whitespace before the colon is not a
             // field name, so `Host : x` states no Host rather than a padded
@@ -220,6 +226,25 @@ fn port_from(text: &str) -> Option<u16> {
     text.parse::<u16>().ok().filter(|port| *port != 0)
 }
 
+/// Longest a DNS name may be in its presentation form, root label dropped
+/// (RFC 1035 §2.3.4's 255-octet wire limit, minus the length byte and the
+/// root's terminating zero).
+const MAX_NAME_LEN: usize = 253;
+
+/// Longest one DNS label may be (RFC 1035 §2.3.4).
+const MAX_LABEL_LEN: usize = 63;
+
+/// Read `text` as an IPv4 literal or a registered name, or refuse it.
+///
+/// **The name shape is checked against what DNS can actually hold
+/// (R0009-0007).** Requiring only nonempty LDH labels admitted `-example.test`,
+/// `example-.test`, a 200-byte label and a 4 KB name — none of which is a
+/// hostname any resolver will return, so accepting them let `--allow-host` and
+/// a `Host` field agree on a string that names nothing. It grants nothing on
+/// its own (a [`Host::Name`] only ever matters as an exact match against an
+/// operator-supplied allowlist entry), which is precisely why the validation
+/// should say what it means: a parser that accepts more than the grammar it
+/// claims is a parser the next reader has to re-derive.
 fn host_from(text: &str) -> Option<Host> {
     // The root label is implicit, so `localhost.` and `localhost` are one name.
     let text = text.strip_suffix('.').unwrap_or(text);
@@ -229,8 +254,17 @@ fn host_from(text: &str) -> Option<Host> {
     if let Ok(ip) = text.parse::<Ipv4Addr>() {
         return Some(Host::Ip(IpAddr::V4(ip)));
     }
+    if text.len() > MAX_NAME_LEN {
+        return None;
+    }
+    // Edge hyphens are refused: RFC 952, as relaxed by RFC 1123 §2.1, lets a
+    // label begin with a letter or a digit and end with a letter or a digit —
+    // a hyphen at either end is not a name any resolver returns.
     let is_label = |label: &str| {
         !label.is_empty()
+            && label.len() <= MAX_LABEL_LEN
+            && !label.starts_with('-')
+            && !label.ends_with('-')
             && label
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
@@ -306,12 +340,52 @@ mod tests {
             "[not-an-address]",
             "example..com",
             "attacker.example/../",
+            // R0009-0007: LDH characters alone are not a DNS name shape.
+            "-example.test",
+            "example-.test",
+            "demo.-example.test",
         ] {
             assert!(
                 text.parse::<Authority>().is_err(),
                 "{text:?} is not an authority",
             );
         }
+    }
+
+    /// R0009-0007, the two limits that cannot be written as readable literals.
+    /// Both are boundaries rather than magnitudes, so each is measured on
+    /// either side of itself.
+    #[test]
+    fn a_dns_name_is_refused_past_the_label_and_name_limits() {
+        let label = |n: usize| "a".repeat(n);
+        assert!(
+            format!("{}.test", label(MAX_LABEL_LEN))
+                .parse::<Authority>()
+                .is_ok(),
+            "a {MAX_LABEL_LEN}-byte label is the longest DNS has",
+        );
+        assert!(
+            format!("{}.test", label(MAX_LABEL_LEN + 1))
+                .parse::<Authority>()
+                .is_err(),
+            "a {}-byte label is longer than DNS has",
+            MAX_LABEL_LEN + 1,
+        );
+
+        // Four 63-byte labels joined by dots is 255 bytes; dropping two from
+        // the last one lands exactly on the limit.
+        let mut name = [label(63), label(63), label(63), label(61)].join(".");
+        assert_eq!(name.len(), MAX_NAME_LEN);
+        assert!(
+            name.parse::<Authority>().is_ok(),
+            "a {MAX_NAME_LEN}-byte name is the longest DNS has",
+        );
+        name.push('a');
+        assert!(
+            name.parse::<Authority>().is_err(),
+            "a {}-byte name is longer than DNS has",
+            MAX_NAME_LEN + 1,
+        );
     }
 
     /// The default bind's whole allowlist: the address it bound and the one
@@ -357,6 +431,13 @@ mod tests {
             verdict(&policy, "Connection: close\r\n"),
             Verdict::Malformed,
             "headers, but no Host",
+        );
+        // R0009-0005: a line with no colon is not a field, and a head that
+        // carries one is judged by no two parsers alike — so it is not judged.
+        assert_eq!(
+            verdict(&policy, "Broken-Field\r\nHost: 127.0.0.1:7470\r\n"),
+            Verdict::Malformed,
+            "a colonless line makes the whole head malformed, Host or no Host",
         );
         assert_eq!(
             verdict(

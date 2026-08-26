@@ -392,6 +392,26 @@ test.describe("sync.js mount contract", () => {
     // pair by block id, and the caller may simply be mid-layout.
     expect(await rigTagged(page)).toBe(true);
 
+    // R0009-0024. The probe reads the PANE's computed `position`, which is
+    // what the precondition is about; it used to read `blocks[0].offsetParent`,
+    // which is a fact about one block. A consumer who wraps a block in a
+    // positioned element therefore got this warning about a pane configured
+    // exactly right — and would have got silence had the wrapper been around
+    // any block but the first.
+    await page.evaluate(() => {
+      document.getElementById("eng-target").style.position = "relative";
+      const pane = document.getElementById("eng-source");
+      const first = pane.firstElementChild;
+      const wrapper = document.createElement("div");
+      wrapper.style.cssText = "position:relative;margin:0;padding:0";
+      pane.insertBefore(wrapper, first);
+      wrapper.appendChild(first);
+    });
+    expect(await mount(page, mapOf(BLOCK_IDS))).toBe("controller");
+    expect(logs.some((m) => m.includes("the source pane is not the offsetParent"))).toBe(
+      false
+    );
+
     expect(errors).toEqual([]);
   });
 
@@ -425,6 +445,24 @@ test.describe("sync.js mount contract", () => {
           m.includes("t-0003")
       )
     ).toBe(true);
+
+    // R0009-0022: a `target_block_id` that is not a string is not a block id
+    // at all. The refusal above is `typeof === "string"`-gated, so `3` sailed
+    // past the very check `"3"` trips, and surfaced later as a lookup miss
+    // through implicit coercion — partial sync with no message naming a
+    // cause.
+    const nonString = mapOf(BLOCK_IDS);
+    nonString.blocks[2].target_block_id = 3;
+    expect(await mount(page, nonString)).toBeNull();
+    expect(await rigTagged(page)).toBe(false);
+    expect(logs.some((m) => m.includes("non-string target_block_id"))).toBe(true);
+
+    // And a newer minor does not buy it: contracts.md §3 lets a minor bump add
+    // enumerated VALUES, never re-type a field, so there is no forward-compat
+    // reading of a number here — unlike the divergent *string* just below.
+    const futureNonString = mapOf(BLOCK_IDS, { schema_version: "1.3.0" });
+    futureNonString.blocks[2].target_block_id = 3;
+    expect(await mount(page, futureNonString)).toBeNull();
 
     // The forward-minor exemption, read exactly like the `sync_role` one:
     // contracts.md §3 requires a newer minor to be accepted, so the same

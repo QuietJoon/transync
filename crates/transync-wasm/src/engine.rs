@@ -38,7 +38,7 @@
 //! TRACE: ADR-0019
 
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use transync_syntax::align::{self, AlignmentMap, FallbackStatus};
 use transync_syntax::id::{self, BlockId};
 use transync_syntax::{outcome, parser, regen, render, walk};
@@ -69,7 +69,8 @@ pub enum EngineError {
     UnknownBlockId {
         /// Which input carried the offending ids.
         field: &'static str,
-        /// The unknown ids, sorted and comma-joined.
+        /// A sorted, comma-joined **sample** of the unknown ids, followed by
+        /// `(and N more)` when there were more than the sample holds.
         ids: String,
     },
     /// The freshly built alignment map failed to serialize.
@@ -353,25 +354,51 @@ fn parse_with_ids(source_md: &str) -> Result<parser::Document, EngineError> {
     Ok(doc)
 }
 
-/// Reject ids that name no block in the document. Sorted so the message is
-/// deterministic regardless of hash order.
+/// How many unknown ids the message names before it stops naming and starts
+/// counting.
+///
+/// The rest of this module already answers "what is wrong with this input"
+/// with a bounded diagnostic — `describe_divergence` names the *first*
+/// divergence and stops — so listing every alien key was the odd one out
+/// (R0009-0032): a rebuild request whose payload map is entirely foreign
+/// built a string proportional to that map before returning the error that
+/// rejects it, and the reader of that string could not use the part past the
+/// first few entries anyway.
+const UNKNOWN_ID_SAMPLE: usize = 8;
+
+/// Reject ids that name no block in the document.
+///
+/// The sample is the first [`UNKNOWN_ID_SAMPLE`] in sort order, not the first
+/// encountered, so the message is deterministic regardless of hash order —
+/// and the total is counted separately, so the count is honest even though
+/// only a sample is retained.
 fn reject_unknown_ids<'a>(
     field: &'static str,
     ids: impl Iterator<Item = &'a BlockId>,
     known: &HashSet<&str>,
 ) -> Result<(), EngineError> {
-    let mut unknown: Vec<&str> = ids
+    let mut sample: BTreeSet<&str> = BTreeSet::new();
+    let mut total = 0_usize;
+    for id in ids
         .map(|id| id.0.as_str())
         .filter(|id| !known.contains(*id))
-        .collect();
-    if unknown.is_empty() {
+    {
+        total += 1;
+        sample.insert(id);
+        if sample.len() > UNKNOWN_ID_SAMPLE {
+            // Drop the largest, so what survives is the sorted prefix.
+            sample.pop_last();
+        }
+    }
+    if total == 0 {
         return Ok(());
     }
-    unknown.sort_unstable();
-    Err(EngineError::UnknownBlockId {
-        field,
-        ids: unknown.join(", "),
-    })
+    let shown = sample.len();
+    let mut ids = sample.into_iter().collect::<Vec<_>>().join(", ");
+    if total > shown {
+        ids.push_str(&format!(" (and {} more)", total - shown));
+    }
+    Err(EngineError::UnknownBlockId { field, ids })
 }
 
 #[cfg(test)]
@@ -774,6 +801,40 @@ mod tests {
             rebuild_impl(FIXTURE_MD, "{}", &statuses.to_string(), "en", "ko", None).unwrap_err();
         assert!(err.to_string().contains("zz-9999"), "got: {err}");
         assert!(err.to_string().contains("statuses"), "got: {err}");
+    }
+
+    /// R0009-0032: the message names a bounded, sorted sample and counts the
+    /// rest. What it must NOT do is grow with the malformed request — the
+    /// diagnostic for "these keys are all wrong" cannot itself be a copy of
+    /// every wrong key.
+    #[test]
+    fn many_unknown_block_ids_are_sampled_rather_than_listed() {
+        let mut payloads = serde_json::Map::new();
+        for i in 0..(UNKNOWN_ID_SAMPLE * 5) {
+            payloads.insert(format!("zz-{i:04}"), serde_json::json!("ghost"));
+        }
+        let total = payloads.len();
+        let json = serde_json::Value::Object(payloads).to_string();
+        let message = rebuild_impl(FIXTURE_MD, &json, "{}", "en", "ko", None)
+            .unwrap_err()
+            .to_string();
+
+        // The sorted prefix, and nothing after it — the sample is the first
+        // N in sort order, so it is the same N whatever order the map hashed.
+        for i in 0..UNKNOWN_ID_SAMPLE {
+            assert!(
+                message.contains(&format!("zz-{i:04}")),
+                "the sorted prefix is named: {message}"
+            );
+        }
+        assert!(
+            !message.contains(&format!("zz-{:04}", UNKNOWN_ID_SAMPLE)),
+            "nothing past the sample is named: {message}"
+        );
+        assert!(
+            message.contains(&format!("(and {} more", total - UNKNOWN_ID_SAMPLE)),
+            "the total is still honest: {message}"
+        );
     }
 
     /// A shape-valid map that does not describe `source_md`. serde accepts

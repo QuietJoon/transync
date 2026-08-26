@@ -28,8 +28,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Longest request head this server will read, terminator included. A client
 /// that has not finished its head by here is not sending one.
@@ -43,6 +42,24 @@ const MAX_HEAD_BYTES: usize = 8 * 1024;
 /// then says nothing, which would otherwise hold a task for the process's
 /// lifetime.
 const HEAD_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How long the whole answer may take, measured from the moment the head is
+/// in hand. Bounds the *other* half of the same problem [`HEAD_TIMEOUT`]
+/// covers (R0009-0001): a peer that finishes its head correctly and then stops
+/// reading leaves every response write parked on the socket's send buffer, and
+/// `MAX_IN_FLIGHT` makes those parked tasks a finite shared resource — so a
+/// handful of such peers is enough to make the server unavailable without
+/// sending a single malformed byte.
+///
+/// A **total** deadline rather than a write-idle one, deliberately. An idle
+/// deadline is defeated by a peer that reads one byte per interval, which is
+/// the same attack at a lower rate; a total deadline cannot be. What it costs
+/// is the honest tradeoff: a legitimate transfer slower than this is cut off
+/// too. That is the right trade here and only here — this is a loopback demo
+/// server for an `--html-out` bundle (a handful of files, the largest of them
+/// a few megabytes), so a minute is orders of magnitude more than any real
+/// client on the path this server is built for needs.
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// At or below this size the file is read into memory, so the
 /// `Content-Length` announced is the length actually written. Above it the
@@ -68,26 +85,64 @@ enum HeadRead {
 /// Answer one request on `stream`, then return so the caller can drop it.
 ///
 /// An `Err` here is a dead socket, not a rejected request — every rejection is
-/// a status code written back on this same connection.
-pub async fn serve(mut stream: TcpStream, site: Arc<Site>) -> io::Result<()> {
+/// a status code written back on this same connection. A response that could
+/// not be delivered inside [`RESPONSE_TIMEOUT`] is an `Err` of the same kind:
+/// there is nothing left to say to a peer that is not reading, so the socket
+/// is dropped and its slot goes back.
+///
+/// Generic over the stream so the deadline can be exercised against a peer
+/// that accepts no bytes at all; `accept_loop` passes the socket.
+pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: S,
+    site: Arc<Site>,
+) -> io::Result<()> {
+    serve_within(stream, site, RESPONSE_TIMEOUT).await
+}
+
+/// [`serve`] with the response deadline supplied, so a test can drive a
+/// never-reading peer without waiting out the shipped minute.
+async fn serve_within<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    site: Arc<Site>,
+    response_timeout: Duration,
+) -> io::Result<()> {
+    // Both halves of the head read that still owe the peer an answer become
+    // one, so that answer goes out under the same deadline as every other.
     let head = match tokio::time::timeout(HEAD_TIMEOUT, read_head(&mut stream)).await {
-        Err(_elapsed) => return status(&mut stream, Method::Get, 408, "Request Timeout").await,
+        Err(_elapsed) => Err((408_u16, "Request Timeout")),
         Ok(Err(err)) => return Err(err),
         Ok(Ok(HeadRead::Incomplete)) => return Ok(()),
-        Ok(Ok(HeadRead::TooLarge)) => {
-            return status(
-                &mut stream,
-                Method::Get,
-                431,
-                "Request Header Fields Too Large",
-            )
-            .await;
-        }
-        Ok(Ok(HeadRead::Complete(head))) => head,
+        Ok(Ok(HeadRead::TooLarge)) => Err((431, "Request Header Fields Too Large")),
+        Ok(Ok(HeadRead::Complete(head))) => Ok(head),
+    };
+    match tokio::time::timeout(response_timeout, respond(&mut stream, &site, head)).await {
+        Ok(result) => result,
+        Err(_elapsed) => Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "the peer did not read its response within {}s",
+                response_timeout.as_secs()
+            ),
+        )),
+    }
+}
+
+/// Everything after the head, under one deadline: route it, then write it.
+///
+/// `head` is `Err((code, reason))` when reading it already decided the answer
+/// — those two refusals are responses like any other and are written here.
+async fn respond<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    site: &Site,
+    head: Result<String, (u16, &'static str)>,
+) -> io::Result<()> {
+    let head = match head {
+        Err((code, reason)) => return status(stream, Method::Get, code, reason).await,
+        Ok(head) => head,
     };
 
     let Some((method_token, target)) = parse_request_line(&head) else {
-        return status(&mut stream, Method::Get, 400, "Bad Request").await;
+        return status(stream, Method::Get, 400, "Bad Request").await;
     };
     let method = match method_token {
         "GET" => Some(Method::Get),
@@ -102,17 +157,11 @@ pub async fn serve(mut stream: TcpStream, site: Arc<Site>) -> io::Result<()> {
     match site.hosts.verdict(&head) {
         Verdict::Answered => {}
         Verdict::Malformed => {
-            return status(
-                &mut stream,
-                method.unwrap_or(Method::Get),
-                400,
-                "Bad Request",
-            )
-            .await;
+            return status(stream, method.unwrap_or(Method::Get), 400, "Bad Request").await;
         }
         Verdict::Elsewhere => {
             return status_detail(
-                &mut stream,
+                stream,
                 method.unwrap_or(Method::Get),
                 421,
                 "Misdirected Request",
@@ -127,7 +176,7 @@ pub async fn serve(mut stream: TcpStream, site: Arc<Site>) -> io::Result<()> {
 
     let Some(method) = method else {
         return write_head(
-            &mut stream,
+            stream,
             405,
             "Method Not Allowed",
             "text/plain; charset=utf-8",
@@ -144,9 +193,9 @@ pub async fn serve(mut stream: TcpStream, site: Arc<Site>) -> io::Result<()> {
                 Refusal::Forbidden => (403, "Forbidden"),
                 Refusal::NotFound => (404, "Not Found"),
             };
-            status(&mut stream, method, code, reason).await
+            status(stream, method, code, reason).await
         }
-        Ok(found) => send_file(&mut stream, method, found).await,
+        Ok(found) => send_file(stream, method, found).await,
     }
 }
 
@@ -200,7 +249,11 @@ async fn resolve(root: &Path, target: &str) -> Result<Found, Refusal> {
     })
 }
 
-async fn send_file(stream: &mut TcpStream, method: Method, found: Found) -> io::Result<()> {
+async fn send_file<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    method: Method,
+    found: Found,
+) -> io::Result<()> {
     let Found {
         file,
         len,
@@ -248,15 +301,20 @@ async fn read_capped(file: tokio::fs::File, cap: u64) -> io::Result<Vec<u8>> {
 /// (RFC 9110 §8.6), so zeroing it alongside the body would describe a
 /// zero-length error page that no `GET` of this URL ever produces — and
 /// `send_file` already gets that right for `200`s.
-async fn status(stream: &mut TcpStream, method: Method, code: u16, reason: &str) -> io::Result<()> {
+async fn status<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    method: Method,
+    code: u16,
+    reason: &str,
+) -> io::Result<()> {
     status_detail(stream, method, code, reason, None).await
 }
 
 /// The same, with a second body line saying what to do about it. Reserved for
 /// the refusals whose cause is a configuration the operator can change — a
 /// `404` explains itself, a `421` does not.
-async fn status_detail(
-    stream: &mut TcpStream,
+async fn status_detail<S: AsyncWrite + Unpin>(
+    stream: &mut S,
     method: Method,
     code: u16,
     reason: &str,
@@ -280,8 +338,8 @@ async fn status_detail(
 /// nosniff` (the type came from the table in `mime` and the browser must not
 /// re-decide it), and `Cache-Control: no-store` (a regenerated bundle must
 /// never lose to a cached `sync.js` — `Troubleshooting.md` has that failure).
-async fn write_head(
-    stream: &mut TcpStream,
+async fn write_head<S: AsyncWrite + Unpin>(
+    stream: &mut S,
     code: u16,
     reason: &str,
     content_type: &str,
@@ -334,23 +392,43 @@ async fn read_head<R: AsyncRead + Unpin + ?Sized>(stream: &mut R) -> io::Result<
 }
 
 /// Index of the blank line that ends a request head, if it has arrived.
+///
+/// **The earliest terminator wins, whichever spelling it has (R0009-0006).**
+/// Searching for CRLF-CRLF first and falling back to LF-LF only when the
+/// buffer holds no CRLF-CRLF *anywhere* read a bare-LF head terminated early
+/// and followed later by a CRLF blank line at the wrong place: everything
+/// between the two — body bytes — was handed to the header parser as fields.
+/// That is framing disagreement of exactly the kind this server's no-keep-alive
+/// design exists to erase, so the two searches are run independently and the
+/// smaller index is taken.
 fn head_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .or_else(|| buf.windows(2).position(|w| w == b"\n\n"))
+    let crlf = buf.windows(4).position(|w| w == b"\r\n\r\n");
+    let lf = buf.windows(2).position(|w| w == b"\n\n");
+    match (crlf, lf) {
+        (Some(crlf), Some(lf)) => Some(crlf.min(lf)),
+        (crlf, lf) => crlf.or(lf),
+    }
 }
 
 /// `(method, target)` from the request line, or `None` if the line is not one.
 ///
-/// Exactly three space-separated tokens, the third being an `HTTP/` version.
-/// Anything else is a `400` rather than a guess.
+/// Exactly three space-separated tokens, the third being a version this server
+/// implements. Anything else is a `400` rather than a guess.
+///
+/// **The version token is matched, not prefixed (R0009-0004).** Accepting
+/// anything starting `HTTP/` let `HTTP/2`, `HTTP/9.9` and `HTTP/nonsense`
+/// through to a responder that answers `HTTP/1.1` with textual framing and
+/// `Connection: close` — an HTTP/2 upgrade preface in particular is a request
+/// this server cannot speak, and answering it in HTTP/1 leaves the two ends
+/// disagreeing about the protocol rather than about one message. The two
+/// tokens below are the two this server actually implements.
 fn parse_request_line(head: &str) -> Option<(&str, &str)> {
     let line = head.lines().next()?;
     let mut parts = line.split(' ');
     let method = parts.next()?;
     let target = parts.next()?;
     let version = parts.next()?;
-    if parts.next().is_some() || !version.starts_with("HTTP/") {
+    if parts.next().is_some() || !matches!(version, "HTTP/1.0" | "HTTP/1.1") {
         return None;
     }
     if method.is_empty() || target.is_empty() {
@@ -386,6 +464,20 @@ mod tests {
             None,
             "a TLS ClientHello arriving on the plaintext port is not a request",
         );
+        // R0009-0004: an `HTTP/` prefix is not a version this server speaks.
+        for version in [
+            "HTTP/2",
+            "HTTP/2.0",
+            "HTTP/0.9",
+            "HTTP/9.9",
+            "HTTP/nonsense",
+        ] {
+            assert_eq!(
+                parse_request_line(&format!("GET / {version}\r\n")),
+                None,
+                "{version} is not a version this server implements",
+            );
+        }
     }
 
     /// The index returned is where the head's *text* stops — the start of the
@@ -405,6 +497,21 @@ mod tests {
         let lf = b"GET / HTTP/1.1\nHost: x\n\nBODY";
         let end = head_end(lf).expect("a bare-LF client still terminates its head");
         assert_eq!(&lf[..end], b"GET / HTTP/1.1\nHost: x");
+    }
+
+    /// R0009-0006: when both terminators are present the earlier one ends the
+    /// head, whichever spelling it has. The mixed case is the whole point —
+    /// preferring CRLF-CRLF *wherever it appears* fed the header parser every
+    /// byte between the two blank lines, so a body could state fields.
+    #[test]
+    fn the_earlier_blank_line_ends_the_head_whichever_spelling_it_has() {
+        let lf_first = b"GET / HTTP/1.1\n\nBODY\r\n\r\nSMUGGLED";
+        let end = head_end(lf_first).expect("the first blank line ends the head");
+        assert_eq!(&lf_first[..end], b"GET / HTTP/1.1");
+
+        let crlf_first = b"GET / HTTP/1.1\r\n\r\nBODY\n\nMORE";
+        let end = head_end(crlf_first).expect("the first blank line ends the head");
+        assert_eq!(&crlf_first[..end], b"GET / HTTP/1.1");
     }
 
     /// A request head of exactly `total` bytes, terminator included.
@@ -498,5 +605,67 @@ mod tests {
                 "a {over}-byte head is over the {MAX_HEAD_BYTES}-byte cap",
             );
         }
+    }
+
+    /// The slow reader, reduced to its essence: a peer that accepts no bytes
+    /// at all. Every write parks forever, which is what `RESPONSE_TIMEOUT`
+    /// exists to bound.
+    struct NeverReads;
+
+    impl AsyncWrite for NeverReads {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            _buf: &[u8],
+        ) -> std::task::Poll<io::Result<usize>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<io::Result<()>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<io::Result<()>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    /// R0009-0001. The head read was bounded and the response was not, so a
+    /// peer that sent a perfectly well-formed head and then stopped reading
+    /// held one of `MAX_IN_FLIGHT` connection slots for the process's
+    /// lifetime — 128 of them and the server is unavailable, with no
+    /// malformed byte anywhere in the exchange.
+    ///
+    /// The refusal path is the one measured because it is the cheapest to
+    /// stage — no file has to exist — and because it proves the deadline is
+    /// not a property of `send_file` alone: a `404`'s head is bytes the peer
+    /// will not take, and it parks exactly like a bundle would.
+    #[tokio::test]
+    async fn a_peer_that_stops_reading_does_not_hold_its_connection_slot() {
+        let dir = crate::output::testing::scratch_dir("serve-slow-reader");
+        let site = Arc::new(Site {
+            root: dir.to_path_buf(),
+            hosts: crate::serve_cmd::host::HostPolicy::new(
+                "127.0.0.1:7470".parse().expect("test bind should parse"),
+                &[],
+            ),
+        });
+        let head = b"GET /absent.html HTTP/1.1\r\nHost: 127.0.0.1:7470\r\n\r\n";
+        let stream = tokio::io::join(&head[..], NeverReads);
+
+        let err = serve_within(stream, site, Duration::from_millis(50))
+            .await
+            .expect_err("a peer that never reads must not be awaited forever");
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::TimedOut,
+            "the connection is given up on, so `accept_loop` can drop it: {err}",
+        );
     }
 }

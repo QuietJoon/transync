@@ -202,10 +202,16 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
   // or handed to a context; it answers only "do these panes carry anchors at
   // all", which is the question R0002-0047 asks and the one question the
   // validated rows cannot answer.
+  //
+  // The row side of the condition reads `rowIds` — the set built just above —
+  // rather than deriving it a second time (R0009-0026). That is the same
+  // single-derivation property this comment's OI-0035 note is about, one step
+  // further: the ids the anchors are gated on and the count this refusal turns
+  // on are now literally one value, not two agreeing computations.
   const anchorCount =
     sourcePane.querySelectorAll("[data-sync-id]").length +
     targetPane.querySelectorAll("[data-sync-id]").length;
-  if (anchorCount > 0 && synchronizableRowCount(alignmentMap) === 0) {
+  if (anchorCount > 0 && rowIds.size === 0) {
     console.warn(
       `transync: rejecting alignment map — it describes no synchronizable ` +
         `block, but the panes carry ${anchorCount} anchors`
@@ -551,6 +557,14 @@ function collectAnchors(pane, label, rowIds, quiet) {
 // rode in on document content — source Markdown is untrusted data, raw HTML is
 // translatable content, and DOMPurify's default keeps `data-*` — cannot become
 // a scroll driver or a scroll target.
+//
+// It is also the count R0002-0047's refusal turns on, read as `.size` off the
+// one set `mountSync` already built (R0009-0026). There used to be a
+// `synchronizableRowCount` wrapper calling this a second time; the two always
+// agreed, but "agreed" was the weaker claim and the second full scan of the
+// map bought nothing. The size is the row count and not merely a distinct-id
+// count because `validateRows` refuses a duplicate `source_block_id` before
+// either is asked.
 function synchronizableRowIds(alignmentMap) {
   const rows = Array.isArray(alignmentMap && alignmentMap.blocks)
     ? alignmentMap.blocks
@@ -560,16 +574,6 @@ function synchronizableRowIds(alignmentMap) {
     if (row && row.sync_role !== "non-sync") ids.add(row.source_block_id);
   }
   return ids;
-}
-
-// How many rows claim a DOM anchor — derived from the set above rather than
-// counted again, so the predicate that gates the mount and the predicate that
-// gates the anchors are one function and cannot drift apart (OI-0035). The two
-// numbers agree because `validateRows` refuses a duplicate `source_block_id`
-// before either is asked, so rows and distinct ids are the same count for
-// every map that reaches here.
-function synchronizableRowCount(alignmentMap) {
-  return synchronizableRowIds(alignmentMap).size;
 }
 
 // loadAlignment gates the schema version and the row shape; this surfaces
@@ -622,19 +626,35 @@ function warnMapDomDrift(alignmentMap, sourceById, targetById) {
  * pane to the wrong place. The contract itself names that failure mode "a
  * silent layout regression"; this makes it audible.
  *
- * One representative anchor per pane answers for all of them — the property
- * being checked is the PANE's computed position, not a fact about the
- * individual block — so the cost is one layout read per pane at mount, never
- * one per frame.
+ * The property being checked is the PANE's computed position, not a fact
+ * about any individual block — so it is read off the pane, and the cost stays
+ * one property read per pane at mount, never one per frame (contracts.md §4a
+ * budgets exactly that).
  *
- * A null `offsetParent` is deliberately not treated as a violation: it means
+ * **It used to be read off `blocks[0]` instead (R0009-0024), which is a
+ * different question.** `offsetParent` names the nearest positioned ancestor,
+ * so a consumer who wraps one block in a positioned element gets that wrapper
+ * back for that block while the pane is configured perfectly — the old probe
+ * called a correct pane broken, on evidence about a single block, and would
+ * have said the same about `blocks[0]` alone however the blocks after it were
+ * wrapped. Asking the pane what its `position` is answers the precondition
+ * itself and cannot be fooled either way.
+ *
+ * The `offsetParent` read survives on the failure path only, where naming the
+ * element the offsets are actually coming from is what makes the warning
+ * actionable. A null one is deliberately not treated as a violation: it means
  * the anchor is `display: none`, inside a `position: fixed` subtree, or
  * detached, none of which is the misconfiguration this guards, and all of
- * which have no offset geometry to be wrong about.
+ * which have no offset geometry to be wrong about. Nor is an `offsetParent`
+ * that is the pane anyway — a `<td>`/`<th>`/`<table>` pane is one without any
+ * `position` at all — since then the offsets are already pane-relative.
  */
 function warnOffsetParentDrift(pane, blocks, label) {
   const probe = blocks[0];
   if (!probe) return;
+  const view = pane.ownerDocument && pane.ownerDocument.defaultView;
+  if (!view || typeof view.getComputedStyle !== "function") return;
+  if (view.getComputedStyle(pane).position !== "static") return;
   const parent = probe.offsetParent;
   if (parent === null || parent === pane) return;
   const where = parent.tagName ? parent.tagName.toLowerCase() : String(parent);
@@ -785,6 +805,26 @@ function validateRows(blocks, forwardDrift) {
     // is not a violation: the field is optional in a map, and omitting it
     // says nothing that contradicts the identity.
     const targetId = row.target_block_id;
+    // R0009-0022: anything else present is not a block id at all. The
+    // identity check below is `typeof targetId === "string"`-gated, so a
+    // `42` or a `{}` slipped past the very refusal the string "42" would
+    // have triggered — silently, and then failed later through implicit
+    // string coercion at a lookup, which is the hard-to-diagnose partial
+    // sync this gate exists to prevent. Refused whatever the schema minor
+    // says, exactly like the non-string `sync_role` below: contracts.md §3
+    // lets a newer minor add enumerated VALUES, never change a field's JSON
+    // type, so there is no forward-compat reading of this.
+    if (
+      targetId !== undefined &&
+      targetId !== null &&
+      typeof targetId !== "string"
+    ) {
+      console.warn(
+        `transync: rejecting alignment map — ${at} ("${id}") has a ` +
+          `non-string target_block_id`
+      );
+      return false;
+    }
     if (
       typeof targetId === "string" &&
       targetId !== "" &&
