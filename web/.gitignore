@@ -3,3 +3,6 @@ test-results/
 playwright-report/
 blob-report/
 .playwright/
+# Default TRANSYNC_FIXTURE_DIR for a bare `pnpm exec playwright test`
+# (scripts/test-browser.sh uses its own workdir and overrides it).
+.fixture/

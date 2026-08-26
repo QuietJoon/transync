@@ -5,9 +5,9 @@
 
 set -euo pipefail
 
-# Required: export your OpenAI key here, or in the parent shell before
-# running.
-# export OPENAI_API_KEY=sk-...
+# Required: OPENAI_API_KEY. Export it from the parent shell before
+# running, or source it from a gitignored .env file. Never write a key
+# — not even a commented-out template — into this tracked file.
 
 export TRANSYNC_LIVE_SYSTEM_PROMPT='You are a literary translator. Translate from {{source_language}} to {{target_language}}. Preserve markdown structure exactly.'
 

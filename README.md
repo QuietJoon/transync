@@ -77,7 +77,12 @@ transync/                     # Cargo workspace root
 
 ## MVP track
 
-**Track D**: Rust library + thin CLI + vanilla-JS demo. WASM rendering is post-MVP (track C). See `docs/architecture/mvp-scope.md` for the locked scope.
+**Track D**: Rust library + thin CLI + vanilla-JS demo. WASM rendering (track C)
+**shipped 2026-08-05 (ADR-0019 / DCR-0020)** as a *web demo*, not as a track swap —
+`crates/transync-wasm` wraps `transync-syntax` and `web/demo-wasm.html` renders both
+panes in the browser. What stays excluded is the narrower thing: **bundle
+integration**, the CLI's `--html-out` bundle deliberately carries no wasm. See
+`docs/architecture/mvp-scope.md` for the locked scope.
 
 ## Quick start
 

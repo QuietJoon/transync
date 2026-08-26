@@ -9,6 +9,9 @@
 # including one inherited from global or system config — makes it refuse
 # and print the ways forward; only an explicit --force takes over, and it
 # says whether it replaced a local value or shadowed an inherited one.
+# The same rule covers hook *files*: a .git/hooks entry is removed only
+# when it is byte-identical to the tracked hook it shadows, never on the
+# strength of its name.
 #
 # TRACE: SCN-12
 
@@ -127,13 +130,30 @@ chmod +x scripts/hooks/* 2>/dev/null || true
 
 # A legacy copy in .git/hooks is DEAD once core.hooksPath is set, but it
 # silently goes stale and misleads anyone inspecting .git/hooks. Remove
-# any copy that shadows a tracked hook (discovered 2026-08-04: the copy,
-# not the tracked hook, had been the live one while hooksPath was unset).
+# such a copy (discovered 2026-08-04: the copy, not the tracked hook, had
+# been the live one while hooksPath was unset) — but only when it is
+# provably a copy, i.e. byte-identical to the tracked hook it shadows.
+#
+# The name alone is not evidence. `.git/hooks/pre-commit` is where a
+# developer's own hook lives too, it is untracked and unrecoverable, and
+# matching a tracked hook's basename says nothing about who wrote it. A
+# differing file is therefore preserved and named, never deleted: it is
+# inert either way (core.hooksPath governs), so the only thing deleting it
+# would buy is a tidier directory, at the price of someone else's work.
 for hook in scripts/hooks/*; do
+  [[ -f "$hook" ]] || continue
   legacy=".git/hooks/$(basename "$hook")"
-  if [[ -f "$legacy" ]]; then
+  [[ -f "$legacy" ]] || continue
+  if cmp -s "$hook" "$legacy"; then
     rm "$legacy"
-    echo "[install-hooks] removed inert legacy copy $legacy (core.hooksPath governs)"
+    echo "[install-hooks] removed inert legacy copy $legacy (byte-identical to $hook; core.hooksPath governs)"
+  else
+    {
+      echo "[install-hooks] KEPT: $legacy is not a copy of $hook."
+      echo "[install-hooks]   It is inert — core.hooksPath -> $want governs which hooks run — but it"
+      echo "[install-hooks]   differs from the tracked hook, so it may be yours. Nothing was deleted."
+      echo "[install-hooks]   If it is stale and you want it gone:  rm '$repo_root/$legacy'"
+    } >&2
   fi
 done
 

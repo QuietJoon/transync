@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # transync pre-commit hook (tracked under version control — R0008-0058).
 # Runs format-check + lint per detected language.
-# Skips silently if a language's manifest is not yet present.
+#
+# A language whose tooling is absent is SKIPPED, and a skip is not a pass.
+# The Rust leg is complete and fails loudly. The JS/TS leg is not: no linter
+# is a declared devDependency of web/, so every probe below misses and the
+# leg validates nothing. It says so in a summary at the end rather than
+# letting the skip scroll past — read that summary before trusting a green
+# commit to mean the browser code was checked (R0009-0014).
 #
 # Install with: scripts/install-hooks.sh
 
@@ -60,16 +66,20 @@ for candidate in . web; do
   fi
 done
 
+js_skipped=""
+
 if [ -n "$js_dir" ]; then
   # Invoke the locally-installed binary directly — no `pnpm exec` / `npx exec`
   # indirection (npx has no `exec` subcommand). A tool that is not installed is
   # reported and skipped rather than failing the commit: no JS linter is a
   # declared devDependency yet, so failing here would block every commit.
+  # Skips are accumulated so the end of the run can say the leg did not run.
   run_js_tool() {
     tool="$1"
     shift
     if [ ! -x "$js_dir/node_modules/.bin/$tool" ]; then
       echo "[pre-commit] SKIP: $tool not installed in $js_dir — run: (cd $js_dir && pnpm add -D $tool)" >&2
+      js_skipped="${js_skipped:+$js_skipped }$tool"
       return 0
     fi
     echo "[pre-commit] ($js_dir) $tool $*"
@@ -87,6 +97,23 @@ if [ -n "$js_dir" ]; then
   if [ -f "$js_dir/tsconfig.json" ]; then
     run_js_tool tsc --noEmit
   fi
+fi
+
+# A skipped leg exits 0 like a passing one, so the status alone cannot tell
+# them apart. Say it here, where the operator is already reading output.
+# The status is deliberately NOT failed on a skip: no linter is declared yet,
+# so failing would block every commit — including the ones that would add it.
+if [ -n "$js_skipped" ]; then
+  {
+    echo "[pre-commit] ----------------------------------------------------------"
+    echo "[pre-commit] THE JAVASCRIPT/TYPESCRIPT GATE DID NOT RUN."
+    echo "[pre-commit]   not installed in $js_dir: $js_skipped"
+    echo "[pre-commit] Nothing under $js_dir was format-checked or linted, so a"
+    echo "[pre-commit] successful exit below covers the Rust gates ONLY."
+    echo "[pre-commit] Close it by declaring a linter, e.g.:"
+    echo "[pre-commit]   (cd $js_dir && pnpm add -D @biomejs/biome)"
+    echo "[pre-commit] ----------------------------------------------------------"
+  } >&2
 fi
 
 exit $fail

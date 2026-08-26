@@ -20,8 +20,11 @@
 #   TRANSYNC_LIVE_WORKDIR            — output directory (default: /Volumes/Temp/claude/transync-live)
 #   TRANSYNC_LIVE_PORT               — server port (default: 7470)
 #   TRANSYNC_LIVE_BIND               — address the demo server listens on (default: 127.0.0.1).
-#                                      Set to 0.0.0.0 (or your dev server's LAN IP) when
-#                                      browsing from a different machine on the same network.
+#                                      Must be an IP literal: `transync serve --bind` parses an
+#                                      `IpAddr`, so a hostname such as `localhost` is rejected —
+#                                      spell loopback 127.0.0.1 or ::1. Set 0.0.0.0 (or your dev
+#                                      server's LAN IP) when browsing from a different machine
+#                                      on the same network.
 #   TRANSYNC_LIVE_ALLOW_HOST         — an extra authority the server answers for, as host or
 #                                      host:port (forwarded as --allow-host). Needed with a
 #                                      non-loopback bind: the server answers only for
@@ -62,6 +65,16 @@ fi
 WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_WORKDIR}"
 PORT="${TRANSYNC_LIVE_PORT:-7470}"
 BIND="${TRANSYNC_LIVE_BIND:-127.0.0.1}"
+
+# `serve --bind` is an `IpAddr` field, so a hostname dies in clap. Refuse it here:
+# the server starts only after a *paid* translation run, and failing at the end of
+# that run is the expensive way to learn the value was never parseable.
+if ! [[ "$BIND" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] \
+   && ! { [[ "$BIND" == *:* ]] && [[ "$BIND" =~ ^[0-9A-Fa-f:]+$ ]]; }; then
+  echo "[smoke-live] TRANSYNC_LIVE_BIND must be an IP literal, not a hostname: $BIND" >&2
+  echo "[smoke-live] use 127.0.0.1 or ::1 for loopback, 0.0.0.0 or a LAN IP otherwise." >&2
+  exit 1
+fi
 ALLOW_HOST="${TRANSYNC_LIVE_ALLOW_HOST:-}"
 
 if [[ ! -f "$INPUT" ]]; then
@@ -163,8 +176,10 @@ echo "  Demo bundle:      $HTML_OUT/"
 echo "============================================================"
 echo
 echo "[smoke-live] starting demo server: transync serve --bind $BIND --port $PORT"
-if [[ "$BIND" == "127.0.0.1" || "$BIND" == "localhost" ]]; then
-  echo "[smoke-live] open http://${BIND}:${PORT}/  (Ctrl-C to stop)"
+# An IPv6 literal needs brackets in a URL; an IPv4 one must not have them.
+if [[ "$BIND" == *:* ]]; then BIND_URL_HOST="[$BIND]"; else BIND_URL_HOST="$BIND"; fi
+if [[ "$BIND" == "127.0.0.1" || "$BIND" == "::1" ]]; then
+  echo "[smoke-live] open http://${BIND_URL_HOST}:${PORT}/  (Ctrl-C to stop)"
 else
   echo "[smoke-live] open http://<this-host-on-${BIND}>:${PORT}/  (Ctrl-C to stop)"
   echo "[smoke-live] (binding to ${BIND}; reachable from other machines on the network)"

@@ -21,7 +21,13 @@
 // TRACE: SCN-13
 // TRACE: OI-0023
 
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { defineConfig, devices } from "@playwright/test";
+
+const CONFIG_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 // Loopback-only demo server. Port is fixed and uncommon to avoid
 // colliding with the manual smoke server (scripts/smoke-live.sh uses
@@ -29,11 +35,30 @@ import { defineConfig, devices } from "@playwright/test";
 const HOST = "127.0.0.1";
 const PORT = 4319;
 
-// The bundle to serve. scripts/test-browser.sh regenerates it here right
-// before invoking the suite; override with TRANSYNC_FIXTURE_DIR.
-const FIXTURE_DIR =
-  process.env.TRANSYNC_FIXTURE_DIR ||
-  "/Volumes/Temp/claude/transync-browser-fixture/html";
+// The bundle to serve. Nothing in this repository tracks one — it is a
+// CLI-emitted artifact — so the default is a repository-relative path a
+// clean clone can actually name, not an absolute path that exists on one
+// workstation. scripts/test-browser.sh regenerates the bundle under its own
+// workdir and passes TRANSYNC_FIXTURE_DIR (absolute) explicitly; a bare
+// `pnpm exec playwright test` gets this default and the check below.
+const FIXTURE_DIR = path.resolve(
+  process.env.TRANSYNC_FIXTURE_DIR || path.join(CONFIG_DIR, ".fixture", "html"),
+);
+
+// Fail here, with the command that fixes it, rather than 30 s later inside a
+// webServer readiness timeout that says only that the URL never answered.
+// Safe for the wrapper: `playwright install <browser>` does not load this
+// file, and the wrapper regenerates the bundle before it runs the suite.
+if (!fs.existsSync(FIXTURE_DIR)) {
+  throw new Error(
+    [
+      `No rendered bundle at ${FIXTURE_DIR}.`,
+      "This suite runs against a CLI-emitted bundle, which is generated, not tracked.",
+      "Generate one and run the suite with:  ./scripts/test-browser.sh",
+      "or point TRANSYNC_FIXTURE_DIR at an existing bundle directory.",
+    ].join("\n"),
+  );
+}
 
 // The built `transync` binary, when scripts/test-browser.sh resolved one.
 const SERVE_BIN = process.env.TRANSYNC_SERVE_BIN;
@@ -67,7 +92,14 @@ export default defineConfig({
       : `node ./tests/support/static-server.mjs "${FIXTURE_DIR}" ${PORT}`,
     url: `http://${HOST}:${PORT}/index.html`,
     timeout: 30_000,
-    reuseExistingServer: !process.env.CI,
+    // Off by default (R0009-0017). Reuse keyed on "something answers this
+    // port" is not proof of ownership: a leftover `transync serve` from an
+    // aborted run, or any unrelated process, would silently stand in for the
+    // server this config asked for and the suite would report a pass against
+    // content it never built. With reuse off, an occupied port is a loud
+    // startup failure instead. Set TRANSYNC_REUSE_SERVER=1 to opt back in
+    // when you know what is listening.
+    reuseExistingServer: process.env.TRANSYNC_REUSE_SERVER === "1",
     stdout: "pipe",
     stderr: "pipe",
   },

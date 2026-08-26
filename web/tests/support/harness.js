@@ -15,12 +15,22 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-// The bundle the webServer serves. scripts/test-browser.sh regenerates
-// it before every run; the default matches playwright.config.js.
-export const FIXTURE_DIR =
-  process.env.TRANSYNC_FIXTURE_DIR ||
-  "/Volumes/Temp/claude/transync-browser-fixture/html";
+// The bundle the webServer serves. scripts/test-browser.sh regenerates it
+// before every run and passes TRANSYNC_FIXTURE_DIR. The fallback must stay
+// byte-for-byte the same directory playwright.config.js resolves, or the
+// suite reads one bundle while the server serves another — so it is derived
+// the same way: repository-relative, not an absolute path tied to one
+// workstation (R0009-0019).
+const WEB_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+);
+export const FIXTURE_DIR = path.resolve(
+  process.env.TRANSYNC_FIXTURE_DIR || path.join(WEB_DIR, ".fixture", "html"),
+);
 
 // REFERENCE_OFFSET_PX in sync.js — the "currently reading" line.
 export const REFERENCE_OFFSET_PX = 4;

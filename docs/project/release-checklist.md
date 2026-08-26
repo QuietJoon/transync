@@ -528,11 +528,12 @@ Run all of them on the exact commit from step 1, and keep the output.
     and says in the tag message why it is late, because a tag whose date
     trails its release is a question someone will ask.
 
-    **Zero tags survive** in this repository — `git tag -l` is empty. The
+    **One tag survives**: `git tag -l` prints `v0.4.0` and nothing else. The
     v0.1.0, v0.2.0 and v0.3.0 tag objects went with the history restarted on
     2026-08-10 and were deliberately not recreated, because the commits they
     pointed at are gone too (`docs/project/git-history-loss-2026-08-10.md`
-    holds their archived hashes). The rule they were evidence for is unchanged
+    holds their archived hashes); v0.4.0's was created on 2026-08-20 by the
+    reversal above. The rule they were evidence for is unchanged
     for every tag this repository creates from now on: annotated, never
     lightweight. A lightweight tag is just a moving pointer: no tagger, no
     date, no message, and nothing that records what the release was.

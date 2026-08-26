@@ -7,7 +7,11 @@
 //! - [`translate`] — top-level pipeline entry.
 //! - [`Translator`] — trait that consumers implement (or use `transync_openai` for the default).
 //!   Carries the defaulted [`llm::ProviderFingerprint`]-valued `fingerprint` cache-namespace method.
-//! - [`TranslationOutput`] — the four-part result.
+//! - [`TranslationOutput`] — the pipeline result: the regenerated target
+//!   document, the alignment map and the two annotated HTML panes that render
+//!   against it, the validation report, and the metadata the run detected.
+//!   It is `#[non_exhaustive]`, so read the type for the current field set —
+//!   this list names the groups, not a count.
 //! - [`cache::Cache`] v2 (`get`/`put`/`evict`, all fallible via [`cache::CacheError`]),
 //!   [`cache::CacheKey`] (provider-fingerprinted + validation-schema-versioned),
 //!   plus four defaulted document-level methods, in two record families:
@@ -380,10 +384,16 @@ impl Default for TranslateOptions {
     }
 }
 
-/// Four-part pipeline result returned to the caller.
+/// Pipeline result returned to the caller.
+///
+/// Four groups, not a fixed count: the regenerated target document; the
+/// alignment map plus the two annotated HTML panes that render against it;
+/// the validation report; and the metadata the run detected from the source
+/// (its language, its title).
 ///
 /// Non-exhaustive: produced by the engine; consumers read fields rather
-/// than construct — new fields may be added in minor releases.
+/// than construct — new fields may be added in minor releases, so do not
+/// write prose (here or downstream) that counts them.
 ///
 /// TRACE: SCN-12
 /// TRACE: ADR-0001
@@ -446,8 +456,16 @@ where
 
 /// Same as [`translate`] but accepts an externally-managed cache so
 /// callers can run multiple translation passes against shared state
-/// (partial-resume across documents, cross-process disk-backed caches
-/// once the trait grows a persistence-capable impl).
+/// (partial-resume across documents, or a cache that outlives the process).
+///
+/// Persistence is shipped, not future work: [`DiskCache`] (DCR-0028) is a
+/// versioned JSON-lines log under a cache directory, and passing one here is
+/// what makes a re-run of the same document cost only its misses. It carries
+/// one constraint the caller owns — **one writer per cache directory**;
+/// concurrent processes sharing one are unsupported, and the violation costs
+/// *entries* (a re-translation), never corrupt output and never a failed run.
+/// Its construction is fallible so the degrade decision stays with the caller;
+/// see [`DiskCache`] for the recovery and capacity rules.
 ///
 /// This is the entry point cancellation was designed against (DCR-0024):
 /// units accepted before the token fired are already in `cache`, so a re-run

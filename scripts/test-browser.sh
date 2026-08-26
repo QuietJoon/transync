@@ -29,9 +29,10 @@ WEB_DIR="$REPO_ROOT/web"
 # shellcheck source-path=SCRIPTDIR source=lib/workdir-guard.sh
 source "$REPO_ROOT/scripts/lib/workdir-guard.sh"
 
-# The fixture bundle lives under html/ so playwright.config.js's default
-# TRANSYNC_FIXTURE_DIR (…/transync-browser-fixture/html) matches when the
-# workdir is left at its default.
+# The fixture bundle lives under html/. This script always passes the
+# resulting path to Playwright as TRANSYNC_FIXTURE_DIR, so it does not rely
+# on playwright.config.js's default (which is repository-relative and exists
+# for bare `pnpm exec playwright test` runs, not for this wrapper).
 WORKDIR="${TRANSYNC_FIXTURE_WORKDIR:-/Volumes/Temp/claude/transync-browser-fixture}"
 if [[ ! -d "$(dirname "$WORKDIR")" ]]; then
   WORKDIR="${TMPDIR:-/tmp}/transync-browser-fixture"
