@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-08-23-ti490d97-wave1
+  last_updated: 2026-08-29-review0009-fix-pass
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -98,7 +98,49 @@ project:
     RECORDED: an impostor carrying a LISTED id ahead of the genuine anchor
     still wins first-occurrence-wins, which is why the render strip is the
     other half rather than a nicety. Nothing schema-visible moved; alignment
-    stays 1.2.0. Waves 2-7 are UNSTARTED.
+    stays 1.2.0. Waves 2-7 were UNSTARTED at that point (past-tensed 2026-08-29:
+    wave 2's code landed on 2026-08-24; the sentence was true about the moment
+    it describes, so it is dated rather than deleted).
+    THE SANCTIONED V0.5.0 BREAKING WINDOW IS OPEN since 2026-08-24 (ff788f7;
+    the root Cargo.toml's [workspace.package].version is 0.5.0-dev and is the
+    one canonical record). It was opened by ti 490d97 wave 2, the IR split,
+    whose breaking IR commits landed the same day: 20b78b7 + 258ba01 (Spelling
+    on every block and SourceFormat as Document.format on every document -
+    two axes, not one), 954711a (BlockKind::Html drops the CommonMark type),
+    8b556e7 (BlockKind::Title) and 1ed72d3 (every html dispatch site re-keyed
+    onto Spelling::Html / InputMode::HtmlSegments / constraints.html).
+    AS OF 2026-08-29 this blob does not yet carry wave 2's own paragraph: the
+    wave-2 plan's Task 8 owns ADR-0025, DCR-0034 and this note, and had not
+    run. Waves 3-7 unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
+    most recent release is still v0.4.0, and the owner's condition for closing
+    this one (stated 2026-08-24) is that 0.5.0 proper ships only after every
+    REGISTERED TASK and every OPEN ISSUE is resolved, excluding those
+    explicitly deferred: the UNION of the TicGit queue and the open-issue
+    register, censused in docs/backlog.md and consulted at
+    release-checklist step 2a.
+    REVIEW-0009 DECISION GATE RAN 2026-08-25 TO 2026-08-29. Twenty-six findings
+    fixed across three commits - 88964df (eleven: five stale documentation
+    claims and six gates that could not fail), 8d4efda (six, one BREAKING) and
+    69701cd (nine: serve's response half gains a total 60s RESPONSE_TIMEOUT,
+    and five head/host/map parsers stop accepting what they cannot mean). The
+    breaking one rides THIS window: transync_openai's ProviderError::RateLimited
+    was dead, pub, and carried no #[non_exhaustive], and its removal is
+    permitted only because ff788f7 had opened the window two days earlier
+    (2026-08-24 21:42 vs 2026-08-26 16:14; commit 5ff6d17's message says
+    "hours" - the record itself does not repeat that, and the timestamps decide).
+    With the window closed the right answer would have been to leave the variant
+    and record it. The three shipped behaviour changes are recorded in DCR-0040
+    (5ff6d17), which takes 0040 rather than the next free number because
+    DCR-0034..DCR-0039 are RESERVED by HTML->HTML waves 2-7, whose records tasks
+    have not run; it also amended ADR-0002 and corrected contracts.md section 4a
+    to describe the probe mountSync actually has. Section 4a's drift was created
+    by the fix pass itself, in the same hours it was fixing drift: 69701cd
+    replaced the offsetParent probe and touched no document.
+    The thirty-five findings routed track, plus R0009-0014, are registered
+    as OI-0039..OI-0048 with ten paired docs/backlog.md entries (e663422) and
+    deliberately NO TicGit tickets - reopen's selection gate decides which
+    become work. Schema constants did NOT move: alignment stays 1.2.0,
+    VALIDATION_SCHEMA_VERSION stays 2.
     TRACK C WASM RENDER+EDIT DEMO LANDED 2026-08-05 (ADR-0019 + DCR-0020;
     6 commits 94d7e39..1d04135, branch master). This is TRACK C PROPER - the
     browser integration OI-0028/DCR-0017 deferred after delivering only the
@@ -634,6 +676,12 @@ design:
     - DCR-0031-indented-code-normalize-on-translate
     - DCR-0032-transync-html-crate-extraction
     - DCR-0033-oi0035-anchor-trust-both-layers
+    # DCR-0034..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
+    # (docs/superpowers/plans/2026-08-20-html-wave*.md), each appended here by
+    # that wave's own records task. DCR-0040 is out of sequence on purpose -
+    # taking the next free number would have collided with an unrun wave's
+    # paperwork. Keep this roster in numeric order when a reserved number lands.
+    - DCR-0040-review-0009-fix-pass
   rewind_required_to_phase: null
   status: handoff_complete
 

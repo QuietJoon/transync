@@ -101,7 +101,8 @@ entries (steps 17 and 18). ADR-0019 and a shipped changelog entry are
 snapshot records and are never edited in place, so renumbering this list
 would falsify a frozen document. Add a step at a number that leaves the
 existing ones where they are — step 0 below is the first one added that
-way.
+way, and step **2a** the second, taking a letter because no integer was
+free where it belonged.
 
 ---
 
@@ -165,10 +166,54 @@ way.
 
 2. **Pick the version number under the stability rules, not by feel.**
    `contracts.md` §0/§1 decide what counts as breaking; a break needs a
-   sanctioned window, and v0.2.0 closed the window opened after v0.1.0, so
-   the next sanctioned breaking window is 0.3.0 (recorded in
-   `phase-state.yaml`). Additions protected by `#[non_exhaustive]`, new
-   defaulted trait methods, and new modules are additive and need no window.
+   sanctioned window. The 0.3.0 and 0.4.0 windows are both **used and
+   closed**; the **v0.5.0 window is open** (`ff788f7`, 2026-08-24 — recorded
+   in `phase-state.yaml` and in `status.md`'s workspace-version bullet), and
+   it is closed by the v0.5.0 release itself. Additions protected by
+   `#[non_exhaustive]`, new defaulted trait methods, and new modules are
+   additive and need no window.
+
+**2a. Confirm the version's window-closing condition is met — and know which
+condition it is.** A release number is not only a semver claim. Some numbers in
+this project carry an **additional, owner-stated condition** that has to be
+discharged before the release may be cut at all, and step 2's stability rules say
+nothing about it. This step is where that condition is named and checked; it is
+deliberately written to generalise, so each version records its own condition here
+as it is stated, and a version with none says so.
+
+- **v0.5.0 — stated by the owner 2026-08-24.** *`transync` bumps to 0.5.0 proper
+  only after every **registered task** and every **open issue** is resolved,
+  excluding those explicitly deferred.* "Registered" is the **union** of the
+  TicGit queue (`ti list --all`) and the open-issue register
+  (`docs/project/open-issues.md`) — an item closed in one and open in the other
+  still counts. "Explicitly deferred" means a **recorded** deferral naming a
+  falsifiable trigger, not merely blocked and not merely unqueued; such an item
+  **re-counts the moment its trigger fires**. The open v0.5.0 breaking window is
+  not this condition — the window says what *may* ride the release, this says
+  whether the release may happen.
+- **Where the answer lives:** `docs/backlog.md`. Its header states this rule and
+  carries the census — every entry classified as counting, deferred-with-a-
+  recorded-condition, or resolved/historical — and `status.md` names that file as
+  the index of open items. **Re-derive the counts against `ti list --all` and
+  `open-issues.md` instead of reading the last sweep's numbers**; a stale census
+  answers this step wrongly and silently, which is exactly how the failure below
+  happened.
+- **v0.1.0 through v0.4.0 carried no such condition**, which is why this step did
+  not exist for them: they were gated by step 2's stability rules and the standing
+  gates in section B, and by nothing else.
+
+Why this is a step and not a convention: the 0.4.0 window was declared
+used-and-closed while six wave-0/1 finding tickets sat unindexed — one of them
+`ticgit:e77173bb`, a *live* `contracts.md` §4a break — and a sweep on 2026-08-24
+(`e89b537`) then found **18 of the 24** open tickets missing from the file
+`status.md` calls "the index of open items". The condition was answerable the
+whole time. Nothing in the ritual asked.
+
+**On the number `2a`.** *When it applies* forbids renumbering, because these step
+numbers are cited from outside this file, and there is no free integer between 2
+and 5. So this step takes a letter — the same rule step 0 followed, applied where
+no integer was available. A future insertion should do the same rather than shift
+anything.
 
 3. **Audit the CHANGELOG for completeness against the commit range**, not
    from memory: read `git log --oneline v<prev>..HEAD` alongside the

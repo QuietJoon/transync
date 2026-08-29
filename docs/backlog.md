@@ -1,14 +1,57 @@
 # Backlog — WIP / deferred / open items
 
-Maintained by the `/reopen` sweep. Last sweep: 2026-08-05; last full update: 2026-08-07
-(the end of the review-0001 hardening arc). This refresh was derived from `ti list --all`
-and `git log`, not from this file's own previous text — the arc produced several tickets
-whose root cause was one document restating another, and the index must not become one.
+Maintained by the `/reopen` sweep. Last sweep: **2026-08-26**; last full update:
+**2026-08-26** (the review-0009 track register). Three sweeps have run since the
+2026-08-07 refresh this line used to date itself from, and each one's markers are dated
+in place on the entries it touched: **2026-08-24** (`e89b537` — the index was missing 18
+of 24 open tickets), **2026-08-25** (`7a1eaa0` — twelve deferrals audited, and the census
+below became answerable) and **2026-08-26** (`e663422` — ten entries for thirty-six
+review-0009 findings: the thirty-five the owner routed `track`, plus R0009-0014).
+That 2026-08-07 refresh was derived from
+`ti list --all` and `git log`, not from this file's own previous text — the review-0001
+arc produced several tickets whose root cause was one document restating another, and the
+index must not become one. Every sweep since has held to that rule.
 Sources: `docs/project/`, `docs/decisions/`, `docs/architecture/`, DCRs, specs, code
 markers, `docs/investigation/` (untracked and git-ignored since 2026-08-08 — present on
 disk and read as a source, but not version-controlled) and `reviews/` (partly tracked:
 round 0001 and `README.md` are committed, later rounds are left untracked until the gate
 archives them; see `untracked-analysis-bundles` below).
+
+**The v0.5.0 release gate — the rule this file is the census for (owner, stated
+2026-08-24).** **`transync` bumps to 0.5.0 proper only after every registered task and
+every open issue is resolved, excluding those explicitly deferred.** Three parts of that
+sentence are load-bearing and none of them is optional:
+
+- **"Registered" is the union of two registers, not either alone** — the TicGit queue
+  (`ti list --all`) *and* the open-issue register (`docs/project/open-issues.md`, indexed
+  here). An item closed in one and open in the other still counts against the gate.
+- **"Explicitly deferred" means a *recorded* deferral with a named, falsifiable
+  trigger** — not merely blocked, and not merely absent from anybody's queue. An entry
+  whose blocking condition is written down is excluded, and **re-counts the moment that
+  condition fires**. A substring search for the word `owner-deferred` is not a substitute
+  for reading the entry; the 2026-08-25 audit reversed twelve findings that had been
+  reported on exactly that basis.
+- **The window is not the gate.** `0.5.0-dev` is the open breaking window (`ff788f7`,
+  2026-08-24); this condition is what closes it. Nothing is released from an open window.
+
+**Why the rule lives here.** The 0.4.0 window was declared used-and-closed while six
+wave-0/1 finding tickets sat unindexed — including `ticgit:e77173bb`, a *live*
+`contracts.md` §4a break — and the 2026-08-24 sweep then measured that failure properly:
+**18 of the 24 open tickets were missing** from the very file `docs/project/status.md`
+calls "the index of open items". A gate phrased over "every open issue" is worth exactly
+as much as the census that answers it, which is why every entry below has to be in one of
+three states — counting, deferred-with-a-recorded-condition, or resolved/historical — and
+why an entry that is in none of them is a defect in this file, not an ambiguity.
+
+**Census (2026-08-26).** Of the **64** entries below: **34 count against the gate**,
+**23 are explicitly deferred with a recorded condition**, **7 are resolved or historical**.
+The 2026-08-25 deferral audit (`7a1eaa0`) established **24 / 23 / 7** over the 54 entries
+that existed then; the ten review-0009 entries `e663422` added the next day
+(OI-0039..OI-0048) are all open work, and are the whole of the difference. Re-derive these
+figures on each sweep rather than trusting them — an entry counts unless it carries a
+resolution or a dated deferral line. The release-side half of this rule is
+`docs/project/release-checklist.md` step 2a, which is where a release actually consults
+the census.
 
 **Note (2026-08-17):** the `git log` half of that source set no longer exists. This
 repository's object store was restarted for the second time on 2026-08-17
@@ -35,6 +78,15 @@ can still remove an empty directory a peer just locked). Two Type 2 entries carr
 `reopen`'s selection gate.
 Of the 34 tickets tagged `review-0001`, 33 are closed; the one survivor is Type 2's
 `40e2a5`.
+
+**TicGit state superseded (2026-08-24, `e89b537`).** The snapshot above is kept as the
+2026-08-08 record and is not rewritten; it is no longer the current count. The 2026-08-24
+sweep found **24** open tickets, all 24 now indexed here — 13 Type 1, 8 Type 2, 3 Type 3 —
+and filed three more entries (OI-0037 `148fcf83`, OI-0038 `30a744f1`, OI-0016 `dd21ad59`).
+Correlation between the two registers depends on the `ticgit:<8-hex>` spelling, not on
+`` ti `xxxxxx` ``: an entry written the short way is re-filed as untracked by the next
+sweep. Read the census above for the current answer to the release gate; read `ti list
+--all` for the current queue.
 
 Types:
 
