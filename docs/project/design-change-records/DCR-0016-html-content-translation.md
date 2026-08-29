@@ -579,3 +579,23 @@ forwarding address.
 The surviving tests carry doc comments naming their predecessors, so the code
 was never silent about the rename. This record was — which is why the amendment
 exists.
+
+### Addendum (2026-08-29) — a third rename, from a later commit than this amendment
+
+*Appended to the 2026-08-23 amendment rather than opened as a fourth one: it is
+the same defect class — a test name this record publishes that no longer
+resolves — and the table above is where a reader looks. The heading two levels
+up says "two of the tests it names have been renamed"; read it as two **as of
+2026-08-23**. This one came later, which is why it is not in it.*
+
+`954711a` (2026-08-24, `feat(id)!: BlockKind::Html stops carrying the CommonMark
+type, because that was never a kind`) renamed a third name published above, in
+the `### Discriminating tests` list under *Parser / id / unit*:
+
+| named in this record | now called | why the name had to change |
+|---|---|---|
+| `top_level_html_block_becomes_block_kind_html_with_type` | `top_level_html_block_becomes_kind_html_spelled_html_with_its_type` | the old name asserted the kind *carries* the CommonMark type. `954711a` removed the field from `BlockKind::Html`, so the kind no longer has a type to carry; the type is now the block's spelling. The name had to stop claiming a field that is gone. |
+
+The name is left in place above, as the two before it were. `git log -S` over
+`crates` is the check, and it returns exactly `954711a` plus the
+2026-08-17 restart commit `59ce8df`.

@@ -261,7 +261,10 @@ pub fn intake(source: &str) -> Result<Cow<'_, str>, ParseError>;
 
 // transync-syntax::id
 pub fn assign_block_ids(doc: &mut Document);
-pub fn source_hash_block(doc: &Document, block_index: usize) -> u64;
+// `None` when `block_index` is out of range — the hash is of the block's
+// clamped source slice, so there is no hash to give for a block that is not
+// there. Callers must not treat absence as a zero hash.
+pub fn source_hash_block(doc: &Document, block_index: usize) -> Option<u64>;
 
 // transync-core::unit (#[doc(hidden)] pub — engine-internal)
 // Infallible again since DCR-0027: it was fallible only to raise the reserved
@@ -279,7 +282,15 @@ pub fn build_batches(
 ) -> Vec<TranslationBatch>;
 
 // transync-core::validate (pub(crate))
-pub fn validate_batch(batch: &TranslationBatch, result: &TranslationBatchResult) -> ValidatedBatch;
+// `ref_defs` is the document's link-reference-definition pool
+// (transync-syntax::parser::refdefs), forwarded to the INLINE layer so
+// reference-style links resolve to real destinations before their identity is
+// compared (design D2 §B4). Pass "" when the document defines none.
+pub fn validate_batch(
+    batch: &TranslationBatch,
+    result: &TranslationBatchResult,
+    ref_defs: &str,
+) -> ValidatedBatch;
 
 // transync-syntax::regen
 // Reconstructs the translated MD by SOURCE SPLICING: walk top-level blocks in
@@ -340,6 +351,10 @@ pub trait Cache: Send + Sync {
     fn put(&self, key: CacheKey, value: UnitResult) -> Result<(), CacheError>;
     /// Remove one entry. Absent keys are a successful no-op.
     fn evict(&self, key: &CacheKey) -> Result<(), CacheError>;
+    // Plus get_document_meta / put_document_meta (DocumentMetaKey ->
+    // DocumentMeta, DCR-0028 §3). Both are DEFAULTED — get answers Ok(None),
+    // put discards — so a backend that ignores metadata is pre-v0.4.0
+    // behaviour: degraded, never wrong. The three above are the required ones.
 }
 pub struct InMemoryCache { /* Mutex<HashMap> */ }
 

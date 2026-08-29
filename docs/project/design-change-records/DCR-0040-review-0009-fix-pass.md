@@ -13,7 +13,7 @@ status: stable
 
 - **Date:** 2026-08-26
 - **Source:** Review 0009 (`reviews/0009.md`), findings R0009-0066, R0009-0085, R0009-0001
-- **Affected ADRs:** `docs/decisions/0002-http-free-core-with-translator-trait.md` (updated — it is where `TranslatorError` is declared, per DCR-0023's own pairing)
+- **Affected ADRs:** `docs/decisions/0002-http-free-core-with-translator-trait.md` (updated — it is where `TranslatorError` is named, per DCR-0023's own pairing; the type is declared in `transync-core`'s `llm` module)
 - **Affected DCRs:** `docs/project/design-change-records/DCR-0023-provider-error-taxonomy.md` (the record this narrows)
 - **Commits:** `8d4efda` (`fix!`), `69701cd`, `88964df`
 
@@ -101,5 +101,10 @@ the round.
   positioned wrapper around a *later* anchor while the pane is correct — stays
   open deliberately; closing it would break the section's own "one property read
   per pane at mount, never per frame" budget and is therefore a contract change.
-- ADR-0002 gains a line recording that the two provider adapters' error
-  taxonomies are now aligned rather than parallel-but-divergent.
+- ADR-0002 gains a line recording the rule the removal leaves: **an adapter may
+  name any error its transport can actually produce, and may not name one it
+  cannot.** That is deliberately *narrower* than "keep the adapters' taxonomies
+  identical" — the identical-taxonomies reading would contradict the ADR's own
+  premise that each adapter owns its mapping. `RateLimited` went because
+  `transync-openai` constructed it nowhere, not because `transync-anthropic`
+  lacked it.

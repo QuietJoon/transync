@@ -58,14 +58,18 @@ and 2026-08-17 (`docs/project/git-history-loss-2026-08-17.md`), and neither
 store archived by the **2026-08-10** restart:
 
 ```bash
-git --git-dir=/Volumes/Temp/claude/transync-broken-git-20260810 \
+git --git-dir=/Volumes/Common/git-backup/transync-broken-git-20260810 \
     show bb93b68^:reviews/reviewed/0001.md
 ```
 
-Verified on 2026-08-17 for `0001`; substitute `0002`–`0005` for the others.
+Verified on 2026-08-17 for `0001` and re-verified on 2026-08-29 at the path
+above; substitute `0002`–`0005` for the others. *(Both archives were originally
+written under `/Volumes/Temp/claude/`, which is scratch and has since been
+wiped. The durable copies under `/Volumes/Common/git-backup/` are the ones this
+recipe now names, and are the same stores `status.md` and the loss record cite.)*
 Reach for the **2026-08-10** archive specifically, not the newer one:
 `bb93b68` predates the first restart, so the store archived on 2026-08-17
-(`/Volumes/Temp/claude/transync-broken-git-20260817`) never held it either —
+(`/Volumes/Common/git-backup/transync-broken-git-20260817`) never held it either —
 that store begins at the 2026-08-10 root commit. The table rows above are left
 as written: they record which commit removed the text, which is still true.
 

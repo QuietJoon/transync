@@ -186,3 +186,26 @@ The second call site — the HTML pane derivation's strip-then-inject — is
 **wave 6's**, and spec §8 already fixes its position: strip before injection, so
 the same "ours are the only ones" construction holds for HTML panes. Nothing in
 this wave forecloses it, and nothing in wave 6 needs to revisit these two.
+
+## Amendment (2026-08-29) — "Six commits carry the wave" is right; the seven-hash enumeration beside it is not
+
+*Appended, not a rewrite. The header bullet above stands exactly as written,
+count and hashes both — this says which half of it to believe.*
+
+The **Post-implementation** bullet says "Six commits carry the wave" and then
+lists **seven** hashes: `1299280`, `eedc9e3`, `0972fa2`, `644e4f2`, `d146a53`,
+`a7af73f`, `c5ff3df`. All seven are real commits and all seven are real work.
+The disagreement is only about which wave `1299280` belongs to.
+
+**It is wave 0's, not wave 1's.** DCR-0032's own amendment tabulates wave 0's
+commits and lists `1299280` (2026-08-22) as **"the wave's close"**. Excluding
+it, this record's list is exactly six — so the count is correct, DCR-0032 agrees
+with the count, and the **enumeration is the odd one out**: it swept up the
+preceding commit because that commit's baseline correction was the thing wave 1
+started from.
+
+The six that carry wave 1 are therefore `eedc9e3` (render half), `0972fa2`
+(engine half), `644e4f2` (the corpus learns the wave-0 defect), `d146a53` (the
+fix), `a7af73f` (DCR-0032's amendment) and `c5ff3df` (the two fix reviews'
+document findings plus the corpus gate's pathspec). `1299280` is the commit wave
+1 built on, and reading it as wave 1's would double-count it against DCR-0032.

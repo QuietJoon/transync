@@ -127,3 +127,18 @@ only and carries no git tag, because a tag cut here would point at a commit
 that does not carry the release's history. Tagging resumes at the next
 release. The decision and the release steps it changes are in
 `docs/project/release-checklist.md`, under *When it applies*.
+
+**2026-08-29 — the *Where the past now lives* paths moved; one row still
+resolves, two do not.** *Appended, not a rewrite — the table above records where
+things were put on 2026-08-10, which is what it exists to say.*
+`/Volumes/Temp/claude/` is scratch and has since been wiped. The object store
+was copied out before that and is now
+`/Volumes/Common/git-backup/transync-broken-git-20260810` — re-verified on
+2026-08-29 (`git --git-dir=… tag -l` lists `v0.1.0`/`v0.2.0`/`v0.3.0`; `show
+v0.3.0` reads), and it is the path `status.md`,
+`docs/project/git-history-loss-2026-08-17.md` and `reviews/README.md` all name.
+The other two rows — the verified working-tree copy `transync-rescue-20260810`
+and `provenance/` — were **not** copied out and are gone; the nearest surviving
+equivalent is `/Volumes/Common/git-backup/rescue-20260820-1330/`, which is the
+**2026-08-17** restart's rescue, not this one's. `/Volumes/Common/git-backup/README.md`
+is the inventory.

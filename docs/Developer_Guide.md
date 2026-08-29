@@ -1167,10 +1167,25 @@ Each `TranslationUnit` carries:
 |-------------------|---------------------------|
 | `source_payload`  | The raw block markdown — translate it. |
 | `block_kind`      | Wire-form string (heading-1, paragraph, table, code-block, list-item, blockquote, …). Use it to pick the right system instructions per kind. |
-| `input_mode`      | `TextFragment`, `FullTableMarkdown`, `TableRowWindow`, `FullCodeBlock`, `ListItemContent`, `BlockquoteContent`. Tells you the structural shape. |
+| `input_mode`      | `TextFragment`, `FullTableMarkdown`, `TableRowWindow`, `FullCodeBlock`, `ListItemContent`, `BlockquoteContent`, `HtmlSegments`. Tells you the structural shape. All seven — `HtmlSegments` is the one that changes what a payload *is*; see below. |
 | `context`         | Surrounding section path + neighbor snippets. Optional but improves quality. Heading snippets are plain prose (the parsed heading's inline text — no `#` markers, no inline syntax); neighbor snippets are verbatim source excerpts of any block kind, paired with that block's `kind`. |
 | `constraints`     | Per-kind structural invariants you must preserve (column count, info string, list topology, heading level, …). |
 | `unit_id`         | Echo back unchanged. |
+
+**`HtmlSegments` is the one variant where `source_payload` is not markdown.**
+For a unit whose `block_kind` is `html`, `source_payload` is a **string
+containing a JSON array of strings** — the ordered, entity-decoded text
+segments extracted from the raw HTML block — and `translated_payload` MUST be
+the same shape with the **same element count, in the same order**. Markup never
+reaches you: tags, attributes, comments and `script`/`style` content are not in
+the payload and are spliced back by the application, so an implementor cannot
+affect markup and must not try. Preserve a segment by echoing it unchanged (an
+echoed segment splices byte-identically, entity forms included).
+`partially_translated` is not offered for html units; `failed_needs_fallback`
+is legal and rides the normal fallback path. Returning a different element
+count, or anything that is not a JSON array of strings, is rejected by the
+validator. `contracts.md` §1's html-segment-units paragraph is the normative
+statement of all of this (ADR-0018 / DCR-0016).
 
 `transync-openai/src/client.rs` is the reference implementation — worth
 reading before writing your own. It is flow only: the two API surfaces live

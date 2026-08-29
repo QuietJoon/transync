@@ -168,7 +168,15 @@ HtmlSegmentConstraints {        // structural facts of one Html unit (ADR-0018)
   segment_count: u32,           // prompt-visible hint; also the per-kind count check
   segment_labels: Vec<String>,  // prompt-visible hint: parent tag per segment
   source_bytes: String,         // splice-check input — NEVER serialized into the prompt
-  block_type: u8,               // CommonMark HTML block type 1..7 (drives splice normalization)
+  block_type: u8,               // 0..7. 1..7 = the CommonMark HTML block type of a raw-HTML
+                                // island inside a Markdown document; 0 = a block of an HTML
+                                // document, where no CommonMark type applies.
+                                // A RECORD of what the source was, NOT the switch the splice
+                                // reads: blank-line policy is derived from the block's spelling
+                                // (Spelling::blank_line_policy_for). 0 reaches the same answer
+                                // via BlankLinePolicy::from_commonmark_html_block_type, since
+                                // anything outside 6|7 keeps its blank lines.
+                                // NEVER serialized into the prompt.
 }
 
 ListTopologyEntry {           // one list item's structural fingerprint (SCN-05)

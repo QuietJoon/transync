@@ -365,11 +365,20 @@ That is expected, not corruption. What to do:
 
    ```bash
    # commits from 2026-08-10 to 2026-08-17
-   git --git-dir=/Volumes/Temp/claude/transync-broken-git-20260817 show <sha>
+   git --git-dir=/Volumes/Common/git-backup/transync-broken-git-20260817 show <sha>
    # anything older — that store begins at the 2026-08-10 root commit and
    # never held an earlier object
-   git --git-dir=/Volumes/Temp/claude/transync-broken-git-20260810 show <sha>
+   git --git-dir=/Volumes/Common/git-backup/transync-broken-git-20260810 show <sha>
    ```
+
+   *Paths corrected 2026-08-29 under this section's own rule 4.* Both stores
+   were originally written under `/Volumes/Temp/claude/`, which is scratch and
+   has since been wiped; they were copied to `/Volumes/Common/git-backup/`,
+   where the table in **Where the evidence lives** and `status.md` already name
+   them. The two invocations above were re-run at the new paths on 2026-08-29
+   and both resolve. The dated evidence table earlier in this record keeps its
+   `/Volumes/Temp/…` paths: it records where a search looked on the day it ran,
+   which is still true and is not an instruction to follow.
 
    Both are damaged stores, so a hash in the right window may still fail to
    read; that is the loss, not a mistake in the command. A hash that fails in
