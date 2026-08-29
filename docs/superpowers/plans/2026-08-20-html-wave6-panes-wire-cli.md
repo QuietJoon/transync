@@ -615,7 +615,8 @@ Create `crates/transync-syntax/src/render/html_pane.rs` opening with this module
 //! are a sync surface; fidelity is `transync serve` over `out.html`),
 //! contracts §4a (single `<main>`, every block a direct child, in source
 //! order — so anchor survival, one-element-per-anchored-row, `offsetTop`
-//! math and the offsetParent probe carry over with zero amendment), the
+//! math and the R0003-0076 pane-position probe carry over with zero
+//! amendment), the
 //! by-construction death of script/style/head in the mount, and OI-0035's
 //! shrunken surface (gap markup is exactly where impostor anchors would
 //! ride).
@@ -695,6 +696,8 @@ Create `crates/transync-syntax/src/render/html_pane.rs` opening with this module
 //! TRACE: ADR-0025
 //! TRACE: contracts.md §4, §4a
 ```
+  **Corrected 2026-08-29 (drift sweep).** The §4a sentence above said "`offsetTop` math and the **offsetParent probe** carry over with zero amendment". The **carry-over claim is untouched and still true** — only the probe's name went stale. Since `69701cd` (R0009-0024) `warnOffsetParentDrift` asks the pane its own question, `getComputedStyle(pane).position !== "static"`, instead of reading `blocks[0].offsetParent`; the `offsetParent` read survives on the failure path only, where naming the element the offsets actually come from is what makes the warning actionable. This matters here and not merely in prose because the sentence is inside a module doc an implementer pastes into fresh code, so a stale name would ship into `crates/transync-syntax/src/render/html_pane.rs`. Read the landed doc on `warnOffsetParentDrift` in `web/js/sync.js` before restating the probe anywhere else in this plan.
+
 Then the imports and the test module (the functions the tests call do not exist yet — that is Step 2's red):
 ```rust
 use super::{FRAGMENT_CLOSE, FRAGMENT_OPEN, Pane, PaneCtx, RenderError, attrs, block_text, html_escape};

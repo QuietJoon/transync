@@ -2067,13 +2067,22 @@ The two field additions are **tier (c)**: `parser` is a hidden module, the facad
 ```markdown
 **The sanctioned v0.5.0 breaking window is OPEN.** It was opened by wave 2 of
 the HTML→HTML feature (ti `490d97`, ADR-0025, DCR-0034), which splits semantic
-kind from source spelling in the block IR. Four breaking-by-policy changes ride
-it, batched; nothing user-visible changed, and the corpus regenerates, renders
-and aligns byte-identically with zero fixture edits. Additive changes land here
-as they come; further breaking changes may ride this window until it is closed
-by the v0.5.0 release.
+kind from source spelling in the block IR. **Five** breaking-by-policy changes
+ride the window. Wave 2 contributes four, batched, and none of the four is
+user-visible: the corpus regenerates, renders and aligns byte-identically with
+zero fixture edits. The fifth is not wave 2's — `transync-openai`'s unreachable
+`ProviderError::RateLimited` was removed under this window by the review-0009
+fix pass (`8d4efda`, DCR-0040 §3). Additive changes land here as they come;
+further breaking changes may ride this window until it is closed by the v0.5.0
+release.
 ```
-  Then, as the **first** subsection under that paragraph (above whatever `### Changed` / `### Added` blocks wave 0 and wave 1 left):
+  **Corrected 2026-08-29 (drift sweep, after the review-0009 fix pass).** The paragraph above read "Four breaking-by-policy changes ride it, batched; nothing user-visible changed, and the corpus regenerates…". Both halves went stale between this plan's writing and its execution, and both are corrected above rather than left for the implementer to paste verbatim.
+  1. **The count is five, not four.** `8d4efda` removed `transync-openai`'s `ProviderError::RateLimited` — a `pub` variant in a published crate with no `#[non_exhaustive]` — under *this* window, which DCR-0040 §3 records as permitted precisely *because* the window is open. It is not wave 2's change, so the paragraph now attributes wave 2's four and the fifth separately: a reader must not charge all five to the IR split, and a reader counting the window's breaking changes must not conclude the plan is stale or the tree dirty.
+  2. **"Nothing user-visible changed" was a wave-level truth stated at window level, and at window level it is now false.** The same fix pass gave `serve`'s response half a 60 s `RESPONSE_TIMEOUT` that cuts a legitimate slow transfer, and turned the splice's silent two-pass disagreement into a per-block fallback (DCR-0040 §§1–2). The clause is therefore re-scoped to wave 2's four, where it is still exactly true and is this wave's acceptance evidence.
+
+  **Do not write the `RateLimited` entry yourself.** DCR-0040's *Affected Areas* already names `CHANGELOG.md` as owing it, so it is another task's deliverable and may already sit under `## [Unreleased]` by the time you execute. Check before writing; if it is there, leave it and add only wave 2's three bullets below. Same for the fix pass's two non-breaking behaviour changes — neither is wave 2's to record.
+
+  Then, as the **first** subsection under that paragraph (above whatever `### Changed` / `### Added` blocks wave 0 and wave 1 left, and above any `### Changed (BREAKING)` block the fix pass's `RateLimited` entry already occupies — in that case add wave 2's three bullets to it rather than opening a second one):
 ```markdown
 ### Changed (BREAKING)
 
@@ -2088,22 +2097,19 @@ by the v0.5.0 release.
 - Workspace version `0.5.0-dev`.
 ```
 
-- [ ] **Step 10: `docs/project/status.md` — two edits, both in sections that already exist.**
-  1. The `- Workspace version:` line at the top. Keep the whole v0.4.0 sentence (it is still the last release and its record stands) and **prepend**:
-```markdown
-- Workspace version: **`0.5.0-dev`** — the **sanctioned v0.5.0 breaking window is OPEN**, opened **on the execution date** by ti `490d97` wave 2 (ADR-0025 / DCR-0034: the block IR splits semantic kind from source spelling). Four breaking-by-policy changes ride it, batched: `Block.spelling`, `Document.format`, `BlockKind::Html` narrowed to a unit variant, and `BlockKind::Title` added. Nothing user-visible changed — the corpus regenerates, renders and aligns byte-identically with zero fixture edits. Last release:
-```
-  (so the existing `**v0.4.0** — **released 2026-08-20**…` text becomes the tail of the same bullet).
+- [ ] **Step 10: `docs/project/status.md` — three edits, all in sections that already exist.**
+  1. The `- Workspace version:` line at the top. **Corrected 2026-08-29 (drift sweep): do NOT prepend — this step's precondition is gone.** It used to say to keep the whole v0.4.0 sentence and prepend a fresh "Workspace version: **`0.5.0-dev`** — the **sanctioned v0.5.0 breaking window is OPEN**, opened **on the execution date** by ti `490d97` wave 2 …" bullet in front of it, so the v0.4.0 text became the tail of the same bullet. `88964df` (review-0009 finding R0009-0090) already rewrote that region: `status.md`'s **first** bullet now reads "Workspace version: **`0.5.0-dev`** — the sanctioned **v0.5.0 breaking window is open** (`ff788f7`, 2026-08-24; the root `Cargo.toml`'s `[workspace.package].version` is the one canonical record …)", with the two releases relabelled as history beneath it. Prepending as written produces a **second** version bullet asserting the same thing twice.
+  What that bullet does **not** carry is the attribution this wave owes it — who opened the window and what rides it — so **amend it in place** instead. Keep its existing text (the `ff788f7` citation and the canonical-record clause are correct and are not this wave's to restate) and add wave 2's facts to it: the window was opened by ti `490d97` wave 2 (ADR-0025 / DCR-0034: the block IR splits semantic kind from source spelling), whose **four** breaking-by-policy changes ride it batched — `Block.spelling`, `Document.format`, `BlockKind::Html` narrowed to a unit variant, `BlockKind::Title` added — none of them user-visible, the corpus regenerating, rendering and aligning byte-identically with zero fixture edits. **Do not write "four" as the window's total**: the window carries a fifth that is not this wave's (`transync-openai`'s `ProviderError::RateLimited`, `8d4efda` / DCR-0040 §3), for the same reason Step 9's paragraph now separates the two counts. Verify with `grep -c '^- Workspace version:' docs/project/status.md` returning **1**.
   2. `## Immediate Next Actions` — a new bullet immediately **after** wave 0's (the one beginning `**Action (HTML→HTML feature, ti `490d97`):** ~~wave 0`):
 ```markdown
 - **Action (HTML→HTML feature, ti `490d97`):** ~~wave 2 — the IR split, the breaking window~~ **LANDED <execution date>** (ADR-0025 / DCR-0034): `Spelling` and `SourceFormat` joined `BlockKind` in `transync-syntax::id`, `Block` gained `spelling` and `Document` gained `format`, `BlockKind::Html` narrowed to a unit variant, and `BlockKind::Title` landed with the **two explicit arms the compiler could not ask for** — `align::sync_role_for` ends in `_ => SyncRole::Anchor` and would have made a title an anchoring row, and `unit::context::document_title` matched `Heading1` alone, so a title did not enter the document title for free. Both got tests that assert the answer, not the compile. Nine dispatch sites were re-keyed onto `Spelling::Html` / `InputMode::HtmlSegments` / `constraints.html`, and the `(Table × Html)` split exclusion is explicit and tested. The workspace is at **`0.5.0-dev`** and the **v0.5.0 window is open**. Acceptance held: workspace + CLI suites green with **zero fixture edits**, the two-package wasm gate exit 0 with its string unchanged. **Waves 3–7 are unblocked** (dependency order `0 → 2 → {3, 4} → 5 → 6 → 7`); wave 4's layer-6 twin is a **hard precondition for any HTML translation run**.
 ```
 
-  3. **`## Immediate Next Actions`, wave 1's bullet — retire its closing sentence (added 2026-08-23, after this plan's last correction pass).** That bullet now ends `**Waves 2–7 remain unstarted.**`, written by `9cbb39a` when wave 1 landed. Edit 2 above inserts a "wave 2 LANDED" bullet directly after it, so executing Step 10 without this third edit leaves `status.md` asserting both at once. Change it to:
-```markdown
-**Waves 2–7 were unstarted at that point.**
-```
-  Same treatment wave 1's Task 4 applied to wave 0's identical clause, and for the same reason: the sentence was true about the moment it describes, so it is dated rather than deleted. Check `phase-state.yaml`'s wave-1 note for the same clause while you are there — if it carries one, it needs the same past tense.
+  3. **Retire the two "wave 2 is in flight" assertions that edit 2 contradicts (added 2026-08-23; retargeted 2026-08-29 by the drift sweep).** This edit used to read: *"`## Immediate Next Actions`, wave 1's bullet — retire its closing sentence. That bullet now ends `**Waves 2–7 remain unstarted.**`, written by `9cbb39a` when wave 1 landed … Change it to `**Waves 2–7 were unstarted at that point.**`"*. **That sentence no longer exists.** `88964df` (R0009-0090) already retired it when it refreshed `- Latest wave:`; the same bullet now closes `**Waves 3–7 remain unstarted.**`, which is *true* and which edit 2's "**Waves 3–7 are unblocked**" does not contradict. Executed verbatim, this edit sends the implementer to a string that is not in the file.
+  The double assertion it existed to prevent is real and merely moved. `88964df` replaced "unstarted" with **in-flight** prose in two places, and edit 2's `LANDED` bullet contradicts both:
+  - the `## Immediate Next Actions` HTML→HTML action bullet — the one edit 2 inserts after — now ends `**Wave 2 — the IR split — is in flight since 2026-08-24**: it opened the sanctioned v0.5.0 window (…) and its breaking IR changes are landing (…). **Waves 3–7 remain unstarted.**`;
+  - the `- Latest wave:` bullet near the top of the file carries the same claim in arc (3): `**wave 2 — the IR split — is in flight**: it opened the sanctioned v0.5.0 breaking window on 2026-08-24 … Waves 3–7 are unstarted.`
+  Put both into the past tense the way wave 1's Task 4 treated wave 0's clause, and for the same reason: each sentence was true about the moment it describes, so it is **dated, not deleted** — "was in flight from 2026-08-24" with the landing date and DCR-0034 pointer, leaving the enumerated commits exactly as they stand. Do **not** touch `**Waves 3–7 remain unstarted.**` or `Waves 3–7 are unstarted.`; they are still true and edit 2 says the same thing in the unblocked vocabulary. Verify with `grep -c 'is in flight' docs/project/status.md` printing **0** (it exits 1 when it does; that is the pass, not a failure). Check `phase-state.yaml`'s wave-1 and wave-2 notes for the same in-flight vocabulary while you are there — Step 11 edit 3 appends wave 2's landing paragraph, so anything above it still calling wave 2 in flight needs the same past tense.
 
 - [ ] **Step 11: `docs/project/phase-state.yaml` — three edits, and one non-edit.** The file has **three** `status:` keys, not two: two section-level phase keys (`design.status: handoff_complete`, `implementation.status: mvp_complete`) and one pointer entry (`status: docs/project/status.md`), plus `baseline_status:` and `sync_status:` that a bare `grep -c 'status:'` also matches. **None of them moves**; wave 2 changes no phase. Do not use a `status:` count as a verification for this step — count the three edits below instead.
   1. `project.last_updated:` → `<execution date>-ti490d97-wave2` — the day the wave lands, not this plan's writing date.
@@ -2130,11 +2136,15 @@ by the v0.5.0 release.
     today and stop being identical once an HTML document's <p> is a Paragraph
     shipping a segment array. The (Table x Html) row-window exclusion is
     explicit and tested. Workspace at 0.5.0-dev; the SANCTIONED v0.5.0
-    BREAKING WINDOW IS OPEN, carrying four breaking-by-policy changes batched.
+    BREAKING WINDOW IS OPEN, and this wave contributes four breaking-by-policy
+    changes batched. The window's total is FIVE, not four - the fifth is not
+    this wave's: the review-0009 fix pass removed transync-openai's unreachable
+    ProviderError::RateLimited under the same window (8d4efda, DCR-0040).
     Acceptance: workspace and CLI suites green with ZERO fixture edits,
     two-package wasm gate exit 0, string unchanged. Waves 3-7 unblocked; wave
     4's layer-6 twin is a hard precondition for any HTML translation run.
 ```
+  **Corrected 2026-08-29 (drift sweep).** The paragraph above read "the SANCTIONED v0.5.0 BREAKING WINDOW IS OPEN, carrying four breaking-by-policy changes batched" — the same conflation Step 9's paragraph carried, and corrected the same way: four is **this wave's** contribution, five is the **window's** total since `8d4efda`. Wave 2's own four, its acceptance evidence and everything else in this note are unchanged.
 
 - [ ] **Step 12: The acceptance check that this whole wave rests on — zero fixture edits, over the recorded baseline.**
 ```bash
