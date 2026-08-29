@@ -225,3 +225,26 @@ constructors, terminal-cause table, packaging, slices are DCR-0029's and
 `contracts.md` §8's. The CLI remains OpenAI-backed; this ADR's recorded "Bad"
 consequence (the CLI's provider is a compile-time choice) is unchanged, and a
 CLI provider axis is explicitly out of DCR-0029's scope.
+
+## Amendment (2026-08-26, DCR-0040) — an adapter may not name an error its transport cannot produce
+
+*Appended, not a rewrite. Everything above, and the 2026-08-08 amendment that
+DCR-0023 added, stand as written.*
+
+DCR-0023 gave the provider adapters a shared error taxonomy. It did not say what
+happens when an adapter carries a variant **nothing constructs**, and one did:
+`transync-openai`'s `ProviderError::RateLimited` was unreachable, while the
+later `transync-anthropic` was written without it.
+
+Review 0009 (R0009-0085) found it; `8d4efda` removed it. `ProviderError` is
+`pub` in a published crate with no `#[non_exhaustive]`, so that is a breaking
+change — permitted **only** because `ff788f7` had opened the sanctioned v0.5.0
+window hours earlier. With the window closed the correct outcome would have been
+to leave the variant in place and record it.
+
+The rule this leaves is narrower than "keep the adapters' taxonomies identical",
+which would contradict this ADR's whole premise that each adapter owns its own
+mapping: **an adapter may name any error its transport can actually produce, and
+may not name one it cannot.** A variant nothing constructs is not a capability
+claim — it is a promise to consumers that a condition is distinguishable when it
+is not, and it survives review precisely because dead code compiles.
