@@ -12,7 +12,7 @@ status: stable
 # DCR-0040: Review 0009's fix pass changes three shipped behaviours
 
 - **Date:** 2026-08-26
-- **Source:** Review 0009 (`reviews/0009.md`), findings R0009-0066, R0009-0085, R0009-0001
+- **Source:** Review 0009 (`reviews/reviewed/0009.md`), findings R0009-0066, R0009-0085, R0009-0001
 - **Affected ADRs:** `docs/decisions/0002-http-free-core-with-translator-trait.md` (updated — it is where `TranslatorError` is named, per DCR-0023's own pairing; the type is declared in `transync-core`'s `llm` module)
 - **Affected DCRs:** `docs/project/design-change-records/DCR-0023-provider-error-taxonomy.md` (the record this narrows)
 - **Commits:** `8d4efda` (`fix!`), `69701cd`, `88964df`

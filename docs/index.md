@@ -53,6 +53,8 @@ Three things sit outside the rule on purpose, because they are not this index's 
 - [ADR 0022 — A local user with write access to transync's own paths is outside the threat model](decisions/0022-local-user-threat-model.md)
 - [ADR 0023 — The wasm engine has no trust boundary; its caller supplies both sides](decisions/0023-wasm-engine-has-no-trust-boundary.md)
 - [ADR 0024 — The output publication protocol: a kernel lock, a surviving marker, and own-pid-only reclamation](decisions/0024-output-publication-protocol.md)
+- [ADR 0026 — The browser suite is Chromium-only, and that is accepted rather than unnoticed](decisions/0026-browser-matrix-is-chromium-only.md) — `sync.js`'s scroll geometry is verified in one engine while the `--html-out` bundle opens in any; accepted with the three conditions that reopen it, and the minimal cross-browser subset pre-scoped. (Review 0009, R0009-0020.)
+- [ADR 0027 — `mountSync` refuses a map no anchor can drive, but not panes no row can drive](decisions/0027-mount-refusal-is-asymmetric-by-design.md) — the asymmetry is deliberate: an unusable map is terminal, unmatched panes are the transient state `controller.refresh()` exists to resolve, so a symmetric refusal would break mount-empty-then-populate. (Review 0009, R0009-0023.)
 
 ## Design change records (DCRs)
 

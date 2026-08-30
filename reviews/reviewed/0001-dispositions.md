@@ -1,9 +1,18 @@
 # Review 0001 — finding dispositions
 
-**Date:** 2026-08-06. **Source:** `reviews/0001.md` (52 findings, completed
-2026-07-15). **Status of this file:** untracked, like its source — the decision on
-whether to commit the `reviews/` bundle is still open with the owner
-(`docs/backlog.md` Type 2: `untracked-analysis-bundles`).
+**Date:** 2026-08-06. **Source:** `reviews/reviewed/0001.md` (52 findings,
+completed 2026-07-15). **Status of this file:** committed and archived.
+
+> **Corrected 2026-08-29.** This header said "untracked, like its source — the
+> decision on whether to commit the `reviews/` bundle is still open with the
+> owner". Both halves were stale. The owner settled it on **2026-08-08**, two
+> days after this file was written: `docs/investigation/` went back to
+> untracked, but `reviews/` was **not** reversed with it — round 0001, its
+> dispositions, its patch and `README.md` stay committed as the dated record
+> they were made, "and a later round joins them when the gate archives it"
+> (`docs/backlog.md`, `untracked-analysis-bundles`). This file has been tracked
+> since `59ce8df`. The sentence outlived its decision by three weeks and was
+> read as current at least twice.
 
 ## What this is
 

@@ -1,0 +1,106 @@
+# STATUS: COMPLETED
+# CLAIM_TOKEN: 37FB8DF5-7AED-4DC9-A1E0-018142A251BB
+# CLAIMED_AT: 2026-08-24T08:38:37Z
+# COMPLETED_AT: 2026-08-24T09:22:12Z
+#
+# Inert reviewer-authored proposal. It has not been applied or tested.
+
+diff --git a/crates/transync-cli/src/serve_cmd/conn.rs b/crates/transync-cli/src/serve_cmd/conn.rs
+--- a/crates/transync-cli/src/serve_cmd/conn.rs
++++ b/crates/transync-cli/src/serve_cmd/conn.rs
+@@ -336,8 +336,11 @@ async fn read_head<R: AsyncRead + Unpin>(stream: &mut R) -> io::Result<HeadRead
+ /// Index of the blank line that ends a request head, if it has arrived.
+ fn head_end(buf: &[u8]) -> Option<usize> {
+-    buf.windows(4)
+-        .position(|w| w == b"\r\n\r\n")
+-        .or_else(|| buf.windows(2).position(|w| w == b"\n\n"))
++    let crlf = buf.windows(4).position(|w| w == b"\r\n\r\n");
++    let lf = buf.windows(2).position(|w| w == b"\n\n");
++    match (crlf, lf) {
++        (Some(a), Some(b)) => Some(a.min(b)),
++        (a, b) => a.or(b),
++    }
+ }
+ 
+ /// `(method, target)` from the request line, or `None` if the line is not one.
+@@ -350,7 +353,9 @@ fn parse_request_line(head: &str) -> Option<(&str, &str)> {
+     let method = parts.next()?;
+     let target = parts.next()?;
+     let version = parts.next()?;
+-    if parts.next().is_some() || !version.starts_with("HTTP/") {
++    if parts.next().is_some()
++        || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
++    {
+         return None;
+     }
+     if method.is_empty() || target.is_empty() {
+@@ -381,6 +386,8 @@ mod tests {
+         assert_eq!(parse_request_line("GET /index.html\r\n"), None);
+         assert_eq!(parse_request_line("GET /a b HTTP/1.1\r\n"), None);
+         assert_eq!(parse_request_line("GET /a NOTHTTP/1.1\r\n"), None);
++        assert_eq!(parse_request_line("GET / HTTP/2\r\n"), None);
++        assert_eq!(parse_request_line("GET / HTTP/nonsense\r\n"), None);
+         assert_eq!(
+             parse_request_line("\0\0\0\0\r\n"),
+             None,
+@@ -406,5 +413,9 @@ mod tests {
+         let end = head_end(lf).expect("a bare-LF client still terminates its head");
+         assert_eq!(&lf[..end], b"GET / HTTP/1.1\nHost: x");
++
++        let mixed = b"GET / HTTP/1.1\n\nBODY\r\n\r\nSMUGGLED";
++        let end = head_end(mixed).expect("the first blank line ends the head");
++        assert_eq!(&mixed[..end], b"GET / HTTP/1.1");
+     }
+ 
+     /// A request head of exactly `total` bytes, terminator included.
+diff --git a/crates/transync-cli/src/serve_cmd/host.rs b/crates/transync-cli/src/serve_cmd/host.rs
+--- a/crates/transync-cli/src/serve_cmd/host.rs
++++ b/crates/transync-cli/src/serve_cmd/host.rs
+@@ -134,7 +134,7 @@ impl HostPolicy {
+                 return Verdict::Malformed;
+             }
+             let Some((name, value)) = line.split_once(':') else {
+-                continue;
++                return Verdict::Malformed;
+             };
+             // `name` is taken verbatim: whitespace before the colon is not a
+             // field name, so `Host : x` states no Host rather than a padded
+@@ -226,11 +226,17 @@ fn host_from(text: &str) -> Option<Host> {
+     if text.is_empty() {
+         return None;
+     }
++    if text.len() > 253 {
++        return None;
++    }
+     if let Ok(ip) = text.parse::<Ipv4Addr>() {
+         return Some(Host::Ip(IpAddr::V4(ip)));
+     }
+     let is_label = |label: &str| {
+         !label.is_empty()
++            && label.len() <= 63
++            && !label.starts_with('-')
++            && !label.ends_with('-')
+             && label
+                 .bytes()
+                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+@@ -306,6 +312,9 @@ mod tests {
+             "[not-an-address]",
+             "example..com",
+             "attacker.example/../",
++            "-example.test",
++            "example-.test",
++            "a---------------------------------------------------------------b.test",
+         ] {
+             assert!(
+                 text.parse::<Authority>().is_err(),
+@@ -359,5 +368,10 @@ mod tests {
+             "headers, but no Host",
+         );
++        assert_eq!(
++            verdict(&policy, "Broken-Field\r\nHost: 127.0.0.1:7470\r\n"),
++            Verdict::Malformed,
++            "a colonless header field makes the whole head malformed",
++        );
+         assert_eq!(
+             verdict(
+                 &policy,

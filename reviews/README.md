@@ -12,7 +12,7 @@ false "mis-cited id" report before it was noticed.
 
 ## The convention
 
-1. **A bare `R0001-NNNN` means `reviews/0001.md`** — the round that is on
+1. **A bare `R0001-NNNN` means `reviews/reviewed/0001.md`** — the round that is on
    disk. Nothing else may be spelled bare.
 2. **A citation of the retired 2026-05-02 round names its file**, the shape
    `crates/transync-core/src/llm.rs` and commit `beb8481` already use:
@@ -20,11 +20,20 @@ false "mis-cited id" report before it was noticed.
    > `R0001-0026` in the removed `reviews/reviewed/0001.md`
 
 3. **A finding number above `0052` is a retired-round id wherever it
-   appears.** `reviews/0001.md` has exactly 52 findings, so `R0001-0079` can
+   appears.** `reviews/reviewed/0001.md` has exactly 52 findings, so `R0001-0079` can
    only be the 2026-05-02 round; the table below resolves it.
 4. **Rounds `0002` and up do not collide** — each number was used once — so
-   `R0002-…` through `R0008-…` are unambiguous bare and need no marker. They
+   `R0002-…` through `R0009-…` are unambiguous bare and need no marker. They
    are not all *resolvable*, though; see the round table.
+
+   *(Range extended to `R0009` on 2026-08-24, when that round was registered.
+   It was claimed as `0002` and renumbered to the next free number **before any
+   citation existed**, precisely so this rule would keep holding — the owner's
+   decision, taken because 972 live `R0002-####` citations depend on it. The
+   rule's known exception is not this round: ti `bdf8d981` records that three
+   gated 2026-08 rounds reused `0002`/`0003`/`0004` and are absent from the
+   table below, which is what makes the rule false today. Fixing that is
+   `bdf8d981`'s scope, not this row's.)*
 5. **Dated records are not rewritten to comply.** An ADR, a DCR, a released
    `CHANGELOG` section or an archived issue keeps the words it was written
    with; where its ids need a round, a dated note is appended saying so. The
@@ -36,7 +45,7 @@ false "mis-cited id" report before it was noticed.
 
 | Round | Date | Findings | Where the text is |
 |---|---|---|---|
-| `R0001` (live) | 2026-07-15 | 52 (`0001`–`0052`) | `reviews/0001.md`, with `reviews/0001-dispositions.md` and the inert `reviews/0001.patch` |
+| `R0001` (live) | 2026-07-15 | 52 (`0001`–`0052`) | `reviews/reviewed/0001.md`, with `reviews/reviewed/0001-dispositions.md` and the inert `reviews/reviewed/0001.patch` |
 | `R0001` (retired) | 2026-05-02 | 104 (`0001`–`0104`) | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0001.md`. Titles are indexed below. |
 | `R0002` | 2026-05-03 | 92 | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0002.md` |
 | `R0003` | 2026-05-03 | 86 | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0003.md` |
@@ -45,6 +54,7 @@ false "mis-cited id" report before it was noticed.
 | `R0006` | 2026-05 (ADR-0010 places it one day after commit `49d19ee`) | — | **never tracked.** No file, no git object. The ids survive only in the ADRs, DCRs and `CHANGELOG` entries that quote the finding. |
 | `R0007` | by 2026-07-10 (DCR-0005 records it) | — | **never tracked**, as `R0006`. |
 | `R0008` | 2026-07-11 | 91 (65 accepted) | **never tracked**, as `R0006`. `CHANGELOG.md`'s "Review 0008 wave" entry summarizes the round. |
+| `R0009` | 2026-08-24 | 91 (6 high, 43 medium, 42 low) | `reviews/reviewed/0009.md`, with `reviews/reviewed/0009.patch`. **Claimed as `0002` and renumbered before any citation existed** — see the note in the file's header and the rule-4 discussion below. |
 
 `bb93b68` ("reviews: remove archived reviews 0001-0005 (findings preserved)")
 is the commit that took rounds `0001`–`0005` off disk; `bb93b68^` is therefore

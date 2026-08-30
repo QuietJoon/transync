@@ -189,8 +189,8 @@ that asserted what the code or a neighbouring document did not say, one cache/CL
 (`aa21e8e`, the `--source-language AUTO` sentinel), and the git-object-loss incident
 `7a7feb`, repaired and then parked by the owner. v0.3.0 was cut at `30d467c` and tagged
 locally only — no remote, nothing published — so post-release CHANGELOG material goes under
-`[Unreleased]`. `reviews/0001-dispositions.md` carries the per-finding table for the 52
-findings of `reviews/0001.md`; `ti list --status closed --tag review-0001` enumerates the
+`[Unreleased]`. `reviews/reviewed/0001-dispositions.md` carries the per-finding table for the 52
+findings of `reviews/reviewed/0001.md`; `ti list --status closed --tag review-0001` enumerates the
 tickets; `CHANGELOG.md` carries the per-ticket entries under `[0.3.0]` and `[Unreleased]`._
 
 ### html-walk-foreign-content-breakout — **`e77173`, a live §4a break, and wave 3's precondition**
@@ -469,11 +469,11 @@ before the guard.
 - **Verified:** yes — Review 0009 findings (R0009-0044, R0009-0045, R0009-0046,
   R0009-0047, R0009-0049, R0009-0050, R0009-0051, R0009-0073), gate-accepted,
   user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0041, reviews/0009.md#R0009-0044,
-  reviews/0009.md#R0009-0045, reviews/0009.md#R0009-0046,
-  reviews/0009.md#R0009-0047, reviews/0009.md#R0009-0049,
-  reviews/0009.md#R0009-0050, reviews/0009.md#R0009-0051,
-  reviews/0009.md#R0009-0073
+- **Sources:** docs/project/open-issues.md#OI-0041, reviews/reviewed/0009.md#R0009-0044,
+  reviews/reviewed/0009.md#R0009-0045, reviews/reviewed/0009.md#R0009-0046,
+  reviews/reviewed/0009.md#R0009-0047, reviews/reviewed/0009.md#R0009-0049,
+  reviews/reviewed/0009.md#R0009-0050, reviews/reviewed/0009.md#R0009-0051,
+  reviews/reviewed/0009.md#R0009-0073
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -519,8 +519,8 @@ TOML and can panic.
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0033, R0009-0079),
   gate-accepted, user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0042, reviews/0009.md#R0009-0033,
-  reviews/0009.md#R0009-0079
+- **Sources:** docs/project/open-issues.md#OI-0042, reviews/reviewed/0009.md#R0009-0033,
+  reviews/reviewed/0009.md#R0009-0079
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -553,9 +553,9 @@ entry's offset span), not id-based, so an ID lookup table is the wrong shape.
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0068, R0009-0069,
   R0009-0070, R0009-0071), gate-accepted, user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0043, reviews/0009.md#R0009-0068,
-  reviews/0009.md#R0009-0069, reviews/0009.md#R0009-0070,
-  reviews/0009.md#R0009-0071
+- **Sources:** docs/project/open-issues.md#OI-0043, reviews/reviewed/0009.md#R0009-0068,
+  reviews/reviewed/0009.md#R0009-0069, reviews/reviewed/0009.md#R0009-0070,
+  reviews/reviewed/0009.md#R0009-0071
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -592,8 +592,8 @@ waves still landing in that crate rather than racing them.
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0080, R0009-0081,
   R0009-0082), gate-accepted, user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0044, reviews/0009.md#R0009-0080,
-  reviews/0009.md#R0009-0081, reviews/0009.md#R0009-0082
+- **Sources:** docs/project/open-issues.md#OI-0044, reviews/reviewed/0009.md#R0009-0080,
+  reviews/reviewed/0009.md#R0009-0081, reviews/reviewed/0009.md#R0009-0082
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -636,8 +636,8 @@ nothing across opens. No test covers a failing writer.
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0002, R0009-0008,
   R0009-0009), gate-accepted, user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0045, reviews/0009.md#R0009-0002,
-  reviews/0009.md#R0009-0008, reviews/0009.md#R0009-0009
+- **Sources:** docs/project/open-issues.md#OI-0045, reviews/reviewed/0009.md#R0009-0002,
+  reviews/reviewed/0009.md#R0009-0008, reviews/reviewed/0009.md#R0009-0009
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -1099,7 +1099,7 @@ Verified: `git rev-list --count HEAD` is 48, `git tag` prints `v0.4.0`, `git fsc
   user-routed **fix**; the visibility half landed in `88964df` and the
   exit-status half was deliberately refused there as a decision above a fix
   route
-- **Sources:** docs/project/open-issues.md#OI-0039, reviews/0009.md#R0009-0014
+- **Sources:** docs/project/open-issues.md#OI-0039, reviews/reviewed/0009.md#R0009-0014
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -1148,10 +1148,10 @@ status.
 - **Verified:** yes — Review 0009 findings (R0009-0031, R0009-0034,
   R0009-0035, R0009-0037, R0009-0043, R0009-0065), gate-accepted, user-routed
   track
-- **Sources:** docs/project/open-issues.md#OI-0040, reviews/0009.md#R0009-0031,
-  reviews/0009.md#R0009-0034, reviews/0009.md#R0009-0035,
-  reviews/0009.md#R0009-0037, reviews/0009.md#R0009-0043,
-  reviews/0009.md#R0009-0065
+- **Sources:** docs/project/open-issues.md#OI-0040, reviews/reviewed/0009.md#R0009-0031,
+  reviews/reviewed/0009.md#R0009-0034, reviews/reviewed/0009.md#R0009-0035,
+  reviews/reviewed/0009.md#R0009-0037, reviews/reviewed/0009.md#R0009-0043,
+  reviews/reviewed/0009.md#R0009-0065
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -1203,8 +1203,8 @@ refactor with a second justification, not a prerequisite.
 - **Type:** 2
 - **Verified:** yes — Review 0009 findings (R0009-0015, R0009-0018,
   R0009-0067), gate-accepted, user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0046, reviews/0009.md#R0009-0015,
-  reviews/0009.md#R0009-0018, reviews/0009.md#R0009-0067
+- **Sources:** docs/project/open-issues.md#OI-0046, reviews/reviewed/0009.md#R0009-0015,
+  reviews/reviewed/0009.md#R0009-0018, reviews/reviewed/0009.md#R0009-0067
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -1253,8 +1253,8 @@ keep the harness. R0009-0017, the sibling foreign-server finding, was fixed in
 - **Type:** 2
 - **Verified:** yes — Review 0009 findings (R0009-0021, R0009-0025),
   gate-accepted, user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0047, reviews/0009.md#R0009-0021,
-  reviews/0009.md#R0009-0025
+- **Sources:** docs/project/open-issues.md#OI-0047, reviews/reviewed/0009.md#R0009-0021,
+  reviews/reviewed/0009.md#R0009-0025
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -1303,9 +1303,9 @@ reflow" by design. What no record covers is that `warnMapDomDrift` and
 - **Type:** 2
 - **Verified:** yes — Review 0009 findings (R0009-0052, R0009-0053,
   R0009-0075, R0009-0078), gate-accepted, user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0048, reviews/0009.md#R0009-0052,
-  reviews/0009.md#R0009-0053, reviews/0009.md#R0009-0075,
-  reviews/0009.md#R0009-0078
+- **Sources:** docs/project/open-issues.md#OI-0048, reviews/reviewed/0009.md#R0009-0052,
+  reviews/reviewed/0009.md#R0009-0053, reviews/reviewed/0009.md#R0009-0075,
+  reviews/reviewed/0009.md#R0009-0078
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
@@ -1483,9 +1483,9 @@ paid out._
 - **Description:** Blockquote structural fingerprints recurse one level; structure deeper
   than one level below a blockquote can drift without validator rejection.
 - **Background:** Review 0001 finding R0001-0008 — a bare `R0001-` id is the live
-  `reviews/0001.md` per `reviews/README.md`'s citation convention. OI-0022 is itself
+  `reviews/reviewed/0001.md` per `reviews/README.md`'s citation convention. OI-0022 is itself
   RESOLVED (2026-07-13): it recursed the blockquote fingerprint exactly one level, and
-  `reviews/0001-dispositions.md` routes R0001-0008 back here as `backlog-tracked`. The
+  `reviews/reviewed/0001-dispositions.md` routes R0001-0008 back here as `backlog-tracked`. The
   `ListTopologyEntry.depth` widening (ticket `0d8277`) removed the u8 saturation ceiling,
   which is a different residual and does not deepen the blockquote recursion.
 - **Blocked by:** OI-0022's own gate — "extend if drift is observed in practice"; no
