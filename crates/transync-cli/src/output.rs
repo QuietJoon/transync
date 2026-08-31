@@ -3079,10 +3079,33 @@ mod tests {
 
         // The refusal is about the NAME, not about the bytes further up the
         // path: only the final component becomes a staging name.
+        //
+        // This half needs the filesystem to actually *hold* a directory whose
+        // own name is not UTF-8, and that is a property of the filesystem
+        // rather than of the platform: ext4 stores arbitrary bytes, while APFS
+        // validates names and refuses this one with `EILSEQ`. `cfg(unix)`
+        // cannot express that difference, so ask the filesystem instead of
+        // asking the target triple.
         let dir = root.join(OsStr::from_bytes(b"d\xffir"));
-        fs::create_dir(&dir).expect("a directory whose own name is not UTF-8");
-        preflight_destination_set(&[dir.join("out.md")])
-            .expect("a UTF-8 file name under a non-UTF-8 parent is publishable");
+        match fs::create_dir(&dir) {
+            Ok(()) => {
+                preflight_destination_set(&[dir.join("out.md")])
+                    .expect("a UTF-8 file name under a non-UTF-8 parent is publishable");
+            }
+            Err(refusal) => {
+                // Tell "this filesystem cannot spell that name" apart from a
+                // scratch root that is missing or read-only: without this the
+                // arm would swallow a real environment failure and report
+                // coverage it never ran. A UTF-8 sibling must still succeed.
+                fs::create_dir(root.join("utf8-sibling"))
+                    .expect("the scratch root is writable, so the refusal above is about the NAME");
+                eprintln!(
+                    "note: {} refused a non-UTF-8 directory name ({refusal}); the \
+                     non-UTF-8-PARENT half of this case did not run on this filesystem",
+                    root.display()
+                );
+            }
+        }
     }
 
     /// R0002-0025: a directory whose fsync fails no longer passes in silence.
