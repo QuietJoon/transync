@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-08-29-review0009-fix-pass
+  last_updated: 2026-09-01-ti490d97-wave2
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -109,9 +109,32 @@ project:
     two axes, not one), 954711a (BlockKind::Html drops the CommonMark type),
     8b556e7 (BlockKind::Title) and 1ed72d3 (every html dispatch site re-keyed
     onto Spelling::Html / InputMode::HtmlSegments / constraints.html).
-    AS OF 2026-08-29 this blob does not yet carry wave 2's own paragraph: the
-    wave-2 plan's Task 8 owns ADR-0025, DCR-0034 and this note, and had not
-    run. Waves 3-7 unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
+    TI 490d97 WAVE 2 LANDED 2026-09-01 (ADR-0025 / DCR-0034): the block IR
+    split semantic kind from source spelling. Its code landed 2026-08-24 and
+    its record on 2026-09-01, both dated from git log --date=short rather than
+    from the plan's filename. Spelling and SourceFormat joined BlockKind in
+    transync-syntax::id, Block gained spelling and Document gained format,
+    BlockKind::Html narrowed to a unit variant (its CommonMark block type
+    moved to Spelling::Html, where it always belonged), and BlockKind::Title
+    landed with id_code "title", wire_str "title", heading_level None and an
+    EXPLICIT non-sync role. Two catch-alls would have swallowed the new
+    variant silently: align::sync_role_for ends in _ => Anchor, which would
+    have made a title an anchoring row - the exact opposite of D5 - and
+    unit::context::document_title matched Heading1 and nothing else, so a
+    title did not enter the document title for free. Both got explicit arms
+    and tests that assert the ANSWER rather than the compile. Nine dispatch
+    sites were re-keyed onto Spelling::Html / InputMode::HtmlSegments /
+    constraints.html; the three sets are identical today and stop being
+    identical once an HTML document's <p> is a Paragraph shipping a segment
+    array. The (Table x Html) row-window exclusion is explicit and tested.
+    Workspace at 0.5.0-dev; the SANCTIONED v0.5.0 BREAKING WINDOW IS OPEN,
+    and this wave contributes four breaking-by-policy changes batched. The
+    window's total is FIVE, not four - the fifth is not this wave's: the
+    review-0009 fix pass removed transync-openai's unreachable
+    ProviderError::RateLimited under the same window (8d4efda, DCR-0040).
+    Acceptance: workspace and CLI suites green with ZERO fixture edits,
+    two-package wasm gate exit 0, string unchanged. Waves 3-7 unblocked; wave
+    4's layer-6 twin is a hard precondition for any HTML translation run. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
     most recent release is still v0.4.0, and the owner's condition for closing
     this one (stated 2026-08-24) is that 0.5.0 proper ships only after every
     REGISTERED TASK and every OPEN ISSUE is resolved, excluding those
@@ -676,7 +699,8 @@ design:
     - DCR-0031-indented-code-normalize-on-translate
     - DCR-0032-transync-html-crate-extraction
     - DCR-0033-oi0035-anchor-trust-both-layers
-    # DCR-0034..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
+    - DCR-0034-ir-semantic-kind-and-spelling-split
+    # DCR-0035..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
     # (docs/superpowers/plans/2026-08-20-html-wave*.md), each appended here by
     # that wave's own records task. DCR-0040 is out of sequence on purpose -
     # taking the next free number would have collided with an unrun wave's

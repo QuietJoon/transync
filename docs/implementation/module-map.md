@@ -34,7 +34,7 @@ crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017
     │   ├── refdefs.rs                  # link-reference-definition pool (DCR-0013)
     │   └── depth.rs                    # THE one guarded hand-off of raw Markdown to
     │                                   #   comrak: nesting-depth refusal before parse
-    ├── id.rs                           # BlockId assignment + source_hash
+    ├── id.rs                           # BlockId assignment + source_hash + the two vocabularies (BlockKind, Spelling/SourceFormat)
     ├── outcome.rs                      # per-block HtmlOutcome closure (DCR-0017 §3.1)
     ├── walk.rs                         # ONE shared top-level normalization + per-list item
     │                                   #   count; consumed by render AND validate::full_reparse

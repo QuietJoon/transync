@@ -10,7 +10,7 @@ A stable string identifier per sync-relevant block. Shape decided in ADR-0005:
 <kind>-<NNNN>
 ```
 
-- `<kind>` ∈ `{h1, h2, h3, h4, h5, h6, p, t, c, li, q, hr, img, html, x}` — `html` is a block-level raw HTML block (ADR-0018) and `x` a skipped node (DCR-0013); both are real prefixes, appearing in schema-1.2.0 alignment rows and in `data-sync-id` anchors. `BlockKind::id_code` is the authority.
+- `<kind>` ∈ `{h1, h2, h3, h4, h5, h6, p, t, c, li, q, hr, img, title, html, x}` — `html` is a block-level raw HTML block (ADR-0018) and `x` a skipped node (DCR-0013); both are real prefixes, appearing in schema-1.2.0 alignment rows and in `data-sync-id` anchors. `BlockKind::id_code` is the authority. `title` is an HTML document's `<title>` (ADR-0025) — a real row with `sync_role: non-sync` and no DOM anchor.
 - `<NNNN>` is a zero-padded sequential number assigned in source-order traversal of the AST, starting at `0001`. Numbers are not reused within a document.
 
 Examples: `h2-0001`, `p-0042`, `t-0007`, `c-0003`, `li-0019`.
@@ -36,9 +36,11 @@ enum BlockKind {
     Blockquote,                // wire: "blockquote"
     ThematicBreak,             // wire: "thematic-break"
     Image,                     // wire: "image" (block-level only)
-    Html { block_type: u8 },   // wire: "html" — block-level raw HTML, translatable
-                               //   via segment extraction (ADR-0018 / DCR-0016);
-                               //   block_type is the CommonMark HTML block type 1..7
+    Title,                     // wire: "title" — an HTML document's <title>:
+                               //   translated, aligned, never anchored (D5)
+    Html,                      // wire: "html" — HTML content with NO semantic
+                               //   equivalent; the CommonMark block type moved
+                               //   to Spelling::Html (ADR-0025)
     Skipped { label: String }, // wire: "skipped" — a top-level node not modeled as
                                //   translatable (DCR-0013). label ∈ {front-matter,
                                //   footnote-definition, unsupported}; "html-block" is
@@ -50,11 +52,54 @@ enum BlockKind {
 
 Inline kinds (text, emphasis, link, …) do **not** get a `BlockKind` — they are content within blocks, not sync anchors.
 
+## 2a. `Spelling` and `SourceFormat`
+
+The second and third vocabularies, beside `BlockKind` in `transync-syntax::id`
+(ADR-0025 D2, ti `490d97` wave 2). `BlockKind` says what a block **is**;
+`Spelling` says how the source **wrote** it; `SourceFormat` says which intake
+produced the document.
+
+```rust
+/// How the source spelled a block. The semantic vocabulary stays on
+/// `BlockKind`; this axis is orthogonal (D2, ti 490d97).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Spelling {
+    /// GFM syntax. Every consumer that reparses under comrak lives here.
+    Markdown,
+    /// Raw HTML markup, translated via segment extraction/splice.
+    Html {
+        /// CommonMark HTML block type (1–7) when the block is an island
+        /// inside a *Markdown* document. `None` for every block of an
+        /// *HTML* document, where no CommonMark context exists and
+        /// blank-line collapse must never run.
+        block_type: Option<u8>,
+    },
+}
+
+/// The plain two-value format label: `Document.format`, per-row
+/// `source_format` on the alignment wire, `AlignmentMap.input_format`,
+/// and the `TranslateOptions` input-format option.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceFormat { Markdown, Html }
+```
+
+Invariant, established at intake: `format == Html` ⇒ every block's spelling is
+`Html { block_type: None }`. `format == Markdown` ⇒ spellings are mixed, and
+every raw-HTML island carries `Some(t)`.
+
+Per-block spelling is required rather than stylistic: one Markdown document
+interleaves HTML-spelled islands with Markdown-spelled blocks, so no
+document-level bit can carry that axis. Neither type is exported by the
+`transync` facade yet — both are tier-(c) engine types until the window that
+exports them (`contracts.md` §0/§1).
+
 ## 3. `Document` IR (in-memory only — not serialized)
 
 ```
 Document {
   source_text: String,         // original input
+  format: SourceFormat,        // which intake produced it
   blocks: Vec<Block>,          // flat sequence in source order
   warnings: Vec<String>,       // reader-honesty notes for unmodeled top-level nodes
   ref_defs: String,            // link-reference-definition pool (DCR-0013)
@@ -63,6 +108,7 @@ Document {
 Block {
   block_id: BlockId,
   kind: BlockKind,
+  spelling: Spelling,          // how the SOURCE wrote it — orthogonal to kind
   source_range: ByteRange,     // (start, end) byte offsets into source_text
   source_hash: u64,            // SipHash13 over the canonical block bytes
   section_path: Vec<BlockId>,  // chain of enclosing headings

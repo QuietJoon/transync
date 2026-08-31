@@ -7,16 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-v0.4.0 closed the sanctioned breaking window opened after v0.3.0, and
-everything below it is additive — nothing on the `transync` facade's §0
-surface moves. The next breaking change still needs a new window: wave 2 of
-the HTML→HTML feature (spec `docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md`
-§12) is the one asking for it, against a future v0.5.0.
+**The sanctioned v0.5.0 breaking window is OPEN.** It was opened by wave 2 of
+the HTML→HTML feature (ti `490d97`, ADR-0025, DCR-0034), which splits semantic
+kind from source spelling in the block IR. **Five** breaking-by-policy changes
+ride the window. Wave 2 contributes four, batched, and none of the four is
+user-visible: the corpus regenerates, renders and aligns byte-identically with
+zero fixture edits. The fifth is not wave 2's — `transync-openai`'s unreachable
+`ProviderError::RateLimited` was removed under this window by the review-0009
+fix pass (`8d4efda`, DCR-0040 §3). Additive changes land here as they come;
+further breaking changes may ride this window until it is closed by the v0.5.0
+release.
+
+### Changed (BREAKING)
+
+- **`BlockKind::Html { block_type: u8 }` narrows to the unit variant `BlockKind::Html`** (ti `490d97` wave 2, ADR-0025 / DCR-0034). The variant now means one thing — "HTML content with no semantic equivalent" — instead of two. The CommonMark block type moved to the new `Spelling::Html`, where it was always spelling metadata. A pattern or construction naming `block_type` no longer compiles; a bare `BlockKind::Html { .. }` pattern still does, and is now misleading.
+- **`BlockKind` gains a `Title` variant** for an HTML document's `<title>`: `id_code` `"title"`, `wire_str` `"title"`, `heading_level()` `None`, and an **explicit** `sync_role` of `non-sync` — a title is translated and aligned but has no DOM anchor, because the browser chrome renders it and the pane has nothing to anchor. Every exhaustive `match` over `BlockKind` in a consumer's tree needs the new arm.
+- **`parser::Block` gains `spelling: Spelling`; `parser::Document` gains `format: SourceFormat`.** Engine-tier (§0 tier (c)) types, reached only by a consumer depending on `transync-syntax` directly. Per-block spelling is required rather than stylistic: one Markdown document interleaves HTML-spelled islands with Markdown-spelled blocks, so no document-level bit can carry the axis.
 
 ### Changed
 
 - **The HTML mechanics moved to their own workspace member, `transync-html`** (ti `490d97` wave 0, DCR-0032). `transync-syntax::htmlseg` is gone with no re-export alias; `transync-syntax` and `transync-core` depend on the new crate, and `transync-syntax` no longer depends on `lol_html` or `htmlize`. Nothing on the `transync` facade's surface moves — the mechanics were always tier (c) engine internals. The publication roster is seven members.
 - `transync_html::splice` takes a `BlankLinePolicy` instead of a CommonMark block-type `u8`; `BlankLinePolicy::from_commonmark_html_block_type` is the one surviving home of the `6 | 7` rule.
+- Every html dispatch site is re-keyed onto the axis it meant — `Spelling::Html` for IR questions, `InputMode::HtmlSegments` for unit questions, `constraints.html` for the layer-3 splice. Behaviour-preserving today, by three-way set identity; the point is what it will mean once an HTML document's `<p>` is a `Paragraph` that ships a segment array.
+- The GFM row-window table splitter now excludes html-segments units **explicitly**, with a test. `inspect_table` would have refused one anyway; an accident is not a guard.
+- Workspace version `0.5.0-dev`.
 
 ### Added
 
