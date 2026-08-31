@@ -2,14 +2,14 @@
 type: ADR
 title: HTML documents are a second intake into one pipeline, and semantic kind is orthogonal to source spelling
 description: One architectural commitment covering the twelve ratified decisions of the HTML→HTML design — the kind ⊥ spelling split, the transync-html mechanics crate, structural pass-through with content stop, the anchor-less <title>, panes as a sync surface not a fidelity preview, flag-only format routing, <li> as the block, and the deferral of Markdown-island reclassification to a schema-2.x window.
-tags: [decision, architecture, ADR-0025]
+tags: [decision, ADR-0025]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-09-01T00:00:00Z
 status: stable
 ---
 
-# ADR-0025: HTML documents are a second intake into one pipeline
+# ADR: HTML documents are a second intake into one pipeline
 
 ## Status / Date / Source
 
