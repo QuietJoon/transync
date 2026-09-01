@@ -94,3 +94,12 @@ stream: O:svg:false|O:script:true
 ### foreign-integration-rawtext
 inventory: svg|foreignobject|script|/script|/foreignobject|/svg
 stream: O:svg:false|O:foreignobject:false|O:script:false|C:script@33..42|C:foreignobject@42..58|C:svg@58..64
+### foreignvoid-closer
+inventory: svg|link|/link|/svg
+stream: O:svg:false|O:link:false|C:link@12..19|C:svg@20..26
+### foreignvoid-unclosed
+inventory: svg|link
+stream: O:svg:false|O:link:false
+### foreignvoid-br-guard
+inventory: svg|br
+stream: O:svg:false|O:br:false

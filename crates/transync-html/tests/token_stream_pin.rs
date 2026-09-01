@@ -157,6 +157,32 @@ const FIXTURES: &[(&str, &str)] = &[
 /// would move it, which is precisely why the scanner grew a mode STACK rather
 /// than a counter.
 ///
+/// The `foreignvoid-*` entries are the fifth, and they move the BALANCER
+/// rather than the token stream (ti `48f3c6`). `is_void` was applied
+/// globally, foreign content included, so a name HTML makes void was never
+/// pushed no matter where it appeared. In foreign content there are no void
+/// elements — "any other start tag" inserts a foreign element and only the
+/// self-closing flag pops it — so `<svg><link>` is a genuine closable SVG
+/// element:
+///
+/// * **`foreignvoid-closer`** — `<svg><link>a</link>b</svg>`. The author's
+///   `</link>` was classified an orphan and DELETED from the pane, silently
+///   editing what the reader sees.
+/// * **`foreignvoid-unclosed`** — `<svg><link>a`. The other half: no closer
+///   was owed, so the fragment closed the `svg` around an element that stayed
+///   open.
+///
+/// **`foreignvoid-br-guard` is the entry that made the fix safe to make at
+/// all.** The trade recorded on `48f3c6` was that pushing void names inside
+/// foreign content risks appending `</br>`, which HTML's end-tag-`br` rule
+/// turns back into a fresh `<br>` — the balancer minting structure instead of
+/// repairing it. It cannot happen: `br` is in `FOREIGN_BREAKOUT_TAGS`, so
+/// `<svg><br>` tears out of foreign content BEFORE the tag is processed and
+/// lands in HTML content, where `is_void` still wins. Same for the other four
+/// void names that are also breakout tags (`embed`, `hr`, `img`, `meta`).
+/// This entry must not move on either side of the fix, and it is the evidence
+/// that DCR-0041's breakout model is what retired the hazard.
+///
 /// Blessed twice for the reason `stray-*` is: the commit that adds them
 /// records the BROKEN tokenization, the fix re-blesses through the same
 /// interlock, and the diff between the two blessings is the reviewable record.
@@ -208,6 +234,10 @@ const EDGE_CASES: &[(&str, &str)] = &[
         "foreign-integration-rawtext",
         "<svg><foreignObject><script>a<b>c</script></foreignObject></svg>",
     ),
+    // ti `48f3c6` — voidness is an HTML-content rule too.
+    ("foreignvoid-closer", "<svg><link>a</link>b</svg>"),
+    ("foreignvoid-unclosed", "<svg><link>a"),
+    ("foreignvoid-br-guard", "<svg><br>x"),
 ];
 
 /// Every corpus entry as `(name, source)`, fixtures first.
