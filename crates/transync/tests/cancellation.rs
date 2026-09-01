@@ -273,10 +273,20 @@ async fn cancellation_interrupts_the_transport_backoff() {
         matches!(err, TransyncError::Cancelled),
         "expected Cancelled, got {err:?}"
     );
+    // The bound comes from the signature it protects against, not from a round
+    // number, so the relationship is visible here instead of implicit. Half the
+    // cap still fails decisively if the sleep stops being raced, while leaving
+    // room for scheduler noise: this assertion has tripped three times on trees
+    // containing no async, timing or cancellation code, at 8.46 s, 5.04 s and
+    // 5.55 s — every one of them far below the regression it names. The old
+    // bound was a flat 5 s, a 6x margin the scheduler alone can eat (ti
+    // `d41782`).
+    const CAPPED_BACKOFF: Duration = Duration::from_secs(30);
     assert!(
-        elapsed < Duration::from_secs(5),
-        "the run waited {elapsed:?}; the policy's capped backoff is 30 s, so \
-         anything near it means the sleep was not raced against the token"
+        elapsed < CAPPED_BACKOFF / 2,
+        "the run waited {elapsed:?}; the policy's capped backoff is \
+         {CAPPED_BACKOFF:?}, so anything near it means the sleep was not raced \
+         against the token"
     );
 }
 
@@ -434,10 +444,19 @@ async fn a_translator_that_ignores_the_token_is_cancelled_by_being_dropped() {
         matches!(err, TransyncError::Cancelled),
         "expected Cancelled, got {err:?}"
     );
+    // Same rule as `cancellation_interrupts_the_transport_backoff`, and this is
+    // the tighter of the two offenders: a flat 5 s against a 600 s signature is
+    // a 120x margin. A tenth of the provider's sleep stays an order of
+    // magnitude clear of the regression and well above the ~9 s of scheduler
+    // noise measured on a contended machine (ti `d41782`). A generous bound
+    // costs nothing when the test passes — a dropped future returns in
+    // milliseconds; only a genuinely undropped one approaches the sleep.
+    const IGNORED_SLEEP: Duration = Duration::from_secs(600);
     assert!(
-        elapsed < Duration::from_secs(5),
-        "the run took {elapsed:?}; the provider sleeps 600 s and ignores the \
-         token, so anything near that means the future was not dropped"
+        elapsed < IGNORED_SLEEP / 10,
+        "the run took {elapsed:?}; the provider sleeps {IGNORED_SLEEP:?} and \
+         ignores the token, so anything near that means the future was not \
+         dropped"
     );
     assert_eq!(
         translator.started.load(Ordering::SeqCst),
