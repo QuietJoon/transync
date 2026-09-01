@@ -183,6 +183,17 @@ const FIXTURES: &[(&str, &str)] = &[
 /// This entry must not move on either side of the fix, and it is the evidence
 /// that DCR-0041's breakout model is what retired the hazard.
 ///
+/// The two `image-*` entries are **not** a blind spot and are blessed ONCE.
+/// They pin an existing decision that nothing pinned (ti `4882ac`): `image`
+/// is absent from `VOID_ELEMENTS` because HTML has no void element by that
+/// name — the tree builder rewrites the token's name to `img` and reprocesses
+/// — and this crate performs no such rewrite. `image-html` records what that
+/// costs (the element opens here, where a browser has an empty `img` and `x`
+/// as its sibling) and `image-foreign` records the case the exclusion is
+/// usually justified by. Both must stay byte-identical unless someone teaches
+/// `scan_tags` HTML's tag-name substitutions, which is the whole point of
+/// writing them down.
+///
 /// Blessed twice for the reason `stray-*` is: the commit that adds them
 /// records the BROKEN tokenization, the fix re-blesses through the same
 /// interlock, and the diff between the two blessings is the reviewable record.
@@ -238,6 +249,9 @@ const EDGE_CASES: &[(&str, &str)] = &[
     ("foreignvoid-closer", "<svg><link>a</link>b</svg>"),
     ("foreignvoid-unclosed", "<svg><link>a"),
     ("foreignvoid-br-guard", "<svg><br>x"),
+    // ti `4882ac` — a documented exclusion, made falsifiable.
+    ("image-html", "<image>x"),
+    ("image-foreign", "<svg><image>a</image>b</svg>"),
 ];
 
 /// Every corpus entry as `(name, source)`, fixtures first.

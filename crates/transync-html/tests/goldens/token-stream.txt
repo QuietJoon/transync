@@ -103,3 +103,9 @@ stream: O:svg:false|O:link:false
 ### foreignvoid-br-guard
 inventory: svg|br
 stream: O:svg:false|O:br:false
+### image-html
+inventory: image
+stream: O:image:false
+### image-foreign
+inventory: svg|image|/image|/svg
+stream: O:svg:false|O:image:false|C:image@13..21|C:svg@22..28

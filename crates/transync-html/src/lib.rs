@@ -52,15 +52,27 @@ use std::rc::Rc;
 /// `<keygen/>` would newly earn an appended `</keygen>` a browser never
 /// mints.
 ///
-/// The rule is **global** — foreign content included. Appending a close tag
-/// for a void name is worse than leaving one out, because HTML's end-tag-`br`
-/// rule turns an emitted `</br>` back into a fresh `<br>`: the balancer would
-/// mint structure instead of repairing it. The cost is that a real foreign
-/// `<svg><link>…</link>` still has its closer dropped as an orphan; that
-/// trade is deliberate.
+/// The rule applies **in HTML content only** (ti `48f3c6`, DCR-0043). It used
+/// to be global, to keep the balancer from ever appending a `</br>` — HTML's
+/// end-tag-`br` rule turns one back into a fresh `<br>`, so the balancer would
+/// mint structure instead of repairing it — at the cost of dropping a real
+/// foreign `<svg><link>…</link>`'s closer as an orphan. That trade expired
+/// when [`walk_elements`] learned breakout (DCR-0041): `br` is a breakout tag,
+/// so `<svg><br>` leaves foreign content before the tag is processed and meets
+/// this list in HTML content after all. Five names are in that position —
+/// `br`, `embed`, `hr`, `img`, `meta` — and
+/// `a_void_name_that_is_also_a_breakout_tag_never_opens_inside_foreign_content`
+/// pins the set.
 ///
-/// `image` is deliberately NOT here. `svg:image` is a real, closable foreign
-/// element, so calling it void would delete an author's `</image>` closers.
+/// `image` is deliberately NOT here, and the reason is the tree builder's
+/// rather than this list's: **HTML has no void element called `image`.** "A
+/// start tag whose tag name is `image`" is handled by rewriting the token's
+/// name to `img` and reprocessing it, so `<image>x` leaves `x` a sibling
+/// because `img` is void, not because `image` is. This crate does not rename,
+/// so the literal name is not void here (ti `4882ac`, which also records what
+/// that costs). A real, closable `<svg><image>…</image>` is safe for the
+/// separate reason above — voidness is not consulted in foreign content at
+/// all.
 const VOID_ELEMENTS: &[&str] = &[
     "area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input",
     "keygen", "link", "meta", "param", "source", "track", "wbr",
@@ -2629,6 +2641,57 @@ mod extent_tests {
                 .iter()
                 .all(|e| e.name != "br")
         );
+    }
+
+    /// ti `4882ac`. `image`'s absence from `VOID_ELEMENTS` was a documented
+    /// decision that nothing pinned — no unit test, no corpus entry, no
+    /// scenario. A contributor comparing the list against HTML's void
+    /// elements finds `image` missing, sees nothing saying why, and adds it.
+    /// This is the falsifiable form of the decision.
+    ///
+    /// The reason is the tree builder's, not the syntax list's: HTML has no
+    /// void element called `image`. "A start tag whose tag name is `image`"
+    /// is handled by REWRITING the token's name to `img` and reprocessing, so
+    /// `<image>x` leaves `x` a sibling because `img` is void — measured in
+    /// headless Chromium. This crate performs no such rewrite, so the literal
+    /// name is not void here.
+    #[test]
+    fn image_is_not_void_because_html_renames_it_rather_than_voiding_it() {
+        assert!(
+            !is_void("image"),
+            "`image` is not on HTML's void list — `img`, the name the parser \
+             rewrites it to, is"
+        );
+        assert!(is_void("img"));
+        assert!(!VOID_ELEMENTS.contains(&"image"));
+    }
+
+    /// What that exclusion costs, asserted rather than left implicit — the
+    /// half of ti `4882ac` a bare `!is_void("image")` would hide.
+    ///
+    /// A browser rewrites the name, so `<image>x` is an EMPTY `img` with `x`
+    /// as its sibling. Here the element opens and `x` reads as its content,
+    /// which is a real extent divergence: a consumer asking "what element
+    /// surrounds these bytes" gets `image` where a browser says nothing. It
+    /// is inert for both shipped consumers — `tag_inventory` compares source
+    /// against splice and both spell it `image`, and an appended `</image>`
+    /// is an end tag a browser matches to nothing and ignores — so this pins
+    /// the current behaviour rather than blessing it. Closing the divergence
+    /// means teaching `scan_tags` HTML's tag-name substitutions, which moves
+    /// `tag_inventory`; that is filed separately.
+    #[test]
+    fn an_image_element_opens_here_where_a_browser_has_an_empty_img() {
+        let ex = element_extents("<image>x");
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["image"]);
+        assert_eq!(ex[0].content_end, 8, "`x` reads as the image's content");
+        assert_eq!(balance_fragment("<image>x"), "<image>x</image>");
+        // And the case the exclusion is usually justified by: a real,
+        // closable SVG `image`. It keeps its closer, but for the DCR-0043
+        // reason — voidness is not consulted in foreign content — so this
+        // would still hold if `image` were void.
+        let svg = "<svg><image>a</image>b</svg>";
+        assert_eq!(balance_fragment(svg), svg);
     }
 }
 
