@@ -14,7 +14,7 @@ sources:
   - { id: prompt-rs, resource: crates/transync-core/src/llm/prompt.rs }
   - { id: unit-rs, resource: crates/transync-core/src/unit.rs }
   - { id: unit-section-rs, resource: crates/transync-core/src/unit/section.rs }
-  - { id: adr-0014, resource: docs/decisions/0014-section-scoped-glossary-renders-globally.md }
+  - { id: adr-0014, resource: docs/decisions/archive/0014-section-scoped-glossary-renders-globally.md }
   - { id: dcr-0027, resource: docs/project/design-change-records/DCR-0027-section-coherent-batching-and-glossary-section-scope.md }
 synced_hash: 2c09f59a330a21394e7b6e454dca86e4234070b07e717e88929332f694fef104
 ---

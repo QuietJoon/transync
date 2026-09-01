@@ -21,7 +21,7 @@ sources:
   - { id: pipeline-merge, resource: crates/transync-core/src/pipeline/merge.rs }
   - { id: pipeline-policy, resource: crates/transync-core/src/pipeline/policy.rs }
   - { id: unit-split, resource: crates/transync-core/src/unit/split.rs }
-  - { id: htmlseg, resource: crates/transync-syntax/src/htmlseg.rs }
+  - { id: htmlseg, resource: crates/transync-html/src/lib.rs }
   - { id: render, resource: crates/transync-syntax/src/render.rs }
   - { id: parser-ranges, resource: crates/transync-syntax/src/parser/ranges.rs }
   - { id: align, resource: crates/transync-syntax/src/align.rs }
