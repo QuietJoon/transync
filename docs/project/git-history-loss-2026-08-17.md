@@ -457,3 +457,23 @@ changes is the balance between its two named practices:
    redundancy, not immunity. A mirror on a volume the sync client does not
    touch — or a real off-machine remote — is the version of this that would
    also survive the volume.
+
+   **Answered 2026-09-01 by the owner (ti `6b4300`): the authoritative `.git`
+   is GitHub.** `origin` — `github:QuietJoon/transync.git` — is the store of
+   record. That settles the question this record left open and it re-ranks the
+   two local stores:
+
+   | store | role after this decision |
+   |---|---|
+   | `origin` (GitHub) | **Authoritative.** Off-machine, off-volume, and outside the sync client's reach — the only copy the 2026-08-17 and 2026-08-19 causes cannot touch. |
+   | `/Volumes/Common/QJoon/transync/.git` | A **working copy**. It has destroyed history twice. Nothing may exist only here. |
+   | `backup` (`/Volumes/Common/git-backup/transync.git`) | Still a mirror of record for the salvaged stores, and still on the same synced volume, so still redundancy rather than immunity. It is no longer the last line — it is the fast local one. |
+
+   The operational consequence is the part that bites, and it is a *standing*
+   obligation rather than a one-off: **the authoritative store is only
+   authoritative to the commit it actually holds.** Local `master` was found 24
+   commits ahead of `origin/master` on the day the decision was taken, so
+   twenty-four commits of work — every commit of 2026-09-01 among them —
+   existed solely on the volume with the incident record. Push after every
+   commit, to `origin` first; a local commit that has not reached GitHub is
+   exactly the exposure this whole document is about.
