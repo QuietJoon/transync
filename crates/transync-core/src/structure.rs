@@ -91,6 +91,17 @@ pub(crate) fn inspect_list_topology(source_payload: &str) -> Option<Vec<ListTopo
     // at 1,100 on the 1 MiB a wasm module gets. A stack overflow aborts the
     // process; a host embedding this library cannot catch it. Heap frames
     // grow instead now, so the only ceiling left is memory. The parser's
+    // ti `148fcf` routed the other provider-payload reparses through
+    // `parser::guarded_parse`. These three walkers are deliberately NOT
+    // routed, and that is not an oversight: they are hardened rather than
+    // bounded. `deep_nesting_walks_on_the_heap_not_the_call_stack` pins a
+    // thousand levels walked on a 256 KiB stack, and applying the ceiling
+    // here would refuse depths this module is built to handle while turning
+    // "too deep" into "not a list" — a worse diagnostic that can mask a real
+    // shape change. Provider payloads are refused at the door in
+    // `validate::validate_unit`, before they ever reach here; the safety this
+    // module provides is what remains for any caller that arrives another way
+    // (`pipeline::merge` fingerprints already-merged windows).
     // `MAX_BLOCK_NESTING_DEPTH` pre-scan keeps *source* payloads far short
     // of either, but a provider result reaches this function without
     // passing through it, which is exactly why the depth must not live on

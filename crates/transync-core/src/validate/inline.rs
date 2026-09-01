@@ -215,7 +215,14 @@ fn inline_inventory(payload: &str, ref_defs: &str) -> InlineInventory {
         appended = format!("{payload}\n\n{ref_defs}");
         appended.as_str()
     };
-    let root = comrak::parse_document(&arena, to_parse, &opts);
+    // Past the ceiling there is no inventory to take: return an empty one
+    // rather than build a tree. The comparison against the source inventory
+    // then fails and the unit is rejected — which is the right outcome, and
+    // the one `validate_unit`'s door has already produced with a better
+    // reason before this is reachable.
+    let Ok(root) = crate::parser::guarded_parse(&arena, to_parse, &opts) else {
+        return InlineInventory::default();
+    };
 
     let mut inv = InlineInventory::default();
     for node in root.descendants() {

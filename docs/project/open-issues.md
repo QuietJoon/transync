@@ -64,8 +64,12 @@ No observed jank; cost grows with document size. Optimize only when profiling sh
 - **Source:** R0003-0004, R0003-0005, R0003-0088 (Review 0003) (review archived and removed)
 - **Date:** 2026-08-09
 - **Decision:** ACCEPT (track — defense in depth; no reachable failure today)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-01
+- **Resolution:** ticket `148fcf`. Provider payloads are refused at one door
+  (`validate::validate_unit`) before any layer parses them, and every remaining
+  provider-path reparse goes through `parser::guarded_parse`, which applies the
+  same ceiling `parser::intake` applies. `structure.rs`'s three walkers are
+  **deliberately not routed** — see below.
 
 ### Problem
 
@@ -104,11 +108,43 @@ safety ceiling the source must satisfy.
 3. R0003-0088 is this work's test gap and cannot land before it: a test for a
    guard cannot exist until the guard does.
 
+### Resolution detail
+
+Required Action 1 named "five direct `comrak::parse_document` calls". That is
+five *files*; there are eight production call sites, and two further calls that
+are not on this path at all (`unit/payload.rs`'s is inside `#[cfg(test)]`,
+`unit/context.rs`'s takes source bytes that already passed `intake`).
+
+Six sites are routed through `parser::guarded_parse`. **`structure.rs`'s three
+are not, on purpose**, and the reason is this entry's own Impact paragraph.
+The worry recorded there is that today's safety rests on comrak internals and
+"a dependency upgrade could reintroduce a recursive block parse and nothing
+here would go red". Something here does go red:
+`structure::depth_ceiling_tests::deep_nesting_walks_on_the_heap_not_the_call_stack`
+parses a thousand nesting levels on a 256 KiB stack. That test **is** this
+repository's assertion about comrak's block parse — and applying the ceiling at
+that site would refuse the input before comrak ever saw it, deleting the
+tripwire in the name of the risk it exists to catch. Routing it also turns
+"too deep" into "not a list", which is a weaker diagnostic that can mask a real
+topology change.
+
+So the ceiling is applied where payloads *enter*, and `structure` keeps the
+hardening plus the tripwire. `pipeline::merge` fingerprints already-merged
+windows without passing the door, and that path is what `structure`'s
+heap-safety continues to cover.
+
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+- [x] Code change applied — `parser::guarded_parse` beside `intake`; the door
+      in `validate::validate_unit`; `full_reparse` refusing with per-block
+      attribution through `BlockOffsets`.
+- [x] Tests pass — three added (R0003-0088's gap, Required Action 3):
+      a payload past the ceiling rejected at the `FragmentReparse` layer with a
+      legal-depth control; a regenerated document past the ceiling refused; and
+      per-block attribution naming only the block whose own bytes are too deep.
+      Workspace 40/40 binaries, 1131 passed, 0 failed.
+- [x] No regressions observed — the three `depth_ceiling_tests` are green and
+      unmodified, which is what caught the `structure` misstep above.
 
 ### Related
 
@@ -1240,7 +1276,7 @@ bytes the pane does not hold (R0009-0078).
 |----------|--------------------------------------------------------|----------|----------|
 | OI-0016  | Active-block selection scans per scroll frame            | OPEN   | Low      |
 | OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | RESOLVED (2026-08-23) — archived | Low |
-| OI-0037  | Provider payloads bypass the parser's nesting intake guard | OPEN (2026-08-09) | Low |
+| OI-0037  | Provider payloads bypass the parser's nesting intake guard | RESOLVED (2026-09-01) | Low |
 | OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | OPEN (2026-08-13) | Low |
 | OI-0039  | JS lint gate exits 0 while validating nothing            | OPEN (2026-08-26) | Low |
 | OI-0040  | Same bytes parsed/spliced repeatedly on the accepted path | OPEN (2026-08-26) | Low (R0009-0035 Medium) |

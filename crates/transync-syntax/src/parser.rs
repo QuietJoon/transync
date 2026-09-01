@@ -222,6 +222,30 @@ pub fn intake(source: &str) -> Result<Cow<'_, str>, ParseError> {
     Ok(normalize_source(source))
 }
 
+/// The guarded hand-off of *untrusted* Markdown to comrak, for bytes that
+/// did not come through [`intake`].
+///
+/// [`intake`] guards what the user wrote. Everything that re-enters comrak
+/// afterwards — a provider's translated payload, a document regenerated from
+/// several of them — is no more trustworthy (architectural invariant 7) and
+/// never passes through `intake`, because it is not source: it arrives on the
+/// validation path, already inside the run.
+///
+/// This exists because the ceiling guards an **uncatchable** failure. Deep
+/// nesting exhausts the stack, and a stack abort kills the process with no
+/// fallback, no partial output and no error to attribute — so the refusal has
+/// to happen *before* a tree is built rather than be caught after. A caller
+/// that reaches for `comrak::parse_document` directly on provider bytes
+/// reopens that path silently (ti `148fcf`).
+pub fn guarded_parse<'a>(
+    arena: &'a comrak::Arena<comrak::nodes::AstNode<'a>>,
+    source: &str,
+    opts: &comrak::ComrakOptions<'_>,
+) -> Result<&'a comrak::nodes::AstNode<'a>, ParseError> {
+    check_nesting_depth(source)?;
+    Ok(comrak::parse_document(arena, source, opts))
+}
+
 /// Parse GFM Markdown into the internal IR. Block IDs are assigned in
 /// source order during the walk; [`crate::id::assign_block_ids`] is then
 /// idempotent.

@@ -332,6 +332,24 @@ fn validate_unit(
         }
     };
 
+    // Architectural invariant 7 says source content is untrusted; a
+    // provider's response is no more trustworthy, and it is the one input
+    // `parser::intake`'s nesting-depth pre-scan never sees. Every layer below
+    // reparses this payload — the fragment reparse, the per-kind shapes, the
+    // structural oracle, the inline inventory — and each builds its own tree,
+    // so a payload past the ceiling is an UNCATCHABLE stack abort that takes
+    // the whole run down: no fallback, no partial output, nothing to
+    // attribute. Refuse it once, here, at the door every provider payload
+    // comes through, and let retry-then-fallback carry it like any other
+    // rejection (ti `148fcf`; R0003-0004 / R0003-0005 / R0003-0088).
+    //
+    // The layer is `FragmentReparse` because that is the first layer below
+    // that would have parsed these bytes, and a report row saying so points
+    // at the right thing.
+    if let Err(too_deep) = crate::parser::check_nesting_depth(&result.translated_payload) {
+        return reject(ValidationLayer::FragmentReparse, too_deep.to_string());
+    }
+
     let initial_status = match result.output_kind {
         OutputKind::Translated => FallbackStatus::Translated,
         OutputKind::Preserved => FallbackStatus::Preserved,
@@ -990,6 +1008,53 @@ mod preserved_tests {
             translated_payload: payload.to_string(),
             warnings: Vec::new(),
         }
+    }
+
+    /// ti `148fcf`: a provider payload past the nesting ceiling is REJECTED,
+    /// not parsed. Every layer below reparses these bytes, and comrak builds
+    /// a tree per call, so parsing this would be an uncatchable stack abort
+    /// that kills the run with no fallback and nothing to attribute — the
+    /// exact failure `parser::intake`'s pre-scan exists to prevent, on the
+    /// one input it never sees.
+    ///
+    /// The assertion that matters is that a rejection came back at all: if
+    /// the guard is removed this test does not fail, it ABORTS the process,
+    /// which is the whole reason the ceiling is a pre-scan and not a caught
+    /// error.
+    #[test]
+    fn a_provider_payload_past_the_nesting_ceiling_is_rejected_rather_than_parsed() {
+        let u = paragraph_unit("Hello world.");
+        let lookup: HashMap<&BlockId, &TranslationUnit> =
+            std::iter::once((&u.unit_id, &u)).collect();
+        let policy = crate::profile::ProfileConstraints::default();
+
+        let too_deep = ">".repeat(crate::parser::MAX_BLOCK_NESTING_DEPTH + 1) + " x";
+        let vu = validate_unit(&lookup, &policy, &preserved_result(&too_deep), "");
+
+        assert_eq!(
+            vu.rejected_by,
+            Some(ValidationLayer::FragmentReparse),
+            "the first layer that would have parsed these bytes"
+        );
+        assert_eq!(vu.final_status, FallbackStatus::FallbackSource);
+        assert!(vu.accepted_payload.is_none(), "nothing may be handed on");
+        assert!(
+            vu.rejection_reason
+                .as_deref()
+                .is_some_and(|r| r.contains("nesting too deep")),
+            "the reason must name the real cause: {:?}",
+            vu.rejection_reason
+        );
+
+        // One level under the ceiling is ordinary content and must still be
+        // judged on its merits, so the guard cannot be a blanket refusal.
+        let deep_but_legal = ">".repeat(crate::parser::MAX_BLOCK_NESTING_DEPTH - 1) + " x";
+        let ok = validate_unit(&lookup, &policy, &preserved_result(&deep_but_legal), "");
+        assert_ne!(
+            ok.rejected_by,
+            Some(ValidationLayer::FragmentReparse),
+            "a legal depth must not be refused by the ceiling"
+        );
     }
 
     #[test]
