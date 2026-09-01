@@ -67,3 +67,21 @@ stream: O:svg:true
 ### selfclose-p
 inventory: p
 stream: O:p:true
+### tagname-plant
+inventory: divq
+stream: O:divq:false
+### tagname-equals
+inventory: div
+stream: O:div:false
+### tagname-quote-only
+inventory: div|/div
+stream: O:div:false|C:div@8..16
+### endtag-digit
+inventory: div
+stream: O:div:false
+### endtag-space
+inventory: div
+stream: O:div:false
+### endtag-empty
+inventory: 
+stream: 

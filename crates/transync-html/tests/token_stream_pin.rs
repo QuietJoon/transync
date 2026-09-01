@@ -107,6 +107,32 @@ const FIXTURES: &[(&str, &str)] = &[
 /// than blind spots: foreign content and the `<svg>`/`<math>` start tags
 /// are the two places HTML really does honour the flag, so they must pass
 /// through the balancer unchanged on both sides of the fix.
+///
+/// The `tagname-*` and `endtag-*` entries are the third blind spot, one
+/// tokenizer state EARLIER than the attribute machine `stray-*` taught (ti
+/// `e20490`). Until now no entry held a tag name containing a quote or an
+/// `=`, and none held `</` before a non-letter, so the pin could not see two
+/// divergences from HTML's tag-open / end-tag-open / tag-name states:
+///
+/// * **`tagname-plant`** is the one with a security shape. HTML's tag-name
+///   state consumes every byte up to whitespace, `/` or `>` INTO the element
+///   name, so a browser reads `<divq"x=" data-sync-id="v">` as an element
+///   named `divq"x="` carrying a REAL `data-sync-id`. The scanner stopped the
+///   name at `divq` and attribute-walked the rest, which buried the plant
+///   inside a phantom quoted value that `collect_reserved_attr_spans` never
+///   examines as a name — so the strip left a live anchor standing. It is a
+///   remainder rather than a re-opened bypass only because a divergent tag
+///   name necessarily contains a byte no allowlisted element name has, and
+///   the pane path's DOMPurify mount drops the whole element; a consumer that
+///   does not sanitize does not inherit that.
+/// * **`endtag-*`** is the phantom-structure class instead. `</` before a
+///   non-letter is a parse error opening a bogus comment to the first `>`, so
+///   a browser mints zero elements; the scanner emitted an `Open` and the
+///   balancer owed it a closer the browser reads as orphan junk.
+///
+/// Blessed twice for the reason `stray-*` is: the commit that adds them
+/// records the BROKEN tokenization, the fix re-blesses through the same
+/// interlock, and the diff between the two blessings is the reviewable record.
 const EDGE_CASES: &[(&str, &str)] = &[
     (
         "cdata-foreign",
@@ -140,6 +166,14 @@ const EDGE_CASES: &[(&str, &str)] = &[
     ("selfclose-svg", "<svg><rect/><circle/></svg>"),
     ("selfclose-svg-root", "<svg/>after"),
     ("selfclose-p", "<p/>a"),
+    // ti `e20490` divergence 1 — HTML's tag-name state.
+    ("tagname-plant", "<divq\"x=\" data-sync-id=\"v\">z"),
+    ("tagname-equals", "<div=x data-sync-id=\"v\">y"),
+    ("tagname-quote-only", "<div\"x>y</div\"x>"),
+    // ti `e20490` divergence 2 — HTML's end-tag-open state.
+    ("endtag-digit", "</1 <div>x"),
+    ("endtag-space", "</ <div>x"),
+    ("endtag-empty", "</>x"),
 ];
 
 /// Every corpus entry as `(name, source)`, fixtures first.
