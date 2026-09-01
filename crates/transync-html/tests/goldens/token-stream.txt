@@ -86,8 +86,8 @@ stream:
 inventory: 
 stream: 
 ### foreign-title-markup
-inventory: svg|title|/title
-stream: O:svg:false|O:title:false|C:title@21..29
+inventory: svg|title|b|/b|/title
+stream: O:svg:false|O:title:false|O:b:false|C:b@17..21|C:title@21..29
 ### foreign-script-selfclose
 inventory: svg|script
 stream: O:svg:false|O:script:true

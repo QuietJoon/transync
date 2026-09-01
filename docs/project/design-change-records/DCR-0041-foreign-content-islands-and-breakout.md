@@ -97,6 +97,12 @@ also the regression test for the extraction.
   reach this walk as markup at all. Listing it here would claim a fidelity the
   tokenizer one layer down does not provide. This is DCR-0032's separate
   "foreign raw-text/RCDATA" bullet and it remains open.
+
+  *Closed 2026-09-01 by ticket `2e2453`, recorded in **DCR-0042**.* The
+  tokenizer enters that state only in HTML content now, so the fidelity is
+  there and `title` is listed. The content-mode stack this record introduced
+  moved down into `scan_tags` at the same time — the tokenizer needs the same
+  answer, and one model answering both layers is the point.
 - **Void names used as real foreign elements.** Unchanged; `is_void` still
   wins globally.
 

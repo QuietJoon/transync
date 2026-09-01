@@ -588,14 +588,20 @@ filed follow-up rather than silently accepted:
   foreign elements at the tag that breaks out. The §4a scenario above is a
   regression test in **both** spellings, flagged and unflagged, because this
   bullet's own correction is what established that the slash is not the
-  mechanism. What remains open is the raw-text bullet below — SVG `<title>` is
-  an integration point by the spec, and `scan_tags` still enters raw-text state
-  for that name unconditionally, so the walk deliberately does not claim it.
+  mechanism. SVG `<title>` was still not claimed at that point, because the
+  tokenizer ate its interior; the raw-text bullet below is what closed that.
 - **Foreign raw-text/RCDATA.** `scan_tags` enters raw-text state for
   `script`/`style`/`textarea`/`title` even inside svg/math, where a browser
   does not: `<svg><title>a<b>c</b></title>` mints a real `b` element, and
   `<svg><script/>x` self-closes the script. Scanner-level and pre-existing
   (R0002-0020 made the entry unconditional); untouched here.
+
+  *Closed 2026-09-01 by ticket `2e2453`, recorded in **DCR-0042**.* The state
+  is entered only in HTML content now, so both measured cases match the
+  browser, SVG `<title>` joins `is_svg_html_integration_point`, and the
+  content-mode stack moved from `walk_elements` into `scan_tags` so the two
+  layers read one verdict rather than two. R0002-0020 is refined, not
+  reverted: its subject was RCDATA text in HTML content throughout.
 - **Void names used as real foreign elements.** `is_void` wins globally, so a
   genuine `<svg><link>…</link>`'s closer is still dropped as an orphan. The
   trade is deliberate: an appended `</br>` would be turned back into a fresh

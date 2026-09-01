@@ -112,8 +112,16 @@ pub fn is_void(tag: &str) -> bool {
 }
 
 /// Does `tag` hold raw text / RCDATA (`script`, `style`, `textarea`,
-/// `title`)? A browser never tokenizes their content as markup, and HTML
-/// ignores the self-closing flag on them (DCR-0016 Part D).
+/// `title`) **in HTML content**? A browser never tokenizes their content as
+/// markup there, and HTML ignores the self-closing flag on them (DCR-0016
+/// Part D).
+///
+/// The qualifier is load-bearing (ti `2e2453`). These states are entered by
+/// the tree construction stage from the "in body" insertion mode; foreign
+/// content has no such rule, so inside `<svg>`/`<math>` all four are ordinary
+/// foreign elements whose contents are markup and whose self-closing `/` is
+/// honoured. This predicate answers the NAME question only — the caller owns
+/// the context, and [`scan_tags`] is the one that pairs the two.
 ///
 /// ASCII-case-insensitive for the same reason as [`is_void`]: `<SCRIPT>` is
 /// raw text, and answering otherwise would invite a caller to scan its
@@ -546,24 +554,89 @@ fn tag_name_end(bytes: &[u8], first_name_byte: usize, limit: usize) -> usize {
     j
 }
 
+/// One token from [`scan_tags_with_state`], together with the tree state the
+/// scanner had to keep in order to produce it.
+///
+/// HTML's tokenizer is not standalone: the tree construction stage feeds back
+/// into it, and *which content mode the adjusted current node is in* is the
+/// piece of feedback this crate cannot do without — it decides whether
+/// `<script>` opens a raw-text run at all (ti `2e2453`) and whether a
+/// self-closing `/` is honoured. So the scanner, not the walk, owns the
+/// content-mode stack, and [`walk_elements`] reads its verdict off these
+/// fields rather than recomputing one. A second opinion about where foreign
+/// content begins and ends is the same defect shape as ti `415cdb` and ti
+/// `e20490`, one region larger.
+struct ScannedTag {
+    token: TagToken,
+    /// `Open` only: the content mode this element's **children** are read in.
+    /// Carries the current mode for the inert variants, where it means
+    /// nothing.
+    child_mode: ContentMode,
+    /// `Open` only: did this tag push an element onto the scanner's stack?
+    /// False for a void name and for a self-closing tag in the two places
+    /// HTML honours the flag; always false for `Close` and `Skip`.
+    opens_element: bool,
+    /// `Open` only: did this start tag tear the parser **out** of foreign
+    /// content before it was processed (see [`breaks_out_of_foreign`])? The
+    /// walk mirrors the pop on its own stack.
+    broke_out: bool,
+}
+
+impl ScannedTag {
+    /// A token that opens nothing: a close tag, or a skipped region.
+    fn inert(token: TagToken, mode: ContentMode) -> Self {
+        ScannedTag {
+            token,
+            child_mode: mode,
+            opens_element: false,
+            broke_out: false,
+        }
+    }
+}
+
+/// The content mode a tag lands in, given the scanner's open-element stack.
+fn current_mode(stack: &[(String, ContentMode)]) -> ContentMode {
+    stack.last().map_or(ContentMode::Html, |(_, m)| *m)
+}
+
 /// Minimal tag tokenizer for balancing: understands comments, CDATA
-/// sections, the raw-text and RCDATA states of every [`is_raw_text`] element,
-/// and quoted attribute values. NOT a general HTML parser — it is one
-/// self-consistent opinion about HTML tokenization, shared by the render-path
-/// balancer (spec 2026-08-03 §3.4), the layer-3 inventory check, and the HTML
-/// intake to come.
+/// sections, the raw-text and RCDATA states every [`is_raw_text`] element
+/// opens **in HTML content**, and quoted attribute values. NOT a general HTML
+/// parser — it is one self-consistent opinion about HTML tokenization, shared
+/// by the render-path balancer (spec 2026-08-03 §3.4), the layer-3 inventory
+/// check, and the HTML intake to come.
 pub fn scan_tags(html: &str) -> Vec<TagToken> {
+    scan_tags_with_state(html)
+        .into_iter()
+        .map(|t| t.token)
+        .collect()
+}
+
+/// [`scan_tags`] with the scanner's tree state still attached — the form
+/// [`walk_elements`] consumes.
+fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
     let bytes = html.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0usize;
     // Inside a raw-text / RCDATA element: only its own close tag ends it.
     let mut raw_until: Option<String> = None;
-    // R0003-0067: how many `<svg>` / `<math>` elements are open — HTML's
-    // "foreign content", the only place a `<![CDATA[` is a CDATA section.
-    // A stack-only balancer cannot track the adjusted current node, so this
-    // counts the two integration-point roots and nothing else; that is the
-    // same deliberate bound `implicitly_closes` documents.
-    let mut foreign_depth = 0usize;
+    // The open elements, each with the [`ContentMode`] its children are read
+    // in. This replaced R0003-0067's `foreign_depth` counter in ti `2e2453`:
+    // a saturating count of open `<svg>`/`<math>` roots can say "somewhere
+    // inside foreign content", which is enough to pick a CDATA terminator and
+    // not enough for anything else. Foreign content contains ISLANDS of HTML
+    // — `foreignObject`, `desc`, SVG's `title`, MathML's text integration
+    // points — so the question "is this tag foreign" is answered by the stack
+    // top, never by a depth.
+    //
+    // Implied closes (see `implicitly_closes`) are deliberately NOT applied
+    // here, so this stack can hold frames `walk_elements` has already popped.
+    // That cannot change the answer: every name in an `implicitly_closes` set
+    // is an ordinary HTML element, so its child mode equals its parent's, and
+    // an extra frame of that shape reports the mode the one below it would.
+    // `implicitly_closed_names_never_change_the_content_mode` pins it rather
+    // than leaving it to this paragraph.
+    let mut mode_stack: Vec<(String, ContentMode)> = Vec::new();
 
     while i < bytes.len() {
         if bytes[i] != b'<' {
@@ -597,7 +670,10 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
                 .find("-->")
                 .map(|p| i + p + 3)
                 .unwrap_or(html.len());
-            tokens.push(TagToken::Skip { span: (i, end) });
+            tokens.push(ScannedTag::inert(
+                TagToken::Skip { span: (i, end) },
+                current_mode(&mode_stack),
+            ));
             i = end;
             continue;
         }
@@ -611,12 +687,19 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
         // not match. The terminator differs by context, so the depth
         // decides which one ends the skip.
         if html[i..].starts_with("<![CDATA[") {
-            let terminator = if foreign_depth > 0 { "]]>" } else { ">" };
+            let terminator = if current_mode(&mode_stack) != ContentMode::Html {
+                "]]>"
+            } else {
+                ">"
+            };
             let end = html[i..]
                 .find(terminator)
                 .map(|p| i + p + terminator.len())
                 .unwrap_or(html.len());
-            tokens.push(TagToken::Skip { span: (i, end) });
+            tokens.push(ScannedTag::inert(
+                TagToken::Skip { span: (i, end) },
+                current_mode(&mode_stack),
+            ));
             i = end;
             continue;
         }
@@ -629,7 +712,10 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
         // and tag-shaped bytes inside a bogus comment tokenized as markup.
         if html[i..].starts_with("<!") || html[i..].starts_with("<?") {
             let end = html[i..].find('>').map(|p| i + p + 1).unwrap_or(html.len());
-            tokens.push(TagToken::Skip { span: (i, end) });
+            tokens.push(ScannedTag::inert(
+                TagToken::Skip { span: (i, end) },
+                current_mode(&mode_stack),
+            ));
             i = end;
             continue;
         }
@@ -691,7 +777,10 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
                 }
                 let end = (k + 1).min(bytes.len());
                 if bytes.get(j) != Some(&b'>') {
-                    tokens.push(TagToken::Skip { span: (start, end) });
+                    tokens.push(ScannedTag::inert(
+                        TagToken::Skip { span: (start, end) },
+                        current_mode(&mode_stack),
+                    ));
                 }
                 i = end;
                 continue;
@@ -788,18 +877,43 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
             // browser abandons a tag truncated at EOF (no element, no
             // attributes), so `Skip` — recognized and stepped over, not
             // markup — is exactly what it is.
-            tokens.push(TagToken::Skip {
-                span: (start, bytes.len()),
-            });
+            tokens.push(ScannedTag::inert(
+                TagToken::Skip {
+                    span: (start, bytes.len()),
+                },
+                current_mode(&mode_stack),
+            ));
             break;
         }
         let span = (start, j + 1);
         if closing {
-            if is_foreign_root(&name) {
-                foreign_depth = foreign_depth.saturating_sub(1);
+            // The same pop HTML's "any other end tag" performs, and the same
+            // one `walk_elements` performs: find the nearest matching open
+            // element and discard everything above it. An unmatched close tag
+            // is an orphan and moves nothing.
+            if let Some(pos) = mode_stack.iter().rposition(|(t, _)| t == &name) {
+                mode_stack.truncate(pos);
             }
-            tokens.push(TagToken::Close { name, span });
+            let mode = current_mode(&mode_stack);
+            tokens.push(ScannedTag::inert(TagToken::Close { name, span }, mode));
         } else {
+            // A breakout start tag tears the parser out of foreign content
+            // BEFORE it is processed, so the mode this tag is read in — and
+            // therefore everything below — is the one it lands in after the
+            // pop, not the one it was written inside (DCR-0041).
+            let mut parent_mode = current_mode(&mode_stack);
+            let broke_out =
+                parent_mode != ContentMode::Html && breaks_out_of_foreign(&name, html, span);
+            if broke_out {
+                while mode_stack
+                    .last()
+                    .is_some_and(|(_, m)| *m != ContentMode::Html)
+                {
+                    mode_stack.pop();
+                }
+                parent_mode = current_mode(&mode_stack);
+            }
+
             // A `/` on a raw-text/RCDATA start tag is ignored by real HTML
             // parsers, so the state starts either way; scanning that content
             // for tags would invent tokens out of `a < b`.
@@ -813,23 +927,46 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
             // layer 3 declared an engine fault and dropped a perfectly good
             // translation back to source; and on the live render path the
             // same phantom was DELETED from the pane as an orphan close tag,
-            // silently editing what the reader sees. The balancer already
-            // treated all four as raw-text (`is_raw_text` in
-            // `balance_fragment`) — the tokenizer's disagreement with it was
-            // the whole defect (DCR-0016 Part D argues from exactly this
-            // consistency).
-            if is_raw_text(&name) {
+            // silently editing what the reader sees.
+            //
+            // ti `2e2453`: "every" means every one in HTML CONTENT. Raw text
+            // and RCDATA are entered by the tree construction stage, from the
+            // "in body" insertion mode; foreign content has no such rule, so
+            // inside `<svg>`/`<math>` these four are ordinary foreign
+            // elements whose contents ARE markup. R0002-0020's motivation is
+            // untouched by the qualifier — it was about the tokenizer
+            // disagreeing with the balancer over user-visible RCDATA text,
+            // all of it in HTML content — and the fix is narrower than the
+            // rule it refines, not a revert of it.
+            if parent_mode == ContentMode::Html && is_raw_text(&name) {
                 raw_until = Some(name.clone());
             }
-            // A self-closing `<svg/>` opens nothing: foreign content is the
-            // one place HTML honours the marker.
-            if is_foreign_root(&name) && !self_closing {
-                foreign_depth += 1;
+
+            // HTML honours the self-closing flag in exactly two places:
+            // inside foreign content, and on the `<svg>`/`<math>` start tags
+            // that enter it. This condition used to carry a `!is_raw_text`
+            // term as well, because the scanner entered raw text inside
+            // foreign content and an unhonoured flag was what kept the
+            // appended closer visible to the re-scan (DCR-0016 Part D). It
+            // was never load-bearing in HTML content — no raw-text name is a
+            // foreign root, so the term could not fire there — and inside
+            // foreign content it was the bug: `<svg><script/>x` left `x` a
+            // sibling in a browser and swallowed it here.
+            let honours_flag = parent_mode != ContentMode::Html || is_foreign_root(&name);
+            let opens_element = !is_void(&name) && !(self_closing && honours_flag);
+            let child_mode = child_content_mode(parent_mode, &name, html, span);
+            if opens_element {
+                mode_stack.push((name.clone(), child_mode));
             }
-            tokens.push(TagToken::Open {
-                name,
-                self_closing,
-                span,
+            tokens.push(ScannedTag {
+                token: TagToken::Open {
+                    name,
+                    self_closing,
+                    span,
+                },
+                child_mode,
+                opens_element,
+                broke_out,
             });
         }
         i = j + 1;
@@ -957,14 +1094,18 @@ enum ContentMode {
 /// Chromium (ti `490d97` wave 1); modelling `foreignObject` as ordinary
 /// foreign content is what made the walk close it (`e77173`).
 ///
-/// **`title` is deliberately absent.** SVG's `<title>` is an HTML integration
-/// point by the spec, but [`scan_tags`] enters raw-text state for that name
-/// unconditionally, so its contents never reach this walk as markup at all.
-/// Listing it here would claim a fidelity the tokenizer below does not
-/// provide. That divergence is one layer down and is recorded on `e77173`
-/// rather than papered over here.
+/// **`title` is the spec's third one, and it is listed here as of ti
+/// `2e2453`.** It could not be before: [`scan_tags`] entered raw-text state
+/// for that name unconditionally, so an SVG title's interior never reached
+/// this walk as markup at all, and listing it would have claimed a fidelity
+/// the tokenizer one layer down did not provide. The tokenizer now enters
+/// that state only in HTML content, so `<svg><title>a<b>c</b></title>` mints
+/// the real `<b>` a browser mints, and the claim is one the whole crate makes
+/// together.
 fn is_svg_html_integration_point(name: &str) -> bool {
-    name.eq_ignore_ascii_case("foreignObject") || name.eq_ignore_ascii_case("desc")
+    ["foreignObject", "desc", "title"]
+        .iter()
+        .any(|n| name.eq_ignore_ascii_case(n))
 }
 
 /// MathML's **text integration points**: `<math><mi><div/>` opens the `div`
@@ -1091,28 +1232,33 @@ struct Walk {
 /// the same reason there is exactly one Markdown parser — a second walk would
 /// be a second opinion about HTML structure, and the two would drift.
 fn walk_elements(html: &str) -> Walk {
-    let tokens = scan_tags(html);
+    let tokens = scan_tags_with_state(html);
     let mut extents: Vec<ElementExtent> = Vec::new();
     // (name, index into `extents`, mode its CHILDREN are parsed in) for each
     // element still open. The third field is a STACK property, and it is a
     // [`ContentMode`] rather than the bool this walk carried until `e77173`:
     // foreign content contains islands of HTML — `foreignObject`, `desc`, the
     // MathML text integration points — so "am I foreign" is not answerable by
-    // inheriting a flag downward. It is deliberately not `scan_tags`'
-    // `foreign_depth`: that is a saturating counter with no stack scoping,
-    // adequate only for choosing a CDATA terminator.
+    // inheriting a flag downward.
+    //
+    // The mode itself is not decided here. `scan_tags_with_state` decides it,
+    // because HTML's
+    // tokenizer needs the same answer one layer down — whether `<script>`
+    // opens a raw-text run depends on it (ti `2e2453`) — and two places
+    // deciding where foreign content begins is the defect shape ti `415cdb`
+    // and ti `e20490` both were. So this walk records what the scanner
+    // reports and adds only what the scanner has no use for: extents, implied
+    // closes, and orphan spans.
     let mut open_stack: Vec<(String, usize, ContentMode)> = Vec::new();
     let mut orphan_closes: Vec<(usize, usize)> = Vec::new();
 
-    for tok in &tokens {
-        match tok {
-            TagToken::Open {
-                name,
-                self_closing,
-                span,
-            } => {
+    for tag in &tokens {
+        match &tag.token {
+            TagToken::Open { name, span, .. } => {
                 // Before the push, and for void elements too: `<hr>` closes a
-                // paragraph it never joins (R0002-0061).
+                // paragraph it never joins (R0002-0061). The scanner does not
+                // model this — see the note on its `mode_stack` for why the
+                // omission cannot move a content mode.
                 let implied = implicitly_closes(name);
                 while open_stack
                     .last()
@@ -1121,28 +1267,17 @@ fn walk_elements(html: &str) -> Walk {
                     let (_, idx, _) = open_stack.pop().expect("just inspected the top");
                     extents[idx].content_end = span.0;
                 }
-                // HTML honours the self-closing flag in exactly TWO places:
-                // inside foreign content, and on the `<svg>`/`<math>` start
-                // tags that enter it. Everywhere else the `/` is a parse
-                // error the parser IGNORES — the element opens, and the
-                // author's end tag is a real closer rather than an orphan
-                // the balancer deletes. Modelling it the way XML means it
-                // cost exactly that deletion (ti 490d97 wave 1); before
-                // that, `<div/>y</div>` lost its `</div>` and the fragment
-                // went on to consume the sync wrapper's own one.
-                //
-                // Read AFTER the implied-close pops, so the parent is the
-                // element this tag actually lands in.
-                let mut parent_mode = open_stack.last().map_or(ContentMode::Html, |(_, _, m)| *m);
 
                 // A breakout tag tears the parser back out to HTML before it
                 // is processed: pop foreign elements until the thing we are
                 // landing in parses its children as HTML. An integration
                 // point already does, which is why this stops at one
                 // (`<svg><foreignObject><div>` nests; `<svg><g><div>` does
-                // not). Each popped element is closed implicitly, exactly as
-                // an implied close does it (`e77173`).
-                if parent_mode != ContentMode::Html && breaks_out_of_foreign(name, html, *span) {
+                // not). The scanner already did this to its own stack — it
+                // had to, to tokenize the rest — so this mirrors the pop and
+                // records each popped element as implicitly closed, exactly
+                // as an implied close does it (`e77173`).
+                if tag.broke_out {
                     while open_stack
                         .last()
                         .is_some_and(|(_, _, m)| *m != ContentMode::Html)
@@ -1150,17 +1285,18 @@ fn walk_elements(html: &str) -> Walk {
                         let (_, idx, _) = open_stack.pop().expect("just inspected the top");
                         extents[idx].content_end = span.0;
                     }
-                    parent_mode = open_stack.last().map_or(ContentMode::Html, |(_, _, m)| *m);
                 }
 
-                let in_foreign = parent_mode != ContentMode::Html;
-                // Raw text sits ABOVE the foreign rule on purpose:
-                // `scan_tags` enters raw-text state for these four names
-                // unconditionally, so the appended closer is what keeps
-                // `balance_fragment` idempotent under its own re-scan
-                // (DCR-0016 Part D).
-                let honours_flag = !is_raw_text(name) && (in_foreign || is_foreign_root(name));
-                if !is_void(name) && !(*self_closing && honours_flag) {
+                // Whether this tag opens an element at all — a void name and
+                // a self-closing tag in the two places HTML honours the flag
+                // do not — is the scanner's verdict, for the same reason the
+                // mode is: it had to reach that verdict to keep its own stack
+                // (ti `2e2453`). Reading it here rather than re-deriving it
+                // is what makes `<div/>y</div>` one `div` extent whose
+                // `close` is the author's own end tag; modelling the `/` the
+                // way XML means it cost exactly that end tag (ti 490d97 wave
+                // 1), and the fragment went on to consume the sync wrapper's.
+                if tag.opens_element {
                     extents.push(ElementExtent {
                         name: name.clone(),
                         depth: open_stack.len(),
@@ -1168,11 +1304,7 @@ fn walk_elements(html: &str) -> Walk {
                         close: None,
                         content_end: html.len(),
                     });
-                    open_stack.push((
-                        name.clone(),
-                        extents.len() - 1,
-                        child_content_mode(parent_mode, name, html, *span),
-                    ));
+                    open_stack.push((name.clone(), extents.len() - 1, tag.child_mode));
                 }
             }
             TagToken::Close { name, span } => {
@@ -1260,9 +1392,13 @@ const RESERVED_SYNC_ATTRS: &[&str] = &[
 /// element open tags, and no element name and no other attribute moves.
 ///
 /// Only names are matched, and only inside an open tag: attribute values and
-/// text are content, and RCDATA / comment interiors are never tokenized by
-/// [`scan_tags`] in the first place, so the strip cannot reach into them.
-/// Borrows when nothing matched.
+/// text are content, and comment interiors — plus the raw-text / RCDATA
+/// interiors [`scan_tags`] recognizes — are never tokenized in the first
+/// place, so the strip cannot reach into them. "Recognizes" is the operative
+/// word since ti `2e2453`: those states are HTML-content states, so inside
+/// `<svg>`/`<math>` a `<title>` holds markup, and a reserved attribute
+/// planted there is a LIVE attribute a browser honours — so the strip reaches
+/// it, as it must. Borrows when nothing matched.
 ///
 /// Malformed markup is tokenized the way a browser tokenizes it where the
 /// two were measured to disagree (ti 549b20): a bare quote between
@@ -2233,6 +2369,168 @@ mod extent_tests {
         // in the token stream, not a phantom element here.
         assert!(element_extents("<div class=\"x").is_empty());
     }
+
+    /// ti `2e2453`, divergence 1 — measured in real Chromium. In foreign
+    /// content `title` is an ordinary foreign element, not RCDATA, so its
+    /// interior is markup and the `<b>` is a real element. That is also what
+    /// finally lets SVG's `title` be listed as the HTML integration point the
+    /// spec says it is: inside it the children are HTML content, so a
+    /// self-closing `/` there is the parse error it is at top level.
+    #[test]
+    fn an_svg_title_holds_markup_and_is_an_html_integration_point() {
+        let html = "<svg><title>a<b>c</b></title>";
+        let ex = element_extents(html);
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["svg", "title", "b"]);
+        assert_eq!(
+            tag_inventory(html),
+            vec!["svg", "title", "b", "/b", "/title"]
+        );
+        assert_eq!(
+            balance_fragment("<svg><title><div/>x"),
+            "<svg><title><div/>x</div></title></svg>"
+        );
+    }
+
+    /// ti `2e2453`, divergence 2 — measured in real Chromium. Foreign content
+    /// is one of the two places HTML honours the self-closing flag, and
+    /// `script` is not exempt there: the script is empty and `x` is its
+    /// sibling. The scanner used to enter raw text and swallow `x` to EOF,
+    /// which cost the fragment a `</script>` closing an element a browser
+    /// never opened.
+    #[test]
+    fn a_self_closing_script_inside_foreign_content_swallows_nothing() {
+        let html = "<svg><script/>x";
+        let ex = element_extents(html);
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["svg"]);
+        assert_eq!(balance_fragment(html), "<svg><script/>x</svg>");
+    }
+
+    /// The opposite direction, and the reason the scanner grew a mode STACK
+    /// rather than the `foreign_depth` counter it replaced: inside an HTML
+    /// integration point the children are HTML content again, so raw text is
+    /// entered there exactly as it is at top level. A `foreign_depth > 0`
+    /// suppression would have read this as foreign and tokenized the `<b>`.
+    #[test]
+    fn raw_text_is_still_entered_inside_an_html_integration_point() {
+        let html = "<svg><foreignObject><script>a<b>c</script></foreignObject></svg>";
+        assert_eq!(
+            tag_inventory(html),
+            vec![
+                "svg",
+                "foreignobject",
+                "script",
+                "/script",
+                "/foreignobject",
+                "/svg"
+            ]
+        );
+        assert_eq!(balance_fragment(html), html);
+    }
+
+    /// HTML content is untouched by the qualifier: the four names still open
+    /// raw text / RCDATA at top level, and the `/` on them is still ignored
+    /// (DCR-0016 Part D), so `<textarea/>` still earns its closer.
+    #[test]
+    fn raw_text_in_html_content_is_untouched_by_the_foreign_rule() {
+        assert_eq!(balance_fragment("<textarea/>"), "<textarea/></textarea>");
+        assert_eq!(
+            tag_inventory("<title>a < b </i> c</title>"),
+            vec!["title", "/title"]
+        );
+    }
+
+    /// `scan_tags` does not model HTML's optional end tags, so its stack can
+    /// hold frames `walk_elements` has already popped. That is sound only
+    /// while no implicitly-closed name CHANGES the content mode — an extra
+    /// frame of an ordinary HTML element reports the mode the one below it
+    /// would. The scanner's comment asserts it; this makes it falsifiable.
+    ///
+    /// The live direction is the one ti `2e2453` just walked: adding a name
+    /// to `is_svg_html_integration_point` (it added `title`) that is also an
+    /// optional-end-tag closer would break the assumption in silence.
+    #[test]
+    fn no_implicitly_closed_name_changes_the_content_mode() {
+        const KEYS: &[&str] = &[
+            "li",
+            "dd",
+            "dt",
+            "tr",
+            "td",
+            "th",
+            "tbody",
+            "tfoot",
+            "thead",
+            "option",
+            "optgroup",
+            "rp",
+            "rt",
+            "address",
+            "article",
+            "aside",
+            "blockquote",
+            "center",
+            "details",
+            "dialog",
+            "dir",
+            "div",
+            "dl",
+            "fieldset",
+            "figcaption",
+            "figure",
+            "footer",
+            "form",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "header",
+            "hgroup",
+            "hr",
+            "listing",
+            "main",
+            "menu",
+            "nav",
+            "ol",
+            "p",
+            "pre",
+            "search",
+            "section",
+            "summary",
+            "table",
+            "ul",
+            "xmp",
+        ];
+        let mut popped_any = false;
+        for key in KEYS {
+            let popped = implicitly_closes(key);
+            assert!(
+                !popped.is_empty(),
+                "`{key}` is listed here as a closer but pops nothing"
+            );
+            for name in popped {
+                popped_any = true;
+                // Closed under the table, so KEYS really does reach every
+                // name the walk can pop implicitly.
+                assert!(
+                    KEYS.contains(name),
+                    "`{name}` is popped implicitly but is not in KEYS — this list \
+                     no longer covers the table"
+                );
+                for parent in [ContentMode::Html, ContentMode::Svg, ContentMode::MathMl] {
+                    assert_eq!(
+                        child_content_mode(parent, name, "", (0, 0)),
+                        parent,
+                        "`{name}` is closed implicitly AND changes the content mode"
+                    );
+                }
+            }
+        }
+        assert!(popped_any, "the table popped nothing at all");
+    }
 }
 
 // Spec 2026-08-20 §8, OI-0035 route (c), render half.
@@ -2274,6 +2572,29 @@ mod strip_tests {
         assert_eq!(strip_reserved_sync_attrs(textarea), textarea);
         let comment = "<!-- <div data-sync-id=\"p-0001\"> -->";
         assert_eq!(strip_reserved_sync_attrs(comment), comment);
+    }
+
+    /// The other side of that rule, and the reason the qualifier in
+    /// `is_raw_text`'s name-only contract matters (ti `2e2453`). Inside
+    /// foreign content `<title>` is an ordinary foreign element, so a browser
+    /// reads this `data-sync-id` as a LIVE attribute on a real `div`. The
+    /// scanner used to read the same bytes as RCDATA text, so the strip
+    /// walked past them and left a planted anchor standing in a pane whose
+    /// whole premise is that ours are the only sync attributes in it.
+    ///
+    /// Same shape as ti `e20490`, one region out: a divergence about where a
+    /// tokenizer state begins, cashed out as a surviving anchor.
+    #[test]
+    fn a_reserved_attribute_inside_an_svg_title_is_markup_and_is_stripped() {
+        assert_eq!(
+            strip_reserved_sync_attrs(
+                "<svg><title><div data-sync-id=\"p-0001\">x</div></title></svg>"
+            ),
+            "<svg><title><div>x</div></title></svg>"
+        );
+        // The HTML-content spelling is unchanged: still RCDATA, still text.
+        let html_title = "<title><div data-sync-id=\"p-0001\"></title>";
+        assert_eq!(strip_reserved_sync_attrs(html_title), html_title);
     }
 
     #[test]
