@@ -130,6 +130,33 @@ const FIXTURES: &[(&str, &str)] = &[
 ///   a browser mints zero elements; the scanner emitted an `Open` and the
 ///   balancer owed it a closer the browser reads as orphan junk.
 ///
+/// The `foreign-*` entries are the fourth blind spot, and the first one that
+/// is about WHERE a tokenizer state may be entered rather than how it ends (ti
+/// `2e2453`). Until now every raw-text entry in the corpus — `rcdata-title`,
+/// `rcdata-textarea`, `script-raw-text` — sat in HTML content, where entering
+/// that state unconditionally is right. None sat inside `<svg>` or `<math>`,
+/// where a browser does not enter it at all: in foreign content `script`,
+/// `style`, `textarea` and `title` are ordinary foreign elements, so their
+/// contents ARE markup and their self-closing `/` IS honoured. Both
+/// divergences were measured in real Chromium on ti `490d97` wave 1:
+///
+/// * **`foreign-title-markup`** — `<svg><title>a<b>c</b></title>` mints a real
+///   `<b>`. The scanner read the title's interior as RCDATA, so the `<b>` and
+///   its closer never reached the walk at all, and SVG's `title` could not be
+///   listed as the HTML integration point the spec says it is.
+/// * **`foreign-script-selfclose`** — `<svg><script/>x` leaves the script
+///   EMPTY and `x` a sibling. The scanner entered raw text and swallowed `x`
+///   to EOF, so the balancer owed the fragment a `</script>` that closes
+///   nothing a browser opened.
+///
+/// **`foreign-integration-rawtext` is the opposite guard.** Inside an HTML
+/// integration point the children are HTML content again, so `<script>` there
+/// *does* hold raw text. It must pass through both goldens unchanged on both
+/// sides of the fix — the same no-regression role `selfclose-svg` plays for
+/// the self-closing flag. Suppressing raw text on a plain `foreign_depth > 0`
+/// would move it, which is precisely why the scanner grew a mode STACK rather
+/// than a counter.
+///
 /// Blessed twice for the reason `stray-*` is: the commit that adds them
 /// records the BROKEN tokenization, the fix re-blesses through the same
 /// interlock, and the diff between the two blessings is the reviewable record.
@@ -174,6 +201,13 @@ const EDGE_CASES: &[(&str, &str)] = &[
     ("endtag-digit", "</1 <div>x"),
     ("endtag-space", "</ <div>x"),
     ("endtag-empty", "</>x"),
+    // ti `2e2453` — raw text is an HTML-content state, not a global one.
+    ("foreign-title-markup", "<svg><title>a<b>c</b></title>"),
+    ("foreign-script-selfclose", "<svg><script/>x"),
+    (
+        "foreign-integration-rawtext",
+        "<svg><foreignObject><script>a<b>c</script></foreignObject></svg>",
+    ),
 ];
 
 /// Every corpus entry as `(name, source)`, fixtures first.

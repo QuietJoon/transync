@@ -85,3 +85,12 @@ stream:
 ### endtag-empty
 inventory: 
 stream: 
+### foreign-title-markup
+inventory: svg|title|/title
+stream: O:svg:false|O:title:false|C:title@21..29
+### foreign-script-selfclose
+inventory: svg|script
+stream: O:svg:false|O:script:true
+### foreign-integration-rawtext
+inventory: svg|foreignobject|script|/script|/foreignobject|/svg
+stream: O:svg:false|O:foreignobject:false|O:script:false|C:script@33..42|C:foreignobject@42..58|C:svg@58..64

@@ -1,0 +1,1 @@
+<svg><title>a<b>c</b></title></svg>
