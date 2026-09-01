@@ -527,6 +527,25 @@ pub enum TagToken {
     Skip { span: (usize, usize) },
 }
 
+/// Where HTML's **tag-name state** ends: it consumes every byte that is not
+/// whitespace, `/` or `>` into the element name — quotes and `=` included.
+///
+/// ONE definition, deliberately. `scan_tags` decides where a tag's name stops
+/// and `walk_attrs` decides where its attributes start, and those are the same
+/// boundary: when they disagreed, `<divq"x=" data-sync-id="v">` ended its name
+/// at `divq` for the strip while a browser read the whole `divq"x="`, so the
+/// reserved attribute landed inside a phantom quoted value the strip never
+/// examined as a name and a live anchor survived (ti `e20490`). Fixing only
+/// the tokenizer left that hole open, because the strip does not go through
+/// it.
+fn tag_name_end(bytes: &[u8], first_name_byte: usize, limit: usize) -> usize {
+    let mut j = first_name_byte;
+    while j < limit && !bytes[j].is_ascii_whitespace() && bytes[j] != b'/' && bytes[j] != b'>' {
+        j += 1;
+    }
+    j
+}
+
 /// Minimal tag tokenizer for balancing: understands comments, CDATA
 /// sections, the raw-text and RCDATA states of every [`is_raw_text`] element,
 /// and quoted attribute values. NOT a general HTML parser — it is one
@@ -638,15 +657,45 @@ pub fn scan_tags(html: &str) -> Vec<TagToken> {
         // precisely what balancing exists to prevent. A leading `:` is still
         // not a name, which the letter-only first byte now says directly
         // (`<:x>` stays plain text via the `j == name_start` check below).
+        // ti `e20490`: HTML's TAG NAME state consumes every byte that is not
+        // whitespace, `/` or `>` into the element name — quotes and `=`
+        // included — so `<divq"x=" data-sync-id="v">` is an element named
+        // `divq"x="` carrying a real `data-sync-id`. Stopping the name at the
+        // first byte outside `[A-Za-z0-9:-]` attribute-walked the remainder
+        // instead, which buried that plant inside a phantom quoted value
+        // `collect_reserved_attr_spans` never examines as a name — so the
+        // strip left a live anchor standing. The `:` rule above is subsumed
+        // by this loop rather than special-cased; the leading-letter test is
+        // what still keeps `<1>` and `<:x>` out of markup.
         if bytes.get(name_start).is_some_and(u8::is_ascii_alphabetic) {
-            j += 1;
-            while j < bytes.len()
-                && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'-' || bytes[j] == b':')
-            {
-                j += 1;
-            }
+            j = tag_name_end(bytes, name_start, bytes.len());
         }
         if j == name_start {
+            if closing {
+                // HTML's END-TAG-OPEN state: `</` before anything that is not
+                // an ASCII letter is a parse error. `</>` is discarded whole
+                // (missing-end-tag-name); anything else opens a BOGUS COMMENT
+                // running to the first `>`, or to EOF if there is none. Either
+                // way a browser mints no element and no attributes, so the
+                // plain-text fall-through here invented structure: the scanner
+                // emitted an `Open` for `</1 <div>x` and the balancer then
+                // owed it a `</div>` a browser reads as orphan junk
+                // (R0003-0066 / R0002-0020's class, ti `e20490`).
+                //
+                // Reserved-name-shaped bytes inside such a region cannot
+                // become live attributes, so this direction is fail-safe: the
+                // cost was invented structure, never a leaked anchor.
+                let mut k = j;
+                while k < bytes.len() && bytes[k] != b'>' {
+                    k += 1;
+                }
+                let end = (k + 1).min(bytes.len());
+                if bytes.get(j) != Some(&b'>') {
+                    tokens.push(TagToken::Skip { span: (start, end) });
+                }
+                i = end;
+                continue;
+            }
             i += 1; // "<" not followed by a tag name — plain text
             continue;
         }
@@ -1343,11 +1392,10 @@ fn walk_attrs(html: &str, span: (usize, usize), mut f: impl FnMut(AttrHit<'_>)) 
     // `end` is one past the `>`; never look at the `>` itself.
     let limit = end.saturating_sub(1);
 
-    // Step over `<` and the tag name — `scan_tags` already proved one is here.
-    let mut i = start + 1;
-    while i < limit && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b':') {
-        i += 1;
-    }
+    // Step over `<` and the tag name — `scan_tags` already proved one is here,
+    // and [`tag_name_end`] is the same boundary it used, so attributes begin
+    // exactly where the tokenizer says they do.
+    let mut i = tag_name_end(bytes, start + 1, limit);
 
     while i < limit {
         if bytes[i].is_ascii_whitespace() || bytes[i] == b'/' {
@@ -2302,6 +2350,64 @@ mod strip_tests {
             strip_reserved_sync_attrs("<div  data-sync-id=\"a b=\"c\">x"),
             "<div c\">x"
         );
+    }
+
+    /// ti `e20490` divergence 1, and the reason it had a security shape: the
+    /// plant is a REAL attribute to a browser, so the strip must see it as a
+    /// name and cut it.
+    ///
+    /// HTML's tag-name state consumes bytes up to whitespace, `/` or `>` into
+    /// the element name, so `<divq"x=" data-sync-id="v">` is an element named
+    /// `divq"x="` carrying a live `data-sync-id`. The scanner used to end the
+    /// name at `divq` and attribute-walk the rest, which buried the plant
+    /// inside a phantom quoted value that `collect_reserved_attr_spans` never
+    /// examines as a name — so the strip left the anchor standing.
+    ///
+    /// The pane path survived that only because DOMPurify drops an element
+    /// whose name carries a byte no allowlisted name has. This test does not
+    /// depend on the sanitizer, because a consumer that does not mount
+    /// through one does not inherit it.
+    #[test]
+    fn a_divergent_tag_name_no_longer_hides_a_reserved_attribute_from_the_strip() {
+        let planted = "<divq\"x=\" data-sync-id=\"v\">z";
+        let stripped = strip_reserved_sync_attrs(planted);
+        assert!(
+            !stripped.contains("data-sync-id"),
+            "the plant is a real attribute to a browser and must be cut: {stripped}"
+        );
+        // The element name itself is not the strip's business — only the
+        // reserved attribute moves.
+        assert!(
+            stripped.contains("divq\"x=\""),
+            "the element name must survive verbatim: {stripped}"
+        );
+    }
+
+    /// ti `e20490` divergence 2: `</` before a non-letter is a parse error
+    /// opening a bogus comment to the first `>`, so a browser mints ZERO
+    /// elements. The scanner used to fall through to plain text and keep
+    /// tokenizing, which invented an element and earned it a closer the
+    /// browser reads as orphan junk.
+    #[test]
+    fn an_end_tag_before_a_non_letter_mints_no_element() {
+        for src in ["</1 <div>x", "</ <div>x", "</= <div>x"] {
+            assert!(
+                tag_inventory(src).is_empty(),
+                "a bogus comment mints no element: {src} -> {:?}",
+                tag_inventory(src)
+            );
+            assert_eq!(
+                balance_fragment(src),
+                src,
+                "and so it is owed no closer: {src}"
+            );
+        }
+        // `</>` is discarded whole (missing-end-tag-name), not turned into a
+        // comment — so it too mints nothing, by a different spec rule.
+        assert!(tag_inventory("</>x").is_empty());
+        assert_eq!(balance_fragment("</>x"), "</>x");
+        // The control: a real end tag still closes its element.
+        assert_eq!(tag_inventory("<div>x</div>"), vec!["div", "/div"]);
     }
 
     /// ti `415cdb`: a `=` where an attribute NAME would start is a parse error

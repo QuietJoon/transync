@@ -68,20 +68,20 @@ stream: O:svg:true
 inventory: p
 stream: O:p:true
 ### tagname-plant
-inventory: divq
-stream: O:divq:false
+inventory: divq"x="
+stream: O:divq"x=":false
 ### tagname-equals
-inventory: div
-stream: O:div:false
+inventory: div=x
+stream: O:div=x:false
 ### tagname-quote-only
-inventory: div|/div
-stream: O:div:false|C:div@8..16
+inventory: div"x|/div"x
+stream: O:div"x:false|C:div"x@8..16
 ### endtag-digit
-inventory: div
-stream: O:div:false
+inventory: 
+stream: 
 ### endtag-space
-inventory: div
-stream: O:div:false
+inventory: 
+stream: 
 ### endtag-empty
 inventory: 
 stream: 
