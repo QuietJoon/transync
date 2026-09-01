@@ -580,6 +580,17 @@ filed follow-up rather than silently accepted:
   rather than this wave's work — it is pre-existing and orthogonal to the slash
   — but it is a **live §4a break**, not a benign extent divergence, and ticket
   `e77173` is re-ranked accordingly.
+
+  *Closed 2026-09-01 by ticket `e77173`, recorded in **DCR-0041**.* Both rules
+  are modelled now: the walk carries a three-valued content mode per open
+  element instead of one inherited `in_foreign` bool, so `foreignObject` and
+  `desc` return their children to HTML content and the breakout set pops
+  foreign elements at the tag that breaks out. The §4a scenario above is a
+  regression test in **both** spellings, flagged and unflagged, because this
+  bullet's own correction is what established that the slash is not the
+  mechanism. What remains open is the raw-text bullet below — SVG `<title>` is
+  an integration point by the spec, and `scan_tags` still enters raw-text state
+  for that name unconditionally, so the walk deliberately does not claim it.
 - **Foreign raw-text/RCDATA.** `scan_tags` enters raw-text state for
   `script`/`style`/`textarea`/`title` even inside svg/math, where a browser
   does not: `<svg><title>a<b>c</b></title>` mints a real `b` element, and

@@ -844,7 +844,11 @@ pub fn implicitly_closes(name: &str) -> &'static [&'static str] {
 /// pushed onto the walk's stack, so it produces **no** `ElementExtent` at all
 /// — it has no content and nothing to close. Neither does a self-closing tag
 /// in the two places HTML actually honours that flag: inside foreign content,
-/// and on the `<svg>` / `<math>` start tags that enter it. A consumer that
+/// and on the `<svg>` / `<math>` start tags that enter it. "Inside foreign
+/// content" is narrower than "inside an `<svg>`" — SVG's `foreignObject` and
+/// `desc` and MathML's text integration points put their children back in HTML
+/// content, and a breakout start tag leaves foreign content altogether
+/// (DCR-0041). A consumer that
 /// needs "the element around these bytes" must handle the empty case rather
 /// than assuming one extent per tag. (ti 490d97 wave 0 Task 5 review; wave 6's
 /// pane derivation depends on it — a block whose only element is a lone
@@ -883,6 +887,147 @@ pub struct ElementExtent {
     pub content_end: usize,
 }
 
+/// Which content mode an element's **children** are parsed in.
+///
+/// HTML has three, and the difference is not decorative: it decides whether a
+/// start tag's self-closing `/` is honoured, and whether a `<div>` nests or
+/// tears the parser back out to HTML. `walk_elements` carries one of these per
+/// open element rather than the single `in_foreign` bool it used to, because a
+/// bool cannot express the thing that made `e77173` wrong — that foreign
+/// content can contain islands of HTML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContentMode {
+    Html,
+    Svg,
+    MathMl,
+}
+
+/// SVG's **HTML integration points**: their children are HTML content again,
+/// so `<svg><foreignObject><div/>x` leaves the `div` OPEN — the flag is a
+/// parse error the parser ignores, exactly as at top level. Measured in real
+/// Chromium (ti `490d97` wave 1); modelling `foreignObject` as ordinary
+/// foreign content is what made the walk close it (`e77173`).
+///
+/// **`title` is deliberately absent.** SVG's `<title>` is an HTML integration
+/// point by the spec, but [`scan_tags`] enters raw-text state for that name
+/// unconditionally, so its contents never reach this walk as markup at all.
+/// Listing it here would claim a fidelity the tokenizer below does not
+/// provide. That divergence is one layer down and is recorded on `e77173`
+/// rather than papered over here.
+fn is_svg_html_integration_point(name: &str) -> bool {
+    name.eq_ignore_ascii_case("foreignObject") || name.eq_ignore_ascii_case("desc")
+}
+
+/// MathML's **text integration points**: `<math><mi><div/>` opens the `div`
+/// for the same reason `foreignObject` does.
+fn is_mathml_text_integration_point(name: &str) -> bool {
+    ["mi", "mo", "mn", "ms", "mtext"]
+        .iter()
+        .any(|n| name.eq_ignore_ascii_case(n))
+}
+
+/// The HTML start tags that force a parser **out** of foreign content
+/// entirely, popping open foreign elements until it is back in HTML. Without
+/// this, `<svg><div>x</div></svg>` reads as a `div` nested inside the `svg`,
+/// and every extent from the `div` onward carries a depth and a parent that
+/// no browser agrees with.
+///
+/// The list is the spec's, in its order. `font` is **not** here because it
+/// breaks out only when it carries `color`, `face` or `size` — that one is
+/// attribute-conditional and is answered by [`breaks_out_of_foreign`].
+const FOREIGN_BREAKOUT_TAGS: &[&str] = &[
+    "b",
+    "big",
+    "blockquote",
+    "body",
+    "br",
+    "center",
+    "code",
+    "dd",
+    "div",
+    "dl",
+    "dt",
+    "em",
+    "embed",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "hr",
+    "i",
+    "img",
+    "li",
+    "listing",
+    "menu",
+    "meta",
+    "nobr",
+    "ol",
+    "p",
+    "pre",
+    "ruby",
+    "s",
+    "small",
+    "span",
+    "strong",
+    "strike",
+    "sub",
+    "sup",
+    "table",
+    "tt",
+    "u",
+    "ul",
+    "var",
+];
+
+/// Does this start tag tear the parser out of foreign content?
+fn breaks_out_of_foreign(name: &str, html: &str, span: (usize, usize)) -> bool {
+    if FOREIGN_BREAKOUT_TAGS
+        .iter()
+        .any(|n| name.eq_ignore_ascii_case(n))
+    {
+        return true;
+    }
+    // `font` breaks out only when it carries one of these three; a bare
+    // `<font>` inside `<svg>` is an ordinary foreign element.
+    name.eq_ignore_ascii_case("font") && tag_has_any_attr(html, span, &["color", "face", "size"])
+}
+
+/// The content mode for the children of `name`, opened inside `parent`.
+fn child_content_mode(
+    parent: ContentMode,
+    name: &str,
+    html: &str,
+    span: (usize, usize),
+) -> ContentMode {
+    if name.eq_ignore_ascii_case("svg") {
+        return ContentMode::Svg;
+    }
+    if name.eq_ignore_ascii_case("math") {
+        return ContentMode::MathMl;
+    }
+    match parent {
+        ContentMode::Svg if is_svg_html_integration_point(name) => ContentMode::Html,
+        ContentMode::MathMl if is_mathml_text_integration_point(name) => ContentMode::Html,
+        // `annotation-xml` is an HTML integration point only when its
+        // `encoding` is `text/html` or `application/xhtml+xml`.
+        ContentMode::MathMl if name.eq_ignore_ascii_case("annotation-xml") => {
+            match tag_attr_value(html, span, "encoding") {
+                Some(enc)
+                    if enc.eq_ignore_ascii_case("text/html")
+                        || enc.eq_ignore_ascii_case("application/xhtml+xml") =>
+                {
+                    ContentMode::Html
+                }
+                _ => ContentMode::MathMl,
+            }
+        }
+        other => other,
+    }
+}
+
 /// The result of the one stack walk over [`scan_tags`]' token stream.
 struct Walk {
     extents: Vec<ElementExtent>,
@@ -899,14 +1044,15 @@ struct Walk {
 fn walk_elements(html: &str) -> Walk {
     let tokens = scan_tags(html);
     let mut extents: Vec<ElementExtent> = Vec::new();
-    // (name, index into `extents`, in-foreign-content) for each element still
-    // open. The third field is a STACK property — an entry is foreign iff it
-    // is an `<svg>`/`<math>` root or its parent entry was — and it exists
-    // because foreign content is one of the two places HTML honours the
-    // self-closing flag. It is deliberately not `scan_tags`' `foreign_depth`:
-    // that is a saturating counter with no stack scoping, adequate only for
-    // choosing a CDATA terminator.
-    let mut open_stack: Vec<(String, usize, bool)> = Vec::new();
+    // (name, index into `extents`, mode its CHILDREN are parsed in) for each
+    // element still open. The third field is a STACK property, and it is a
+    // [`ContentMode`] rather than the bool this walk carried until `e77173`:
+    // foreign content contains islands of HTML — `foreignObject`, `desc`, the
+    // MathML text integration points — so "am I foreign" is not answerable by
+    // inheriting a flag downward. It is deliberately not `scan_tags`'
+    // `foreign_depth`: that is a saturating counter with no stack scoping,
+    // adequate only for choosing a CDATA terminator.
+    let mut open_stack: Vec<(String, usize, ContentMode)> = Vec::new();
     let mut orphan_closes: Vec<(usize, usize)> = Vec::new();
 
     for tok in &tokens {
@@ -938,7 +1084,27 @@ fn walk_elements(html: &str) -> Walk {
                 //
                 // Read AFTER the implied-close pops, so the parent is the
                 // element this tag actually lands in.
-                let in_foreign = open_stack.last().is_some_and(|(_, _, f)| *f);
+                let mut parent_mode = open_stack.last().map_or(ContentMode::Html, |(_, _, m)| *m);
+
+                // A breakout tag tears the parser back out to HTML before it
+                // is processed: pop foreign elements until the thing we are
+                // landing in parses its children as HTML. An integration
+                // point already does, which is why this stops at one
+                // (`<svg><foreignObject><div>` nests; `<svg><g><div>` does
+                // not). Each popped element is closed implicitly, exactly as
+                // an implied close does it (`e77173`).
+                if parent_mode != ContentMode::Html && breaks_out_of_foreign(name, html, *span) {
+                    while open_stack
+                        .last()
+                        .is_some_and(|(_, _, m)| *m != ContentMode::Html)
+                    {
+                        let (_, idx, _) = open_stack.pop().expect("just inspected the top");
+                        extents[idx].content_end = span.0;
+                    }
+                    parent_mode = open_stack.last().map_or(ContentMode::Html, |(_, _, m)| *m);
+                }
+
+                let in_foreign = parent_mode != ContentMode::Html;
                 // Raw text sits ABOVE the foreign rule on purpose:
                 // `scan_tags` enters raw-text state for these four names
                 // unconditionally, so the appended closer is what keeps
@@ -956,7 +1122,7 @@ fn walk_elements(html: &str) -> Walk {
                     open_stack.push((
                         name.clone(),
                         extents.len() - 1,
-                        in_foreign || is_foreign_root(name),
+                        child_content_mode(parent_mode, name, html, *span),
                     ));
                 }
             }
@@ -1150,7 +1316,28 @@ pub fn strip_reserved_sync_attrs(html: &str) -> Cow<'_, str> {
 /// `out` in ascending order. Walks HTML's attribute states directly rather
 /// than reusing [`AttrState`], which answers a different question (where the
 /// tag ends).
-fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(usize, usize)>) {
+/// One attribute [`walk_attrs`] found: its lowercased name, where the name
+/// starts, one past the whole `name="value"` run, and the value's own bytes
+/// if it has a value.
+struct AttrHit<'a> {
+    name: &'a str,
+    name_start: usize,
+    attr_end: usize,
+    value: Option<(usize, usize)>,
+}
+
+/// Walk the attributes of ONE start tag, in source order.
+///
+/// There is exactly one of these for the same reason there is exactly one
+/// stack walk: a second attribute reader would be a second opinion about
+/// where an attribute ends, and the two would drift. `strip_reserved_sync_attrs`
+/// deletes what it reports and `walk_elements` classifies foreign content by
+/// it, so a disagreement would be a security question and a structure question
+/// at once.
+///
+/// `span` is a [`TagToken::Open`] span, so `scan_tags` has already proved the
+/// tag is well-formed enough to have a name.
+fn walk_attrs(html: &str, span: (usize, usize), mut f: impl FnMut(AttrHit<'_>)) {
     let bytes = html.as_bytes();
     let (start, end) = span;
     // `end` is one past the `>`; never look at the `>` itself.
@@ -1175,7 +1362,7 @@ fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(
             i += 1; // a stray `=`: not a name, and the walk must not stall
             continue;
         }
-        let name = html[name_start..i].to_ascii_lowercase();
+        let name_end = i;
 
         // The optional `= value`, in HTML's three value shapes.
         let mut j = i;
@@ -1183,6 +1370,7 @@ fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(
             j += 1;
         }
         let mut attr_end = i;
+        let mut value = None;
         if j < limit && bytes[j] == b'=' {
             j += 1;
             while j < limit && bytes[j].is_ascii_whitespace() {
@@ -1191,29 +1379,70 @@ fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(
             if j < limit && (bytes[j] == b'"' || bytes[j] == b'\'') {
                 let quote = bytes[j];
                 j += 1;
+                let value_start = j;
                 while j < limit && bytes[j] != quote {
                     j += 1;
                 }
+                value = Some((value_start, j));
                 attr_end = (j + 1).min(limit);
             } else {
+                let value_start = j;
                 while j < limit && !bytes[j].is_ascii_whitespace() {
                     j += 1;
                 }
+                value = Some((value_start, j));
                 attr_end = j;
             }
         }
 
-        if RESERVED_SYNC_ATTRS.contains(&name.as_str()) {
+        f(AttrHit {
+            name: &html[name_start..name_end],
+            name_start,
+            attr_end,
+            value,
+        });
+        i = attr_end;
+    }
+}
+
+/// Does this start tag carry any of `wanted`? Used for `font`, which leaves
+/// foreign content only when it has `color`, `face` or `size`.
+fn tag_has_any_attr(html: &str, span: (usize, usize), wanted: &[&str]) -> bool {
+    let mut found = false;
+    walk_attrs(html, span, |attr| {
+        if wanted.iter().any(|w| attr.name.eq_ignore_ascii_case(w)) {
+            found = true;
+        }
+    });
+    found
+}
+
+/// The value of `wanted` on this start tag, if it has one. Used for
+/// `annotation-xml`, an HTML integration point only at two `encoding` values.
+fn tag_attr_value(html: &str, span: (usize, usize), wanted: &str) -> Option<String> {
+    let mut out = None;
+    walk_attrs(html, span, |attr| {
+        if out.is_none() && attr.name.eq_ignore_ascii_case(wanted) {
+            out = attr.value.map(|(a, b)| html[a..b].to_string());
+        }
+    });
+    out
+}
+
+fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(usize, usize)>) {
+    let bytes = html.as_bytes();
+    let start = span.0;
+    walk_attrs(html, span, |attr| {
+        if RESERVED_SYNC_ATTRS.contains(&attr.name.to_ascii_lowercase().as_str()) {
             // Take the leading whitespace along, so removing an attribute
             // does not leave a double space behind.
-            let mut cut_start = name_start;
+            let mut cut_start = attr.name_start;
             while cut_start > start + 1 && bytes[cut_start - 1].is_ascii_whitespace() {
                 cut_start -= 1;
             }
-            out.push((cut_start, attr_end));
+            out.push((cut_start, attr.attr_end));
         }
-        i = attr_end;
-    }
+    });
 }
 
 /// Render-path auto-balancing (spec §3.4): tags opened but never closed in
@@ -1670,6 +1899,179 @@ mod extent_tests {
             .map(|e| e.name)
             .collect();
         assert_eq!(names, vec!["svg", "span"]);
+    }
+
+    fn names(html: &str) -> Vec<String> {
+        element_extents(html).into_iter().map(|e| e.name).collect()
+    }
+
+    /// `e77173`: foreign content contains ISLANDS of HTML. Inside SVG's
+    /// `foreignObject` / `desc` the parser is back in HTML content, so a
+    /// self-closing `/` is the parse error it always is out here and the
+    /// element OPENS. Measured in real Chromium: `<svg><foreignObject><div/>x`
+    /// leaves the `div` open.
+    ///
+    /// Before this, the walk inherited one `in_foreign` bool down the stack,
+    /// so `foreignObject` looked like any other foreign element and the `div`
+    /// minted no extent at all.
+    #[test]
+    fn an_html_integration_point_returns_its_children_to_html_content() {
+        assert_eq!(
+            names("<svg><foreignObject><div/>x"),
+            // `scan_tags` lowercases names, so the extent is `foreignobject`
+            // even though the source spells it camelCase.
+            vec!["svg", "foreignobject", "div"],
+            "foreignObject re-enters HTML, so the div's slash is ignored"
+        );
+        assert_eq!(names("<svg><desc><div/>x"), vec!["svg", "desc", "div"]);
+        // The contrast that makes it a rule rather than a special case: an
+        // ordinary foreign element does NOT re-enter HTML.
+        assert_eq!(
+            names("<svg><g><rect/>x"),
+            vec!["svg", "g"],
+            "rect stays foreign, so its slash still closes it"
+        );
+    }
+
+    /// `e77173`: the breakout set tears the parser out of foreign content
+    /// before the tag is processed, popping the open foreign elements. Without
+    /// it `<svg><g><div>` reads as a div nested two deep inside an svg, a
+    /// shape no browser produces.
+    #[test]
+    fn a_breakout_tag_leaves_foreign_content_before_it_opens() {
+        let extents = element_extents("<svg><g><div>x</div></svg>");
+        let shape: Vec<(String, usize)> =
+            extents.iter().map(|e| (e.name.clone(), e.depth)).collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("svg".to_string(), 0),
+                ("g".to_string(), 1),
+                ("div".to_string(), 0)
+            ],
+            "the div breaks out to top level; svg and g are closed implicitly"
+        );
+        // Both foreign elements end where the breakout tag starts, and
+        // neither gets an end tag it never had.
+        let div_open = "<svg><g>".len();
+        assert_eq!(extents[0].content_end, div_open, "svg ends at the div");
+        assert_eq!(extents[1].content_end, div_open, "g ends at the div");
+        assert!(extents[0].close.is_none() && extents[1].close.is_none());
+
+        // A void breakout tag pops just the same, then mints nothing itself.
+        assert_eq!(names("<svg><g><br>"), vec!["svg", "g"]);
+        // A tag that is NOT in the set stays inside foreign content.
+        assert_eq!(names("<svg><g><rect>x"), vec!["svg", "g", "rect"]);
+    }
+
+    /// `font` is the one breakout tag that depends on its attributes, so it is
+    /// the one that proves the walk reads them rather than guessing.
+    #[test]
+    fn font_breaks_out_of_foreign_content_only_with_color_face_or_size() {
+        assert_eq!(
+            names("<svg><font>x</font></svg>")
+                .into_iter()
+                .zip(
+                    element_extents("<svg><font>x</font></svg>")
+                        .iter()
+                        .map(|e| e.depth)
+                )
+                .map(|(n, d)| format!("{n}@{d}"))
+                .collect::<Vec<_>>(),
+            vec!["svg@0", "font@1"],
+            "a bare font is an ordinary foreign element"
+        );
+        let flagged = element_extents("<svg><font color=\"red\">x</font></svg>");
+        assert_eq!(
+            flagged
+                .iter()
+                .map(|e| (e.name.as_str(), e.depth))
+                .collect::<Vec<_>>(),
+            vec![("svg", 0), ("font", 0)],
+            "color makes it break out, so the font lands at top level"
+        );
+    }
+
+    /// `e77173` was a **live `contracts.md` §4a break**, not a benign extent
+    /// divergence, and this is the shape that made it one (DCR-0032's
+    /// 2026-08-23 correction, measured through the shipped DOMPurify mount).
+    ///
+    /// `div` is on the breakout list, so a browser pops the `<svg>` at the
+    /// `<div>` and leaves that div OPEN in HTML content — where it swallows
+    /// the anchor of the block that follows and mounts it under `DIV.wrap`
+    /// instead of `<main>`. The walk used to close the div at `</svg>` and
+    /// hand the fragment through unchanged, so the balancer saw nothing to
+    /// repair. Reachable from untrusted source Markdown via a type-6 html
+    /// block, which is why the self-closing flag was never the mechanism: the
+    /// unflagged `<svg><div>x</svg>` does exactly the same thing.
+    #[test]
+    fn a_breakout_div_inside_svg_cannot_swallow_the_anchor_that_follows() {
+        for src in [
+            "<div class=\"wrap\"><svg><div/>x</svg></div>",
+            // The flag is not the mechanism — the unflagged spelling too.
+            "<div class=\"wrap\"><svg><div>x</svg></div>",
+        ] {
+            let extents = element_extents(src);
+            let shape: Vec<(&str, usize)> =
+                extents.iter().map(|e| (e.name.as_str(), e.depth)).collect();
+            assert_eq!(
+                shape,
+                vec![("div", 0), ("svg", 1), ("div", 1)],
+                "the inner div breaks out of the svg and becomes wrap's child, \
+                 not the svg's: {src}"
+            );
+
+            // The balancer repairs what the walk now sees, so the fragment
+            // cannot leave an element open past its own end.
+            let balanced = balance_fragment(src);
+            let after = walk_elements(&balanced);
+            assert!(
+                after.unclosed.is_empty(),
+                "nothing may outlive the fragment: {balanced}"
+            );
+            assert!(
+                after.orphan_closes.is_empty(),
+                "and it may not carry a closer for something never opened: {balanced}"
+            );
+            assert_eq!(
+                balance_fragment(&balanced),
+                balanced,
+                "idempotent under its own re-scan: {balanced}"
+            );
+        }
+    }
+
+    /// MathML has two kinds of island: the text integration points, and
+    /// `annotation-xml` at exactly two `encoding` values.
+    #[test]
+    fn mathml_islands_return_their_children_to_html_content() {
+        // A text integration point: `foo` is not a breakout tag, so the only
+        // thing that can open it is being back in HTML content.
+        assert_eq!(names("<math><mi><foo/>x"), vec!["math", "mi", "foo"]);
+        assert_eq!(
+            names("<math><mrow><foo/>x"),
+            vec!["math", "mrow"],
+            "mrow is ordinary MathML, so foo's slash still closes it"
+        );
+        // annotation-xml, both ways.
+        assert_eq!(
+            names("<math><annotation-xml encoding=\"text/html\"><foo/>x"),
+            vec!["math", "annotation-xml", "foo"]
+        );
+        assert_eq!(
+            names("<math><annotation-xml encoding=\"application/xhtml+xml\"><foo/>x"),
+            vec!["math", "annotation-xml", "foo"]
+        );
+        assert_eq!(
+            names("<math><annotation-xml><foo/>x"),
+            vec!["math", "annotation-xml"],
+            "no encoding: still MathML, so the slash closes foo"
+        );
+        assert_eq!(
+            names("<math><annotation-xml encoding=\"image/svg+xml\"><foo/>x"),
+            vec!["math", "annotation-xml"],
+            "an encoding that is not one of the two is not an island"
+        );
     }
 
     #[test]
