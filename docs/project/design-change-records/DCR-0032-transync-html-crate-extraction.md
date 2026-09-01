@@ -608,6 +608,14 @@ filed follow-up rather than silently accepted:
   `<br>` by HTML's end-tag-`br` rule, so the balancer would *mint* structure
   instead of repairing it — worse than dropping a closer.
 
+  *Closed 2026-09-01 by ticket `48f3c6`, recorded in **DCR-0043**.* The trade
+  was correct when it was made and its premise expired one record later: `br`
+  is a breakout tag, so `<svg><br>` leaves foreign content before the tag is
+  processed and `is_void` still wins there. The hazard was unreachable from the
+  moment DCR-0041 modelled breakout. Voidness is now consulted only in HTML
+  content, and the five void names that are also breakout tags are pinned as
+  exactly `br`, `embed`, `hr`, `img`, `meta`.
+
 **`VOID_ELEMENTS` gained four names** — `basefont`, `bgsound`, `frame`,
 `keygen` — each measured never-open in Chromium (`<keygen>x` leaves `x` a
 sibling). They are elements the spec dropped while the tree-construction rule

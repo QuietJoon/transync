@@ -106,6 +106,11 @@ also the regression test for the extraction.
 - **Void names used as real foreign elements.** Unchanged; `is_void` still
   wins globally.
 
+  *Closed 2026-09-01 by ticket `48f3c6`, recorded in **DCR-0043**.* This record
+  is what closed it, a wave early and without noticing: the `</br>` hazard that
+  kept `is_void` global cannot arise once `br` breaks out of foreign content
+  before it is processed.
+
 ## Evidence
 
 - `cargo test --workspace --no-fail-fast -- --test-threads=4`: 40/40 binaries,

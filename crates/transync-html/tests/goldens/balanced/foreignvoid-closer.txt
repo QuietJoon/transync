@@ -1,1 +1,1 @@
-<svg><link>ab</svg>
+<svg><link>a</link>b</svg>

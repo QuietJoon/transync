@@ -114,3 +114,6 @@ adding a name to `is_svg_html_integration_point`.
   so a genuine `<svg><link>…</link>`'s closer is dropped as an orphan. The
   stack-scoped mode this record moves into the scanner is exactly what closing
   it needs; it is ticket `48f3c6` and it stays open here.
+
+  *Closed the same day by that ticket, recorded in **DCR-0043**.* It used the
+  mode this record had just moved down, and cost one expression.

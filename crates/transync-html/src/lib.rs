@@ -66,13 +66,18 @@ const VOID_ELEMENTS: &[&str] = &[
     "keygen", "link", "meta", "param", "source", "track", "wbr",
 ];
 
-/// Elements whose content HTML tokenizes as raw text / RCDATA. HTML ignores
-/// the self-closing flag on them: `<textarea/>` opens RCDATA and swallows
-/// every later sibling as text. The balancer therefore treats a self-closing
-/// start tag for these as OPEN so a close tag is appended, and [`scan_tags`]
-/// enters raw-text state for all four regardless of the flag (DCR-0016
-/// Part D; R0002-0020 brought textarea/title into the tokenizer half, which
-/// had covered only script and style).
+/// Elements whose content HTML tokenizes as raw text / RCDATA **in HTML
+/// content**. HTML ignores the self-closing flag on them there:
+/// `<textarea/>` opens RCDATA and swallows every later sibling as text. The
+/// balancer therefore treats a self-closing start tag for these as OPEN so a
+/// close tag is appended, and [`scan_tags`] enters raw-text state for all
+/// four regardless of the flag (DCR-0016 Part D; R0002-0020 brought
+/// textarea/title into the tokenizer half, which had covered only script and
+/// style).
+///
+/// Inside `<svg>`/`<math>` none of that applies — they are ordinary foreign
+/// elements whose contents are markup and whose `/` is honoured (ti
+/// `2e2453`, DCR-0042).
 const RAW_TEXT_ELEMENTS: &[&str] = &["script", "style", "textarea", "title"];
 
 /// Pinned memory ceiling for the rewriter (spec §3.2 "pinned Settings").
@@ -97,6 +102,13 @@ pub struct HtmlSegments {
 
 /// Is `tag` an HTML void element? Void elements never get an end tag, so a
 /// stack walker must not push them and a balancer must not close them.
+///
+/// **In HTML content.** Foreign content has no void elements at all: "any
+/// other start tag" inserts a foreign element there and only the self-closing
+/// flag pops it, so `<svg><link>a</link>` is a genuine closable SVG element
+/// (ti `48f3c6`). Like [`is_raw_text`], this answers the NAME question and
+/// leaves the context to the caller; [`scan_tags`] is the one that pairs the
+/// two.
 ///
 /// **ASCII-case-insensitive**, because HTML tag names are: `<BR>` names the
 /// same element as `<br>`, and a helper that answered `false` for the first
@@ -953,7 +965,22 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             // foreign content it was the bug: `<svg><script/>x` left `x` a
             // sibling in a browser and swallowed it here.
             let honours_flag = parent_mode != ContentMode::Html || is_foreign_root(&name);
-            let opens_element = !is_void(&name) && !(self_closing && honours_flag);
+            // ti `48f3c6`: voidness is an HTML-content rule too. Foreign
+            // content has no void elements — "any other start tag" inserts a
+            // foreign element and only the self-closing flag pops it — so
+            // `<svg><link>a</link>` is a genuine closable SVG element whose
+            // end tag is a real closer, not an orphan the balancer deletes.
+            //
+            // The hazard that kept `is_void` global was `</br>`: HTML's
+            // end-tag-`br` rule turns an appended one back into a fresh
+            // `<br>`, so the balancer would MINT structure. It cannot reach
+            // here. `br` is in `FOREIGN_BREAKOUT_TAGS`, so `<svg><br>` tears
+            // out of foreign content before this line runs and lands in HTML
+            // content with `parent_mode == Html`. Same for the other four
+            // void names that are also breakout tags: `embed`, `hr`, `img`,
+            // `meta`. DCR-0041's breakout model is what retired the trade.
+            let void_here = parent_mode == ContentMode::Html && is_void(&name);
+            let opens_element = !void_here && !(self_closing && honours_flag);
             let child_mode = child_content_mode(parent_mode, &name, html, span);
             if opens_element {
                 mode_stack.push((name.clone(), child_mode));
@@ -1026,9 +1053,12 @@ pub fn implicitly_closes(name: &str) -> &'static [&'static str] {
 /// One element the [`element_extents`] walk found, in source order by its
 /// open tag.
 ///
-/// **Not every tag mints one.** A void element (`img`, `br`, `hr`, …) is never
-/// pushed onto the walk's stack, so it produces **no** `ElementExtent` at all
-/// — it has no content and nothing to close. Neither does a self-closing tag
+/// **Not every tag mints one.** A void element (`img`, `br`, `hr`, …) in HTML
+/// content is never pushed onto the walk's stack, so it produces **no**
+/// `ElementExtent` at all — it has no content and nothing to close. Inside
+/// foreign content it does mint one, because there are no void elements there
+/// (ti `48f3c6`); the five void names that are also breakout tags never reach
+/// that case, since they leave foreign content before they are processed. Neither does a self-closing tag
 /// in the two places HTML actually honours that flag: inside foreign content,
 /// and on the `<svg>` / `<math>` start tags that enter it. "Inside foreign
 /// content" is narrower than "inside an `<svg>`" — SVG's `foreignObject` and
@@ -2530,6 +2560,75 @@ mod extent_tests {
             }
         }
         assert!(popped_any, "the table popped nothing at all");
+    }
+
+    /// ti `48f3c6`. `<svg><link>` is a genuine, closable SVG element — foreign
+    /// content has no void elements — so the author's `</link>` is a real
+    /// closer. `is_void` winning globally made it an orphan, and the balancer
+    /// DELETED it from the pane: an edit to what the reader sees, in the one
+    /// direction the balancer exists to prevent.
+    #[test]
+    fn a_void_name_used_as_a_real_foreign_element_keeps_its_closer() {
+        let html = "<svg><link>a</link>b</svg>";
+        let ex = element_extents(html);
+        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["svg", "link"]);
+        assert!(
+            ex[1].close.is_some(),
+            "the author's </link> closes the link"
+        );
+        assert_eq!(balance_fragment(html), html);
+        // And the other half: an unclosed one is now owed a closer.
+        assert_eq!(
+            balance_fragment("<svg><link>a"),
+            "<svg><link>a</link></svg>"
+        );
+    }
+
+    /// The property the fix rests on, pinned rather than its example.
+    ///
+    /// The trade recorded on `48f3c6` was that pushing void names inside
+    /// foreign content risks appending `</br>`, which HTML's end-tag-`br`
+    /// rule turns back into a fresh `<br>` — the balancer MINTING structure
+    /// instead of repairing it, which is worse than the bug being fixed. No
+    /// void name can reach that case: the five that are also breakout tags
+    /// leave foreign content before they are processed, and `br` is one of
+    /// them. DCR-0041's breakout model is what retired the hazard, so this
+    /// test fails if anyone removes a name from `FOREIGN_BREAKOUT_TAGS`.
+    #[test]
+    fn a_void_name_that_is_also_a_breakout_tag_never_opens_inside_foreign_content() {
+        let both: Vec<&str> = VOID_ELEMENTS
+            .iter()
+            .copied()
+            .filter(|n| breaks_out_of_foreign(n, "", (0, 0)))
+            .collect();
+        assert_eq!(
+            both,
+            vec!["br", "embed", "hr", "img", "meta"],
+            "the void names that can never be foreign elements moved — \
+             re-check the `</br>` hazard before accepting this"
+        );
+        for name in both {
+            let html = format!("<svg><{name}>x");
+            assert_eq!(
+                balance_fragment(&html),
+                html,
+                "`{name}` broke out of foreign content, so it stays void and \
+                 earns no closer"
+            );
+        }
+    }
+
+    /// Voidness is untouched in HTML content, which is where every consumer
+    /// of this crate spends nearly all of its time.
+    #[test]
+    fn voidness_still_wins_in_html_content() {
+        assert_eq!(balance_fragment("<div><link>a"), "<div><link>a</div>");
+        assert!(
+            element_extents("<p><br>x</p>")
+                .iter()
+                .all(|e| e.name != "br")
+        );
     }
 }
 
