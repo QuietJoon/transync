@@ -702,10 +702,15 @@ design:
     - DCR-0034-ir-semantic-kind-and-spelling-split
     # DCR-0035..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
     # (docs/superpowers/plans/2026-08-20-html-wave*.md), each appended here by
-    # that wave's own records task. DCR-0040 is out of sequence on purpose -
-    # taking the next free number would have collided with an unrun wave's
-    # paperwork. Keep this roster in numeric order when a reserved number lands.
+    # that wave's own records task. DCR-0040..DCR-0044 are out of sequence on
+    # purpose - taking the next free number would have collided with an unrun
+    # wave's paperwork. Keep this roster in numeric order when a reserved
+    # number lands.
     - DCR-0040-review-0009-fix-pass
+    - DCR-0041-foreign-content-islands-and-breakout
+    - DCR-0042-raw-text-is-an-html-content-state
+    - DCR-0043-voidness-is-an-html-content-rule
+    - DCR-0044-the-row-decides-the-anchor
   rewind_required_to_phase: null
   status: handoff_complete
 

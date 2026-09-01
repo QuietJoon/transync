@@ -122,6 +122,8 @@ crates/transync-cli/                    # binary; no profiles/ dir — the defau
 ├── Cargo.toml
 ├── web/                                # CLI's local copy of demo assets, embedded
 │   ├── index.html.tpl
+│   ├── purify.min.js                   # vendored DOMPurify; include_str!'d by output.rs into
+│   │                                   #   every --html-out bundle (pinned against web/vendor/)
 │   └── sync.js                         # symlink/copy from workspace web/js/sync.js (build-time)
 └── src/
     ├── main.rs                         # clap dispatch

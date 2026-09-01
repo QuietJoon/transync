@@ -144,6 +144,13 @@ row into a compile error.
 **No `_ =>` arm was added to any match over `BlockKind`.** The two above are
 pre-existing and stay; a third would have been the next silent swallow.
 
+*Amended 2026-09-01, the same day this record landed: `align::sync_role_for`'s
+catch-all was removed by **DCR-0044** (commit `cec5bc0`, tickets `18b9c3` /
+`9ffb97`) — it names every `BlockKind` variant explicitly now, and the
+alignment row it emits is what decides whether a block anchors.
+`unit::context::document_title`'s shape is the one that stays: it is a
+membership test, not a dispatch that assigns behaviour per variant.*
+
 ## The re-keying, with its warrant
 
 Nine predicates moved off kind-`Html` and onto the axis each one actually meant:

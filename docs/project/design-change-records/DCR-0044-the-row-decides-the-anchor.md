@@ -13,6 +13,7 @@ status: stable
 
 - **Date:** 2026-09-01
 - **Source:** tickets `18b9c3` (wave 2 Task 6's implementer) and `9ffb97` (ti `490d97` wave 1 review)
+- **Affected DCRs:** `DCR-0034` (amended — its "the two above are pre-existing and stay" sentence is narrowed to one; this record removed the other)
 - **Affected contracts:** `docs/architecture/contracts.md` §4a (amended — the non-sync attribute rule is stated for every kind rather than for thematic breaks alone)
 
 **Numbering note.** DCR-0035–0039 remain reserved by the unrun HTML→HTML waves
@@ -67,7 +68,7 @@ different *element*; it no longer decides anything about *attributes*. Its
 output is byte-identical, which the pre-existing render tests established
 before a new one was written for it.
 
-**`sync_role_for` is exhaustive.** All seventeen `BlockKind` variants are
+**`sync_role_for` is exhaustive.** All sixteen `BlockKind` variants are
 named and the `_` arm is gone, so the next variant is a compile error at the
 one place that decides its wire role. The rule is narrow and stated at the
 function: a *dispatch that assigns behaviour per variant* must not have a
@@ -102,5 +103,5 @@ omission; a test asserts no arm answers it.
   `title`.
 - `the_thematic_break_arm_still_emits_exactly_its_styling_hook` pins the
   byte-identical `<hr data-block-kind="thematic-break">`.
-- `every_block_kind_answers_the_role_it_was_given` pins what the seventeen
+- `every_block_kind_answers_the_role_it_was_given` pins what the sixteen
   arms *say*, since the compiler only enforces that they exist.

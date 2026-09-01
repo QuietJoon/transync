@@ -257,7 +257,7 @@ Two things run it, and neither owns the crate list. The list lives in
 `scripts/lib/rustdoc-gate.sh`, sourced by `scripts/smoke.sh` — which runs
 the gate after the test suites — and by `scripts/hooks/pre-commit`, which
 runs it on **every commit** (since 2026-08-07; a warm re-document of the
-five crates costs about a second, next to the `--all-targets
+seven crates costs about a second, next to the `--all-targets
 --all-features` clippy run already there). Add a new library member to
 that one file and both callers pick it up. Keep the list total — a member
 left out is a member whose docs rot unobserved, which is exactly how

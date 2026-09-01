@@ -8,8 +8,8 @@
 //!
 //! **Structural intake does not live here.** Classification, `BlockKind`
 //! assignment, block ids and `ast_path` are `transync-syntax`'s job — the
-//! `transync_syntax::intake::html` module — and this crate is the mechanics
-//! layer underneath it. The name says "html" because the capability is HTML,
+//! `transync_syntax::intake::html` module wave 3 will add; it does not exist
+//! yet — and this crate is the mechanics layer underneath it. The name says "html" because the capability is HTML,
 //! not because the crate decides what an HTML block *is*.
 //!
 //! **The module formerly called `htmlseg` inside `transync-syntax` is this
@@ -548,7 +548,10 @@ pub enum TagToken {
     /// An end tag. `span` covers `</` through `>` inclusive-exclusive.
     Close { name: String, span: (usize, usize) },
     /// A region the scanner recognizes and steps over: a comment, a CDATA
-    /// section (either terminator mode), a bogus comment (`<!…>` / `<?…>`),
+    /// section (either terminator mode), a bogus comment — `<!…>` / `<?…>`,
+    /// and since ti `e20490` also `</` before a non-letter, which HTML's
+    /// end-tag-open state sends to a bogus comment running to the first `>`
+    /// (`</>` alone is discarded whole and mints nothing at all) —
     /// or a tag left unterminated at EOF (ti 549b20 — a browser abandons a
     /// tag cut off before its `>`, minting no element and no attributes, so
     /// the bytes are a passed-over region, not markup).
@@ -1449,16 +1452,21 @@ const RESERVED_SYNC_ATTRS: &[&str] = &[
 /// opening a value, so the strip neither misses a plant hidden behind one
 /// nor deletes text a browser paints after the tag's real end; and a tag
 /// left unterminated at EOF is a passed-over [`TagToken::Skip`] region a
-/// browser abandons. That exhausts the known divergences in the regions
-/// this fix touched; two remain one state earlier — HTML's tag-name state
-/// consumes `=` and quote bytes into the ELEMENT name until the first
-/// whitespace, where this scanner ends the name earlier, and HTML's
-/// end-tag-open state opens a bogus comment on `</` before a non-letter,
-/// where this scanner sees plain text and keeps tokenizing — both
-/// recorded in DCR-0032's 2026-08-21 amendment. Neither yields a
-/// live-anchor construction through the pane path: a diverging element
-/// name can never match a sanitizer's allowlist, and a browser mints no
-/// element at all from a bogus comment's interior.
+/// browser abandons. The two that remained one state earlier — HTML's
+/// tag-name state consuming `=` and quote bytes into the ELEMENT name, and
+/// its end-tag-open state opening a bogus comment on `</` before a
+/// non-letter, both recorded in DCR-0032's 2026-08-21 amendment as ti
+/// `e20490` — are closed: `tag_name_end` is now the one name boundary
+/// shared by the scanner and this strip, and `</` before a non-letter is a
+/// passed-over [`TagToken::Skip`] region that mints no element.
+///
+/// The tag-name half was NOT harmless while it stood, and the record here
+/// used to say it was. `<divq"x=" data-sync-id="v">` is one element named
+/// `divq"x="` carrying a real `data-sync-id`; ending the name early buried
+/// that plant in a phantom quoted value this strip never examines as a
+/// name, so a live anchor survived. Only the pane path's DOMPurify mount
+/// dropped it, for a reason — no allowlisted element name contains those
+/// bytes — that a consumer which does not sanitize never inherits.
 pub fn strip_reserved_sync_attrs(html: &str) -> Cow<'_, str> {
     let mut cuts: Vec<(usize, usize)> = Vec::new();
     for token in scan_tags(html) {
@@ -1539,13 +1547,15 @@ pub fn strip_reserved_sync_attrs(html: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
-/// Byte ranges of the reserved attributes inside one open tag, appended to
-/// `out` in ascending order. Walks HTML's attribute states directly rather
-/// than reusing [`AttrState`], which answers a different question (where the
-/// tag ends).
-/// One attribute [`walk_attrs`] found: its lowercased name, where the name
-/// starts, one past the whole `name="value"` run, and the value's own bytes
-/// if it has a value.
+/// One attribute [`walk_attrs`] found: its name exactly as the source spells
+/// it, where the name starts, one past the whole `name="value"` run, and the
+/// value's own bytes if it has a value.
+///
+/// The name is **not** folded. Every consumer folds for itself —
+/// `collect_reserved_attr_spans` lowercases before matching the reserved set,
+/// and the two attribute readers use `eq_ignore_ascii_case` — because the
+/// spans this record carries index the source bytes, and a folded copy could
+/// not.
 struct AttrHit<'a> {
     name: &'a str,
     name_start: usize,
@@ -1558,9 +1568,11 @@ struct AttrHit<'a> {
 /// There is exactly one of these for the same reason there is exactly one
 /// stack walk: a second attribute reader would be a second opinion about
 /// where an attribute ends, and the two would drift. `strip_reserved_sync_attrs`
-/// deletes what it reports and `walk_elements` classifies foreign content by
-/// it, so a disagreement would be a security question and a structure question
-/// at once.
+/// deletes what it reports and `scan_tags_with_state` classifies foreign
+/// content by it — `breaks_out_of_foreign` reads `font`'s attributes and
+/// `child_content_mode` reads `annotation-xml`'s `encoding` — so a
+/// disagreement would be a security question and a structure question at
+/// once.
 ///
 /// `span` is a [`TagToken::Open`] span, so `scan_tags` has already proved the
 /// tag is well-formed enough to have a name.
@@ -1671,6 +1683,12 @@ fn tag_attr_value(html: &str, span: (usize, usize), wanted: &str) -> Option<Stri
     out
 }
 
+/// Byte ranges of the reserved attributes inside one open tag, appended to
+/// `out` in ascending order.
+///
+/// It does not walk the attribute states itself: DCR-0041 collapsed this onto
+/// the one shared [`walk_attrs`], so the strip and the scanner cannot disagree
+/// about where an attribute begins or ends.
 fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(usize, usize)>) {
     let bytes = html.as_bytes();
     let start = span.0;
@@ -1689,6 +1707,13 @@ fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(
 
 /// Render-path auto-balancing (spec §3.4): tags opened but never closed in
 /// the fragment are closed at its end, and orphan close tags are DROPPED.
+///
+/// "Closed at its end" is conditional since ti `95f55b`: a closer that
+/// would land inside an unterminated trailing comment, CDATA section,
+/// bogus comment, raw-text run or tag is **not** kept. The append is
+/// re-scanned and truncated when the scanner cannot see it as markup,
+/// because bytes buried in such a region close nothing and each re-balance
+/// would add another copy without limit.
 /// `out.md` never sees this — it exists so an unbalanced fragment cannot
 /// consume the sync wrapper's own `</div>` and swallow later anchors.
 ///
@@ -2155,9 +2180,12 @@ mod extent_tests {
     /// `<svg>`/`<math>` roots are the two places HTML really does honour the
     /// flag, so a flagged tag there mints nothing. Every arm but the last was
     /// green before the wave-1 fix too — they guard it from over-reaching.
-    /// The last arm is the new one: `in_foreign` is a STACK property, so past
-    /// `</svg>` the flag is ignored again, and a fix that latched a counter
-    /// instead would leave that `<span/>` unpushed.
+    /// The last arm is the new one: being inside foreign content is a STACK
+    /// property, so past `</svg>` the flag is ignored again, and a fix that
+    /// latched a counter instead would leave that `<span/>` unpushed. The
+    /// walk carried that as an `in_foreign` bool until `e77173` made it a
+    /// per-element [`ContentMode`], and `2e2453` moved the stack itself down
+    /// into the scanner; the property this arm guards is unchanged.
     #[test]
     fn a_flagged_tag_in_foreign_content_mints_no_extent() {
         let names: Vec<String> = element_extents("<svg><rect/><circle/></svg>")
@@ -2784,9 +2812,11 @@ mod strip_tests {
         // The weld: a misplaced closing quote leaves a NAME byte as the first
         // survivor after the cut. Deleting the separator moved the inventory
         // from ["div"] to ["divc"] — a browser names the welded element
-        // `divc"` (its tag-name state eats the quote; that one-byte remainder
-        // is the divergence already recorded in DCR-0032's 2026-08-21
-        // amendment, ti e20490). Moving off ["div"] at all is the defect.
+        // `divc"` (its tag-name state eats the quote). That used to be a
+        // one-byte remainder — DCR-0032's 2026-08-21 amendment filed it as
+        // ti e20490 — and is not one now: `tag_name_end` eats the quote too,
+        // so the scanner names the element exactly as a browser does. Moving
+        // off ["div"] at all is the defect this guards.
         for weld in [
             "<div data-sync-id=\"a b=\"c\">x",
             "<div data-order=\"a b=\"c\">x",
@@ -3361,8 +3391,8 @@ mod balance_tests {
         }
     }
 
-    /// Guards the ORDER of the push rule: `is_void` is checked first and
-    /// globally, so the four parser-voids `VOID_ELEMENTS` gained in ti 490d97
+    /// Guards the ORDER of the push rule: `is_void` is checked first, so the
+    /// four parser-voids `VOID_ELEMENTS` gained in ti 490d97
     /// wave 1 (`basefont`, `bgsound`, `frame`, `keygen`, all measured
     /// never-open in Chromium) mint no appended close. The flagged arms were
     /// green before that fix — landing the walk change WITHOUT the void

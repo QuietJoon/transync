@@ -87,8 +87,10 @@ pub enum BlockKind {
     /// pane, so there is nothing in the pane to anchor. Its row therefore
     /// carries `sync_role: "non-sync"` — the shape a thematic break has had
     /// since schema 1.0 — which is why `align::sync_role_for` has an
-    /// **explicit** arm for this variant rather than letting it reach the
-    /// `_ => SyncRole::Anchor` default. This amends architectural invariant 1:
+    /// **explicit** arm for this variant. It had to be written by hand when
+    /// that function still ended in `_ => SyncRole::Anchor`, which would have
+    /// answered the opposite; ti `9ffb97` made the function exhaustive, so a
+    /// variant added after this one cannot inherit a role nobody chose. This amends architectural invariant 1:
     /// the DOM-anchor leg of the chain is conditional on being page content,
     /// not on the kind.
     ///

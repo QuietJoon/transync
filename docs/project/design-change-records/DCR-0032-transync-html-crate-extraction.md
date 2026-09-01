@@ -473,6 +473,15 @@ markup a browser never mints.
   browser mints nothing from. The ticket states both dependencies
   rather than implying either divergence is harmless in itself.
 
+  *Closed 2026-09-01 by ticket `e20490` (commits `2d7ca5f`, `5dc5b40`).* HTML's
+  tag-name state is followed exactly — every byte up to whitespace, `/` or `>`
+  joins the element name, quotes and `=` included — and `</` before a
+  non-letter opens a bogus comment, with `</>` discarded whole. One
+  `tag_name_end` serves both `scan_tags` and the strip, so the two cannot
+  disagree about where a name ends. The sanitizer-dependence recorded above
+  is retired with them: the plant `<divq"x=" data-sync-id="v">z` is now
+  stripped rather than merely sanitized away.
+
 The section *Two things added, one of them with no caller yet* above
 describes `strip_reserved_sync_attrs`' guarantee as it stood at wave-0
 landing; this amendment is the record that the guarantee was false for

@@ -463,11 +463,12 @@ mod skipped_row_tests {
     }
 }
 
-// ti 490d97 wave 2 (spec §3 / decision D5): `sync_role_for` ends in
-// `_ => SyncRole::Anchor`, so a new kind is silently an ANCHORING row unless
-// someone writes the arm — the precise opposite of the decision for `<title>`.
-// The compiler cannot say so; this test can. It asserts the ROLE, not that the
-// code compiles, which is the only assertion a catch-all cannot satisfy.
+// ti 490d97 wave 2 (spec §3 / decision D5), and ti `9ffb97` after it.
+// `sync_role_for` used to end in `_ => SyncRole::Anchor`, so a new kind was
+// silently an ANCHORING row unless someone wrote the arm — the precise
+// opposite of the decision for `<title>`. It is exhaustive now, so the
+// compiler DOES say so. What the compiler still cannot say is whether an arm
+// that exists is RIGHT, which is what these tests assert.
 #[cfg(test)]
 mod sync_role_tests {
     use super::*;

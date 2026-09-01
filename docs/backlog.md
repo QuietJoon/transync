@@ -56,8 +56,12 @@ the census.
 **Note (2026-08-17):** the `git log` half of that source set no longer exists. This
 repository's object store was restarted for the second time on 2026-08-17
 (`docs/project/git-history-loss-2026-08-17.md`; the first was
-`docs/project/git-history-loss-2026-08-10.md`), so `git log` prints exactly one commit
-and **every commit hash quoted below names a commit outside this store**. The entries
+`docs/project/git-history-loss-2026-08-10.md`), so `git log` began again at the
+2026-08-17 root `59ce8df`, and **every commit hash quoted below that predates the restart
+names a commit outside this store** — that was every hash when this note was written, and
+stopped being every hash as later in-place refreshes quoted post-restart commits
+(`e89b537`, `88964df`, `59ce8df` itself), which resolve normally. Read it as the rule for
+pre-restart hashes rather than as a count. Pre-restart entries
 are dated records and stand as written — read the prose beside each hash rather than
 trying to resolve it. The next sweep's sources are `ti list --all`, `docs/`, and the
 code markers; a `git log` walk rejoins them only once this history has commits to walk.

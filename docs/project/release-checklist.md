@@ -502,7 +502,8 @@ Run all of them on the exact commit from step 1, and keep the output.
     rebuilt from scratch once per package — 2m13s + 8m25s + 8m46s + 10m02s +
     11m10s ≈ 41 minutes over five packages on the 2026-08-06 run, and
     `transync-anthropic` (added 2026-08-10, DCR-0029) is a sixth sandbox of
-    roughly `transync-openai`'s size on top of that. This is why it is a
+    roughly `transync-openai`'s size on top of that, and `transync-html`
+    (added 2026-08-20, DCR-0032) a seventh. This is why it is a
     release step and not part of `scripts/smoke.sh`. Two more things to know
     before reading a failure:
 
@@ -515,7 +516,7 @@ Run all of them on the exact commit from step 1, and keep the output.
       (`<target>/package/tmp-registry`), which is what the log's `Unpacking
       transync-syntax v0.2.0 (registry …tmp-registry)` lines are. The same
       asymmetry applies to the real thing: the first publication is one
-      `--workspace` invocation, not five `-p` ones.
+      `--workspace` invocation, not seven `-p` ones.
     - **Uncommitted or untracked files under a package fail it** ("N files in
       the working directory contain changes that were not yet committed into
       git"). On the release-prep commit from step 1 there is nothing dirty;

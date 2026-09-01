@@ -313,17 +313,15 @@ follows. If you see freezing, you're looking at:
 ## "byte index N is not a char boundary" panic
 
 Pre-`e4182f6` panic when the translation widens the document
-(multi-byte CJK). Fixed in v0.1.0; if you still see it, check the
-commit:
+(multi-byte CJK). Fixed in v0.1.0.
 
-```bash
-# the renderer moved to crates/transync-syntax on 2026-08-04 (DCR-0017);
-# --follow picks up the history across the move
-git log --oneline --follow crates/transync-syntax/src/render.rs | head -5
-```
-
-If `e4182f6` (UTF-8 fix) isn't present, you're on an older revision.
-Pull `master`.
+`e4182f6` predates the 2026-08-17 history restart
+(`docs/project/git-history-loss-2026-08-17.md`), so it cannot appear in
+this clone's `git log` at all — the check this section used to give could
+never succeed, on any current checkout. Every revision reachable from the
+2026-08-17 root `59ce8df` already carries the fix, so if you see this
+panic on a current checkout it is a **new** defect: file a ticket rather
+than pulling.
 
 ## `block nesting too deep` / exit code 2 on a small file
 

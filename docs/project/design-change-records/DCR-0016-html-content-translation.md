@@ -198,6 +198,13 @@ Recorded here so none is mistaken for a bug or silently rediscovered:
   even when self-closing and appends the close tag. The void/self-closing
   invariant is unchanged for every other element (pinned by
   `self_closing_non_raw_text_elements_stay_closed`).
+
+  *Refined 2026-09-01 by ticket `2e2453`, recorded in **DCR-0042**: this is an
+  HTML-CONTENT rule. Inside `<svg>`/`<math>` those four names are ordinary
+  foreign elements — the scanner never enters raw text there — so
+  `<svg><script/>x` honours its slash, leaves `x` a sibling, and earns no
+  appended `</script>`. At top level the rule above is unchanged: `<textarea/>`
+  still earns its `</textarea>`.*
 - **Inline guard known false-reject** (accepted, pinned by
   `line_initial_inline_tag_reclassification_false_rejects`): a model that
   legally moves a **type-6** tag such as `<div>` to line-start reclassifies the

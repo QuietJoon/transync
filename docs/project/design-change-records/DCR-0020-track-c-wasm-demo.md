@@ -665,6 +665,9 @@ Follow-ups deliberately left open:
   a critical build path, and the resolution that satisfies it lives only in an
   uncommitted lockfile. See ADR-0019 decision 2 for the failure mode and the
   recovery.
+  *(2026-08-06, superseded: the lock was committed after all — OI-0020 is
+  RESOLVED while the `=0.2.126` pin stays; see ADR-0019's 2026-08-07
+  amendment.)*
 - **The demo carries a third `KNOWN_SCHEMA` mirror** alongside both `sync.js`
   copies. It is double-checked and fails closed, but the mirror count is a
   standing lockstep obligation on any future alignment-schema bump.
