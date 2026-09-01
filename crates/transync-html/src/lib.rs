@@ -1355,11 +1355,27 @@ fn walk_attrs(html: &str, span: (usize, usize), mut f: impl FnMut(AttrHit<'_>)) 
             continue;
         }
         let name_start = i;
+        // HTML's "before attribute name" state: a `=` HERE is a parse error
+        // that starts a new attribute whose NAME begins with that `=` — it is
+        // not a separator and it is not skipped. So `<div =data-sync-id="x">`
+        // carries one junk attribute named `=data-sync-id`, and no reserved
+        // attribute is present at all.
+        //
+        // This walk used to restart the name after such an `=`, which found a
+        // `data-sync-id` that a browser never sees and cut it, leaving
+        // `<div =>y` — mutating a NON-reserved attribute and contradicting the
+        // strip's stated guarantee that nothing but reserved names moves. The
+        // direction was over-deletion, never a missed impostor (ti `415cdb`;
+        // reviewer A's 51-case browser probe: 50/51 equal, one over-deletion,
+        // zero under-deletions).
+        if bytes[i] == b'=' {
+            i += 1;
+        }
         while i < limit && !bytes[i].is_ascii_whitespace() && bytes[i] != b'=' && bytes[i] != b'/' {
             i += 1;
         }
         if i == name_start {
-            i += 1; // a stray `=`: not a name, and the walk must not stall
+            i += 1; // nothing consumable here; the walk must not stall
             continue;
         }
         let name_end = i;
@@ -2243,6 +2259,44 @@ mod strip_tests {
         assert_eq!(
             strip_reserved_sync_attrs("<div  data-sync-id=\"a b=\"c\">x"),
             "<div c\">x"
+        );
+    }
+
+    /// ti `415cdb`: a `=` where an attribute NAME would start is a parse error
+    /// that begins a name with that `=`, not a separator to step over. So
+    /// Chromium reads `<div =data-sync-id="x">` as one junk attribute named
+    /// `=data-sync-id` — there is no reserved attribute present and nothing
+    /// to strip.
+    ///
+    /// This walk used to restart the name after the `=`, find a
+    /// `data-sync-id` no browser sees, and cut it — leaving `<div =>y`. That
+    /// mutates a NON-reserved attribute, which is exactly what the strip's
+    /// narrowed guarantee says never happens.
+    ///
+    /// The direction was always over-deletion: reviewer A's 51-case browser
+    /// equivalence probe found this one case and zero under-deletions, so no
+    /// live `data-sync-id` ever survived the strip and the impostor-anchor
+    /// property held throughout.
+    #[test]
+    fn a_stray_equals_begins_an_attribute_name_instead_of_being_skipped() {
+        for src in [
+            "<div =data-sync-id=\"x\">y",
+            // The same rule with the reserved name spelled second.
+            "<div =data-order=\"3\">y",
+        ] {
+            assert_eq!(
+                strip_reserved_sync_attrs(src),
+                src,
+                "no reserved attribute is present, so nothing may be cut: {src}"
+            );
+        }
+
+        // The rule must not blind the strip to a real one sitting beside the
+        // junk attribute — over-correction here would be an UNDER-deletion,
+        // which is the direction that actually breaks the anchor property.
+        assert_eq!(
+            strip_reserved_sync_attrs("<div =junk data-sync-id=\"x\">y"),
+            "<div =junk>y"
         );
     }
 
