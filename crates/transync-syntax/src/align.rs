@@ -342,16 +342,39 @@ pub fn build_alignment_map(
     }
 }
 
+/// The alignment row's `sync_role` for a block kind.
+///
+/// **Exhaustive on purpose — there is no `_` arm** (ti `9ffb97`).
+/// [`SyncRole`] is wire-visible: it decides whether a row gets a DOM anchor
+/// and whether the engine counts the row as synchronizable. Behind a default,
+/// adding a `BlockKind` variant compiles clean and the new kind silently
+/// starts anchoring, with nothing to say that a role was never chosen for it.
+///
+/// That is not a hypothetical risk. Wave 2's plan documented this exact
+/// failure prospectively, in the comment it dictated for the `Title` arm:
+/// the default "would have made this row anchoring — the precise opposite of
+/// the decision — without one word of warning from the compiler". `Title` was
+/// caught because a human wrote the arm and a test pinned it. The variant
+/// after it would have had neither. Now the compiler asks.
+///
+/// The rule is narrow: a **dispatch that assigns behaviour per variant** must
+/// not have a default. Membership tests are a different shape and stay as
+/// they are — `unit::context::document_title` asks "is this block a title"
+/// with `matches!`, and an exhaustive match returning `bool` there would be
+/// noise, not safety.
+///
+/// [`SyncRole::ChildOnly`] is never returned, and that is contractual rather
+/// than an omission: `contracts.md` §4 records it as RESERVED for a future
+/// nested-anchor scheme, since the current parser is leaf-block (DCR-0007).
 fn sync_role_for(kind: &crate::id::BlockKind) -> SyncRole {
     use crate::id::BlockKind::*;
     match kind {
         ThematicBreak => SyncRole::NonSync,
         // D5 (ti 490d97 wave 2): a `<title>` is translated and aligned but is
         // NOT page content — the browser chrome renders it, so the pane has
-        // nothing to anchor. EXPLICIT, and pinned by `sync_role_tests`,
-        // because the `_` arm below answers `Anchor` and would have made this
-        // row anchoring — the precise opposite of the decision — without one
-        // word of warning from the compiler.
+        // nothing to anchor. Pinned by `sync_role_tests`; it was the arm that
+        // proved the old `_ => Anchor` default was answering for kinds nobody
+        // had decided about.
         Title => SyncRole::NonSync,
         Blockquote => SyncRole::Container,
         // R0006-0042: items render as top-level `<li>` sync anchors (no
@@ -361,7 +384,21 @@ fn sync_role_for(kind: &crate::id::BlockKind) -> SyncRole {
         // A5: a Skipped placeholder is rendered as a `<pre>` in both panes
         // and must anchor scroll there (owner decision) — never non-sync.
         Skipped { .. } => SyncRole::Anchor,
-        _ => SyncRole::Anchor,
+        // Page content that renders as one addressable element in each pane.
+        // Spelled out rather than defaulted: every name here is a decision
+        // someone made, and the next variant added to `BlockKind` has to be
+        // one too before this compiles.
+        Heading1
+        | Heading2
+        | Heading3
+        | Heading4
+        | Heading5
+        | Heading6
+        | Paragraph
+        | Table
+        | CodeBlock { .. }
+        | Image
+        | Html => SyncRole::Anchor,
     }
 }
 
@@ -440,21 +477,77 @@ mod sync_role_tests {
     use crate::id::BlockKind;
 
     #[test]
-    fn a_title_row_is_non_sync_while_the_catch_all_still_anchors_everything_else() {
+    fn a_title_row_is_non_sync_and_ordinary_page_content_anchors() {
         assert_eq!(
             sync_role_for(&BlockKind::Title),
             SyncRole::NonSync,
             "D5: the <title> is rendered by browser chrome, not by the pane — \
              there is nothing there to anchor",
         );
-        // The contrast that makes the assertion above non-vacuous: the
-        // catch-all this arm escapes is what every other kind still takes.
+        // The contrast that makes the assertion above non-vacuous. These used
+        // to reach a `_ => Anchor` catch-all and now reach a named arm; the
+        // answers are unchanged, which is the point of pinning them across
+        // ti `9ffb97`.
         assert_eq!(sync_role_for(&BlockKind::Heading1), SyncRole::Anchor);
         assert_eq!(sync_role_for(&BlockKind::Paragraph), SyncRole::Anchor);
         // The kind that has answered `non-sync` since schema 1.0, so the row
         // shape a title ships is not a new one.
         assert_eq!(sync_role_for(&BlockKind::ThematicBreak), SyncRole::NonSync);
         assert_eq!(sync_role_for(&BlockKind::Blockquote), SyncRole::Container);
+    }
+
+    /// Every `BlockKind` variant, each named once, with the role it answers
+    /// today. The compiler already forbids a missing arm in `sync_role_for`
+    /// (ti `9ffb97`); this pins what the arms SAY, so a future variant cannot
+    /// be waved through by copying a neighbour's role without anyone noticing
+    /// the wire behaviour it inherits.
+    #[test]
+    fn every_block_kind_answers_the_role_it_was_given() {
+        let cases: &[(BlockKind, SyncRole)] = &[
+            (BlockKind::Heading1, SyncRole::Anchor),
+            (BlockKind::Heading2, SyncRole::Anchor),
+            (BlockKind::Heading3, SyncRole::Anchor),
+            (BlockKind::Heading4, SyncRole::Anchor),
+            (BlockKind::Heading5, SyncRole::Anchor),
+            (BlockKind::Heading6, SyncRole::Anchor),
+            (BlockKind::Paragraph, SyncRole::Anchor),
+            (BlockKind::Table, SyncRole::Anchor),
+            (
+                BlockKind::CodeBlock {
+                    info: None,
+                    fenced: true,
+                },
+                SyncRole::Anchor,
+            ),
+            (
+                BlockKind::ListItem {
+                    ordered: false,
+                    task: None,
+                },
+                SyncRole::Anchor,
+            ),
+            (BlockKind::Blockquote, SyncRole::Container),
+            (BlockKind::ThematicBreak, SyncRole::NonSync),
+            (BlockKind::Image, SyncRole::Anchor),
+            (BlockKind::Title, SyncRole::NonSync),
+            (BlockKind::Html, SyncRole::Anchor),
+            (
+                BlockKind::Skipped {
+                    label: "front-matter".to_string(),
+                },
+                SyncRole::Anchor,
+            ),
+        ];
+        for (kind, want) in cases {
+            assert_eq!(sync_role_for(kind), *want, "role for {kind:?}");
+        }
+        // `child-only` is RESERVED by contracts.md §4 for a future
+        // nested-anchor scheme, so nothing may answer it while the parser is
+        // leaf-block (DCR-0007).
+        assert!(
+            cases.iter().all(|(_, r)| *r != SyncRole::ChildOnly),
+            "sync_role_for must not emit the reserved `child-only` role"
+        );
     }
 }
 

@@ -539,12 +539,19 @@ fn render_block<'a>(
         // therefore never expect an <hr> anchor (its alignment row says
         // non-sync).
         //
+        // That omission is no longer decided here (ti `18b9c3`).
+        // `attrs::write_attrs` reads the ROW's `sync_role`, so every
+        // non-sync kind gets the same treatment without a second literal
+        // list to keep in step — this arm remains only because an `<hr>`
+        // needs a different ELEMENT, not different attributes.
+        //
         // <hr> is an HTML void element — no content, no closing tag.
         // The XML-style self-close (`<hr ... />`) is valid in HTML5 but
         // some serializers and validators flag it; emit the canonical
         // void-element form.
         let element = wrapper_element_for(kind);
-        let _ = writeln!(out, "<{element} data-block-kind=\"thematic-break\">");
+        let attrs = attrs::write_attrs(align_block);
+        let _ = writeln!(out, "<{element}{attrs}>");
         return;
     }
     if matches!(kind, BlockKind::Html) {
@@ -2004,6 +2011,128 @@ mod ast_direct_tests {
         assert!(
             html.contains("# not a paragraph"),
             "degrades to the row's own byte range:\n{html}"
+        );
+    }
+}
+
+// ti `18b9c3`: the alignment row and the DOM must agree about the anchor.
+#[cfg(test)]
+mod non_sync_anchor_tests {
+    use super::*;
+    use crate::align::{SyncRole, build_alignment_map};
+    use crate::id::BlockId;
+    use crate::parser::ranges::ByteRange;
+    use crate::parser::{AstPath, Block};
+    use crate::{id, parser};
+
+    /// A `Title` block through the real renderer, with its real alignment
+    /// row, asserting both halves in ONE test so they cannot pass separately
+    /// while disagreeing.
+    ///
+    /// Nothing mints `BlockKind::Title` yet — the Markdown intake cannot, and
+    /// wave 3's HTML intake is unrun — so this synthesizes one the way
+    /// `skipped_render_tests` synthesizes a `Skipped` block. That is the
+    /// point: the divergence ti `18b9c3` found is unreachable today and
+    /// arrives with wave 3, so the test has to reach forward to it. It takes
+    /// the Guard-2 degrade path (no Comrak node carries the label `title`),
+    /// which is the arm a Markdown-pane render would give it and is enough to
+    /// exercise the attribute decision.
+    #[test]
+    fn a_title_block_renders_without_the_dom_anchor_its_row_denies() {
+        let src = "para\n";
+        let mut doc = parser::parse(src).expect("parses");
+        doc.blocks.insert(
+            0,
+            Block {
+                block_id: BlockId::new("x", 99),
+                kind: BlockKind::Title,
+                spelling: crate::id::Spelling::Markdown,
+                source_range: ByteRange { start: 0, end: 4 },
+                source_hash: 0,
+                section_path: Vec::new(),
+                ast_path: AstPath(Vec::new()),
+            },
+        );
+        id::assign_block_ids(&mut doc);
+        let map = build_alignment_map(
+            &doc,
+            &HashMap::new(),
+            &crate::regen::BlockOffsets::default(),
+            "auto",
+            "ko",
+            None,
+            &crate::outcome::html_outcomes(&doc),
+        );
+
+        let title_id = doc
+            .blocks
+            .iter()
+            .find(|b| matches!(b.kind, BlockKind::Title))
+            .map(|b| b.block_id.clone())
+            .expect("the synthetic title survived id assignment");
+        let row = map
+            .blocks
+            .iter()
+            .find(|r| r.source_block_id == title_id)
+            .expect("build_alignment_map covers every block");
+
+        // Half one: the row.
+        assert_eq!(
+            row.sync_role,
+            SyncRole::NonSync,
+            "D5: a <title> is translated content but not PAGE content"
+        );
+
+        // Half two: the pane.
+        let html = render_source(&doc, &map)
+            .expect("the map is built from this doc, so it covers every block");
+        assert!(
+            !html.contains(&format!("data-sync-id=\"{title_id}\"")),
+            "a non-sync row must not get a DOM anchor:\n{html}"
+        );
+        assert!(
+            html.contains("data-block-kind=\"title\""),
+            "the styling hook stays — only the sync set is omitted:\n{html}"
+        );
+
+        // Non-vacuity: the ordinary block beside it still anchors, so this
+        // is not passing because the render produced nothing.
+        let para_id = doc
+            .blocks
+            .iter()
+            .find(|b| matches!(b.kind, BlockKind::Paragraph))
+            .map(|b| b.block_id.clone())
+            .expect("the parsed paragraph is still there");
+        assert!(
+            html.contains(&format!("data-sync-id=\"{para_id}\"")),
+            "the paragraph beside it anchors:\n{html}"
+        );
+    }
+
+    /// The thematic break is the kind that reached the old literal test, and
+    /// its output must not have moved: it was already right, and this change
+    /// only moved WHERE the decision is taken.
+    #[test]
+    fn the_thematic_break_arm_still_emits_exactly_its_styling_hook() {
+        let mut doc = parser::parse("a\n\n---\n\nb\n").expect("parses");
+        id::assign_block_ids(&mut doc);
+        let map = build_alignment_map(
+            &doc,
+            &HashMap::new(),
+            &crate::regen::BlockOffsets::default(),
+            "auto",
+            "ko",
+            None,
+            &crate::outcome::html_outcomes(&doc),
+        );
+        let html = render_source(&doc, &map).expect("covers every block");
+        assert!(
+            html.contains("<hr data-block-kind=\"thematic-break\">"),
+            "byte-identical to the hand-written form it replaced:\n{html}"
+        );
+        assert!(
+            !html.contains("data-sync-id=\"h-"),
+            "no anchor for the break itself:\n{html}"
         );
     }
 }

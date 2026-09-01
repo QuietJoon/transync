@@ -2,7 +2,7 @@
 //!
 //! TRACE: contracts.md §4
 
-use crate::align::AlignmentBlock;
+use crate::align::{AlignmentBlock, SyncRole};
 
 /// Format the canonical sync-attribute set for one block as a single string,
 /// suitable for splicing into the open-tag of the block's outermost wrapper.
@@ -20,8 +20,31 @@ use crate::align::AlignmentBlock;
 /// arbitrary IDs or kind labels would otherwise leak `"` / `&` / `<`
 /// into the output.
 ///
+/// **A `non-sync` row gets none of them** — only `data-block-kind`, the
+/// styling hook. A block that is not page content has no sync identity, so
+/// emitting `data-sync-id` for it would put a DOM anchor in the pane that the
+/// block's own alignment row denies (ADR-0006; `contracts.md` §4a rests on
+/// the row and the DOM agreeing).
+///
+/// The decision is taken **here, from the row**, and that is the point of ti
+/// `18b9c3`. It used to live in `render_block` as a literal
+/// `matches!(kind, BlockKind::ThematicBreak)` test, which was a second
+/// opinion about a question `align::sync_role_for` already answers — right
+/// for the only kind that could reach it, and silently wrong for the next
+/// one. `BlockKind::Title` is `SyncRole::NonSync` (decision D5) and nothing
+/// mints one yet; wave 3 does, and it would have rendered with a real
+/// `data-sync-id` while its row said `non-sync`. Reading `row.sync_role`
+/// means the two cannot disagree: there is one value, written by
+/// `sync_role_for` and read here.
+///
 /// TRACE: contracts.md §4
 pub fn write_attrs(row: &AlignmentBlock) -> String {
+    if row.sync_role == SyncRole::NonSync {
+        return format!(
+            " data-block-kind=\"{kind}\"",
+            kind = escape_attr(&row.block_kind)
+        );
+    }
     let fallback = super::fallback_status_str(row.fallback_status);
     format!(
         " data-sync-id=\"{id}\" data-block-kind=\"{kind}\" data-order=\"{order}\" data-fallback=\"{fb}\"",
