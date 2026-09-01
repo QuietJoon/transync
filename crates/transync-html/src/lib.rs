@@ -1484,10 +1484,52 @@ pub fn balance_fragment(html: &str) -> String {
         cursor = e;
     }
     out.push_str(&html[cursor..]);
+
+    if walk.unclosed.is_empty() {
+        return out;
+    }
+
+    let seam = out.len();
     for name in walk.unclosed.iter().rev() {
         out.push_str("</");
         out.push_str(name);
         out.push('>');
+    }
+
+    // A fragment can END inside an unterminated comment, CDATA section,
+    // bogus comment, raw-text run or tag — an author may close an HTML block
+    // mid-`<!--`, and invariant 7 says that input is expected, not
+    // exceptional. The closers just appended then land INSIDE that region,
+    // where they are not markup at all: a re-scan hides them, the elements
+    // read unclosed again, and the next balance appends another copy without
+    // limit (ti `95f55b`: 15,726 violations across 200,000 fuzz iterations).
+    //
+    // Ask rather than classify. Deciding here where a comment ends would be a
+    // second opinion about exactly what `scan_tags` already decides, and two
+    // such opinions drifting is what ti `415cdb` was. So put the question to
+    // the scanner: if the appended bytes come back as close tokens they
+    // closed something and belong; if the scanner cannot see them they are
+    // swallowed, and adding them accomplishes nothing but growth.
+    //
+    // This keeps the append where it IS load-bearing: `</textarea>` ends the
+    // raw-text run it would otherwise be buried in, so it comes back visible
+    // and stays.
+    let mut appended_is_markup = false;
+    for token in scan_tags(&out) {
+        match token {
+            TagToken::Close { span, .. } => {
+                if span.0 >= seam {
+                    appended_is_markup = true;
+                }
+            }
+            // Nothing appended above spells an open tag or a skip region, so
+            // one past the seam is not ours. Named rather than hidden behind
+            // a `_` arm, per this module's exhaustiveness policy.
+            TagToken::Open { .. } | TagToken::Skip { .. } => {}
+        }
+    }
+    if !appended_is_markup {
+        out.truncate(seam);
     }
     out
 }
@@ -2635,6 +2677,55 @@ mod balance_tests {
         );
         assert_eq!(balance_fragment("<svg/>after"), "<svg/>after");
         assert_eq!(balance_fragment("<math/>after"), "<math/>after");
+    }
+
+    /// ti `95f55b`: a fragment can end INSIDE an unterminated comment, CDATA
+    /// section, bogus comment or tag — an author can close an HTML block
+    /// mid-`<!--`, and invariant 7 says that input is expected. A closer
+    /// appended there is swallowed by the region, so a re-scan reads the
+    /// element unclosed again and appends another, without limit. Reviewer
+    /// A's harness found 15,726 such violations in 200,000 fuzz iterations.
+    ///
+    /// The property is idempotence, and it is asserted by balancing twice.
+    #[test]
+    fn a_closer_the_region_would_swallow_is_not_appended() {
+        for src in [
+            "<div>x<!--",
+            "<div>x<?pi",
+            "<div>x<![CDATA[y",
+            "<div>x<p",
+            // Reachable only since wave 1, because the walk now pushes a
+            // flagged non-void tag: these used to be idempotent by accident.
+            "<div/>x<!--",
+            "<span/>t<!--",
+        ] {
+            let once = balance_fragment(src);
+            assert_eq!(
+                once, src,
+                "an appended closer would land inside the region: {src}"
+            );
+            assert_eq!(
+                balance_fragment(&once),
+                once,
+                "and balancing is stable under its own re-scan: {src}"
+            );
+        }
+    }
+
+    /// The other half of the same rule: an appended closer that ENDS the
+    /// region it would otherwise be buried in is real markup and must still
+    /// be appended. `</textarea>` terminates raw text, so it comes back
+    /// visible to the scanner and stays — dropping it would leave the
+    /// fragment able to consume the sync wrapper's own closer, which is the
+    /// harm `balance_fragment` exists to prevent.
+    #[test]
+    fn a_closer_that_terminates_the_region_is_still_appended() {
+        assert_eq!(
+            balance_fragment("<div><textarea>x"),
+            "<div><textarea>x</textarea></div>"
+        );
+        let once = balance_fragment("<div><textarea>x");
+        assert_eq!(balance_fragment(&once), once, "and it is idempotent");
     }
 
     /// ti 490d97 wave 1, the defect in one line: the author's closing tag.
