@@ -102,6 +102,15 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     ├── profile.rs                      # TOML loader + ProfileMetadata builder
     └── error.rs                        # TransyncError + sub-errors (Parse wraps syntax's ParseError)
 
+crates/transync-lang/                   # the source-language GATE: "should a run start?"
+├── Cargo.toml                          #   ONE dependency (whichlang), NO workspace member —
+└── src/                                #   that absence keeps it from becoming a second answer
+    ├── lib.rs                          # Language / Verdict / Basis / Reason / Gate; the decision order
+    ├── script.rs                       # the free half: an exclusive-script codepoint test that
+    │                                   #   only answers where counting is conclusive
+    ├── backend.rs                      # the ONLY file naming whichlang; wildcard-free mapping
+    └── containment.rs                  # cfg(test): the weld proving backend.rs is the only one
+
 crates/transync-openai/                 # default Translator impl
 ├── Cargo.toml
 └── src/

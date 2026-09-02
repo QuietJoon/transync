@@ -949,9 +949,9 @@ crate can be added and committed with the hook green while nothing documents
 it, until someone runs smoke. Verification narrowed this twice: the split is
 **documented and deliberate** (`rustdoc-gate.sh` says "What keeps it total is
 the completeness check in `scripts/smoke.sh`"), and there is **no live gap
-today** — all seven members carrying a `src/lib.rs` (`transync-html`,
-`-syntax`, `-core`, `transync`, `-openai`, `-anthropic`, `-wasm`) are in
-`RUSTDOC_GATE_CRATES`. What makes it worth closing is the price: the check is
+today** — all eight members carrying a `src/lib.rs` (`transync-lang`,
+`transync-html`, `-syntax`, `-core`, `transync`, `-openai`, `-anthropic`,
+`-wasm`) are in `RUSTDOC_GATE_CRATES`. What makes it worth closing is the price: the check is
 a pure bash glob with no cargo cost, so moving it into `rustdoc-gate.sh`
 closes the window at zero hook-time expense.
 
