@@ -153,6 +153,50 @@ fn cli_exit_1_argument_error() {
     );
 }
 
+/// ti `30a744`: `--offline` without `--cache-dir` is refused at argument time.
+///
+/// Not a stylistic guard. Without a cache that outlives the process the run
+/// gets a fresh in-memory one, so the FIRST unit misses by construction and an
+/// offline run that misses cannot proceed — the flag would have exactly one
+/// reachable outcome. Refusing here spends no parse and the message names the
+/// flag to add, instead of arriving at the same failure after packing batches.
+///
+/// Gated with the rest of this file's subprocess tests: the harness that
+/// locates the binary and the fixture is stub-only, and the guard it exercises
+/// runs in both builds.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_offline_without_cache_dir_is_an_argument_error() {
+    let workdir = ScratchDir::new("transync-cli-offline");
+    let input = fixture_path();
+    // An output target is supplied so this reaches the `--offline` guard: the
+    // output-target requirement is checked first, and the first draft of this
+    // test tripped on that instead — which is the test discriminating, and the
+    // reason it asserts the MESSAGE rather than only the code.
+    let out = Command::new(bin())
+        .arg("translate")
+        .arg("--input")
+        .arg(&input)
+        .arg("--target-language")
+        .arg("ko")
+        .arg("--out-dir")
+        .arg(workdir.path().join("out"))
+        .arg("--offline")
+        .output()
+        .expect("transync binary must run");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "--offline with no --cache-dir should exit 1, got {:?}",
+        out.status.code()
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--cache-dir"),
+        "the refusal must name the flag to add; got: {stderr}"
+    );
+}
+
 /// Exit code 2 — input read failure. Non-existent input file.
 ///
 /// TRACE: SCN-12

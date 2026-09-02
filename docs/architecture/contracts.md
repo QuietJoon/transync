@@ -250,6 +250,7 @@ Provider-side — `TranslatorError`'s variants, returned both by `TranslatorErro
 - `provider_rate_limited` — `RateLimited`
 - `provider_malformed_response` — `MalformedResponse`
 - `provider_unsupported` — `Unsupported`
+- `provider_unavailable` — `NoProviderAvailable`; appended 2026-09-02 (ti `30a744`). The run was configured with no provider — the CLI's `--offline` — and then reached work only a provider could do. Distinct from `provider_unsupported` on purpose: that code deliberately admits it cannot tell a configuration fault from a document one, while this one is unambiguously the caller's configuration, which is why it exits **6** (`ConfigurationRejected`) rather than 5.
 - `provider_content_filtered` — `ContentFiltered`
 - `provider_output_ceiling_exhausted` — `OutputCeilingExhausted`
 - `provider_context_window_exceeded` — `ContextWindowExceeded`
@@ -765,6 +766,23 @@ transync translate
   [--system-prompt-file <path>] (same, but read body from a file; mutually exclusive with --system-prompt)
   [--model <id>]            (default: gpt-5-chat-latest)
   [--base-url <url>]        (default: https://api.openai.com)
+  [--offline]               (run with NO provider credentials, serving every unit
+                             from the cache. REQUIRES --cache-dir: a fresh
+                             in-memory cache misses its first lookup by
+                             construction, so the flag would have exactly one
+                             possible outcome, and that is an argument error (1)
+                             rather than a run. The provider is built
+                             credential-free but otherwise identically, so it
+                             namespaces the cache byte-for-byte the way the run
+                             that warmed it did — `provider_fingerprint` is a
+                             CacheKey namespace axis, so an offline run that
+                             fingerprinted differently would miss every entry
+                             and read as a corrupt cache. A fully warm run
+                             therefore COMPLETES with no key at all; a run that
+                             misses stops at the miss with
+                             `provider_unavailable` (§1) and exit 6, because the
+                             configuration is what to change — drop the flag, or
+                             warm the cache. ti `30a744` / OI-0038)
   [--cache-dir <path>]      (open a disk-backed translation cache in this directory,
                             creating it if absent — a `transync-cache.jsonl` log
                             (§1) that outlives the process, so a second run over

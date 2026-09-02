@@ -210,7 +210,16 @@ pub enum ConfigError {
 ///
 /// TRACE: contracts.md §7
 pub struct TransyncOpenAI {
-    api_key: SecretString,
+    /// `None` is a **deliberate** configuration, not a missing value: the
+    /// credential-free instance [`TransyncOpenAI::offline`] builds (ti
+    /// `30a744`). Every other field is resolved exactly as a credentialed
+    /// instance resolves it, which is the point — [`Self::fingerprint`] reads
+    /// none of this field, so an offline instance namespaces the cache
+    /// **byte-identically** to the run that warmed it. Duplicating the
+    /// fingerprint composition outside this type to achieve that would have
+    /// been a second opinion about the cache namespace, and a drifting one
+    /// would make `--offline` miss every entry and read as a broken cache.
+    api_key: Option<SecretString>,
     model: ModelId,
     base_url: Option<Url>,
     reasoning_effort: Option<ReasoningEffort>,
@@ -253,7 +262,7 @@ impl TransyncOpenAI {
         }
         Self {
             api: client::api_from_env_or_model(&model.0),
-            api_key,
+            api_key: Some(api_key),
             model,
             base_url,
             reasoning_effort: None,
@@ -416,6 +425,64 @@ impl TransyncOpenAI {
     /// than the direct constructor would have used.
     ///
     /// TRACE: contracts.md §7
+    /// The credential, or the refusal an offline instance owes its caller.
+    ///
+    /// `NoProviderAvailable` rather than `Authentication`: nothing is wrong
+    /// with a key here, there is none, and the caller arranged that. The two
+    /// carry different exit codes for the same reason — an authentication
+    /// fault asks you to fix a credential, this one asks you to supply a
+    /// provider or warm the cache.
+    fn require_key(&self) -> Result<&SecretString, TranslatorError> {
+        self.api_key.as_ref().ok_or_else(|| {
+            TranslatorError::NoProviderAvailable(
+                "this run was configured without provider credentials, and a unit \
+                 was not served from cache"
+                    .to_string(),
+            )
+        })
+    }
+
+    /// A fully-configured instance with **no credential**, for a run that
+    /// intends to be served entirely from cache (ti `30a744`; the CLI's
+    /// `--offline`).
+    ///
+    /// Every namespace-bearing field is resolved exactly as [`Self::try_new`]
+    /// resolves it — the model, the base URL, the HTTP surface heuristic, the
+    /// reasoning effort — so [`Self::fingerprint`] returns the **same bytes**
+    /// as a credentialed instance built from the same configuration. That
+    /// equality is the whole feature: `CacheKey` carries the fingerprint as a
+    /// namespace axis, so an offline run that fingerprinted differently would
+    /// miss every entry it was pointed at and read as a corrupt cache rather
+    /// than as a misconfigured run.
+    ///
+    /// The instance is a real `Translator` and refuses only where a credential
+    /// is genuinely required: `translate_batch` and `extract_glossary` answer
+    /// [`TranslatorError::NoProviderAvailable`]. So a run whose every unit is
+    /// a cache hit **completes**, and one that misses stops at the miss.
+    ///
+    /// Validates its configuration like `try_new` — a malformed model id is
+    /// still an error, because an offline run pointed at the wrong namespace
+    /// would silently miss rather than report anything.
+    pub fn offline(model: ModelId, base_url: Option<Url>) -> Result<Self, ConfigError> {
+        // The same two checks `try_new` runs, minus the credential one it has
+        // no credential to run. Both are namespace-bearing: a model id or a
+        // base URL this instance would reject is one the warming run rejected
+        // too, so accepting it here would point the lookup at a namespace
+        // nothing ever wrote and report "cache miss" for a configuration
+        // fault.
+        let model = ModelId::parse(model.0)?;
+        if let Some(url) = &base_url {
+            validate_base_url(url)?;
+        }
+        // `new` takes the credential by value, so the keyless field is set
+        // after construction rather than by widening its signature — every
+        // existing caller keeps passing a `SecretString`, and the one place
+        // that can produce `None` is right here.
+        let mut this = Self::new(SecretString::new(String::new().into()), model, base_url);
+        this.api_key = None;
+        Ok(this)
+    }
+
     pub fn from_env() -> Result<Self, ConfigError> {
         let key = std::env::var("OPENAI_API_KEY").map_err(|_| ConfigError::MissingApiKey)?;
         let model = model_from_env_value(std::env::var("TRANSYNC_OPENAI_MODEL").ok())?;
@@ -606,7 +673,7 @@ impl Translator for TransyncOpenAI {
             r = client::translate_on(
                 self.api,
                 &self.http,
-                &self.api_key,
+                self.require_key()?,
                 self.base_url.as_ref(),
                 &self.model,
                 self.reasoning_effort,
@@ -675,7 +742,7 @@ impl Translator for TransyncOpenAI {
             r = client::extract_glossary_on(
                 self.api,
                 &self.http,
-                &self.api_key,
+                self.require_key()?,
                 self.base_url.as_ref(),
                 &self.model,
                 self.reasoning_effort,
@@ -1386,5 +1453,74 @@ mod tests {
                 "{model} must fall back to the cl100k approximation"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod offline_tests {
+    use super::*;
+
+    /// The property `--offline` rests on, and the one that would fail
+    /// silently: a credential-free instance must namespace the cache
+    /// **identically** to the credentialed one that warmed it. `CacheKey`
+    /// carries `provider_fingerprint` as a namespace axis, so a difference
+    /// here would miss every entry and read as a corrupt cache rather than as
+    /// a misconfigured run (ti `30a744`).
+    #[test]
+    fn an_offline_instance_fingerprints_identically_to_a_credentialed_one() {
+        for (model, base) in [
+            ("gpt-4o-mini", None),
+            ("gpt-4o", Some("https://gateway.internal/v1")),
+            ("o3-mini", None),
+        ] {
+            let url = base.map(|b| Url::parse(b).expect("test url parses"));
+            let keyed = TransyncOpenAI::try_new(
+                SecretString::new(String::from("sk-test").into()),
+                ModelId::parse(model.to_string()).expect("test model parses"),
+                url.clone(),
+            )
+            .expect("a credentialed instance builds");
+            let offline = TransyncOpenAI::offline(
+                ModelId::parse(model.to_string()).expect("test model parses"),
+                url,
+            )
+            .expect("an offline instance builds");
+            assert_eq!(
+                keyed.fingerprint(),
+                offline.fingerprint(),
+                "offline must share the cache namespace for {model}"
+            );
+        }
+    }
+
+    /// The configuration checks are not skipped just because there is no
+    /// credential to check. A model id the warming run rejected is one this
+    /// run must reject too, or the lookup goes to a namespace nothing wrote.
+    #[test]
+    fn offline_still_rejects_a_configuration_a_credentialed_run_would() {
+        assert!(TransyncOpenAI::offline(ModelId("".to_string()), None).is_err());
+        assert!(
+            TransyncOpenAI::offline(
+                ModelId::parse("gpt-4o".to_string()).expect("parses"),
+                Some(Url::parse("ftp://example.com/v1").expect("parses"))
+            )
+            .is_err(),
+            "a base URL scheme a credentialed run refuses is refused here too"
+        );
+    }
+
+    /// And it refuses to translate, with the variant whose exit code names the
+    /// caller's own configuration rather than a credential fault.
+    #[test]
+    fn offline_refuses_a_translation_with_no_provider_available() {
+        let offline =
+            TransyncOpenAI::offline(ModelId::parse("gpt-4o".to_string()).expect("parses"), None)
+                .expect("builds");
+        let err = offline.require_key().expect_err("there is no key");
+        assert!(
+            matches!(err, TranslatorError::NoProviderAvailable(_)),
+            "got {err:?}"
+        );
+        assert_eq!(err.stable_code(), "provider_unavailable");
     }
 }

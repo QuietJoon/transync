@@ -102,10 +102,18 @@ impl ExitCode {
             // points at `[batching].target_output_tokens`; the adjacent
             // `ContextWindowExceeded` points at the `[batching]` input budget
             // and `max_units_per_batch`. Different knobs, one action.
+            // `NoProviderAvailable` joins them (ti `30a744`): the run was
+            // configured with no provider — `--offline` — and then needed one.
+            // The remediation is the caller's configuration and nothing else:
+            // drop the flag, or warm the cache the run was pointed at. That is
+            // exactly this code's meaning, and it is why the variant exists
+            // instead of a message inside `Unsupported`, whose code below
+            // deliberately admits it cannot tell configuration from document.
             TranslatorError::Authentication(_)
             | TranslatorError::ProviderRejected { .. }
             | TranslatorError::OutputCeilingExhausted(_)
-            | TranslatorError::ContextWindowExceeded(_) => ExitCode::ConfigurationRejected,
+            | TranslatorError::ContextWindowExceeded(_)
+            | TranslatorError::NoProviderAvailable(_) => ExitCode::ConfigurationRejected,
 
             // Skip this document and move on.
             TranslatorError::ContentFiltered(_) | TranslatorError::ModelRefused(_) => {
@@ -163,6 +171,11 @@ mod tests {
             },
             TranslatorError::OutputCeilingExhausted("cut off".into()),
             TranslatorError::ContextWindowExceeded("too long".into()),
+            // ti `30a744`. It belongs at 6 and NOT at 5: an offline run that
+            // missed is unambiguously the caller's configuration, and 5's own
+            // comment says that code exists for the cases where the CLI cannot
+            // tell configuration from document.
+            TranslatorError::NoProviderAvailable("nothing to call".into()),
         ] {
             let code = ExitCode::for_pipeline_failure(&TransyncError::Translator(err));
             assert_eq!(code, ExitCode::ConfigurationRejected);

@@ -452,6 +452,11 @@ transync translate
                                  run uses a fresh in-memory cache. One
                                  writer at a time; an unopenable path is
                                  warned about and the run continues
+  [--offline]                    run with NO provider credentials, serving every
+                                 unit from the cache. Requires --cache-dir. A
+                                 fully warm run completes with no key; one that
+                                 misses stops AT the miss with
+                                 `no provider available for this run` and exit 6
   [--force]                      overwrite an --html-out / --out-dir holding
                                  foreign files; a previous bundle there is
                                  overwritten without it

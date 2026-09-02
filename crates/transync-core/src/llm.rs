@@ -879,6 +879,29 @@ pub enum TranslatorError {
         message: String,
     },
 
+    /// This `Translator` has no provider to call, and the run needed one.
+    ///
+    /// Not a fault of any provider — there was none. It is the answer an
+    /// implementation gives when it was constructed **on purpose** without the
+    /// means to translate, and the run then reached work only a provider could
+    /// do. The CLI's `--offline` is the shipped case: it builds a translator
+    /// that refuses, so a run whose every unit hits the cache completes with no
+    /// credentials at all, and a run that misses stops **at the miss** with
+    /// this error rather than at startup with a credential complaint about a
+    /// provider it was never going to call (ti `30a744`).
+    ///
+    /// Terminal, and unlike [`Self::Unsupported`] it is **not** ambiguous: the
+    /// cause is the caller's own configuration and the remediation is theirs
+    /// too — supply a provider, or warm the cache the run was pointed at. That
+    /// difference is why this is its own variant rather than a message inside
+    /// `Unsupported`, whose exit code deliberately admits it cannot tell
+    /// whether the configuration or the document is at fault.
+    ///
+    /// TRACE: ti 30a744
+    /// TRACE: contracts.md §1
+    #[error("no provider available for this run: {0}")]
+    NoProviderAvailable(String),
+
     /// The call stopped because it was cancelled — the run's
     /// [`CancellationToken`] fired, or the implementation holds a cancellation
     /// source of its own. Terminal by construction: the pipeline never
@@ -931,6 +954,11 @@ impl TranslatorError {
             TranslatorError::ModelRefused(_) => "provider_model_refused",
             TranslatorError::ResponseTooLarge(_) => "provider_response_too_large",
             TranslatorError::ProviderRejected { .. } => "provider_rejected",
+            // Appended 2026-09-02 (ti `30a744`). The vocabulary is
+            // append-only, so this is a new code rather than a
+            // reinterpretation of `provider_unsupported` — a script
+            // branching on that code must not start seeing this case.
+            TranslatorError::NoProviderAvailable(_) => "provider_unavailable",
             // Deliberately NOT the engine-side `cancelled` code, though the two
             // variants mean the same thing to a reader. Every provider-side
             // code is `provider_`-prefixed, and the distinction is real: the

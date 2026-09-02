@@ -21,6 +21,13 @@ use url::Url;
 pub(crate) fn translator_for_run(
     model: &str,
     base_url: Option<&str>,
+    // ti `30a744`: accepted and unused. The stub needs no credential, so it is
+    // already what `--offline` asks the live build to become; honouring the
+    // flag by refusing to translate would make the stub useless for the smoke
+    // suites that exist to exercise the translating path. The flag's argument
+    // guard still runs, so `--offline` without `--cache-dir` is refused in
+    // both builds.
+    _offline: bool,
 ) -> Result<Box<dyn transync::Translator + Send + Sync>, String> {
     // OI-0023 item 2: with no live provider to inspect, record the model +
     // base-url this stub provider was handed — the same pair the live build
@@ -143,10 +150,12 @@ fn stub_for_mode(mode: &str) -> Result<Box<dyn transync::Translator + Send + Syn
 pub(crate) fn translator_for_run(
     model: &str,
     base_url: Option<&str>,
+    offline: bool,
 ) -> Result<Box<dyn transync::Translator + Send + Sync>, String> {
-    let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-        "OPENAI_API_KEY not set; set it or build --features test-stub-provider".to_string()
-    })?;
+    // ti `30a744`: the base URL is resolved BEFORE the credential is demanded,
+    // because an offline run needs the former and must not be asked for the
+    // latter. The order is the whole fix — it used to be reversed, so a run
+    // that was going to make no provider call still could not start.
     let base_url = match base_url {
         Some(raw) => Some(Url::parse(raw).map_err(|e| format!("invalid --base-url: {e}"))?),
         None => match std::env::var("TRANSYNC_OPENAI_BASE_URL")
@@ -159,11 +168,26 @@ pub(crate) fn translator_for_run(
             None => None,
         },
     };
-    let openai = transync_openai::TransyncOpenAI::try_new(
-        SecretString::new(key.into()),
-        ModelId::new(model),
-        base_url,
-    )
+    // The two instances differ in exactly one field, and deliberately not in
+    // any field `fingerprint()` reads: an offline run has to look in the
+    // namespace the warming run wrote, or it misses everything and reads as a
+    // corrupt cache. `TransyncOpenAI::offline` owns that guarantee and
+    // `an_offline_instance_fingerprints_identically_to_a_credentialed_one`
+    // pins it, so this seam cannot re-derive the composition and drift.
+    let openai = if offline {
+        transync_openai::TransyncOpenAI::offline(ModelId::new(model), base_url)
+    } else {
+        let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+            "OPENAI_API_KEY not set; set it, pass --offline to run from cache alone, \
+             or build --features test-stub-provider"
+                .to_string()
+        })?;
+        transync_openai::TransyncOpenAI::try_new(
+            SecretString::new(key.into()),
+            ModelId::new(model),
+            base_url,
+        )
+    }
     .map_err(|e| e.to_string())?;
     Ok(Box::new(openai) as Box<dyn transync::Translator + Send + Sync>)
 }

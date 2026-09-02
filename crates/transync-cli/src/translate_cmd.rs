@@ -219,6 +219,33 @@ pub struct TranslateArgs {
     /// TRACE: ti d51ed7
     #[arg(long = "cache-dir")]
     pub cache_dir: Option<PathBuf>,
+
+    /// Run without provider credentials, serving every unit from the cache.
+    ///
+    /// The disk cache's whole promise is that a document is paid for once
+    /// (DCR-0028), and re-rendering a translated document on a machine with no
+    /// key — or no network — is where that promise is most obviously wanted.
+    /// Until ti `30a744` it could not be kept: the provider was constructed
+    /// before the cache was consulted, so a run whose every unit was a hit
+    /// still refused to start.
+    ///
+    /// With this flag the run builds a **credential-free** provider that is
+    /// configured identically in every other respect, so it namespaces the
+    /// cache byte-for-byte the way the run that warmed it did. A fully warm
+    /// run therefore completes with no key at all; a run that misses stops
+    /// **at the miss**, with `no provider available for this run` and exit
+    /// code 6 — the configuration is what to change, either by dropping this
+    /// flag or by warming the cache.
+    ///
+    /// Requires `--cache-dir`. Without one the run gets a fresh in-memory
+    /// cache, so the first unit is guaranteed to miss and the flag could only
+    /// ever produce that failure; refusing at argument time says so instead of
+    /// spending a parse to arrive there.
+    ///
+    /// TRACE: ti 30a744
+    /// TRACE: OI-0038
+    #[arg(long = "offline")]
+    pub offline: bool,
     #[arg(long, default_value_t = false)]
     pub force: bool,
     /// Per-batch output-token ceiling: sent to the provider as the response
@@ -526,7 +553,21 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
     // can override a profile that enables it).
     opts.auto_glossary = resolve_auto_glossary_flag(args);
 
-    let translator = translator_for_run(&model, args.base_url.as_deref())
+    // ti `30a744`: `--offline` is only coherent against a cache that outlives
+    // the process. A fresh in-memory cache misses its first lookup by
+    // construction, so the flag would have exactly one possible outcome —
+    // refuse here, where the message can say which flag to add, rather than
+    // after a parse and a batch-packing pass.
+    if args.offline && args.cache_dir.is_none() {
+        return Err(CliFailure::new(
+            ExitCode::ArgumentError,
+            "--offline needs --cache-dir: without a cache that outlives the run \
+             every unit misses, and an offline run that misses cannot proceed"
+                .to_string(),
+        ));
+    }
+
+    let translator = translator_for_run(&model, args.base_url.as_deref(), args.offline)
         .map_err(|msg| CliFailure::new(ExitCode::ArgumentError, msg))?;
 
     // DCR-0028 §6: `--cache-dir` is the whole difference between a throwaway

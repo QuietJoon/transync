@@ -806,14 +806,27 @@ fn annotate_with_preflight(err: TransyncError, diagnosis: Option<&String>) -> Tr
             }
         }
         TranslatorError::Other(m) => TranslatorError::Other(format!("{m}; preflight: {diag}")),
-        // Neither carries a message to annotate. `Cancelled` additionally has
-        // nothing to say: the output-budget preflight explains why a batch was
-        // *likely to fail*, and a batch that stopped because the caller asked
-        // it to did not fail for that reason. (This arm is close to
-        // unreachable in practice — `run_pipeline` answers a cancelled run
-        // with `TransyncError::Cancelled` before reaching the annotator — but
-        // a provider may return `Cancelled` off its own token.)
-        other @ (TranslatorError::RateLimited { .. } | TranslatorError::Cancelled) => other,
+        // None of these takes the annotation, and each for its own reason.
+        //
+        // `RateLimited` carries no message to annotate. `Cancelled` carries
+        // none either, and additionally has nothing to say: the output-budget
+        // preflight explains why a batch was *likely to fail*, and a batch that
+        // stopped because the caller asked it to did not fail for that reason.
+        // (That arm is close to unreachable in practice — `run_pipeline`
+        // answers a cancelled run with `TransyncError::Cancelled` before
+        // reaching the annotator — but a provider may return `Cancelled` off
+        // its own token.)
+        //
+        // `NoProviderAvailable` DOES carry a message, and is still left alone
+        // (ti `30a744`). The diagnosis names the output-budget knobs, and this
+        // run did not fail over an output budget — it failed because the
+        // caller configured it with no provider and then reached work only a
+        // provider could do. Appending a batching remediation here would name
+        // a knob that cannot help, which is the actively-harmful
+        // classification DCR-0023 exists to remove.
+        other @ (TranslatorError::RateLimited { .. }
+        | TranslatorError::Cancelled
+        | TranslatorError::NoProviderAvailable(_)) => other,
     };
     TransyncError::Translator(annotated)
 }
