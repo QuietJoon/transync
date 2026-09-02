@@ -1,0 +1,22 @@
+# Standalone on purpose: the `[workspace]` table below detaches this crate from
+# the root workspace, so `cargo test --workspace` never builds it and the
+# publication roster stays at seven. See ../README.md.
+[workspace]
+
+[package]
+name    = "lang-detect-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# The three candidates, each configured the way it would actually ship.
+whatlang  = "0.18"
+whichlang = "0.1"
+# `default-features = false` is load-bearing: lingua's default pulls the model
+# data for every language it knows (151 feature flags). Only the two the gate
+# discriminates are enabled.
+lingua = { version = "1.8", default-features = false, features = ["korean", "english"] }
+
+[profile.release]
+debug = false

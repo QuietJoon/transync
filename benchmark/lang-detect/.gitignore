@@ -1,0 +1,5 @@
+target/
+
+# Derived from resp-translator fixtures — another repo's material, not ours to vendor.
+# Regenerate with scripts/build-corpus-real.py.
+corpus-real/
