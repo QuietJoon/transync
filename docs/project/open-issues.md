@@ -160,8 +160,8 @@ heap-safety continues to cover.
 - **Source:** R0004-0069 (Review 0004) (review archived and removed)
 - **Date:** 2026-08-13
 - **Decision:** ACCEPT (track — whether offline warm-cache rerun is a supported scenario is a product call that decides the fix's shape)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-02 (`cdc1e32`, DCR-0046, ticket `30a744`)
+- **Resolution:** The product question is answered — **yes, supported**, behind an explicit `--offline` flag rather than by deferring translator construction unconditionally. See *Resolution detail* below.
 
 ### Problem
 
@@ -182,6 +182,38 @@ rather than doing anything wrong. But it makes the disk cache's most valuable
 property — a document is paid for once — unavailable in the situation where it
 is most obviously wanted: re-rendering a translated document on a machine with
 no key, or offline.
+
+### Resolution detail (2026-09-02)
+
+**The product answer: yes, and by opt-in.** `transync translate --offline` runs
+with no provider credentials, serving every unit from the cache. A fully warm
+run completes; one that misses stops **at the miss** with
+`no provider available for this run` (`provider_unavailable`, §1) and exit 6.
+
+The ticket's own acceptance criteria proposed deferring translator construction
+unconditionally. That was **not** taken, and the deviation is deliberate: an
+unconditional defer moves every credential error later and into a different
+place, so a typo'd key against a cold cache would be reported mid-run instead
+of at startup. The flag keeps the common path's diagnostics intact and makes
+the capability real. `--offline` additionally **requires** `--cache-dir`,
+refused at argument time, because a fresh in-memory cache misses its first
+lookup by construction and the flag would otherwise have exactly one reachable
+outcome.
+
+**What the implementation nearly got wrong, recorded because it is the
+interesting part.** The first design was a separate `OfflineTranslator` in the
+CLI. `CacheKey` carries `provider_fingerprint` as a *namespace* axis, so a
+stand-in with its own fingerprint would have missed **every** entry it was
+pointed at — and an operator would have read that as a corrupt cache rather
+than a misconfigured run. The OpenAI fingerprint covers four parts (model, base
+URL, the API-surface heuristic, reasoning effort), so reproducing it outside
+that type would also have been a second opinion about the cache namespace.
+
+The credential moved instead: `api_key` became `Option`, and
+`TransyncOpenAI::offline` builds a real instance that resolves every other
+field exactly as `try_new` does. `fingerprint()` reads none of the key, so an
+offline instance namespaces the cache **byte-identically** — pinned by
+`an_offline_instance_fingerprints_identically_to_a_credentialed_one`.
 
 ### Required Actions
 
@@ -1277,7 +1309,7 @@ bytes the pane does not hold (R0009-0078).
 | OI-0016  | Active-block selection scans per scroll frame            | OPEN   | Low      |
 | OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | RESOLVED (2026-08-23) — archived | Low |
 | OI-0037  | Provider payloads bypass the parser's nesting intake guard | RESOLVED (2026-09-01) | Low |
-| OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | OPEN (2026-08-13) | Low |
+| OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | RESOLVED (2026-09-02) | Low |
 | OI-0039  | JS lint gate exits 0 while validating nothing            | OPEN (2026-08-26) | Low |
 | OI-0040  | Same bytes parsed/spliced repeatedly on the accepted path | OPEN (2026-08-26) | Low (R0009-0035 Medium) |
 | OI-0041  | Pre-network setup recomputes derived values              | OPEN (2026-08-26) | Low |
