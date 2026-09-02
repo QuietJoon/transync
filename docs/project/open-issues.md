@@ -10,7 +10,23 @@ Remove entries once fully resolved; resolved entries with audit value move to `o
 - **Source:** R0006-0090 (Review 0006) (review archived and removed)
 - **Date:** 2026-07-10
 - **Decision:** ACCEPT (track — user routing in the Review 0006 gate)
-- **Status:** OPEN
+- **Status:** RESOLVED 2026-09-02 — measured, no overrun. The scan stays.
+- **Resolution:** `benchmark/scroll-frame/RESULTS.md` (ticket `dd21ad`). The
+  prerequisite this entry's Required Actions opened with — *"If profiling shows
+  jank"* — was never taken until now. Profiling shows **no jank**: the scan is
+  linear as described, and at 5000 blocks its worst case costs 1.95 ms of a
+  16.67 ms frame (11.7 %), with all main-thread JS at 2.44 ms (14.6 %). At 2000
+  blocks — more than any document in this repository — the headroom is roughly
+  12×. The optimization would buy at most 12 % of one frame in exchange for an
+  invalidation surface (resize, reflow, mutation) and a non-monotonic-layout
+  policy on a path that has neither, so it is **not** built and this entry
+  closes rather than staying open indefinitely.
+
+  **The boundary, stated so a reopening has a criterion.** One machine, Apple
+  Silicon, headless Chromium 1228. This entry's concern was "slower machines"
+  and that is not what was measured: linear scaling puts a 5× slower machine at
+  ~10 ms inside the budget and a 10× slower one over it. What reopens this is a
+  slow-device jank report, not a larger document.
 
 ### Problem
 
@@ -1306,7 +1322,7 @@ bytes the pane does not hold (R0009-0078).
 
 | Issue ID | Title                                                  | Status   | Severity |
 |----------|--------------------------------------------------------|----------|----------|
-| OI-0016  | Active-block selection scans per scroll frame            | OPEN   | Low      |
+| OI-0016  | Active-block selection scans per scroll frame            | RESOLVED (2026-09-02) | Low      |
 | OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | RESOLVED (2026-08-23) — archived | Low |
 | OI-0037  | Provider payloads bypass the parser's nesting intake guard | RESOLVED (2026-09-01) | Low |
 | OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | RESOLVED (2026-09-02) | Low |

@@ -18,6 +18,7 @@ cd benchmark/lang-detect && cargo run --release
 | directory | question it answered | decided |
 |---|---|---|
 | `lang-detect` | which language detector should back the "is this already the target language?" gate (ticket `eb1d89`) | 2026-09-02 |
+| `scroll-frame` | does active-block selection overrun the 60 Hz frame budget on a large document (ticket `dd21ad`, OI-0016) | 2026-09-02 |
 
 A benchmark earns its place here when its result is cited by a record. If a
 result stops being cited, delete the directory rather than leaving a harness
