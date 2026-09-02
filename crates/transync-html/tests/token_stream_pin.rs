@@ -183,16 +183,23 @@ const FIXTURES: &[(&str, &str)] = &[
 /// This entry must not move on either side of the fix, and it is the evidence
 /// that DCR-0041's breakout model is what retired the hazard.
 ///
-/// The two `image-*` entries are **not** a blind spot and are blessed ONCE.
-/// They pin an existing decision that nothing pinned (ti `4882ac`): `image`
-/// is absent from `VOID_ELEMENTS` because HTML has no void element by that
-/// name — the tree builder rewrites the token's name to `img` and reprocesses
-/// — and this crate performs no such rewrite. `image-html` records what that
-/// costs (the element opens here, where a browser has an empty `img` and `x`
-/// as its sibling) and `image-foreign` records the case the exclusion is
-/// usually justified by. Both must stay byte-identical unless someone teaches
-/// `scan_tags` HTML's tag-name substitutions, which is the whole point of
-/// writing them down.
+/// The two `image-*` entries were added by ti `4882ac` to pin an existing
+/// decision that nothing pinned, and their doc said they "must stay
+/// byte-identical unless someone teaches `scan_tags` HTML's tag-name
+/// substitutions, which is the whole point of writing them down". **Someone
+/// did, the next day** (ti `e923ef`), so they were blessed once against the
+/// unrenamed scanner and once after — which is the two-bless protocol arriving
+/// by the route the entries were written to anticipate rather than by a
+/// planned wave.
+///
+/// The movement between those blessings is the record: `image-html` went
+/// `image` → `img` in both the inventory and the stream, and its balanced
+/// output lost the invented `</image>` it was owed while the element still
+/// opened. **`image-foreign` did not move**, and that is the load-bearing
+/// half: the substitution is an HTML-CONTENT rule, so SVG's real `<image>`
+/// keeps the author's name and their closer. Same line this crate has now
+/// drawn four times — raw text (ti `2e2453`), voidness (ti `48f3c6`), the
+/// name boundary (ti `e20490`), and now the rename.
 ///
 /// Blessed twice for the reason `stray-*` is: the commit that adds them
 /// records the BROKEN tokenization, the fix re-blesses through the same

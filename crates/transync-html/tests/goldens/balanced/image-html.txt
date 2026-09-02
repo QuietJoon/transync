@@ -1,1 +1,1 @@
-<image>x</image>
+<image>x

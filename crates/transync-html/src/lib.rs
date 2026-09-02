@@ -68,11 +68,14 @@ use std::rc::Rc;
 /// rather than this list's: **HTML has no void element called `image`.** "A
 /// start tag whose tag name is `image`" is handled by rewriting the token's
 /// name to `img` and reprocessing it, so `<image>x` leaves `x` a sibling
-/// because `img` is void, not because `image` is. This crate does not rename,
-/// so the literal name is not void here (ti `4882ac`, which also records what
-/// that costs). A real, closable `<svg><image>…</image>` is safe for the
-/// separate reason above — voidness is not consulted in foreign content at
-/// all.
+/// because `img` is void, not because `image` is.
+///
+/// [`scan_tags`] performs that rename since ti `e923ef`, which is what makes
+/// this exclusion correct rather than merely defensible: the name never
+/// reaches this list, so the list stays a list of void NAMES. A real, closable
+/// `<svg><image>…</image>` is untouched for two independent reasons — the
+/// rename is an HTML-content rule, and voidness is not consulted in foreign
+/// content at all (ti `48f3c6`).
 const VOID_ELEMENTS: &[&str] = &[
     "area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input",
     "keygen", "link", "meta", "param", "source", "track", "wbr",
@@ -815,7 +818,7 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             i += 1; // "<" not followed by a tag name — plain text
             continue;
         }
-        let name = html[name_start..j].to_ascii_lowercase();
+        let mut name = html[name_start..j].to_ascii_lowercase();
         // Scan to the closing '>' through HTML's attribute states. `/` sets
         // the self-closing flag only in `Outside` state and only if `>`
         // follows immediately; anything else clears it again.
@@ -939,6 +942,34 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
                     mode_stack.pop();
                 }
                 parent_mode = current_mode(&mode_stack);
+            }
+
+            // ti `e923ef`: HTML's one tag-name substitution, and it is an
+            // HTML-CONTENT rule like the three before it. The "in body"
+            // insertion mode handles a start tag named `image` by rewriting the
+            // token's name to `img` and reprocessing it, so `<image>x` is an
+            // empty `img` with `x` as its SIBLING — `image` is not a void
+            // element, `img` is, and the voidness follows the rename rather
+            // than the name the author typed.
+            //
+            // Doing it here rather than in the walk is what keeps one rule in
+            // one place: `is_void`, the mode stack and the strip all read the
+            // renamed token, so none of them needs its own opinion about
+            // `image`. The alternative — teaching the walk that `image` is void
+            // — would have been a second opinion about voidness, which is the
+            // shape ti `415cdb`, ti `e20490` and ti `2e2453` each were.
+            //
+            // Foreign content is excluded, and that is not a carve-out but the
+            // same spec rule: "any other start tag" there inserts a foreign
+            // element, and SVG has a real `<image>`. So `<svg><image>a</image>`
+            // keeps the author's name and its closer, exactly as ti `48f3c6`
+            // left voidness and ti `2e2453` left raw text.
+            //
+            // END tags are deliberately untouched. The substitution is defined
+            // on start tags only; a browser does not rename `</image>`, and it
+            // matches no open element either way.
+            if parent_mode == ContentMode::Html && name == "image" {
+                name = "img".to_string();
             }
 
             // A `/` on a raw-text/RCDATA start tag is ignored by real HTML
@@ -2694,32 +2725,52 @@ mod extent_tests {
         assert!(!VOID_ELEMENTS.contains(&"image"));
     }
 
-    /// What that exclusion costs, asserted rather than left implicit — the
-    /// half of ti `4882ac` a bare `!is_void("image")` would hide.
+    /// ti `e923ef`. `<image>x` is an empty `img` with `x` as its SIBLING,
+    /// because HTML's "in body" insertion mode rewrites the token's name to
+    /// `img` and reprocesses it. The voidness follows the rename, not the name
+    /// the author typed — which is why `image` stays out of `VOID_ELEMENTS`
+    /// (ti `4882ac`) and this is still right.
     ///
-    /// A browser rewrites the name, so `<image>x` is an EMPTY `img` with `x`
-    /// as its sibling. Here the element opens and `x` reads as its content,
-    /// which is a real extent divergence: a consumer asking "what element
-    /// surrounds these bytes" gets `image` where a browser says nothing. It
-    /// is inert for both shipped consumers — `tag_inventory` compares source
-    /// against splice and both spell it `image`, and an appended `</image>`
-    /// is an end tag a browser matches to nothing and ignores — so this pins
-    /// the current behaviour rather than blessing it. Closing the divergence
-    /// means teaching `scan_tags` HTML's tag-name substitutions, which moves
-    /// `tag_inventory`; that is filed separately.
+    /// Before the rename the element OPENED here and `x` read as its content,
+    /// so `element_extents` answered `image` where a browser says nothing at
+    /// all. It was inert for both shipped consumers — `tag_inventory` compared
+    /// source against splice and both spelled it `image`, and the appended
+    /// `</image>` was an end tag a browser matches to nothing — and it would
+    /// have mis-parented content for wave 3's intake, which asks this walk
+    /// "what element surrounds these bytes".
     #[test]
-    fn an_image_element_opens_here_where_a_browser_has_an_empty_img() {
-        let ex = element_extents("<image>x");
-        let names: Vec<&str> = ex.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(names, vec!["image"]);
-        assert_eq!(ex[0].content_end, 8, "`x` reads as the image's content");
-        assert_eq!(balance_fragment("<image>x"), "<image>x</image>");
-        // And the case the exclusion is usually justified by: a real,
-        // closable SVG `image`. It keeps its closer, but for the DCR-0043
-        // reason — voidness is not consulted in foreign content — so this
-        // would still hold if `image` were void.
+    fn an_image_start_tag_is_renamed_to_img_and_is_therefore_void() {
+        assert!(
+            element_extents("<image>x").is_empty(),
+            "an empty img mints no extent"
+        );
+        assert_eq!(tag_inventory("<image>x"), vec!["img"]);
+        // The author's bytes are untouched: the rename is in the TOKEN, so the
+        // balancer simply owes nothing.
+        assert_eq!(balance_fragment("<image>x"), "<image>x");
+        // And `img` itself is unchanged by any of this.
+        assert_eq!(tag_inventory("<img>x"), vec!["img"]);
+    }
+
+    /// The other half, and the fourth time this crate has drawn the same line:
+    /// the substitution is an HTML-CONTENT rule. In foreign content "any other
+    /// start tag" inserts a foreign element, and SVG has a real `<image>`, so
+    /// the author's name and their closer both survive there.
+    #[test]
+    fn a_foreign_image_keeps_its_own_name_and_its_closer() {
         let svg = "<svg><image>a</image>b</svg>";
+        assert_eq!(
+            tag_inventory(svg),
+            vec!["svg", "image", "/image", "/svg"],
+            "svg:image is a real element, not a renamed img"
+        );
         assert_eq!(balance_fragment(svg), svg);
+        // A breakout tag returns us to HTML content, where the rename applies
+        // again — the stack decides, not the nearest `<svg>`.
+        assert_eq!(
+            tag_inventory("<svg><div><image>x"),
+            vec!["svg", "div", "img"]
+        );
     }
 }
 
