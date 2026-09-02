@@ -143,6 +143,7 @@ const CRATE_ROOTS: &[(&str, &str, usize)] = &[
     ("transync-syntax", "crates/transync-syntax/src/lib.rs", 5),
     ("transync-core", "crates/transync-core/src/lib.rs", 5),
     ("transync-html", "crates/transync-html/src/lib.rs", 0),
+    ("transync-lang", "crates/transync-lang/src/lib.rs", 2),
 ];
 
 /// Every module a crate root declares, minus the `cfg`-gated ones.

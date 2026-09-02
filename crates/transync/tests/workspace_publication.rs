@@ -63,6 +63,9 @@ use toml::value::Table;
 /// here depends on the order — it is written this way so the two documents
 /// read alike.
 const PUBLISHED_MEMBERS: &[&str] = &[
+    // No internal edge at all (ti `e4f4b0`), so it can be published before
+    // anything else — like `transync-html`, and unlike every member after it.
+    "transync-lang",
     "transync-html",
     "transync-syntax",
     "transync-core",

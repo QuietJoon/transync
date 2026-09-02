@@ -5,6 +5,7 @@
 resolver = "2"
 members  = [
     "crates/transync-html",
+    "crates/transync-lang",
     "crates/transync-syntax",
     "crates/transync-core",
     "crates/transync",
@@ -14,10 +15,11 @@ members  = [
     "crates/transync-wasm",
 ]
 
-# Publication set (R0001-0040). Seven members are ordinary crates.io packages,
+# Publication set (R0001-0040). Eight members are ordinary crates.io packages,
 # and a first publication has to walk them in dependency order —
-# transync-html, transync-syntax, transync-core, transync, transync-openai,
-# transync-anthropic, transync-cli — because each one's internal dependency
+# transync-lang, transync-html, transync-syntax, transync-core, transync,
+# transync-openai, transync-anthropic, transync-cli — because each one's
+# internal dependency
 # resolves from the registry once the
 # `path` key is stripped at package time. `crates/transync-wasm` is the single
 # exception and declares it in its own manifest with `publish = false`
@@ -105,6 +107,18 @@ futures     = "0.3"
 tiktoken-rs = "0.7"
 lol_html    = "2"
 htmlize     = { version = "1", features = ["unescape"] }
+# The language-gate backend (ti `e4f4b0`), chosen by measurement over `lingua`
+# and `whatlang` — `benchmark/lang-detect/RESULTS.md` records the comparison and
+# the two rounds it took, the second of which reversed the first's
+# recommendation. Consumed by `transync-lang` ONLY: no engine crate may take
+# this edge, because the pipeline's language answer is provider-authored
+# (`detected_source_language`) and must never be derived locally.
+#
+# A caret range rather than an exact pin. The committed `Cargo.lock` holds the
+# measured 0.1.1, and the script-first composition makes drift nearly inert for
+# an exclusive-script target: the backend only ever sees text the codepoint test
+# could not settle. A bump that moves RESULTS.md's verdicts re-runs the benchmark.
+whichlang   = "0.1"
 # R0004-0080: canonical (NFC) normalization for the ONE comparison form
 # `profile::section_key` / `glossary_key` derive. Consumed by transync-core
 # only — `transync-syntax` compiles to wasm32 and takes nothing new (ADR-0019).

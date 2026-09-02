@@ -1,0 +1,38 @@
+# The source-language gate — "should a translation run start at all?" (ti e4f4b0).
+#
+# ONE dependency, and NO workspace member, ever. The gate works on raw text: a
+# codepoint test first, `whichlang` second, and nothing here needs a block, an
+# id, an alignment row or a parse. That absence is load-bearing rather than
+# incidental — it is what keeps the two questions this workspace answers about
+# language from sharing code:
+#
+#   transync-lang              "should a run start?"       pre-flight, caller-side
+#   detected_source_language   "what language was this,    pipeline, on the wire,
+#                               per the model that          written by one door
+#                               translated it"
+#
+# An edge in either direction would be the first step toward one answer being
+# derived from the other, which is the two-places-one-opinion defect this
+# workspace spent 2026-09-01 removing.
+#
+# Also NO `[features]` table. The crate is small enough that a feature would only
+# ever gate the dependency, and a gate that can be compiled out is a gate whose
+# behaviour depends on the caller's build.
+#
+# TRACE: ti e4f4b0
+# TRACE: benchmark/lang-detect/RESULTS.md (2026-09-02 — why whichlang, and why
+#        the script test runs first)
+[package]
+name                   = "transync-lang"
+description            = "Source-language gate for transync consumers: is this text already in the target language?"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+# The only dependency, chosen by measurement over `lingua` and `whatlang`
+# (benchmark/lang-detect/RESULTS.md). Named in exactly one source file,
+# `src/backend.rs`; `containment` fails the suite otherwise.
+whichlang = { workspace = true }

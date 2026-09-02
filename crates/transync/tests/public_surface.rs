@@ -478,6 +478,12 @@ fn hidden_modules_are_not_documented_as_surface() {
         "render",
         "transync_syntax",
         "transync_html",
+        // ti `e4f4b0`: the gate is a SIBLING of the facade, not below it.
+        // The owner ruled a language-detection dependency must not reach
+        // `transync`, so a `transync::lang` path appearing here would mean
+        // that ruling had been reversed in code without being reversed in
+        // the record. Consumers depend on `transync-lang` directly.
+        "transync_lang",
         "htmlseg",
         "outcome",
         "walk",

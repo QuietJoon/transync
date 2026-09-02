@@ -16,7 +16,7 @@
 # member that grows a `src/lib.rs` and is not named here fails the smoke run
 # instead of quietly sitting outside the gate. That check reads this array,
 # so it covers the hook's invocation as well as smoke's.
-RUSTDOC_GATE_CRATES=(transync-html transync-syntax transync-core transync transync-openai transync-anthropic transync-wasm)
+RUSTDOC_GATE_CRATES=(transync-lang transync-html transync-syntax transync-core transync transync-openai transync-anthropic transync-wasm)
 
 # The same list as `cargo doc` package arguments: -p a -p b … — built here so
 # neither caller repeats the loop.
