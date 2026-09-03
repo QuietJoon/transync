@@ -558,11 +558,69 @@ pub enum TagToken {
     /// or a tag left unterminated at EOF (ti 549b20 — a browser abandons a
     /// tag cut off before its `>`, minting no element and no attributes, so
     /// the bytes are a passed-over region, not markup).
-    /// It carries no name because it has none — what it carries is the byte
-    /// range, which is the thing an intake needs in order to trim the
-    /// anonymous runs between elements. Neither `tag_inventory` nor
-    /// `balance_fragment` reads it.
-    Skip { span: (usize, usize) },
+    /// It carries no name because it has none. What it carries is the byte
+    /// range — the thing an intake needs in order to trim the anonymous runs
+    /// between elements — plus, since ti `c1f9a8`, the two facts the scanner
+    /// knew at the moment it produced the region and nothing downstream can
+    /// recover: which KIND of region it is, and whether it was TERMINATED.
+    ///
+    /// `tag_inventory` still ignores it. `balance_fragment` does not, and that
+    /// is the point: a fragment ending inside an unterminated region needs
+    /// repairing at the wrapper seam, and deciding where a comment ends is a
+    /// question `scan_tags` already answers. Having the balancer re-derive it
+    /// from the bytes would be a second opinion about exactly that — the shape
+    /// ti `415cdb`, ti `e20490` and ti `2e2453` each were.
+    Skip {
+        span: (usize, usize),
+        kind: SkipKind,
+        /// `false` when the region ran to EOF without its terminator. Only the
+        /// LAST token of a fragment can be usefully unterminated; an earlier
+        /// one means the scanner stopped, which cannot happen.
+        terminated: bool,
+    },
+}
+
+/// Which passed-over region a [`TagToken::Skip`] names.
+///
+/// The distinction exists so [`balance_fragment`] can repair an unterminated
+/// one the way a browser resolves it, without classifying bytes itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkipKind {
+    /// `<!-- … -->`.
+    Comment,
+    /// `<![CDATA[ … ]]>` in foreign content, where it really is a CDATA
+    /// section. In HTML content the same bytes open a bogus comment, and the
+    /// scanner reports that as [`Self::BogusComment`] — the terminator differs,
+    /// so the kinds must.
+    CdataSection,
+    /// `<!…>`, `<?…>`, or `</` before a non-letter: HTML's bogus-comment
+    /// state, running to the first `>`.
+    BogusComment,
+    /// A tag cut off before its `>`. Never terminated by construction — a
+    /// terminated tag is an `Open` or a `Close`.
+    UnterminatedTag,
+}
+
+impl SkipKind {
+    /// The bytes that would close this region, or `None` when closing it is
+    /// not what a browser does.
+    ///
+    /// `UnterminatedTag` answers `None` deliberately, and it is the one case
+    /// where "terminate it" would be the wrong repair twice over. A browser at
+    /// EOF-inside-a-tag **abandons** the tag — it mints no element and no
+    /// attributes — so appending `>` would invent structure rather than
+    /// recover it. And no single terminator even works: a tag cut inside a
+    /// quoted value (`<div class="x`) needs the quote closed first, and
+    /// guessing that is parsing. The faithful repair is to delete the span,
+    /// which is the act the balancer already performs on an orphan close tag.
+    pub fn terminator(self) -> Option<&'static str> {
+        match self {
+            Self::Comment => Some("-->"),
+            Self::CdataSection => Some("]]>"),
+            Self::BogusComment => Some(">"),
+            Self::UnterminatedTag => None,
+        }
+    }
 }
 
 /// Where HTML's **tag-name state** ends: it consumes every byte that is not
@@ -696,12 +754,14 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             }
         }
         if html[i..].starts_with("<!--") {
-            let end = html[i..]
-                .find("-->")
-                .map(|p| i + p + 3)
-                .unwrap_or(html.len());
+            let closer = html[i..].find("-->");
+            let end = closer.map(|p| i + p + 3).unwrap_or(html.len());
             tokens.push(ScannedTag::inert(
-                TagToken::Skip { span: (i, end) },
+                TagToken::Skip {
+                    span: (i, end),
+                    kind: SkipKind::Comment,
+                    terminated: closer.is_some(),
+                },
                 current_mode(&mode_stack),
             ));
             i = end;
@@ -722,12 +782,25 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             } else {
                 ">"
             };
-            let end = html[i..]
-                .find(terminator)
+            let closer = html[i..].find(terminator);
+            let end = closer
                 .map(|p| i + p + terminator.len())
                 .unwrap_or(html.len());
+            // The kind follows the terminator, not the opening bytes: in HTML
+            // content `<![CDATA[` opens a BOGUS COMMENT ending at the first
+            // `>`, and calling it a CDATA section here would hand the balancer
+            // the wrong repair.
+            let kind = if terminator == "]]>" {
+                SkipKind::CdataSection
+            } else {
+                SkipKind::BogusComment
+            };
             tokens.push(ScannedTag::inert(
-                TagToken::Skip { span: (i, end) },
+                TagToken::Skip {
+                    span: (i, end),
+                    kind,
+                    terminated: closer.is_some(),
+                },
                 current_mode(&mode_stack),
             ));
             i = end;
@@ -741,9 +814,14 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
         // all (the `!` fails the tag-open state's ASCII-letter test below)
         // and tag-shaped bytes inside a bogus comment tokenized as markup.
         if html[i..].starts_with("<!") || html[i..].starts_with("<?") {
-            let end = html[i..].find('>').map(|p| i + p + 1).unwrap_or(html.len());
+            let closer = html[i..].find('>');
+            let end = closer.map(|p| i + p + 1).unwrap_or(html.len());
             tokens.push(ScannedTag::inert(
-                TagToken::Skip { span: (i, end) },
+                TagToken::Skip {
+                    span: (i, end),
+                    kind: SkipKind::BogusComment,
+                    terminated: closer.is_some(),
+                },
                 current_mode(&mode_stack),
             ));
             i = end;
@@ -808,7 +886,11 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
                 let end = (k + 1).min(bytes.len());
                 if bytes.get(j) != Some(&b'>') {
                     tokens.push(ScannedTag::inert(
-                        TagToken::Skip { span: (start, end) },
+                        TagToken::Skip {
+                            span: (start, end),
+                            kind: SkipKind::BogusComment,
+                            terminated: k < bytes.len(),
+                        },
                         current_mode(&mode_stack),
                     ));
                 }
@@ -910,6 +992,10 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             tokens.push(ScannedTag::inert(
                 TagToken::Skip {
                     span: (start, bytes.len()),
+                    kind: SkipKind::UnterminatedTag,
+                    // Unterminated by construction: this arm is only reached
+                    // when the scan ran off the end looking for `>`.
+                    terminated: false,
                 },
                 current_mode(&mode_stack),
             ));
@@ -1761,11 +1847,56 @@ pub fn balance_fragment(html: &str) -> String {
 
     let mut out = String::with_capacity(html.len());
     let mut cursor = 0usize;
+    // Bytes the orphan pass removed BEFORE the trailing region, so the repair
+    // below can map that region's `html` offset onto `out`.
+    let mut removed = 0usize;
     for (s, e) in walk.orphan_closes {
         out.push_str(&html[cursor..s]);
+        removed += e - s;
         cursor = e;
     }
     out.push_str(&html[cursor..]);
+
+    // ti `c1f9a8`: a fragment that ENDS inside an unterminated region is
+    // repaired here, before anything else, because it is the one defect the
+    // rest of this function cannot reach.
+    //
+    // The harm is bigger than "the trailing bytes look odd", and bigger than
+    // the ticket said. Only an unterminated COMMENT swallows everything after
+    // it. The other three kinds end at the first `>` — and in a mounted pane
+    // the next `>` is the sync wrapper's OWN `</div>`. So the wrapper closes
+    // inside the region, the wrapper stays open, and every following block
+    // nests inside this block's wrapper: the `contracts.md` §4a direct-child
+    // break that wave 1 (`<div/>`) and DCR-0041 (`<svg><div>`) were each fixed
+    // for as live breaks, and the harm spec §3.4 gives as the balancer's whole
+    // reason to exist. Reachable from ordinary source Markdown: a type-6 html
+    // block ends at a blank line, so `<div>x<!--` + blank line + a paragraph
+    // is one html block followed by a real anchor.
+    //
+    // The scanner decides WHAT the region is and WHETHER it closed; this only
+    // acts on the answer. Re-deriving either from the bytes here would be a
+    // second opinion about where a comment ends — ti `415cdb`, ti `e20490` and
+    // ti `2e2453` were each exactly that shape, one region smaller.
+    if let Some(TagToken::Skip {
+        span,
+        kind,
+        terminated: false,
+    }) = scan_tags(html).last()
+    {
+        // Only a region running to the very end can swallow what follows.
+        if span.1 >= html.len() {
+            match kind.terminator() {
+                // Close it where a browser closes it. A browser emits a
+                // comment left open at EOF, so terminating preserves the
+                // author's content rather than inventing any.
+                Some(t) => out.push_str(t),
+                // A browser ABANDONS a tag cut off at EOF — no element, no
+                // attributes — so the faithful repair is deletion, which is
+                // the act this function already performs on an orphan closer.
+                None => out.truncate(span.0 - removed),
+            }
+        }
+    }
 
     if walk.unclosed.is_empty() {
         return out;
@@ -2040,10 +2171,16 @@ mod token_tests {
         assert!(tag_inventory("<?xml version=\"1.0\"?>").is_empty());
     }
 
-    /// `Skip` reaches neither shipped consumer: `tag_inventory` filters it
-    /// out and the balancer ignores it.
+    /// `Skip` never reaches `tag_inventory`, which filters it out — and, since
+    /// ti `c1f9a8`, it DOES reach the balancer, which repairs an unterminated
+    /// trailing one. This test's subject is the other case, and the one that
+    /// has to keep holding: a region that is properly TERMINATED is inert for
+    /// both consumers, so the repair cannot reach ordinary markup.
+    ///
+    /// (Renamed from `skip_tokens_are_invisible_to_both_shipped_consumers`,
+    /// whose claim `c1f9a8` made false for the balancer.)
     #[test]
-    fn skip_tokens_are_invisible_to_both_shipped_consumers() {
+    fn terminated_skip_regions_stay_inert_for_both_shipped_consumers() {
         let html = "<!doctype html><div><!-- c -->text</div>";
         assert_eq!(tag_inventory(html), vec!["div", "/div"]);
         assert_eq!(balance_fragment(html), html);
@@ -2116,7 +2253,7 @@ mod token_tests {
     fn skips(html: &str) -> Vec<(usize, usize)> {
         let mut out = Vec::new();
         for token in scan_tags(html) {
-            if let TagToken::Skip { span } = token {
+            if let TagToken::Skip { span, .. } = token {
                 out.push(span);
             }
         }
@@ -3349,36 +3486,66 @@ mod balance_tests {
         assert_eq!(balance_fragment("<math/>after"), "<math/>after");
     }
 
-    /// ti `95f55b`: a fragment can end INSIDE an unterminated comment, CDATA
-    /// section, bogus comment or tag — an author can close an HTML block
-    /// mid-`<!--`, and invariant 7 says that input is expected. A closer
-    /// appended there is swallowed by the region, so a re-scan reads the
-    /// element unclosed again and appends another, without limit. Reviewer
-    /// A's harness found 15,726 such violations in 200,000 fuzz iterations.
+    /// ti `95f55b`, then ti `c1f9a8`. A fragment can end INSIDE an
+    /// unterminated comment, CDATA section, bogus comment or tag — an author
+    /// can close an HTML block mid-`<!--`, and invariant 7 says that input is
+    /// expected rather than exceptional.
     ///
-    /// The property is idempotence, and it is asserted by balancing twice.
+    /// `95f55b` stopped the balancer appending a closer the region would
+    /// swallow, because a buried closer closes nothing and each re-balance
+    /// added another (15,726 violations in 200,000 fuzz iterations). That made
+    /// the function idempotent and left the fragment unrepaired.
+    ///
+    /// `c1f9a8` repairs it: the region is TERMINATED where a browser
+    /// terminates it, or DELETED where a browser abandons it, and only then
+    /// are closers appended. The idempotence property is unchanged and is
+    /// still asserted by balancing twice — it is now achieved by fixing the
+    /// fragment rather than by declining to.
+    ///
+    /// Why it matters more than the trailing bytes looking odd: only an
+    /// unterminated COMMENT swallows everything after it. The other kinds end
+    /// at the first `>`, which in a mounted pane is the sync wrapper's own
+    /// `</div>` — so the wrapper closed inside the region, stayed open, and
+    /// every following block nested inside this one's wrapper. That is
+    /// `contracts.md` §4a's direct-child break.
     #[test]
-    fn a_closer_the_region_would_swallow_is_not_appended() {
-        for src in [
-            "<div>x<!--",
-            "<div>x<?pi",
-            "<div>x<![CDATA[y",
-            "<div>x<p",
+    fn an_unterminated_trailing_region_is_repaired_before_closers_are_appended() {
+        for (src, want) in [
+            // Terminated where a browser terminates it, then the div closes.
+            ("<div>x<!--", "<div>x<!----></div>"),
+            ("<div>x<?pi", "<div>x<?pi></div>"),
+            ("<div>x<![CDATA[y", "<div>x<![CDATA[y></div>"),
+            // A tag cut at EOF is ABANDONED by a browser — no element, no
+            // attributes — so the faithful repair is deletion, not `>`.
+            ("<div>x<p", "<div>x</div>"),
             // Reachable only since wave 1, because the walk now pushes a
-            // flagged non-void tag: these used to be idempotent by accident.
-            "<div/>x<!--",
-            "<span/>t<!--",
+            // flagged non-void tag.
+            ("<div/>x<!--", "<div/>x<!----></div>"),
+            ("<span/>t<!--", "<span/>t<!----></span>"),
         ] {
             let once = balance_fragment(src);
-            assert_eq!(
-                once, src,
-                "an appended closer would land inside the region: {src}"
-            );
+            assert_eq!(once, want, "repair for: {src}");
             assert_eq!(
                 balance_fragment(&once),
                 once,
                 "and balancing is stable under its own re-scan: {src}"
             );
+        }
+    }
+
+    /// The repair is confined to the LAST token. A terminated region in the
+    /// middle of a fragment is untouched, and a fragment with no unterminated
+    /// tail is byte-identical — which is what keeps this change invisible to
+    /// every shipped fixture.
+    #[test]
+    fn a_terminated_region_is_never_touched() {
+        for src in [
+            "<div><!-- c -->x</div>",
+            "<div>x<![CDATA[y]]></div>",
+            "<!doctype html><p>a</p>",
+            "<div><!-- a --><!-- b --></div>",
+        ] {
+            assert_eq!(balance_fragment(src), src, "unchanged: {src}");
         }
     }
 
@@ -3717,7 +3884,11 @@ mod balance_tests {
         );
         // An unterminated tag is a Skip, not structure: nothing to balance,
         // before the fix and after it.
-        assert_eq!(balance_fragment("<p>a</p><div "), "<p>a</p><div ");
+        // ti `c1f9a8`: the unterminated tag is now DELETED rather than left
+        // in place — a browser abandons a tag cut off at EOF, so the bytes
+        // mint nothing and carrying them to the pane only risks the next `>`
+        // being the wrapper's own.
+        assert_eq!(balance_fragment("<p>a</p><div "), "<p>a</p>");
     }
 }
 
