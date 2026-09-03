@@ -49,7 +49,7 @@ pub(crate) fn finalize_regen_with_reparse_policy(
     crate::validate::full_reparse::ReparseFailure,
 > {
     let (md, offsets, final_validated) = regen_pass(doc, accepted);
-    let failure = match crate::validate::full_reparse::reparse_full(doc, &md, &offsets) {
+    let failure = match layer6_gate(doc, &md, &offsets) {
         Ok(()) => return Ok((md, offsets, final_validated)),
         Err(f) => f,
     };
@@ -68,11 +68,10 @@ pub(crate) fn finalize_regen_with_reparse_policy(
             );
             downgrade_units(accepted, failure.divergent_source_blocks.iter());
             let (md, offsets, final_validated) = regen_pass(doc, accepted);
-            let stage1_failure =
-                match crate::validate::full_reparse::reparse_full(doc, &md, &offsets) {
-                    Ok(()) => return Ok((md, offsets, final_validated)),
-                    Err(f) => f,
-                };
+            let stage1_failure = match layer6_gate(doc, &md, &offsets) {
+                Ok(()) => return Ok((md, offsets, final_validated)),
+                Err(f) => f,
+            };
 
             // R0006: byte-offset attribution names the neighbor on
             // boundary contamination; widen so the actual culprit is
@@ -91,11 +90,10 @@ pub(crate) fn finalize_regen_with_reparse_policy(
             );
             downgrade_units(accepted, widened.iter());
             let (md, offsets, final_validated) = regen_pass(doc, accepted);
-            let stage2_failure =
-                match crate::validate::full_reparse::reparse_full(doc, &md, &offsets) {
-                    Ok(()) => return Ok((md, offsets, final_validated)),
-                    Err(f) => f,
-                };
+            let stage2_failure = match layer6_gate(doc, &md, &offsets) {
+                Ok(()) => return Ok((md, offsets, final_validated)),
+                Err(f) => f,
+            };
 
             tracing::warn!(
                 target: "transync::pipeline",
@@ -116,6 +114,31 @@ pub(crate) fn finalize_regen_with_reparse_policy(
 }
 
 /// One regen-then-project pass over the current `accepted` map.
+/// THE one format branch (ti 490d97 wave 4, spec §7): the document-level
+/// layer-6 gate, dispatched on `Document.format` — comrak's reparse for
+/// Markdown, the scanner rescan for HTML. Both return the same
+/// [`crate::validate::full_reparse::ReparseFailure`], which is what keeps
+/// the three-stage cascade above format-blind: `downgrade_units` and
+/// `widen_to_neighbors` consume only `divergent_source_blocks` (over
+/// `regen::top_level_blocks` = `blocks.iter()`), `fall_back_all` consumes
+/// neither field, and `reason` reaches only the logs and the Hard-arm
+/// error. `walk`/comrak never see an HTML document — this branch is the
+/// enforcement (spec §7: "not by adding arms").
+fn layer6_gate(
+    doc: &crate::parser::Document,
+    regenerated: &str,
+    offsets: &crate::regen::BlockOffsets,
+) -> Result<(), crate::validate::full_reparse::ReparseFailure> {
+    match doc.format {
+        crate::id::SourceFormat::Markdown => {
+            crate::validate::full_reparse::reparse_full(doc, regenerated, offsets)
+        }
+        crate::id::SourceFormat::Html => {
+            crate::validate::full_rescan_html::full_rescan_html(doc, regenerated, offsets)
+        }
+    }
+}
+
 fn regen_pass(
     doc: &crate::parser::Document,
     accepted: &HashMap<BlockId, ValidatedUnit>,
@@ -474,5 +497,176 @@ mod list_item_count_pipeline_tests {
             assert_eq!(row.fallback_status, FallbackStatus::FallbackSource);
         }
         assert_eq!(out.translated_document, SRC);
+    }
+}
+
+// ti 490d97 wave 4: the ONE format branch (spec §7). These tests drive
+// `finalize_regen_with_reparse_policy` directly — the pub(crate) seam — with
+// intake-built HTML documents and hand-built accepted maps, because no run
+// path can construct a `format == Html` document until wave 5's entry point
+// and wave 6's flag exist. That unreachability is this wave's hard rule, and
+// the acceptance section checks it mechanically.
+#[cfg(test)]
+mod format_dispatch_tests {
+    use super::*;
+    use crate::parser::parse;
+    use crate::test_fixtures::{EVIL_SOURCE_MD, evil_accepted};
+
+    /// One `<p>` element block and one rule-T anonymous run. The run is the
+    /// lever: a whitespace-only translated segment splices cleanly (segment
+    /// count 1 == 1; no tags on either side, so per-unit layer 3's
+    /// inventory check passes it too — this exact shape reaches regen in a
+    /// real wave-5 run), but the resulting run is textless and dissolves
+    /// under rule T. Only the layer-6 twin can see that.
+    const HTML_SRC: &str = "<div>\n<p>keep</p>\nnaked run text\n</div>\n";
+
+    fn html_doc() -> crate::parser::Document {
+        transync_syntax::intake::html::parse(HTML_SRC)
+    }
+
+    fn unit(id: &BlockId, payload: Option<String>) -> ValidatedUnit {
+        ValidatedUnit {
+            unit_id: id.clone(),
+            final_status: crate::FallbackStatus::Translated,
+            accepted_payload: payload,
+            rejected_by: None,
+            rejection_reason: None,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Accepted map: the `<p>` honestly translated, the run "translated" to
+    /// whitespace. Payloads are JSON segment arrays — the shape wave 2's
+    /// re-keyed regen arm decodes for every Html-spelled block.
+    fn accepted_with_dissolving_run(
+        doc: &crate::parser::Document,
+    ) -> HashMap<BlockId, ValidatedUnit> {
+        let p_id = doc.blocks[0].block_id.clone();
+        let run_id = doc.blocks[1].block_id.clone();
+        let mut accepted = HashMap::new();
+        accepted.insert(
+            p_id.clone(),
+            unit(&p_id, Some(serde_json::to_string(&vec!["유지"]).unwrap())),
+        );
+        accepted.insert(
+            run_id.clone(),
+            unit(&run_id, Some(serde_json::to_string(&vec![" "]).unwrap())),
+        );
+        accepted
+    }
+
+    #[test]
+    fn an_html_document_takes_the_twin_and_the_twin_names_the_dissolved_run() {
+        let doc = html_doc();
+        assert_eq!(doc.blocks.len(), 2, "fixture sanity: <p> + rule-T run");
+        let mut accepted = accepted_with_dissolving_run(&doc);
+        let failure = finalize_regen_with_reparse_policy(
+            &doc,
+            &mut accepted,
+            crate::FullReparseFailure::Hard,
+        )
+        .expect_err("Hard must surface the twin's failure");
+        // The twin's vocabulary, never reparse_full's: the dissolved run is
+        // a fresh-segmentation count divergence.
+        assert!(
+            failure.reason.contains("fresh segmentation"),
+            "got: {}",
+            failure.reason
+        );
+        assert!(
+            !failure.reason.contains("regenerated block count"),
+            "reparse_full's phrase must not appear — got: {}",
+            failure.reason,
+        );
+        assert!(
+            failure
+                .divergent_source_blocks
+                .contains(&doc.blocks[1].block_id),
+            "got: {:?}",
+            failure.divergent_source_blocks,
+        );
+    }
+
+    #[test]
+    fn fallback_per_block_restores_the_run_and_keeps_the_honest_translation() {
+        let doc = html_doc();
+        let run_id = doc.blocks[1].block_id.clone();
+        let mut accepted = accepted_with_dissolving_run(&doc);
+        let (out, _offsets, _final) = finalize_regen_with_reparse_policy(
+            &doc,
+            &mut accepted,
+            crate::FullReparseFailure::FallbackPerBlock,
+        )
+        .expect("FallbackPerBlock degrades, never aborts (invariant 6)");
+        // Stage 1 downgrades exactly the dissolved run; the re-regen
+        // splices its SOURCE bytes back and the twin passes.
+        assert!(
+            out.contains("유지"),
+            "the honest translation survives:\n{out}"
+        );
+        assert!(
+            out.contains("naked run text"),
+            "the run is source bytes again:\n{out}"
+        );
+        let vu = accepted.get(&run_id).expect("run unit still present");
+        assert_eq!(vu.final_status, crate::FallbackStatus::FallbackSource);
+        assert!(vu.accepted_payload.is_none());
+        assert_eq!(
+            accepted.get(&doc.blocks[0].block_id).unwrap().final_status,
+            crate::FallbackStatus::Translated,
+            "the innocent neighbor is NOT downgraded at stage 1",
+        );
+    }
+
+    #[test]
+    fn fallback_all_returns_the_source_bytes_for_an_html_document() {
+        // Stage 3's "structurally identical by construction" claim rests on
+        // wave 3's identity theorem for HTML — pinned here at the finalize
+        // seam: all-fallback regen IS the source document, byte-identical.
+        let doc = html_doc();
+        let mut accepted = accepted_with_dissolving_run(&doc);
+        let (out, _offsets, _final) = finalize_regen_with_reparse_policy(
+            &doc,
+            &mut accepted,
+            crate::FullReparseFailure::FallbackAll,
+        )
+        .expect("FallbackAll always succeeds");
+        assert_eq!(out, HTML_SRC);
+        for vu in accepted.values() {
+            assert_eq!(vu.final_status, crate::FallbackStatus::FallbackSource);
+            assert!(vu.accepted_payload.is_none());
+        }
+    }
+
+    #[test]
+    fn a_markdown_document_still_takes_reparse_full_not_the_twin() {
+        // The POSITIVE half of §12's "Markdown runs provably still take
+        // reparse_full" (the zero-edit green suite is the other half):
+        // reparse_full's count-drift phrase appears, and the twin's
+        // vocabulary provably does not. The reason strings are the two
+        // gates' distinguishing marks — see Task 2's vocabulary contract.
+        let doc = parse(EVIL_SOURCE_MD).expect("source parses");
+        let mut accepted = evil_accepted(&doc);
+        let failure = finalize_regen_with_reparse_policy(
+            &doc,
+            &mut accepted,
+            crate::FullReparseFailure::Hard,
+        )
+        .expect_err("the evil fixture diverges under reparse_full");
+        assert!(
+            failure.reason.contains("regenerated block count"),
+            "got: {}",
+            failure.reason
+        );
+        assert!(
+            !failure.reason.contains("tag inventory"),
+            "got: {}",
+            failure.reason
+        );
+        assert!(
+            !failure.reason.contains("fresh segmentation"),
+            "got: {}",
+            failure.reason
+        );
     }
 }

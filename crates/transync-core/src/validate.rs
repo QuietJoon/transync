@@ -5,16 +5,18 @@
 //! express — no NUL, ti d06c43) → per-kind shape → fragment reparse →
 //! inline protection (link/image destinations and policy-gated inline
 //! code spans; EXT-2026-07 P1-5, ADR-0012 amendment). The final layer —
-//! the full-document reparse — is the pipeline's final gate: it runs
-//! once after regeneration (see [`full_reparse`] and
-//! `pipeline::finalize::finalize_regen_with_reparse_policy`), not per batch. See
-//! `docs/architecture/contracts.md` §5.
+//! the full-document gate — runs once after regeneration and dispatches on
+//! `Document.format`: [`full_reparse`] for Markdown, [`full_rescan_html`]
+//! for HTML (ti 490d97 wave 4; see
+//! `pipeline::finalize::finalize_regen_with_reparse_policy`), not per
+//! batch. See `docs/architecture/contracts.md` §5.
 //!
 //! TRACE: SCN-07
 //! TRACE: SCN-14
 
 pub mod fragment_reparse;
 pub mod full_reparse;
+pub mod full_rescan_html;
 pub mod inline;
 pub mod per_kind;
 pub mod schema;
