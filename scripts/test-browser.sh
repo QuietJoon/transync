@@ -213,6 +213,50 @@ if [[ "$(grep -c 'data-sync-id="p-0003"' "$WORKDIR/oi0035.md")" -lt 1 ]]; then
   exit 1
 fi
 
+# --- SCN-16 leg (HTML→HTML, ti 490d97 wave 6) ------------------------------
+#
+# An --input-format html run over the SCN-16 fixture, published as a THIRD
+# bundle inside the served fixture dir so the engine suite can read its pane
+# files and map off disk. Scratch only; the six-file bundle contract and the
+# SCN-14 corpus are untouched.
+echo "[test-browser] regenerating the SCN-16 HTML-run bundle -> $HTML_OUT/scn16"
+SCN16_INPUT="$REPO_ROOT/crates/transync/tests/fixtures/scn-16-html-document.html"
+if [[ ! -f "$SCN16_INPUT" ]]; then
+  echo "[test-browser] FAIL: SCN-16 fixture not found: $SCN16_INPUT" >&2
+  exit 1
+fi
+"$TRANSYNC_BIN" translate \
+  --input "$SCN16_INPUT" \
+  --input-format html \
+  --output "$WORKDIR/scn16-out.html" \
+  --map "$WORKDIR/scn16.json" \
+  --html-out "$HTML_OUT/scn16" \
+  --target-language ko
+
+for path in \
+  "$HTML_OUT/scn16/index.html" \
+  "$HTML_OUT/scn16/source.html" \
+  "$HTML_OUT/scn16/target.html" \
+  "$HTML_OUT/scn16/alignment.json" \
+  "$HTML_OUT/scn16/sync.js" \
+  "$HTML_OUT/scn16/purify.min.js"
+do
+  if [[ ! -s "$path" ]]; then
+    echo "[test-browser] FAIL: $path missing or empty" >&2
+    exit 1
+  fi
+done
+
+# Anchors are a bundle-only derivation (spec §8): the published translated
+# document is anchor-free, and this is the one place a script reads it to
+# hold the sentence true — every other assertion looks at pane HTML, so a
+# derivation "centralized" into regen would pass everything above and
+# silently ship anchors in out.html.
+if grep -q 'data-sync-id' "$WORKDIR/scn16-out.html"; then
+  echo "[test-browser] FAIL: the published HTML document carries sync anchors — injection must never reach the regen path (ti 490d97 §8)" >&2
+  exit 1
+fi
+
 cd "$WEB_DIR"
 
 if [[ -f "pnpm-lock.yaml" ]]; then

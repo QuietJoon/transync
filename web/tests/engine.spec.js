@@ -24,6 +24,7 @@ import {
   offsetTopOf,
   scrollTopOf,
   forwardMinorVersion,
+  readFixture,
   setScrollTop,
   waitForMounted,
   waitForScrollNear,
@@ -777,6 +778,136 @@ test.describe("sync.js mount contract", () => {
     await setScrollTop(page, SRC, (await offsetTopOf(page, SRC, "x-8888")) + 4);
     await advanceFrames(page, 45);
     expect(await scrollTopOf(page, TGT)).toBeLessThan(50);
+
+    expect(errors).toEqual([]);
+  });
+  test("m — a one-minor-newer map carrying 1.3.0's additions still drives, with the forward-drift warning", async ({
+    page,
+  }) => {
+    const logs = collectConsole(page);
+    const errors = collectPageErrors(page);
+    await installRig(page, BLOCK_IDS);
+
+    // ti 490d97 wave 6: the acceptance criterion "a 1.2.0-era engine reading
+    // a 1.3.0 map still drives", stated durably — the engine under test reads
+    // a map one minor NEWER than its own KNOWN_SCHEMA that carries exactly
+    // the 1.3.0 additions: per-row source_format, map-level input_format,
+    // and a title row with the non-sync role. forwardMinorVersion() derives
+    // the specimen from the served sync.js, keeping this the same test after
+    // every future bump.
+    const map = mapOf(BLOCK_IDS, {
+      schema_version: forwardMinorVersion(),
+      input_format: "html",
+    });
+    for (const row of map.blocks) row.source_format = "html";
+    map.blocks.push({
+      source_block_id: "title-0001",
+      target_block_id: "title-0001",
+      block_kind: "title",
+      sync_role: "non-sync",
+      // Wire spelling (§3): this row is the 1.3.0 specimen, not a rig row —
+      // the rig's `order` shorthand would undercut "carrying exactly the
+      // 1.3.0 additions".
+      source_order: map.blocks.length,
+      target_order: map.blocks.length,
+      fallback_status: "translated",
+      source_format: "html",
+    });
+
+    expect(await mount(page, map)).toBe("controller");
+    expect(
+      logs.some((m) => m.includes("is newer than this engine")),
+      "the forward-drift warning is the policy's visible half"
+    ).toBe(true);
+    expect(logs.some((m) => m.includes("rejecting alignment map"))).toBe(false);
+    // The title row is inert in every direction: no drift warning about its
+    // missing anchor (non-sync rows are skipped), and no anchor claims it.
+    expect(logs.some((m) => m.includes("title-0001"))).toBe(false);
+
+    // And it DRIVES: the reader lands on the third block, the follower comes.
+    const third = await offsetTopOf(page, TGT, "e-0003");
+    await setScrollTop(page, SRC, await offsetTopOf(page, SRC, "e-0003"));
+    await waitForScrollNear(page, TGT, third, 6);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("n — the SCN-16 HTML-run bundle's panes mount and sync by block id, direct-drive", async ({
+    page,
+  }) => {
+    const logs = collectConsole(page);
+    const errors = collectPageErrors(page);
+
+    // ti 490d97 wave 6 (spec §12's acceptance): the real bundle's pane
+    // fragments and map, driven through mountSync directly — no shell, no
+    // fetch, no DOMPurify (wave 7's scn16.spec.js drives the shipped shell).
+    const sourcePane = readFixture("scn16/source.html");
+    const targetPane = readFixture("scn16/target.html");
+    const map = JSON.parse(readFixture("scn16/alignment.json"));
+    expect(map.schema_version).toBe("1.3.0");
+    expect(map.input_format).toBe("html");
+
+    await page.goto("/");
+    await waitForMounted(page);
+    await page.evaluate(
+      ([src, tgt]) => {
+        document.body.innerHTML = "";
+        document.body.style.cssText = "display:block;margin:0;padding:0";
+        for (const [id, html] of [
+          ["eng-source", src],
+          ["eng-target", tgt],
+        ]) {
+          const pane = document.createElement("div");
+          pane.id = id;
+          pane.style.cssText =
+            "position:relative;height:200px;overflow:auto;margin:0;padding:0";
+          pane.innerHTML = html;
+          document.body.appendChild(pane);
+        }
+      },
+      [sourcePane, targetPane]
+    );
+    expect(await mount(page, map)).toBe("controller");
+
+    // D5: the title row is in the map, and NOTHING in a pane claims it.
+    expect(
+      await page.evaluate(
+        () => document.querySelectorAll('[data-sync-id^="title-"]').length
+      )
+    ).toBe(0);
+    // D9: no bare <li> as a direct pane child. The group is required by D9's
+    // model (the container is gap; only items anchor), not by any sanitizer
+    // behaviour — DOMPurify leaves a bare <li> in place, measured.
+    expect(
+      await page.evaluate(
+        () => document.querySelectorAll("#eng-source > main > li").length
+      )
+    ).toBe(0);
+
+    // Bidirectional block-id sync over real HTML-derived anchors.
+    const h2 = await page.evaluate(
+      () => document.querySelector('#eng-source [data-sync-id^="h2-"]').dataset.syncId
+    );
+    const srcTop = await offsetTopOf(page, SRC, h2);
+    const tgtTop = await offsetTopOf(page, TGT, h2);
+    await setScrollTop(page, SRC, srcTop);
+    await waitForScrollNear(page, TGT, tgtTop, 8);
+    await page.waitForTimeout(160);
+
+    // Reverse. The expectation is DERIVED from the pane's own geometry, not
+    // written as `~0`: real HTML puts its first anchor below the pane top
+    // (this fixture's `<h1>` sits at 21 px behind `<main>`'s margin), and the
+    // engine parks the reference line on the active block — so driving the
+    // target to 0 lands the source near that anchor's top, not at zero. A
+    // literal 0 here would only be true of the synthetic rig blocks, whose
+    // first anchor starts at 0; the tolerance absorbs REFERENCE_OFFSET_PX
+    // without the test hard-coding an engine internal.
+    const firstId = await page.evaluate(
+      () => document.querySelector("#eng-target [data-sync-id]").dataset.syncId
+    );
+    const firstSrcTop = await offsetTopOf(page, SRC, firstId);
+    await setScrollTop(page, TGT, 0);
+    await waitForScrollNear(page, SRC, firstSrcTop, 8);
 
     expect(errors).toEqual([]);
   });
