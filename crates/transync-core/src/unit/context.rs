@@ -164,8 +164,28 @@ pub fn build_context(doc: &Document, block_index: usize, index: &ContextIndex<'_
 /// and left emphasis, links and code spans in a string this comment called
 /// clean prose. Both effects also moved `pipeline::context_hash`, so they
 /// changed cache identity as well as what the model read.
+///
+/// ti 490d97 wave 5 (spec §6): an **Html-spelled** block's plain text is
+/// `transync_html::extract` over its source slice — texts joined with one
+/// space, trimmed. The one existing HTML opinion, entity-decoded, spelled
+/// exactly as the model sees the wire segments (the DCR-0027 property: the
+/// glossary's section selectors and the prompt's section_path must read the
+/// heading the same way). Running comrak here instead collapses every
+/// Html-spelled heading to the empty string — an `HtmlBlock` is a leaf with
+/// no inline children to walk — so the heading stacks say nothing and
+/// context identity degrades. The branch lives HERE —
+/// inside the one function `build_index`'s headings map is built from — so
+/// the map, `section_path`, and `document_title` cannot hold three
+/// projections. Extraction failure degrades to the empty string, exactly
+/// what the comrak arm yields for a fragment it cannot read: a heading
+/// context that says nothing rather than one that lies in markup.
 fn heading_plain_text(doc: &Document, b: &Block) -> String {
-    inline_plain_text(&text_from_range(doc, b), &doc.ref_defs)
+    match b.spelling {
+        crate::id::Spelling::Markdown => inline_plain_text(&text_from_range(doc, b), &doc.ref_defs),
+        crate::id::Spelling::Html { .. } => transync_html::extract(&text_from_range(doc, b))
+            .map(|segs| segs.texts.join(" ").trim().to_string())
+            .unwrap_or_default(),
+    }
 }
 
 /// Flatten one block-level Markdown fragment to the plain text of its
@@ -514,17 +534,73 @@ mod document_title_tests {
         assert_eq!(document_title(&doc).as_deref(), Some("Heading one"));
     }
 
-    /// The projection gap, pinned rather than left to be found later: a REAL
-    /// `<title>…</title>` slice reads as empty prose today, because
-    /// `heading_plain_text` runs comrak over the slice and comrak sees one
-    /// `HtmlBlock` node with no inline children to walk. Wave 5 replaces the
-    /// projection for Html-spelled blocks with `transync_html::extract(…)`
-    /// (spec §6); wave 2 owns only the SELECTION rule above. When wave 5
-    /// lands, this expectation becomes `Some("Doc name")` and this test's
-    /// name and comment go with it.
+    /// Wave 2 pinned this exact case at `Some("")` — `heading_plain_text` ran
+    /// comrak over the slice, comrak saw one HtmlBlock node with no inline
+    /// children, and a real <title> element projected to empty prose. Wave 5
+    /// replaces the projection for Html-spelled blocks with
+    /// `transync_html::extract` (spec §6): the one existing HTML opinion,
+    /// entity-decoded, spelled exactly as the model sees the wire segments.
     #[test]
-    fn a_real_title_element_projects_to_empty_prose_until_wave_5() {
+    fn a_real_title_element_projects_to_its_extracted_text() {
         let doc = hand_built_titled_document("<title>Doc name</title>");
-        assert_eq!(document_title(&doc).as_deref(), Some(""));
+        assert_eq!(document_title(&doc).as_deref(), Some("Doc name"));
+    }
+
+    /// §6: an HTML <h1>'s heading snippet is extracted plain text. Before
+    /// this wave the comrak projection COLLAPSED it instead: `<h1 …>` is a
+    /// type-6 HTML block, one leaf HtmlBlock node with no inline children
+    /// to walk, so every Html-spelled heading projected to "" — the same
+    /// mechanism wave 2's title pin records. The hazard is collapse, not
+    /// markup leakage: distinct headings dedupe to the same empty
+    /// section_path entry, the prompt loses the section story, and the
+    /// section_path half of context identity goes silent (neighbor
+    /// snippets, verbatim by design, were the only place a heading still
+    /// spoke). Entity-decoded, because that is how the model sees the wire
+    /// segments (DCR-0027's spelled-the-same property).
+    #[test]
+    fn an_html_headings_snippet_is_extracted_prose_not_tags() {
+        let mut doc = transync_syntax::intake::html::parse(
+            "<h1 id=\"top\">Anchors &amp; panes</h1>\n<p>body text</p>\n",
+        );
+        crate::id::assign_block_ids(&mut doc);
+        let index = build_index(&doc);
+        let ctx = build_context(&doc, 1, &index);
+        let path: Vec<(u8, &str)> = ctx
+            .section_path
+            .iter()
+            .map(|h| (h.level, h.text.as_str()))
+            .collect();
+        assert_eq!(
+            path,
+            vec![(1, "Anchors & panes")],
+            "extracted, entity-decoded prose — no '<', no '&amp;'",
+        );
+        assert_eq!(
+            ctx.document_title.as_deref(),
+            Some("Anchors & panes"),
+            "no Title block, so the first heading wins, through the same projection",
+        );
+    }
+
+    /// Final confirmation ii (spec §6), the recorded REJECTION: neighbor
+    /// snippets stay verbatim source excerpts for both formats. Projecting
+    /// them through `extract` was proposed and rejected — it would break the
+    /// Markdown pin above this module for a prompt-nicety, and a Markdown
+    /// neighbor summary is already raw source markup on the same terms. Do
+    /// not re-propose it; this test is the tombstone.
+    #[test]
+    fn an_html_neighbor_summary_stays_verbatim_source() {
+        let mut doc = transync_syntax::intake::html::parse(
+            "<h1 id=\"top\">Anchors &amp; panes</h1>\n<p>body text</p>\n",
+        );
+        crate::id::assign_block_ids(&mut doc);
+        let index = build_index(&doc);
+        let ctx = build_context(&doc, 1, &index);
+        assert_eq!(
+            ctx.preceding_block.map(|n| n.summary),
+            Some("<h1 id=\"top\">Anchors &amp; panes</h1>".to_string()),
+            "verbatim markup, tags and entity spelling included — deliberately \
+             NOT the extracted prose the heading stack carries",
+        );
     }
 }
