@@ -421,8 +421,11 @@ const HTML_MASS_WARN_MIN_BYTES: u64 = 512;
 /// provider calls — and ti `457e51`, by making indented code translate,
 /// removed the only thing this shape ever reported about itself. That is why
 /// the note exists rather than why it could be dropped. HTML→HTML translation
-/// is a separate, unimplemented feature (ticket `490d97`); until it exists,
-/// the honest answer to that shape is to name it.
+/// exists (ticket `490d97`): a run that declares
+/// `TranslateOptions.input_format = SourceFormat::Html` takes the HTML intake
+/// and none of the three costs above. What no library can detect is a
+/// *Markdown-declared* run that is really HTML — so the honest answer to that
+/// shape is still to name it, and now to point at the declaration.
 ///
 /// The CLI refuses the clear case up front by sniffing the preamble for
 /// `<!doctype` / `<html`, which is the cheap and certain half. This is the
@@ -438,7 +441,11 @@ const HTML_MASS_WARN_MIN_BYTES: u64 = 512;
 /// preamble declared HTML only reached this code because the flag was already
 /// passed, and a run whose preamble declared nothing is not what the flag is
 /// about. The note now states the condition and names the absent feature; what
-/// to do about it belongs to whoever owns the boundary.
+/// to do about it belongs to whoever owns the boundary. Naming
+/// `TranslateOptions.input_format` honors the same rule from the other side:
+/// it is this library's own §0 surface, the one thing every caller of this
+/// code can act on, and the pins beside this function are the weld the flag
+/// never had.
 ///
 /// **Mass, not count.** The subject is the source bytes of the blocks that
 /// actually become translation units — [`is_translatable_block`] against this
@@ -494,8 +501,9 @@ pub(crate) fn html_dominance_warning(
          an <h1> leaves them empty and the provider loses that context; and any \
          four-space-indented run becomes a code block that is translated and \
          written back FENCED, so the document changes shape and nothing \
-         reports it. HTML-to-HTML translation is not implemented \
-         (ti 490d97)"
+         reports it. If this is an HTML document, declare it: set \
+         TranslateOptions.input_format to SourceFormat::Html and it is \
+         translated as HTML (ti 490d97)"
     ))
 }
 
@@ -530,9 +538,19 @@ mod html_dominance_tests {
             w.contains("raw HTML blocks"),
             "the note must say what it is about: {w}"
         );
+        assert!(w.contains("490d97"), "the note must cite the ticket: {w}");
         assert!(
-            w.contains("490d97"),
-            "the note must name the absent feature: {w}"
+            w.contains("input_format"),
+            "the note must name the library entry point (spec §6; ti d990b6's \
+             vocabulary rule): {w}"
+        );
+        assert!(
+            !w.contains("not implemented"),
+            "the feature exists; the note must not lie in that direction: {w}"
+        );
+        assert!(
+            !w.contains("--"),
+            "never CLI vocabulary — no flag has a name here (ti d990b6): {w}"
         );
     }
 

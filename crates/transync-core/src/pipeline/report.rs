@@ -972,7 +972,20 @@ mod html_dominance_report_tests {
         );
         assert!(
             notes.iter().any(|n| n.contains("490d97")),
-            "and it must name the absent feature: {notes:?}",
+            "and it must cite the ticket: {notes:?}",
+        );
+        assert!(
+            notes.iter().any(|n| n.contains("input_format")),
+            "the note must name the library entry point (spec §6; ti d990b6's \
+             vocabulary rule): {notes:?}",
+        );
+        assert!(
+            notes.iter().all(|n| !n.contains("not implemented")),
+            "the feature exists; the note must not lie in that direction: {notes:?}",
+        );
+        assert!(
+            notes.iter().all(|n| !n.contains("--")),
+            "never CLI vocabulary — no flag has a name here (ti d990b6): {notes:?}",
         );
     }
 
