@@ -69,6 +69,15 @@ pub enum Mode {
     ///
     /// TRACE: EXT-2026-07 P1-5
     TamperPayload { from: String, to: String },
+
+    /// Echo every unit, except: the matching unit's segment-array payload
+    /// gains one appended segment ("EXTRA") — on EVERY attempt, so the
+    /// per-kind count check rejects each retry identically and the unit
+    /// exhausts into FallbackSource. Drives SCN-16's invariant-6 leg with a
+    /// real layer-2 rejection rather than a provider-declared failure.
+    ///
+    /// TRACE: SCN-16
+    AppendsExtraSegment(BlockId),
 }
 
 impl MockTranslator {
@@ -101,6 +110,10 @@ impl MockTranslator {
             from: from.to_string(),
             to: to.to_string(),
         })
+    }
+
+    pub fn appends_extra_segment(unit_id: BlockId) -> Self {
+        Self::new(Mode::AppendsExtraSegment(unit_id))
     }
 
     fn new(mode: Mode) -> Self {
@@ -166,6 +179,12 @@ impl Translator for MockTranslator {
                     _ => match &self.mode {
                         Mode::TamperPayload { from, to } => {
                             u.source_payload.replace(from.as_str(), to.as_str())
+                        }
+                        Mode::AppendsExtraSegment(target) if &u.unit_id == target => {
+                            let mut segs: Vec<String> = serde_json::from_str(&u.source_payload)
+                                .expect("an html unit's payload is a segment array");
+                            segs.push("EXTRA".to_string());
+                            serde_json::to_string(&segs).expect("serializes")
                         }
                         _ => u.source_payload.clone(),
                     },

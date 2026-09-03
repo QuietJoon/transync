@@ -39,6 +39,9 @@ mod scn_14_full;
 #[path = "scenarios/scn_15_html_blocks.rs"]
 mod scn_15_html_blocks;
 
+#[path = "scenarios/scn_16_html_document.rs"]
+mod scn_16_html_document;
+
 // EXT-2026-07 P1-5: inline-protection layer (link/image destinations +
 // policy-gated inline code spans; ADR-0012 amendment).
 #[path = "scenarios/inline_protection.rs"]
