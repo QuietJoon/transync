@@ -3,8 +3,10 @@
 //! [`validate_batch`] owns the per-batch layers, in order: schema
 //! (ID-set equality, plus the payload-byte rule the JSON schema cannot
 //! express — no NUL, ti d06c43) → per-kind shape → fragment reparse →
-//! inline protection (link/image destinations and policy-gated inline
-//! code spans; EXT-2026-07 P1-5, ADR-0012 amendment). The final layer —
+//! visible-text presence (the one content question the shape layers are
+//! blind to: did the words survive? ti c887bc) → inline protection
+//! (link/image destinations and policy-gated inline code spans;
+//! EXT-2026-07 P1-5, ADR-0012 amendment). The final layer —
 //! the full-document gate — runs once after regeneration and dispatches on
 //! `Document.format`: [`full_reparse`] for Markdown, [`full_rescan_html`]
 //! for HTML (ti 490d97 wave 4; see
@@ -20,6 +22,7 @@ pub mod full_rescan_html;
 pub mod inline;
 pub mod per_kind;
 pub mod schema;
+pub mod text_presence;
 
 use crate::FallbackStatus;
 use crate::id::BlockId;
@@ -408,6 +411,28 @@ fn validate_unit(
         fragment_reparse::reparse_fragment(&unit.block_kind, &unit.input_mode, result)
     {
         return reject(ValidationLayer::FragmentReparse, reason);
+    }
+
+    // ti c887bc: the one content question every other per-unit layer is
+    // blind to — did the words survive? The shape layers compare a heading's
+    // level, a table's geometry, a fence's info string, a list's node-kind
+    // fingerprint; a payload that keeps all of them and erases the text
+    // passes every one of them and ships as `translated`.
+    //
+    // Reported as `PerKindShape` rather than under a new layer name. This
+    // check SUBSUMES `per_kind::check_html`'s old whitespace guard, which
+    // rejected under that layer, so report rows for the case already covered
+    // stay stable — and a seventh layer name would be a second opinion about
+    // which layer owns content preservation, for a rejection the operator
+    // reads by its reason string, not by its layer.
+    //
+    // Placed after the fragment reparse deliberately: the Markdown half
+    // reads comrak's decoded text (that is what defeats an `&nbsp;` /
+    // `&#8203;` payload, which is pure ASCII in the bytes), and a payload
+    // that does not even parse as its claimed kind deserves the reparse's
+    // sharper message first.
+    if let Err(reason) = text_presence::check(unit, result) {
+        return reject(ValidationLayer::PerKindShape, reason);
     }
     // EXT-2026-07 P1-5: link/image destinations, policy-gated inline code
     // spans, and always-on raw inline HTML tags are operational metadata

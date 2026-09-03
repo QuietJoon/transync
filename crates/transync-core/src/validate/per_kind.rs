@@ -243,10 +243,28 @@ pub fn check_blockquote(constraints: &BlockConstraints, result: &UnitResult) -> 
     Ok(())
 }
 
-/// Spec §4.2 layer 2 (html): JSON array of strings, element count equals
-/// the source segment count, no blank element (source segments carry at
-/// least one non-whitespace char by construction — the extraction drop
-/// step). All retryable.
+/// Spec §4.2 layer 2 (html), SHAPE only: a JSON array of strings whose
+/// element count equals the source segment count. Retryable.
+///
+/// Blankness is NOT checked here. It used to be — one arm rejecting a
+/// segment whose chars were `all char::is_whitespace` — and that arm carried
+/// two mistakes worth remembering (ti `c887bc`):
+///
+/// 1. Its predicate missed every zero-width and format character. U+200B,
+///    U+2060, U+00AD and U+FEFF are not `White_Space`, so a segment of only
+///    those passed, spliced back as markup-preserving invisible text, and
+///    shipped as `translated` with the text gone — the exact attack the arm
+///    was written to stop, one character class over.
+/// 2. It justified being unconditional with "source segments carry at least
+///    one non-whitespace char by construction — the extraction drop step",
+///    which is false: `transync_html::extract`'s drop test is the same
+///    `char::is_whitespace`, so a zero-width-only source segment is KEPT and
+///    sent, and its faithful echo was rejected.
+///
+/// Both are fixed by making the question a comparison rather than a
+/// predicate, which needs the source payload this function does not take.
+/// It lives in [`super::text_presence`] now — one definition of "renders
+/// nothing" for this intake and the Markdown one both.
 pub fn check_html(constraints: &BlockConstraints, result: &UnitResult) -> Result<(), String> {
     let Some(h) = &constraints.html else {
         return Ok(());
@@ -258,21 +276,6 @@ pub fn check_html(constraints: &BlockConstraints, result: &UnitResult) -> Result
             "html segment count changed: expected {}, got {}",
             h.segment_count,
             segs.len()
-        ));
-    }
-    // R0003-0042: WHITESPACE-only, not just empty. The segment engine's scan
-    // drops every source text node whose decoded form is all whitespace
-    // (`kept: false`), so a segment reaching the model always carries
-    // visible text and a whitespace-only source counter-case cannot exist.
-    // Testing only `is_empty` therefore left one character class through
-    // which a provider erases visible text: `" "` splices back as markup-
-    // preserving whitespace, so every later layer — fragment reparse, full
-    // reparse, tag inventory — sees an unchanged structure and the block
-    // ships as `translated` with its text gone. Rejecting is retryable, and
-    // the correct provider answer (echo the source segment) is stated.
-    if let Some(i) = segs.iter().position(|s| s.chars().all(char::is_whitespace)) {
-        return Err(format!(
-            "html segment {i} is empty or whitespace-only; echo the source segment to preserve it"
         ));
     }
     Ok(())
@@ -482,41 +485,25 @@ mod tests {
         assert!(err.contains("segment count"), "got: {err}");
     }
 
+    /// The shape layer is text-blind on purpose now: an erased segment has
+    /// the right SHAPE, and saying so is what makes `text_presence` the one
+    /// place that owns the erasure question (ti `c887bc`). Both erasure
+    /// cases this arm used to reject — `""` and `" "` — are re-pinned as
+    /// rejections in `super::text_presence`'s tests, where the source
+    /// payload is available to scope them.
     #[test]
-    fn empty_html_segment_is_rejected() {
-        let err = check(
-            &html_constraints(2),
-            &BlockKind::Html,
-            &InputMode::HtmlSegments,
-            &unit_result("[\"ok\",\"\"]"),
-        )
-        .unwrap_err();
-        assert!(err.contains("empty"), "got: {err}");
-    }
-
-    #[test]
-    fn whitespace_only_html_segment_is_rejected() {
-        // R0003-0042: the erasure the empty check used to miss. Every
-        // whitespace form the model can emit for a segment that carried
-        // visible text — a space, a tab, a newline, a non-breaking space —
-        // is content loss, not a translation.
-        for payload in [
-            "[\"ok\",\" \"]",
-            "[\"ok\",\"\\t\"]",
-            "[\"ok\",\"\\n\"]",
-            "[\"ok\",\"\u{00a0}\"]",
-            "[\"ok\",\"  \\t \"]",
-        ] {
-            let verdict = check(
-                &html_constraints(2),
-                &BlockKind::Html,
-                &InputMode::HtmlSegments,
-                &unit_result(payload),
+    fn an_erased_segment_still_has_the_right_shape() {
+        for payload in ["[\"ok\",\"\"]", "[\"ok\",\" \"]", "[\"ok\",\"\u{feff}\"]"] {
+            assert!(
+                check(
+                    &html_constraints(2),
+                    &BlockKind::Html,
+                    &InputMode::HtmlSegments,
+                    &unit_result(payload),
+                )
+                .is_ok(),
+                "{payload}: shape is intact, so this layer must pass it",
             );
-            let Err(err) = verdict else {
-                panic!("{payload} must be rejected");
-            };
-            assert!(err.contains("whitespace-only"), "got: {err}");
         }
     }
 

@@ -5173,24 +5173,26 @@ mod html_run_tests {
     use crate::pipeline::*;
 
     /// Echo every unit; except: the unit whose id matches gets its segment
-    /// array "translated" to a single U+FEFF — the shape that passes every
+    /// array "translated" to a single U+FEFF — a shape that passes every
     /// per-unit layer and then DISSOLVES under rule T at the layer-6
     /// rescan. Only the twin can see it; that is the point.
     ///
-    /// **U+FEFF, not a space, and the difference is the whole test.** The
-    /// wave-4 plan reached for `" "`, but a space cannot get this far: the
-    /// per-kind layer rejects any segment whose chars are `all
-    /// char::is_whitespace` — a check written for exactly this attack
-    /// ("`\" \"` splices back as markup-preserving whitespace, so every
-    /// later layer sees an unchanged structure and the block ships as
-    /// translated with its text gone"). U+FEFF is **not**
-    /// `char::is_whitespace` in Rust, so it passes that layer; rule T
-    /// **does** strip it, so the run becomes textless and the block
-    /// dissolves. That gap between the two definitions is the narrow class
-    /// the layer-6 twin is the last defense for — which is precisely what
-    /// this test needs to prove the routing, and is filed as a follow-up
-    /// against the per-kind layer rather than fixed here (this wave adds no
-    /// validator).
+    /// **The lever is the SOURCE, not the substitution, and that is what
+    /// keeps this a layer-6 test.** ti `c887bc` closed the gap this test was
+    /// originally built on: the per-kind layer used to reject a segment whose
+    /// chars were `all char::is_whitespace` and nothing else, so `" "` was
+    /// caught and U+FEFF sailed through — and the wave-5 plan reached for
+    /// U+FEFF precisely because of that hole. `validate::text_presence` now
+    /// rejects both, so a run whose source carried words can no longer reach
+    /// layer 6 by erasure at all.
+    ///
+    /// Hence [`HTML_SRC_INVISIBLE_RUN`]: its anonymous run is a single ZWSP,
+    /// so the source has **no visible text to lose**, the erasure layer's
+    /// scope correctly leaves it alone, and what changes at the rescan is
+    /// purely STRUCTURAL — U+FEFF is stripped before rule T's test where
+    /// U+200B is not, so the run block dissolves. The two layers now own
+    /// disjoint failures: layer 2 owns "the words are gone", layer 6 owns
+    /// "the block is gone". This test is the second one.
     struct DissolvesRun(crate::id::BlockId);
     #[async_trait::async_trait]
     impl Translator for DissolvesRun {
@@ -5225,6 +5227,15 @@ mod html_run_tests {
     /// public surface: one <p> element block, one rule-T anonymous run.
     const HTML_SRC: &str = "<div>\n<p>keep</p>\nnaked run text\n</div>\n";
 
+    /// The same two blocks, except the anonymous run's text is a single
+    /// ZWSP: `extract` keeps it (its drop test is `all char::is_whitespace`,
+    /// and U+200B is not whitespace) so it is a real unit, and rule T mints
+    /// its run block (`any_naked_char` excludes whitespace and U+FEFF, not
+    /// U+200B). What it does not have is visible text — which is exactly why
+    /// substituting U+FEFF into it is a structural change and not an
+    /// erasure. See [`DissolvesRun`].
+    const HTML_SRC_INVISIBLE_RUN: &str = "<div>\n<p>keep</p>\n\u{200b}\n</div>\n";
+
     fn html_opts() -> crate::TranslateOptions {
         crate::TranslateOptions {
             target_language: "ko".to_string(),
@@ -5233,8 +5244,9 @@ mod html_run_tests {
         }
     }
 
-    fn run_id() -> crate::id::BlockId {
-        let doc = transync_syntax::intake::html::parse(HTML_SRC);
+    fn invisible_run_id() -> crate::id::BlockId {
+        let doc = transync_syntax::intake::html::parse(HTML_SRC_INVISIBLE_RUN);
+        assert_eq!(doc.blocks.len(), 2, "fixture sanity: <p> + rule-T run");
         doc.blocks[1].block_id.clone()
     }
 
@@ -5253,9 +5265,14 @@ mod html_run_tests {
         };
         let cache = InMemoryCache::new();
         let cache_dyn: &dyn Cache = &cache;
-        let err = run_pipeline(HTML_SRC, &opts, &DissolvesRun(run_id()), cache_dyn)
-            .await
-            .expect_err("Hard surfaces the twin's failure");
+        let err = run_pipeline(
+            HTML_SRC_INVISIBLE_RUN,
+            &opts,
+            &DissolvesRun(invisible_run_id()),
+            cache_dyn,
+        )
+        .await
+        .expect_err("Hard surfaces the twin's failure");
         let msg = err.to_string();
         assert!(
             msg.contains("full reparse failed: "),
@@ -5279,21 +5296,42 @@ mod html_run_tests {
     async fn the_default_cascade_restores_the_run_and_keeps_the_neighbor() {
         let cache = InMemoryCache::new();
         let cache_dyn: &dyn Cache = &cache;
-        let out = run_pipeline(HTML_SRC, &html_opts(), &DissolvesRun(run_id()), cache_dyn)
-            .await
-            .expect("FallbackPerBlock degrades, never aborts");
+        let out = run_pipeline(
+            HTML_SRC_INVISIBLE_RUN,
+            &html_opts(),
+            &DissolvesRun(invisible_run_id()),
+            cache_dyn,
+        )
+        .await
+        .expect("FallbackPerBlock degrades, never aborts");
         assert!(
-            out.translated_document.contains("naked run text"),
-            "the fallen block's source bytes, verbatim:\n{}",
+            out.translated_document.contains('\u{200b}'),
+            "the fallen block's source bytes, verbatim:\n{:?}",
             out.translated_document,
+        );
+        assert_eq!(
+            out.translated_document, HTML_SRC_INVISIBLE_RUN,
+            "the run is restored and the neighbour's echo is its own source, \
+             so the document is the input byte for byte",
         );
         let row = out
             .alignment_map
             .blocks
             .iter()
-            .find(|b| b.source_block_id == run_id())
+            .find(|b| b.source_block_id == invisible_run_id())
             .expect("the run keeps its row");
         assert_eq!(row.fallback_status, crate::FallbackStatus::FallbackSource);
+        let p_row = out
+            .alignment_map
+            .blocks
+            .iter()
+            .find(|b| b.source_block_id != invisible_run_id())
+            .expect("the neighbour keeps its row");
+        assert_ne!(
+            p_row.fallback_status,
+            crate::FallbackStatus::FallbackSource,
+            "per block, never per document: {p_row:?}",
+        );
     }
 
     /// Echo everything: the identity run. translated_document is the source,
@@ -5402,6 +5440,424 @@ mod html_run_tests {
             said.iter().all(|m| !m.contains("another_typo")),
             "prompt_body is not compiled by this run; a warning about it \
              would be the ed8c57 mirror-image defect: {said:?}",
+        );
+    }
+}
+
+// ti c887bc: an erasing provider, driven end to end through the public run
+// path. The unit tests in `validate::text_presence` pin the layer; these pin
+// that the layer is REACHED — on every kind, on both intakes, and that the
+// pipeline's answer is per-block fallback rather than a shipped blank.
+#[cfg(test)]
+mod text_erasure_run_tests {
+    use super::*;
+    use crate::cache::InMemoryCache;
+    use crate::id::{BlockKind, SourceFormat};
+    use crate::llm::{InputMode, OutputKind, TranslationBatch, TranslationBatchResult};
+
+    /// Every Markdown kind that becomes a unit, plus a raw-HTML island — and
+    /// deliberately **no link, no image, no inline code span, no inline raw
+    /// tag anywhere**.
+    ///
+    /// That absence is the reachability argument, not fixture laziness. With
+    /// the shipped default profile (`preserve_urls = true`,
+    /// `preserve_code_identifiers = true`) a block carrying any inline
+    /// inventory entry is already protected: erasing its text drops the
+    /// entry and `inline::check_inline` rejects on the count. Plain prose has
+    /// nothing to compare — which is why the gap survived this long, and why
+    /// a fixture that proves the erasure layer must be free of the things
+    /// that would mask it.
+    const SRC: &str = "\
+# The transync guide
+
+An ordinary paragraph of prose, with nothing inline to protect it.
+
+## Installing
+
+- install the toolchain
+- run the smoke script
+
+> A remark worth quoting.
+
+```rust
+fn main() { println!(\"hi\"); }
+```
+
+| Option | Meaning |
+| --- | --- |
+| verbose | prints more |
+
+<div class=\"note\">Click me</div>
+";
+
+    /// One zero-width space where the words were, and **every structural
+    /// fact kept** — the heading's level, the list's topology, the
+    /// blockquote's child sequence, the fence's info string, the table's
+    /// geometry, the segment count. That is the attack: each per-kind arm
+    /// compares exactly the thing this payload preserves.
+    fn erase(u: &crate::llm::TranslationUnit) -> String {
+        const ZWSP: &str = "\u{200b}";
+        match &u.input_mode {
+            InputMode::HtmlSegments => {
+                let n = serde_json::from_str::<Vec<String>>(&u.source_payload)
+                    .expect("an html unit's payload is a segment array")
+                    .len();
+                serde_json::to_string(&vec![ZWSP; n]).expect("serializes")
+            }
+            InputMode::FullCodeBlock { language_info } => {
+                let info = language_info.clone().unwrap_or_default();
+                format!("```{info}\n{ZWSP}\n```")
+            }
+            InputMode::FullTableMarkdown | InputMode::TableRowWindow { .. } => {
+                blank_cells(&u.source_payload)
+            }
+            // Keep the block's own markup prefix, replace its words with one
+            // zero-width space. The prefix charset is `#`, `>`, `-` and
+            // space only — never a digit, so no ordered-list marker is eaten
+            // (this fixture has none, and a widened charset would silently
+            // change a topology the test means to preserve).
+            InputMode::TextFragment | InputMode::ListItemContent | InputMode::BlockquoteContent => {
+                let prefix: String = u
+                    .source_payload
+                    .chars()
+                    .take_while(|c| matches!(c, '#' | '>' | '-' | ' '))
+                    .collect();
+                format!("{prefix}{ZWSP}")
+            }
+        }
+    }
+
+    /// Blank every cell, keep the pipes and the delimiter row — so
+    /// `structure::inspect_table`'s `(cols, rows, alignments)` is unchanged.
+    fn blank_cells(src: &str) -> String {
+        src.lines()
+            .map(|line| {
+                if line.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ')) {
+                    return line.to_string();
+                }
+                let mut parts: Vec<String> = line.split('|').map(str::to_string).collect();
+                let last = parts.len().saturating_sub(1);
+                for (i, part) in parts.iter_mut().enumerate() {
+                    // The pieces outside the outer pipes are not cells.
+                    if i != 0 && i != last {
+                        *part = " \u{200b} ".to_string();
+                    }
+                }
+                parts.join("|")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Erases every unit.
+    struct ErasesEverything;
+    #[async_trait::async_trait]
+    impl Translator for ErasesEverything {
+        async fn translate_batch(
+            &self,
+            batch: TranslationBatch,
+            _cancel: &crate::CancellationToken,
+        ) -> Result<TranslationBatchResult, TranslatorError> {
+            Ok(TranslationBatchResult {
+                batch_id: batch.batch_id,
+                detected_source_language: None,
+                units: batch
+                    .units
+                    .iter()
+                    .map(|u| UnitResult {
+                        unit_id: u.unit_id.clone(),
+                        output_kind: OutputKind::Translated,
+                        translated_payload: erase(u),
+                        warnings: Vec::new(),
+                    })
+                    .collect(),
+            })
+        }
+    }
+
+    /// Erases exactly one unit — the one whose kind matches — and echoes the
+    /// rest honestly.
+    struct ErasesOneKind(BlockKind);
+    #[async_trait::async_trait]
+    impl Translator for ErasesOneKind {
+        async fn translate_batch(
+            &self,
+            batch: TranslationBatch,
+            _cancel: &crate::CancellationToken,
+        ) -> Result<TranslationBatchResult, TranslatorError> {
+            Ok(TranslationBatchResult {
+                batch_id: batch.batch_id,
+                detected_source_language: None,
+                units: batch
+                    .units
+                    .iter()
+                    .map(|u| UnitResult {
+                        unit_id: u.unit_id.clone(),
+                        output_kind: OutputKind::Translated,
+                        translated_payload: if u.block_kind == self.0 {
+                            erase(u)
+                        } else {
+                            u.source_payload.clone()
+                        },
+                        warnings: Vec::new(),
+                    })
+                    .collect(),
+            })
+        }
+    }
+
+    fn opts() -> TranslateOptions {
+        TranslateOptions {
+            target_language: "ko".to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// THE proof, and the one that was red before the fix: with the erasure
+    /// layer removed, every unit here passes all nine steps of
+    /// `validate_unit`, is accepted, and `out.md` ships a document of
+    /// zero-width spaces with `fallback_status: translated` on every row and
+    /// no warning anywhere — invariant 6's "never silently corrupt the
+    /// output", violated silently. With it, every unit is rejected under
+    /// `PerKindShape`, retried to budget, and spliced back from its own
+    /// source bytes.
+    #[tokio::test]
+    async fn an_erasing_translation_falls_back_on_every_kind() {
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(SRC, &opts(), &ErasesEverything, cache_dyn)
+            .await
+            .expect("an erasing provider degrades, it does not abort");
+
+        assert!(
+            !out.translated_document.contains('\u{200b}'),
+            "out.md must carry none of the erasure:\n{}",
+            out.translated_document,
+        );
+        assert_eq!(
+            out.translated_document, SRC,
+            "every unit fell back, and a fallback splices the block's own \
+             source bytes — so the output is the input, byte for byte",
+        );
+
+        let report = &out.validation_report;
+        assert!(
+            report.per_unit.len() >= 8,
+            "fixture sanity: heading, paragraph, heading, two list items, \
+             blockquote, code block, table, html island — got {}",
+            report.per_unit.len(),
+        );
+        for record in &report.per_unit {
+            assert_eq!(
+                record.final_status,
+                FallbackStatus::FallbackSource,
+                "{} kept an erased payload: {record:?}",
+                record.unit_id,
+            );
+            for attempt in &record.attempts {
+                assert_eq!(
+                    attempt.rejected_by,
+                    Some(crate::validate::ValidationLayer::PerKindShape),
+                    "{}: {attempt:?}",
+                    record.unit_id,
+                );
+                assert!(
+                    attempt
+                        .rejection_reason
+                        .as_deref()
+                        .unwrap_or_default()
+                        .contains("no visible text"),
+                    "the erasure layer's reason, not a shape layer's: {}: {attempt:?}",
+                    record.unit_id,
+                );
+                assert!(
+                    !attempt.batch_fault,
+                    "an erased payload is the unit's own fault, not the \
+                     envelope's: {attempt:?}",
+                );
+            }
+        }
+        assert_eq!(
+            report.total_fallbacks as usize,
+            report.per_unit.len(),
+            "every unit is counted",
+        );
+        assert!(cache.is_empty(), "a rejected payload is never cached");
+    }
+
+    /// Per block, never per document (invariant 6's second half): the erased
+    /// paragraph falls back to its own source bytes and every honest
+    /// neighbour keeps its translation.
+    #[tokio::test]
+    async fn only_the_erased_block_falls_back() {
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(
+            SRC,
+            &opts(),
+            &ErasesOneKind(BlockKind::Paragraph),
+            cache_dyn,
+        )
+        .await
+        .expect("Ok");
+
+        assert!(
+            !out.translated_document.contains('\u{200b}'),
+            "the erasure never reaches out.md:\n{}",
+            out.translated_document,
+        );
+        assert!(
+            out.translated_document
+                .contains("An ordinary paragraph of prose"),
+            "the erased paragraph is restored from its own source bytes:\n{}",
+            out.translated_document,
+        );
+
+        let fell_back: Vec<_> = out
+            .alignment_map
+            .blocks
+            .iter()
+            .filter(|b| b.fallback_status == FallbackStatus::FallbackSource)
+            .collect();
+        assert_eq!(
+            fell_back.len(),
+            1,
+            "exactly one block fell back, not the document: {fell_back:?}",
+        );
+        assert_eq!(fell_back[0].block_kind, "paragraph", "{:?}", fell_back[0]);
+    }
+
+    /// The same layer on the other intake, through the HTML entry point: one
+    /// erased segment inside a declared-HTML run. This is the case the old
+    /// guard's own comment described and its predicate missed — U+200B
+    /// splices back as markup-preserving invisible text, and the layer-6
+    /// twin cannot see it because the element keeps its ledger, its gaps and
+    /// its bookkeeping. Only this layer catches an ELEMENT block; the twin's
+    /// fresh segmentation sees a rule-T anonymous run dissolve, which is a
+    /// different failure.
+    #[tokio::test]
+    async fn an_erased_segment_in_an_html_run_falls_back_alone() {
+        const HTML: &str = "<div>\n<p>Click me</p>\n<p>Body text</p>\n</div>\n";
+        let html_opts = TranslateOptions {
+            target_language: "ko".to_string(),
+            input_format: SourceFormat::Html,
+            ..Default::default()
+        };
+        // Erase the FIRST <p> only; the second echoes.
+        struct ErasesFirstP;
+        #[async_trait::async_trait]
+        impl Translator for ErasesFirstP {
+            async fn translate_batch(
+                &self,
+                batch: TranslationBatch,
+                _cancel: &crate::CancellationToken,
+            ) -> Result<TranslationBatchResult, TranslatorError> {
+                Ok(TranslationBatchResult {
+                    batch_id: batch.batch_id,
+                    detected_source_language: None,
+                    units: batch
+                        .units
+                        .iter()
+                        .map(|u| {
+                            let segs: Vec<String> =
+                                serde_json::from_str(&u.source_payload).expect("segment array");
+                            let erased = segs.iter().any(|s| s.contains("Click me"));
+                            UnitResult {
+                                unit_id: u.unit_id.clone(),
+                                output_kind: OutputKind::Translated,
+                                translated_payload: if erased {
+                                    serde_json::to_string(&vec!["\u{200b}"; segs.len()])
+                                        .expect("serializes")
+                                } else {
+                                    u.source_payload.clone()
+                                },
+                                warnings: Vec::new(),
+                            }
+                        })
+                        .collect(),
+                })
+            }
+        }
+
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(HTML, &html_opts, &ErasesFirstP, cache_dyn)
+            .await
+            .expect("per-block fallback, never an abort");
+
+        assert!(
+            !out.translated_document.contains('\u{200b}'),
+            "the erasure never reaches the output:\n{}",
+            out.translated_document,
+        );
+        assert!(
+            out.translated_document.contains("Click me"),
+            "the erased element is restored from its own source bytes:\n{}",
+            out.translated_document,
+        );
+        let fell_back: Vec<_> = out
+            .alignment_map
+            .blocks
+            .iter()
+            .filter(|b| b.fallback_status == FallbackStatus::FallbackSource)
+            .collect();
+        assert_eq!(
+            fell_back.len(),
+            1,
+            "one element block, alone: {fell_back:?}"
+        );
+    }
+
+    /// The scope, end to end: a source block that carries no visible text of
+    /// its own is not protected by this layer, because there is nothing to
+    /// protect. Its faithful echo must complete the run rather than burn a
+    /// retry budget — the false positive an unconditional predicate would
+    /// have introduced, and the reason the rule is a comparison.
+    #[tokio::test]
+    async fn a_source_without_visible_text_completes_the_run() {
+        const HTML: &str = "<div>\n<p>Real prose here</p>\n<td>\u{200b}</td>\n</div>\n";
+        let html_opts = TranslateOptions {
+            target_language: "ko".to_string(),
+            input_format: SourceFormat::Html,
+            ..Default::default()
+        };
+        struct EchoAll;
+        #[async_trait::async_trait]
+        impl Translator for EchoAll {
+            async fn translate_batch(
+                &self,
+                batch: TranslationBatch,
+                _cancel: &crate::CancellationToken,
+            ) -> Result<TranslationBatchResult, TranslatorError> {
+                Ok(TranslationBatchResult {
+                    batch_id: batch.batch_id,
+                    detected_source_language: None,
+                    units: batch
+                        .units
+                        .iter()
+                        .map(|u| UnitResult {
+                            unit_id: u.unit_id.clone(),
+                            output_kind: OutputKind::Preserved,
+                            translated_payload: u.source_payload.clone(),
+                            warnings: Vec::new(),
+                        })
+                        .collect(),
+                })
+            }
+        }
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(HTML, &html_opts, &EchoAll, cache_dyn)
+            .await
+            .expect("Ok");
+        assert_eq!(out.translated_document, HTML, "identity, byte for byte");
+        assert!(
+            out.alignment_map
+                .blocks
+                .iter()
+                .all(|b| b.fallback_status != FallbackStatus::FallbackSource),
+            "no block may fall back: {:?}",
+            out.alignment_map.blocks,
         );
     }
 }
