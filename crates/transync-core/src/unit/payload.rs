@@ -518,3 +518,174 @@ mod indented_code_payload_tests {
         }
     }
 }
+
+// ti 490d97 wave 5 (spec §6): the unit layer's HTML-document facts, proven
+// through the REAL intake for the first time — wave 2 could only hand-build
+// its Html-spelled fixtures. Each pin names the §6 decision it holds.
+#[cfg(test)]
+mod html_document_unit_tests {
+    use crate::TranslateOptions;
+    use crate::id::BlockKind;
+    use crate::llm::{InputMode, TranslationBatch, TranslationUnit};
+    use crate::unit::{build_batches, html_outcomes};
+
+    const SCN_16: &str = include_str!("../../../transync/tests/fixtures/scn-16-html-document.html");
+
+    fn units_of(src: &str) -> Vec<TranslationUnit> {
+        let mut doc = transync_syntax::intake::html::parse(src);
+        crate::id::assign_block_ids(&mut doc);
+        let outcomes = html_outcomes(&doc);
+        let opts = TranslateOptions {
+            target_language: "ko".to_string(),
+            ..TranslateOptions::default()
+        };
+        build_batches(&doc, &opts, None, &outcomes)
+            .iter()
+            .flat_map(|b: &TranslationBatch| b.units.clone())
+            .collect()
+    }
+
+    /// §6: spelling Html ⇔ InputMode::HtmlSegments, established at `assemble`
+    /// — over a whole real document, every unit, every kind. The bug that
+    /// flips it: any dispatch site re-keyed back onto the kind, which would
+    /// send an HTML document's <p>/<h1>/<table> down the Markdown arm and put
+    /// raw markup on the wire.
+    #[test]
+    fn every_unit_of_an_html_document_rides_the_segment_axis() {
+        let units = units_of(SCN_16);
+        assert!(
+            units.len() >= 10,
+            "the SCN-16 designed set batches most of its 14 blocks: {:?}",
+            units
+                .iter()
+                .map(|u| u.unit_id.0.as_str())
+                .collect::<Vec<_>>(),
+        );
+        for u in &units {
+            assert!(
+                matches!(u.input_mode, InputMode::HtmlSegments),
+                "{} ({:?}) must be html_segments, got {:?}",
+                u.unit_id,
+                u.block_kind,
+                u.input_mode,
+            );
+            let h = u
+                .constraints
+                .html
+                .as_ref()
+                .unwrap_or_else(|| panic!("{} carries constraints.html", u.unit_id));
+            // §6: `0` is the sentinel — "a block of an HTML document, where no
+            // CommonMark type applies". An island can never be 0 (comrak's
+            // types are 1–7), which is what Task 5's instruction derivation
+            // leans on.
+            assert_eq!(h.block_type, 0, "{}", u.unit_id);
+            // §6: the payload is a JSON segment array; markup stays in
+            // `source_bytes` and never reaches the wire.
+            assert!(
+                u.source_payload.starts_with('['),
+                "{} payload must be a JSON array: {:?}",
+                u.unit_id,
+                u.source_payload,
+            );
+        }
+    }
+
+    /// §6: NO Markdown structural constraints for HTML units — they are
+    /// prompt-visible hints about structure the model cannot touch, and the
+    /// layer-3 ledger is strictly stronger. The bug that flips it: someone
+    /// "improving" `assemble`'s Html arm to also call `constraints_for`,
+    /// which would put table-column and heading-level hints on a wire whose
+    /// payload carries no table and no heading.
+    #[test]
+    fn html_units_carry_no_markdown_structural_constraints() {
+        let units = units_of(SCN_16);
+        let table = units
+            .iter()
+            .find(|u| matches!(u.block_kind, BlockKind::Table))
+            .expect("the fixture's <table> is a unit");
+        assert_eq!(table.constraints.must_preserve_table_columns, None);
+        assert_eq!(table.constraints.must_preserve_table_row_count, None);
+        assert_eq!(table.constraints.must_preserve_table_alignment, None);
+        let h1 = units
+            .iter()
+            .find(|u| matches!(u.block_kind, BlockKind::Heading1))
+            .expect("the fixture's <h1> is a unit");
+        assert_eq!(h1.constraints.must_preserve_heading_level, None);
+        for u in &units {
+            assert!(!u.constraints.must_preserve_list_topology, "{}", u.unit_id);
+            assert_eq!(u.constraints.expected_list_topology, None, "{}", u.unit_id);
+            assert_eq!(
+                u.constraints.expected_blockquote_children, None,
+                "{}",
+                u.unit_id
+            );
+            assert_eq!(
+                u.constraints.must_preserve_code_fence_info, None,
+                "{}",
+                u.unit_id
+            );
+        }
+    }
+
+    /// §6: branching on spelling FIRST is what structurally prevents
+    /// (CodeBlock × Html) from reaching `code_payload`'s indented-block
+    /// re-fencing. The branch order is the guarantee, not a convention: a
+    /// kind-first `assemble` would make correctness depend on the intake
+    /// always stamping `fenced: true` on a <pre> — one field value away from
+    /// DCR-0031's Markdown-only fence synthesizer wrapping raw HTML in
+    /// backticks and shipping it as a full_code_block. The payload assertion
+    /// below is the one a re-fenced unit cannot pass.
+    #[test]
+    fn an_html_documents_pre_is_a_segment_unit_and_never_re_fenced() {
+        let units = units_of("<div>\n<pre>let s = \"```\";</pre>\n</div>\n");
+        assert_eq!(units.len(), 1, "one <pre> leaf");
+        let u = &units[0];
+        assert!(
+            matches!(u.block_kind, BlockKind::CodeBlock { .. }),
+            "{:?}",
+            u.block_kind
+        );
+        assert!(
+            matches!(u.input_mode, InputMode::HtmlSegments),
+            "{:?}",
+            u.input_mode
+        );
+        assert!(
+            !u.source_payload.starts_with('`'),
+            "the fence synthesizer must be unreachable for an Html-spelled \
+             block: {:?}",
+            u.source_payload,
+        );
+        assert!(
+            u.source_payload.starts_with('['),
+            "segments, not markdown: {:?}",
+            u.source_payload
+        );
+    }
+
+    /// §6/§4: the never-batched HTML kinds — an image run and an <hr> extract
+    /// zero segments and are preserved, not translated. The bug that flips
+    /// it: an outcome re-key that stops consulting the extraction outcome for
+    /// Html-spelled blocks and batches them by kind alone.
+    #[test]
+    fn zero_segment_html_blocks_are_not_units() {
+        let units = units_of(SCN_16);
+        let ids: Vec<&str> = units.iter().map(|u| u.unit_id.0.as_str()).collect();
+        assert!(
+            !ids.contains(&"img-0007"),
+            "the badge pair extracts no text: {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"hr-0012"),
+            "a thematic break extracts no text: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"title-0001"),
+            "the <title> IS a unit (D5): {ids:?}"
+        );
+        assert!(
+            ids.contains(&"html-0013"),
+            "the custom element IS a unit (D4): {ids:?}"
+        );
+    }
+}
