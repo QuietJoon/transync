@@ -23,6 +23,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Where a scratch workdir goes — one rule for all five scripts (ti `13a73b`).
+# shellcheck source-path=SCRIPTDIR source=lib/workdir.sh
+source "$REPO_ROOT/scripts/lib/workdir.sh"
 export TRANSYNC_LIVE_INPUT="${TRANSYNC_LIVE_INPUT:-${REPO_ROOT}/samples/demo-long.md}"
 
 # Use a separate workdir + port so concurrent runs of smoke-live.sh and
@@ -30,11 +33,7 @@ export TRANSYNC_LIVE_INPUT="${TRANSYNC_LIVE_INPUT:-${REPO_ROOT}/samples/demo-lon
 # for the same demo-server port. R0008-0054: mirror smoke-live.sh's
 # portable fallback so a contributor without /Volumes/Temp/claude gets a
 # working default instead of a permission/path failure.
-DEFAULT_LONG_WORKDIR="/Volumes/Temp/claude/transync-live-long"
-if [[ ! -d "$(dirname "$DEFAULT_LONG_WORKDIR")" ]]; then
-  DEFAULT_LONG_WORKDIR="${TMPDIR:-/tmp}/transync-live-long"
-fi
-export TRANSYNC_LIVE_WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_LONG_WORKDIR}"
+DEFAULT_LONG_WORKDIR="$(transync_pick_workdir TRANSYNC_LIVE_WORKDIR /Volumes/Temp/claude/transync-live-long)"export TRANSYNC_LIVE_WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_LONG_WORKDIR}"
 export TRANSYNC_LIVE_PORT="${TRANSYNC_LIVE_PORT:-7471}"
 
 exec "$(dirname "$0")/smoke-live.sh"

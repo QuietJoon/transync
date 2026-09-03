@@ -35,6 +35,14 @@ reader where to look.
 Suite plumbing lives under `web/` (`package.json`, `playwright.config.js`,
 `tests/`); `pnpm` is the package manager (workspace convention).
 
+Run the suite through `scripts/test-browser.sh`, not through a bare
+`pnpm exec playwright test`. The script regenerates the bundle first; the bare
+command validates whatever the last run left behind. Since ti `ed2e73` the
+config refuses a bundle older than `crates/`, `web/js`, `web/vendor`,
+`web/wasm` or the shell HTML — `web/tests` is excluded, so editing a spec and
+re-running bare still works, which is what that loop is for. Set
+`TRANSYNC_ALLOW_STALE_FIXTURE=1` to downgrade the refusal to a warning.
+
 ## Fallback: manual smoke checklist
 
 The manual run below remains a fallback when a browser-capable

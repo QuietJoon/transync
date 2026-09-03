@@ -46,6 +46,9 @@ cd "$REPO_ROOT"
 # Deletion guard for the env-overridable workdir — see the file for the rule.
 # shellcheck source-path=SCRIPTDIR source=lib/workdir-guard.sh
 source "$REPO_ROOT/scripts/lib/workdir-guard.sh"
+# Where a scratch workdir goes — one rule for all five scripts (ti `13a73b`).
+# shellcheck source-path=SCRIPTDIR source=lib/workdir.sh
+source "$REPO_ROOT/scripts/lib/workdir.sh"
 
 if [[ -z "${OPENAI_API_KEY:-}" ]]; then
   echo "[smoke-live] OPENAI_API_KEY is not set." >&2
@@ -58,11 +61,7 @@ TARGET_LANG="${TRANSYNC_LIVE_TARGET_LANG:-ko}"
 # Default workdir prefers /Volumes/Temp/claude (per project guidance) but
 # falls back to a system tmpdir when that path doesn't exist, so the
 # script is portable for contributors without that volume mounted.
-DEFAULT_WORKDIR="/Volumes/Temp/claude/transync-live"
-if [[ -z "${TRANSYNC_LIVE_WORKDIR:-}" ]] && [[ ! -d "$(dirname "$DEFAULT_WORKDIR")" ]]; then
-  DEFAULT_WORKDIR="${TMPDIR:-/tmp}/transync-live"
-fi
-WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_WORKDIR}"
+DEFAULT_WORKDIR="$(transync_pick_workdir TRANSYNC_LIVE_WORKDIR /Volumes/Temp/claude/transync-live)"WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_WORKDIR}"
 PORT="${TRANSYNC_LIVE_PORT:-7470}"
 BIND="${TRANSYNC_LIVE_BIND:-127.0.0.1}"
 

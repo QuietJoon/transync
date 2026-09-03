@@ -48,6 +48,9 @@ OUT_DIR="$WEB_DIR/wasm"
 # file; never a mere 'transync-' basename).
 # shellcheck source-path=SCRIPTDIR source=lib/workdir-guard.sh
 source "$REPO_ROOT/scripts/lib/workdir-guard.sh"
+# Where a scratch workdir goes — one rule for all five scripts (ti `13a73b`).
+# shellcheck source-path=SCRIPTDIR source=lib/workdir.sh
+source "$REPO_ROOT/scripts/lib/workdir.sh"
 
 # Raw / gzip ceilings for the emitted module, owner-approved 2026-08-05.
 # The module measures 1,639,520 B raw / 671,795 B gzip today; the ceilings sit
@@ -75,11 +78,7 @@ MAX_GZ=760000
 # directory is refused exactly as before; what changed is that the root is no
 # longer wiped wholesale at start (that is what made two concurrent runs delete
 # each other's build — R0003-0083).
-STAGING_ROOT="${TRANSYNC_WASM_STAGING:-/Volumes/Temp/claude/transync-wasm-pkg}"
-if [[ ! -d "$(dirname "$STAGING_ROOT")" ]]; then
-  STAGING_ROOT="${TMPDIR:-/tmp}/transync-wasm-pkg"
-fi
-
+STAGING_ROOT="$(transync_pick_workdir TRANSYNC_WASM_STAGING /Volumes/Temp/claude/transync-wasm-pkg)"
 transync_guard_workdir build-wasm TRANSYNC_WASM_STAGING "$STAGING_ROOT"
 
 if ! command -v wasm-pack >/dev/null 2>&1; then

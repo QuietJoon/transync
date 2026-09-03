@@ -60,6 +60,103 @@ if (!fs.existsSync(FIXTURE_DIR)) {
   );
 }
 
+// A bundle OLDER than the code that produces it is a pass against content the
+// suite never built (ti `ed2e73`).
+//
+// scripts/test-browser.sh regenerates everything and then ends in a bare
+// `pnpm exec playwright test`. Running that bare command directly — one
+// `pnpm test` away — skips the regeneration and validates whatever the last
+// full run left behind. The wave plans document that inner loop as a
+// legitimate speed-up with the caveat that a pass must be re-confirmed by a
+// full script run before a commit, and nothing ENFORCED the caveat: a stale
+// bundle produces a confident green describing code no longer on disk.
+//
+// This is the same shape, and the same remedy, as `reuseExistingServer` below
+// (R0009-0017): refuse by default, opt back in when you know what you have.
+//
+// `web/tests/**` is deliberately NOT an input. Editing a spec is exactly the
+// case the inner loop exists for, and making that re-run the whole script
+// would delete the affordance rather than guard it.
+//
+// TWO HONEST LIMITS, so nobody reads this as proof:
+//
+//   1. INPUTS ARE HAND-LISTED. This is a second statement of "what feeds the
+//      bundle" — the first is test-browser.sh's own build and copy legs — and
+//      it will drift when a leg is added. It is a floor, not a fence.
+//   2. mtime IS A HEURISTIC, and it fails in one direction silently: checking
+//      out an older branch leaves sources OLDER than the fixture, so the check
+//      passes while the suite tests different code. Only "the bare path re-runs
+//      the script" cannot lie, and that would remove the inner loop entirely.
+//
+// It does catch the case that found this ticket, which a bundle-content hash
+// cannot: a Rust edit that was never built. The binary is unchanged, so its
+// bytes match — but its source is newer than the bundle, and that is what this
+// compares.
+const BUNDLE_INPUTS = ["crates", "web/js", "web/vendor", "web/wasm"];
+const BUNDLE_INPUT_FILES = ["web/index.html", "web/demo-wasm.html"];
+const REPO_ROOT = path.resolve(CONFIG_DIR, "..");
+
+/** Newest mtime under `dir`, skipping build output. `0` when absent. */
+function newestMtime(dir) {
+  let newest = 0;
+  const walk = (abs) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(abs, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      // `target` is cargo's output and `node_modules` is pnpm's; both churn
+      // constantly and neither feeds the bundle.
+      if (entry.name === "target" || entry.name === "node_modules") continue;
+      const child = path.join(abs, entry.name);
+      if (entry.isDirectory()) {
+        walk(child);
+      } else {
+        try {
+          newest = Math.max(newest, fs.statSync(child).mtimeMs);
+        } catch {
+          /* raced away between readdir and stat; not our business */
+        }
+      }
+    }
+  };
+  walk(dir);
+  return newest;
+}
+
+const fixtureBuiltAt = newestMtime(FIXTURE_DIR);
+let newestInput = 0;
+let newestInputPath = null;
+for (const rel of [...BUNDLE_INPUTS, ...BUNDLE_INPUT_FILES]) {
+  const abs = path.join(REPO_ROOT, rel);
+  const at = fs.existsSync(abs) && fs.statSync(abs).isDirectory()
+    ? newestMtime(abs)
+    : (fs.existsSync(abs) ? fs.statSync(abs).mtimeMs : 0);
+  if (at > newestInput) {
+    newestInput = at;
+    newestInputPath = rel;
+  }
+}
+
+if (fixtureBuiltAt > 0 && newestInput > fixtureBuiltAt) {
+  const age = Math.round((newestInput - fixtureBuiltAt) / 60_000);
+  const message = [
+    `The bundle at ${FIXTURE_DIR} is older than the code that produces it.`,
+    `Newest input: ${newestInputPath} (${age} minute(s) newer than the bundle).`,
+    "A run against it would green a bundle that predates your edits.",
+    "Regenerate and run the suite with:  ./scripts/test-browser.sh",
+    "Set TRANSYNC_ALLOW_STALE_FIXTURE=1 to downgrade this to a warning when you",
+    "know the bundle is current for what you are testing (e.g. a spec-only edit).",
+  ].join("\n");
+  if (process.env.TRANSYNC_ALLOW_STALE_FIXTURE === "1") {
+    process.stderr.write(`playwright.config.js: WARNING — stale bundle\n${message}\n`);
+  } else {
+    throw new Error(message);
+  }
+}
+
 // The built `transync` binary, when scripts/test-browser.sh resolved one.
 const SERVE_BIN = process.env.TRANSYNC_SERVE_BIN;
 

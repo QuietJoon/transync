@@ -24,13 +24,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 'transync-' basename. The rule lives in one place; read it there.
 # shellcheck source-path=SCRIPTDIR source=lib/workdir-guard.sh
 source "$REPO_ROOT/scripts/lib/workdir-guard.sh"
+# Where a scratch workdir goes — one rule for all five scripts (ti `13a73b`).
+# shellcheck source-path=SCRIPTDIR source=lib/workdir.sh
+source "$REPO_ROOT/scripts/lib/workdir.sh"
 
-WORKDIR="${TRANSYNC_SMOKE_WORKDIR:-/Volumes/Temp/claude/transync-smoke}"
-
-if [[ ! -d "$(dirname "$WORKDIR")" ]]; then
-  WORKDIR="${TMPDIR:-/tmp}/transync-smoke"
-fi
-
+WORKDIR="$(transync_pick_workdir TRANSYNC_SMOKE_WORKDIR /Volumes/Temp/claude/transync-smoke)"
 transync_guard_workdir smoke TRANSYNC_SMOKE_WORKDIR "$WORKDIR"
 
 rm -rf "$WORKDIR"
