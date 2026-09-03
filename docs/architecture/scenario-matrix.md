@@ -2,7 +2,7 @@
 
 The canonical contract for every MVP scenario. Each row is the test harness reference; the brainstorming spec §11 is the prose summary.
 
-`SCN-01`..`SCN-14` are the MVP gate. `SCN-15` is **post-MVP** coverage added by the HTML-content translation wave (ADR-0018 / DCR-0016) and is held to the same contract discipline.
+`SCN-01`..`SCN-14` are the MVP gate. `SCN-15` is **post-MVP** coverage added by the HTML-content translation wave (ADR-0018 / DCR-0016) and is held to the same contract discipline. `SCN-16` is **post-MVP** coverage added by the HTML→HTML document-translation wave (ADR-0025, ti `490d97`, DCR-0032..0039) and is held to the same contract discipline.
 
 Verification key:
 - **Unit** — covered by `cargo test -p <crate>` against in-memory fixtures.
@@ -27,6 +27,7 @@ Verification key:
 | SCN-13 | Sync       | Demo page loaded in a browser pointed at SCN-12 output                      | Scrolling the source pane drives the target pane to the matching block; reverse direction works; rapid scrolling does not oscillate; resize preserves correspondence | Smoke (Playwright `web/tests/scn13.spec.js`) |
 | SCN-14 | Reparse    | `TranslationOutput.translated_document` from any other SCN                  | Re-parsed via Comrak the document yields the same block-kind sequence and the same block count as the source IR | Integration |
 | SCN-15 | HTML       | README-shaped fixture with the real HTML shapes: an interleaved `<details>` region (blank lines + Markdown body + a bare `</details>` closing fragment), a `<div align="center">` hero, an HTML `<table>`, a comment-only block, a `<pre>` with interior blank lines, and inline `<kbd>` in prose | Text segments translate while markup survives byte-exactly; `out.md` carries the spliced fragments; alignment rows are `block_kind: "html"` with the counting rule applied (unit-backed counted; zero-segment and extraction-failed uncounted, each with a warning row); both panes live-render the successful blocks (no `<pre data-skipped>` for them) and a failed unit renders the escaped placeholder; cached html units replay with no provider call | Integration + Smoke (Playwright test **h**) |
+| SCN-16 | HTML       | `transync translate --input-format html` over `crates/transync/tests/fixtures/scn-16-html-document.html` — doctype, head+title, nested sections, script/style, entities, an unclosed fragment | Translated HTML byte-identical outside text nodes; per-block fallback splices source bytes verbatim; the map is schema 1.3.0 with `input_format: "html"` and every row's `source_format` declared; the `<title>` row is `block_kind: "title"` with `sync_role: "non-sync"`; the published `out.html` is anchor-free; the bundle's panes mount and sync bidirectionally by block id with the title absent from both panes and no console warnings | Integration + CLI + Smoke (Playwright `web/tests/scn16.spec.js`) |
 
 > **SCN-10 extends across processes since DCR-0028 (2026-08-09).** Partial
 > resume was a single-process property — the cache lived in the `translate`
@@ -91,7 +92,7 @@ Verification key:
 
 ## Block-kind coverage
 
-The fixture set must collectively exercise every supported GFM block kind at least once across SCN-01 through SCN-06 (plus SCN-15 for the HTML kind):
+The fixture set must collectively exercise every supported GFM block kind at least once across SCN-01 through SCN-06 (plus SCN-15 for the HTML kind, and SCN-16 for the HTML-document population — every kind the HTML intake emits, `title` included):
 
 | Block kind     | Covering scenarios |
 |----------------|--------------------|
@@ -105,11 +106,14 @@ The fixture set must collectively exercise every supported GFM block kind at lea
 | Thematic break | SCN-12 (incidental in `scn-14-full.md`) |
 | Image          | SCN-12 (incidental in `scn-14-full.md`) |
 | HTML block     | SCN-15, SCN-14 (appended tail in `scn-14-full.md`) |
+| Title (HTML document) | SCN-16 |
+| HTML-document blocks (every kind under `Spelling::Html`, `BlockKind::Html` for custom elements included) | SCN-16 |
 
 ## Out-of-scope scenarios (will not be in the matrix)
 
 - Sentence-level sync (NG3).
 - Live-edit re-anchoring (NG4).
 - MDX, YAML frontmatter, math (NG2). *(Raw HTML left this list on 2026-08-04 — block-level HTML content is translatable and covered by SCN-15; see ADR-0018 / DCR-0016. Attribute text, `<template>` content, and HTML nested inside list items/blockquotes remain out of scope.)*
+- HTML-document **attribute text** (`alt`, `title`, `placeholder`, `og:*`) and HTML documents in the **wasm demo** (its render path remains Markdown-only). *(Recorded with ADR-0025 on wave 2's execution date, ti `490d97`, when whole HTML documents became first-class input via `--input-format html`. HTML documents were never on this list — the CLI's preamble-sniff refusal, not an out-of-scope entry, is what had kept them out — so this bullet records what the feature deliberately leaves out rather than striking anything. The attribute-text limitation is the one ADR-0025 names, visible as a shared link previewing in the source language.)*
 - WASM rendering path (post-MVP).
 - Cross-machine deployment (no such thing in `transync` — the CLI is local-only).
