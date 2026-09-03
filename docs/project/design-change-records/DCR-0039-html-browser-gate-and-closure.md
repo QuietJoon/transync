@@ -346,24 +346,28 @@ the A–I batch above remains the owner's to apply.
   (`acceptance-surface.txt`).
 - The baselines this wave started from, all green (`baseline-*.txt`).
 
-**NOT proven, and deliberately not claimed: the closing full `cargo test --workspace`
-and `cargo test -p transync-cli --features test-stub-provider` runs.** Both suites
-contain tests that **spawn the built `transync` binary**, and on this machine macOS
-Gatekeeper/`syspolicyd` intermittently parks a spawned binary before it executes —
-measured repeatedly during this wave: `0.0% CPU, 0:00.00 total CPU time` over 5+
-minutes of elapsed time on a binary whose bytes had not changed since a run that
-succeeded half an hour earlier. It cleared spontaneously twice (once after ~11 minutes,
-once after 3 seconds) and then recurred. The captures for those two runs have **no exit
-marker**, which per this repository's own rule is *lost evidence, never green*, so no
-number from them is recorded here.
+- `cargo test --workspace -- --test-threads=4` — **46 binaries, 1291 passed, 0 failed,
+  `CARGO_EXIT=0`** (`t8-workspace.txt`). Every docs-drift weld green, `docs_index_drift`
+  included.
+- `cargo test -p transync-cli --features test-stub-provider -- --test-threads=4` —
+  **8 binaries, 217 passed, 0 failed, `CARGO_EXIT=0`** (`t8-cli.txt`).
+- `cargo check -p transync-syntax -p transync-wasm --target wasm32-unknown-unknown` —
+  `CARGO_EXIT=0`, the gate's string unchanged (`t8-wasm.txt`).
 
-What this does and does not mean: every document edit in this wave is inert to the Rust
-suites except through the docs-drift welds, and those were run and captured green around
-each commit that touched a guarded document. The remaining exposure is the welds this
-wave did not individually re-run (`docs_gate_claims_drift`, `docs_ownership_drift`,
-`reader_honesty`, `docs_cli_flags_drift`, `docs_index_drift`, `exit_code_docs_drift`).
-The full-suite run should be repeated once the machine condition is cleared — the
-documented remedy is a reboot — and the result appended here.
+**One incident worth recording, because it cost three lost captures before those two
+suites were obtained.** Both suites contain tests that **spawn the built `transync`
+binary**, and on this machine macOS Gatekeeper/`syspolicyd` intermittently parks a
+spawned binary *before it executes*: measured at `0.0% CPU, 0:00.00 total CPU time` over
+5+ minutes of elapsed time, on a binary whose bytes had not changed since a run that had
+succeeded half an hour earlier — so it is not rebuild invalidation. It happened to three
+different binaries during this wave, cleared spontaneously each time (after ~11 minutes,
+after 3 seconds, and after 105 seconds), and the fix that worked was simply to exec the
+binary directly and wait for the assessment to finish before running the suite. The
+three captures taken while a binary was parked carry **no exit marker**, which per this
+repository's own rule is *lost evidence, never green* — no number from them appears
+anywhere in this record, and the numbers above are from the runs that completed. The
+signature to recognize it by is the CPU time, not the elapsed time: `0:00.00` means the
+process never started, so it is not a hang and killing it diagnoses nothing.
 
 ## Feature status, and what closure does not claim
 

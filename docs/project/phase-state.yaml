@@ -408,10 +408,18 @@ project:
     is an HTML item, half the OI-0035 record gap had already been fixed by the
     2026-08-24 reopen sweep, and template-webcomponent-extraction is Type 3 now.
     Acceptance: scripts/test-browser.sh 42 passed exit 0 with the three scn16
-    tests listed; four probe captures each PW_EXIT non-zero; the diff over
-    crates/ and web/js/ names exactly one file, the weld test, and the diff over
-    fixtures, web/js and web/tests/support is EMPTY. The v0.5.0 cut is a
-    separate owner decision via the release checklist.
+    tests listed; four probe captures each PW_EXIT non-zero; workspace 46
+    binaries / 1291 passed / 0 failed exit 0 with every docs-drift weld green;
+    CLI stub suite 217 passed exit 0; two-package wasm gate exit 0 with its
+    string unchanged; the diff over crates/ and web/js/ names exactly one file,
+    the weld test, and the diff over fixtures, web/js and web/tests/support is
+    EMPTY. Three captures were LOST on the way to those numbers to a macOS
+    Gatekeeper condition that parks a spawned binary before it executes - 0
+    percent CPU and 0:00.00 total CPU time over 5+ minutes on bytes that had
+    not changed since a successful run - and none of the lost captures
+    contributed a number, since a missing exit marker is lost evidence and
+    never green. The v0.5.0 cut is a separate owner decision via the release
+    checklist.
     sync_js_drift green at zero edits to either test file. WAVE 7 - the
     browser gate and closure - IS THE LAST and remains unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
     most recent release is still v0.4.0, and the owner's condition for closing
