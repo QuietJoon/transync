@@ -50,6 +50,18 @@ const SMOOTHING_FACTOR = 0.2;
 // target exactly and end the animation loop.
 const SETTLE_THRESHOLD_PX = 0.5;
 
+// How far a pane may sit from the value the smooth loop last assigned it
+// before the loop concludes that something else moved it. Read-back, not
+// assignment, is the baseline (see `ensureSmoothLoop`), so this absorbs only
+// the browser's own quantizing of a fractional scrollTop — a genuine scroll
+// is orders of magnitude larger. Nothing here sets `scroll-behavior: smooth`,
+// so an assignment lands synchronously and the read-back is meaningful.
+//
+// ti 7936c2: without this the loop could drag a pane back to a stale
+// destination, overriding a real scroll and — because it re-arms the lock on
+// every frame — swallowing that scroll instead of letting the pane drive.
+const EXTERNAL_SCROLL_TOLERANCE_PX = 2;
+
 /**
  * Mount the sync engine over two pane DOM elements.
  *
@@ -168,6 +180,13 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
     rafScheduled: { source: false, target: false },
     scrollRafId: { source: null, target: null },
     targets: { source: null, target: null },
+    // The scrollTop each pane's smooth loop last assigned it, read back after
+    // the write, and the scrollHeight the pane had at that moment. `null`
+    // whenever no loop owns the pane. Together they tell our own animation
+    // apart from an external scroll — the height is what keeps a CONTENT
+    // reflow out of that category (ti 7936c2).
+    lastAssigned: { source: null, target: null },
+    lastAssignedHeight: { source: null, target: null },
     smoothLoopActive: { source: false, target: false },
     smoothLoopRafId: { source: null, target: null },
     // Which pane last drove the other — the pane a reflow recompute
@@ -923,6 +942,8 @@ function wirePane(ctx) {
     }
     state.smoothLoopActive[label] = false;
     state.targets[label] = null;
+    state.lastAssigned[label] = null;
+    state.lastAssignedHeight[label] = null;
     state.lockUntil[label] = 0;
   };
   pane.addEventListener("scroll", onScroll, { passive: true });
@@ -949,8 +970,86 @@ function wirePane(ctx) {
   };
 }
 
+/**
+ * Has something other than our own smooth loop moved `pane`?
+ *
+ * True when the pane sits further than [`EXTERNAL_SCROLL_TOLERANCE_PX`] from
+ * the value that loop last read back. `null` means no loop has ever written
+ * this pane, so there is nothing to be away from.
+ *
+ * TRACE: ti 7936c2
+ */
+/**
+ * Has something other than our own smooth loop **scrolled** `pane`?
+ *
+ * Two conditions, and the second is the one that took a regression to find.
+ * The position must have moved away from what the loop last read back — and
+ * the pane's `scrollHeight` must be **unchanged**, because a content reflow
+ * moves blocks under a fixed scrollTop (and can make the browser adjust
+ * scrollTop itself to preserve anchoring) without the reader having scrolled
+ * anything. The engine already owns that case: the disclosure mirror and the
+ * ResizeObserver recompute re-drive the follower deliberately. Treating a
+ * reflow as a takeover flipped that recompute's direction and moved the
+ * reader's own pane — `engine.spec.js` leg j catches it, and did.
+ *
+ * The baseline outlives the loop that set it, which is what covers the 90 ms
+ * post-settle lock window — the window `scn13.spec.js` leg k lands in, where
+ * a scroll would otherwise be absorbed with no loop running and no baseline to
+ * notice it. Keeping it is only safe *because* of the height condition: the
+ * two rules were adopted together, and each without the other turns one of the
+ * two browser legs red (measured, not assumed — leg j without the height
+ * check, leg k without the persistence).
+ *
+ * TRACE: ti 7936c2
+ */
+function movedExternally(pane, label, state) {
+  const assigned = state.lastAssigned[label];
+  if (assigned == null) return false;
+  if (state.lastAssignedHeight[label] !== pane.scrollHeight) return false;
+  return Math.abs(pane.scrollTop - assigned) > EXTERNAL_SCROLL_TOLERANCE_PX;
+}
+
+/**
+ * Drop this pane's in-flight follow and its lock, and make it the driver.
+ *
+ * Called when the pane has been scrolled by someone else: the destination it
+ * was animating toward describes where the reader *was*, and the lock exists
+ * only to absorb our own cascade events. Keeping either would fight the
+ * scroll that just arrived.
+ *
+ * **Deliberately does not touch `state.lastDriver`.** `handleScroll` sets
+ * that once it has actually decided to drive, and `releaseDriverLock` sets it
+ * on a real gesture. Writing it here instead made a *follower's* content
+ * reflow — a `<details>` mirror growing the pane — read as a takeover and
+ * flipped the recompute's direction, which `engine.spec.js` leg j catches.
+ *
+ * TRACE: ti 7936c2
+ */
+function abandonFollow(label, state) {
+  if (state.smoothLoopRafId[label] != null) {
+    cancelAnimationFrame(state.smoothLoopRafId[label]);
+    state.smoothLoopRafId[label] = null;
+  }
+  state.smoothLoopActive[label] = false;
+  state.targets[label] = null;
+  state.lastAssigned[label] = null;
+  state.lastAssignedHeight[label] = null;
+  state.lockUntil[label] = 0;
+}
+
 function handleScroll(ctx) {
   const { pane, partner, label, partnerLabel, state, blocks, partnerById } = ctx;
+  // ti 7936c2: an external scroll is detectable HERE, where its own event is
+  // the signal — the pane is no longer where our loop last put it. Checked
+  // BEFORE the lock, because the lock is the thing that would swallow it:
+  // `releaseDriverLock` covers a gesture takeover, but it listens for
+  // wheel/touchstart/pointerdown/keydown and a scroll can arrive with none of
+  // them (`scrollIntoView`, find-in-page, scroll restoration, an embedder, a
+  // test harness). Before this, such a scroll was lerped back to a stale
+  // destination AND suppressed, so it neither survived nor drove the partner.
+  if (movedExternally(pane, label, state)) {
+    abandonFollow(label, state);
+  }
   // Only ignore scroll events on THIS pane that come from our own
   // programmatic scrollTop assignments. User-driven scrolls on the
   // OTHER pane (which is the input side here) must not be blocked.
@@ -1002,20 +1101,53 @@ function handleScroll(ctx) {
  * `pane.scrollTop = ...` does not bounce back into `handleScroll(pane)`
  * and try to drive the OTHER pane.
  *
+ * **Abandons itself when something else moves the pane** (ti `7936c2`):
+ * each moving frame records the scrollTop it read back, and a pane found
+ * more than `EXTERNAL_SCROLL_TOLERANCE_PX` away from that value has been
+ * scrolled by someone else, so the loop drops its destination and its
+ * lock. `releaseDriverLock` covers the gesture-driven takeover, but it is
+ * bound to wheel/touchstart/pointerdown/keydown and a scroll can arrive
+ * with none of them; before this check such a scroll was lerped away AND
+ * suppressed, because the per-frame lock arming also silences
+ * `handleScroll`.
+ *
  * TRACE: SCN-13
  */
 function ensureSmoothLoop(pane, label, state) {
   if (state.smoothLoopActive[label]) return;
   state.smoothLoopActive[label] = true;
 
+  // A fresh loop owns nothing yet: any position the pane is in right now is
+  // legitimate, and comparing against a previous loop's last write would
+  // abandon this one on its first frame.
+  state.lastAssigned[label] = null;
+  state.lastAssignedHeight[label] = null;
+
   const step = () => {
     state.smoothLoopRafId[label] = null;
     const target = state.targets[label];
     if (target == null) {
       state.smoothLoopActive[label] = false;
+      state.lastAssigned[label] = null;
+      state.lastAssignedHeight[label] = null;
       return;
     }
     const current = pane.scrollTop;
+    // ti 7936c2: has anything other than this loop moved the pane since our
+    // last write? `releaseDriverLock` handles the gesture-driven case, but it
+    // listens for wheel/touchstart/pointerdown/keydown, and a scroll can
+    // arrive with none of them — `scrollIntoView`, find-in-page, the
+    // browser's scroll restoration, an embedder setting scrollTop, a test
+    // harness. Left unchecked the loop lerps such a pane back to a
+    // destination the reader has already left, and because it re-arms
+    // `lockUntil` on every moving frame it also suppresses `handleScroll`,
+    // so the scroll neither survives nor drives the partner. Abandoning is
+    // the whole repair: the destination is stale by definition, and the pane
+    // that was just scrolled is by definition the new driver.
+    if (movedExternally(pane, label, state)) {
+      abandonFollow(label, state);
+      return;
+    }
     // Browsers silently clamp scrollTop assignments to
     // [0, scrollHeight - clientHeight]; clamp the target ourselves so
     // an unreachable target cannot spin this loop forever.
@@ -1027,6 +1159,14 @@ function ensureSmoothLoop(pane, label, state) {
       // later, after which user input on this pane is honored again.
       state.lockUntil[label] = performance.now() + PROGRAMMATIC_SCROLL_LOCK_MS;
       pane.scrollTop = clamped;
+      // KEPT past settle, deliberately. This is still where we last put the
+      // pane, and it is the only baseline that makes a scroll arriving inside
+      // the 90 ms lock window detectable rather than silently absorbed — the
+      // exact window `scn13.spec.js` leg k lands in. Safe to keep only
+      // because `movedExternally` also requires an unchanged scrollHeight, so
+      // a later content reflow does not read as a scroll.
+      state.lastAssigned[label] = pane.scrollTop;
+      state.lastAssignedHeight[label] = pane.scrollHeight;
       state.targets[label] = null;
       state.smoothLoopActive[label] = false;
       return;
@@ -1037,10 +1177,17 @@ function ensureSmoothLoop(pane, label, state) {
       // Integer-quantizing browsers can swallow sub-pixel lerp steps;
       // snap to the clamped target and end rather than spin.
       pane.scrollTop = clamped;
+      state.lastAssigned[label] = pane.scrollTop;
+      state.lastAssignedHeight[label] = pane.scrollHeight;
       state.targets[label] = null;
       state.smoothLoopActive[label] = false;
       return;
     }
+    // Read back rather than trusting the assignment: a browser that
+    // quantizes a fractional scrollTop would otherwise look like external
+    // interference on the very next frame.
+    state.lastAssigned[label] = pane.scrollTop;
+    state.lastAssignedHeight[label] = pane.scrollHeight;
     state.smoothLoopRafId[label] = requestAnimationFrame(step);
   };
 
