@@ -347,7 +347,29 @@ where
         // one door of three, and the two overrides land after it returns.
         // `None` needs no scan: it resolves to `default_profile()`, whose
         // template is the shipped one and carries no unknown placeholder.
-        for w in prompt_template_warnings(profile) {
+        //
+        // ti 490d97 wave 5 extends the same rule per format: the scan covers
+        // the body THIS run will compile. An Html run with
+        // [system].prompt_html compiles that body (select_prompt_for_format,
+        // at the build_batches door); without it, the fallback is prompt_body
+        // verbatim — so that is what gets scanned. Scanning here rather than
+        // in the loader is what covers a caller-built profile that never
+        // passed the loader, and scanning ONLY the effective body is the
+        // ed8c57 rule itself: never a warning about a body the run does not
+        // send. The loader's own prompt_html scan records on load_warnings
+        // without emitting, exactly as prompt's does, so this stays the
+        // single print. Exhaustive match by charter.
+        let template_warnings = match opts.input_format {
+            crate::id::SourceFormat::Markdown => prompt_template_warnings(profile),
+            crate::id::SourceFormat::Html => match &profile.prompt_html {
+                Some(body) => crate::profile::collect_unknown_template_var_warnings(body)
+                    .into_iter()
+                    .map(|w| format!("[system].prompt_html: {w}"))
+                    .collect(),
+                None => prompt_template_warnings(profile),
+            },
+        };
+        for w in template_warnings {
             tracing::warn!(target: "transync::profile", "{w}");
         }
     }
@@ -375,7 +397,17 @@ where
     // glossary between here and there, and only the body `build_batches`
     // compiles is the body the batches carry.
 
-    let mut doc = parse(source)?;
+    // ti 490d97 wave 5: THE format branch on the way in (D8's library half —
+    // explicit routing, no sniff). The HTML intake is infallible (wave 3
+    // deviation 2): malformed input force-closes with warnings, NUL is
+    // normalized, so only the Markdown arm carries a `?`. Named directly, as
+    // full_rescan_html's call site already does — wave 3's open note ("wave
+    // 5 decides how core reaches the intake") is decided: no re-export.
+    // Exhaustive match by charter: a third format must stop the compiler.
+    let mut doc = match opts.input_format {
+        crate::id::SourceFormat::Markdown => parse(source)?,
+        crate::id::SourceFormat::Html => transync_syntax::intake::html::parse(source),
+    };
     id::assign_block_ids(&mut doc);
 
     // Spec 2026-08-03 §3.2: run html segment extraction ONCE and thread the
@@ -391,8 +423,19 @@ where
     // already use. Raised here, after the outcome map exists and before
     // `doc.warnings` is forwarded to the report, which puts it after the
     // parser's own notes and before the per-block html ones (contracts.md §3a).
-    if let Some(w) = crate::unit::html_dominance_warning(&doc, &html_outcomes) {
-        doc.warnings.push(w);
+    //
+    // ti 490d97 wave 5 (spec §6): suppressed BY CONSTRUCTION for a
+    // declared-HTML run — the Html arm never evaluates the predicate, so no
+    // threshold, no percentage and no sentence exists to mis-fire. A
+    // deliberate HTML run needs no note that it is HTML; the note's whole
+    // subject is a MARKDOWN-declared run that is probably something else.
+    match doc.format {
+        crate::id::SourceFormat::Markdown => {
+            if let Some(w) = crate::unit::html_dominance_warning(&doc, &html_outcomes) {
+                doc.warnings.push(w);
+            }
+        }
+        crate::id::SourceFormat::Html => {}
     }
 
     // OI-0026: the candidate-glossary preflight runs here — after parse (so
@@ -731,10 +774,22 @@ where
     // which is why it lands on `Internal` rather than growing a variant of
     // its own — and why it is an error at all instead of a pane silently
     // missing a block.
-    let annotated_source_html =
-        render_source(&doc, &alignment_map).map_err(render_fault("source"))?;
-    let annotated_target_html = render_target(&doc, &translated_document, &alignment_map)
-        .map_err(render_fault("target"))?;
+    //
+    // ti 490d97 wave 5, deviation 5: the pane derivation for HTML runs is
+    // wave 6's (D6/§8 — synthesized fragments, strip-then-inject, li
+    // grouping). Until it lands, the honest value is empty: letting the
+    // Markdown renderer run here would put comrak and walk over an HTML
+    // document — the render-path twin of the very hazard the layer-6
+    // dispatch exists to prevent (spec §7: walk "must simply never be
+    // called on an HTML document").
+    let (annotated_source_html, annotated_target_html) = match doc.format {
+        crate::id::SourceFormat::Markdown => (
+            render_source(&doc, &alignment_map).map_err(render_fault("source"))?,
+            render_target(&doc, &translated_document, &alignment_map)
+                .map_err(render_fault("target"))?,
+        ),
+        crate::id::SourceFormat::Html => (String::new(), String::new()),
+    };
 
     Ok(TranslationOutput {
         translated_document,
@@ -5101,5 +5156,243 @@ mod document_meta_tests {
         assert_eq!(a.model_id, b.model_id);
         assert_eq!(a.source_lang, "auto");
         assert_eq!(a.target_lang, "ko");
+    }
+}
+
+// ti 490d97 wave 5: translate() on an HTML document — the entry point, and
+// the proof it routes through the wave-4 gate rather than around it.
+#[cfg(test)]
+mod html_run_tests {
+    use crate::cache::{Cache, InMemoryCache};
+    use crate::id::SourceFormat;
+    use crate::llm::{OutputKind, TranslationBatch, TranslationBatchResult, UnitResult};
+    use crate::pipeline::*;
+
+    /// Echo every unit; except: the unit whose id matches gets its segment
+    /// array "translated" to a single U+FEFF — the shape that passes every
+    /// per-unit layer and then DISSOLVES under rule T at the layer-6
+    /// rescan. Only the twin can see it; that is the point.
+    ///
+    /// **U+FEFF, not a space, and the difference is the whole test.** The
+    /// wave-4 plan reached for `" "`, but a space cannot get this far: the
+    /// per-kind layer rejects any segment whose chars are `all
+    /// char::is_whitespace` — a check written for exactly this attack
+    /// ("`\" \"` splices back as markup-preserving whitespace, so every
+    /// later layer sees an unchanged structure and the block ships as
+    /// translated with its text gone"). U+FEFF is **not**
+    /// `char::is_whitespace` in Rust, so it passes that layer; rule T
+    /// **does** strip it, so the run becomes textless and the block
+    /// dissolves. That gap between the two definitions is the narrow class
+    /// the layer-6 twin is the last defense for — which is precisely what
+    /// this test needs to prove the routing, and is filed as a follow-up
+    /// against the per-kind layer rather than fixed here (this wave adds no
+    /// validator).
+    struct DissolvesRun(crate::id::BlockId);
+    #[async_trait::async_trait]
+    impl Translator for DissolvesRun {
+        async fn translate_batch(
+            &self,
+            batch: TranslationBatch,
+            _cancel: &crate::CancellationToken,
+        ) -> Result<TranslationBatchResult, TranslatorError> {
+            let units = batch
+                .units
+                .iter()
+                .map(|u| UnitResult {
+                    unit_id: u.unit_id.clone(),
+                    output_kind: OutputKind::Translated,
+                    translated_payload: if u.unit_id == self.0 {
+                        serde_json::to_string(&vec!["\u{feff}"]).unwrap()
+                    } else {
+                        u.source_payload.clone()
+                    },
+                    warnings: Vec::new(),
+                })
+                .collect();
+            Ok(TranslationBatchResult {
+                batch_id: batch.batch_id,
+                detected_source_language: None,
+                units,
+            })
+        }
+    }
+
+    /// Wave 4's finalize fixture, now driven END TO END through translate()'s
+    /// public surface: one <p> element block, one rule-T anonymous run.
+    const HTML_SRC: &str = "<div>\n<p>keep</p>\nnaked run text\n</div>\n";
+
+    fn html_opts() -> crate::TranslateOptions {
+        crate::TranslateOptions {
+            target_language: "ko".to_string(),
+            input_format: SourceFormat::Html,
+            ..crate::TranslateOptions::default()
+        }
+    }
+
+    fn run_id() -> crate::id::BlockId {
+        let doc = transync_syntax::intake::html::parse(HTML_SRC);
+        doc.blocks[1].block_id.clone()
+    }
+
+    /// THE routing proof (this plan's opening claim, checkable): a live
+    /// translate() over an HTML document whose regen output diverges fails
+    /// in the TWIN's vocabulary — "fresh segmentation" — behind the historic
+    /// Hard-arm prefix, and never in reparse_full's ("regenerated block
+    /// count"). If the run path reached reparse_full instead of
+    /// full_rescan_html, comrak-over-HTML would produce reparse_full's
+    /// vocabulary (or a bogus pass); either way these assertions fail.
+    #[tokio::test]
+    async fn an_html_hard_failure_speaks_the_twins_vocabulary() {
+        let opts = crate::TranslateOptions {
+            full_reparse_failure: crate::FullReparseFailure::Hard,
+            ..html_opts()
+        };
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let err = run_pipeline(HTML_SRC, &opts, &DissolvesRun(run_id()), cache_dyn)
+            .await
+            .expect_err("Hard surfaces the twin's failure");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("full reparse failed: "),
+            "the historic prefix is re-pinned, not re-worded (DCR-0036's \
+             hand-forward, discharged by decision — DCR-0037): {msg}",
+        );
+        assert!(
+            msg.contains("fresh segmentation"),
+            "the twin's vocabulary: {msg}"
+        );
+        assert!(
+            !msg.contains("regenerated block count"),
+            "reparse_full's vocabulary must be absent: {msg}",
+        );
+    }
+
+    /// Invariant 6 at the public surface: the default cascade downgrades
+    /// exactly the dissolved run to its SOURCE BYTES and keeps the honest
+    /// neighbor translated — per block, never per document.
+    #[tokio::test]
+    async fn the_default_cascade_restores_the_run_and_keeps_the_neighbor() {
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(HTML_SRC, &html_opts(), &DissolvesRun(run_id()), cache_dyn)
+            .await
+            .expect("FallbackPerBlock degrades, never aborts");
+        assert!(
+            out.translated_document.contains("naked run text"),
+            "the fallen block's source bytes, verbatim:\n{}",
+            out.translated_document,
+        );
+        let row = out
+            .alignment_map
+            .blocks
+            .iter()
+            .find(|b| b.source_block_id == run_id())
+            .expect("the run keeps its row");
+        assert_eq!(row.fallback_status, crate::FallbackStatus::FallbackSource);
+    }
+
+    /// Echo everything: the identity run. translated_document is the source,
+    /// byte for byte (wave 3's theorem + the splice identity, end to end),
+    /// the panes are EMPTY until wave 6 (deviation 5), and the alignment map
+    /// is real.
+    #[tokio::test]
+    async fn an_echo_html_run_is_byte_identical_with_empty_panes() {
+        struct EchoAll;
+        #[async_trait::async_trait]
+        impl Translator for EchoAll {
+            async fn translate_batch(
+                &self,
+                batch: TranslationBatch,
+                _cancel: &crate::CancellationToken,
+            ) -> Result<TranslationBatchResult, TranslatorError> {
+                let units = batch
+                    .units
+                    .iter()
+                    .map(|u| UnitResult {
+                        unit_id: u.unit_id.clone(),
+                        output_kind: OutputKind::Preserved,
+                        translated_payload: u.source_payload.clone(),
+                        warnings: Vec::new(),
+                    })
+                    .collect();
+                Ok(TranslationBatchResult {
+                    batch_id: batch.batch_id,
+                    detected_source_language: None,
+                    units,
+                })
+            }
+        }
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(HTML_SRC, &html_opts(), &EchoAll, cache_dyn)
+            .await
+            .expect("Ok");
+        assert_eq!(out.translated_document, HTML_SRC, "identity, byte for byte");
+        assert!(
+            out.annotated_source_html.is_empty() && out.annotated_target_html.is_empty(),
+            "panes are wave 6's (D6); comrak and walk must never see an HTML \
+             document, so until the pane derivation exists the honest value \
+             is empty — not a Markdown-rendered guess",
+        );
+        assert!(!out.alignment_map.blocks.is_empty(), "the map is real");
+        // Suppressed by construction (spec §6): a deliberate HTML run needs
+        // no note that it is HTML — the warning's own predicate would have
+        // fired on this 100%-HTML document if it were evaluated.
+        assert!(
+            out.validation_report
+                .skipped_source_nodes
+                .iter()
+                .all(|n| !n.contains("raw HTML blocks")),
+            "html_dominance_warning must not be evaluated on a declared-HTML \
+             run: {:?}",
+            out.validation_report.skipped_source_nodes,
+        );
+    }
+
+    /// ti ed8c57, extended to the format the run declares: the boundary
+    /// template scan reads the body THIS run will compile. A caller-built
+    /// profile never passes the loader, so this door is the only one that
+    /// can see its `prompt_html` — and on an Html run that is the effective
+    /// body, while `prompt_body` (not compiled by this run) must go
+    /// unmentioned, in exactly the way ed8c57's override case does. The
+    /// translator is `DissolvesRun` aimed at an id no unit carries: every
+    /// unit echoes, and the run completes.
+    #[tokio::test]
+    async fn the_boundary_scans_the_body_an_html_run_compiles() {
+        use crate::test_fixtures::{EventLog, record_events};
+        use std::sync::Arc;
+
+        // Caller-built, never loaded: the loader's recorded scan cannot
+        // have seen either typo.
+        let mut profile = crate::profile::default_profile();
+        profile.prompt_html = Some("Translate into {{target_lang}}.".to_string());
+        profile.prompt_body = "Body with {{another_typo}}.".to_string();
+        let opts = crate::TranslateOptions {
+            profile: Some(profile),
+            ..html_opts()
+        };
+
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let log = Arc::new(EventLog::default());
+        let echo_everything = DissolvesRun(crate::id::BlockId("none-0000".to_string()));
+        let result = {
+            let _guard = record_events(Arc::clone(&log));
+            run_pipeline(HTML_SRC, &opts, &echo_everything, cache_dyn).await
+        };
+        result.expect("an echoing run completes");
+
+        let said = log.messages_on("transync::profile");
+        assert!(
+            said.iter()
+                .any(|m| m.contains("[system].prompt_html") && m.contains("target_lang")),
+            "the effective body's typo is said at the door: {said:?}",
+        );
+        assert!(
+            said.iter().all(|m| !m.contains("another_typo")),
+            "prompt_body is not compiled by this run; a warning about it \
+             would be the ed8c57 mirror-image defect: {said:?}",
+        );
     }
 }

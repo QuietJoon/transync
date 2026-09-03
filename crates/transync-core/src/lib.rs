@@ -104,7 +104,7 @@ pub use transync_syntax::align::{
     AlignmentBlock, AlignmentMap, ByteRange, FallbackStatus, GeneratorMeta, SyncRole,
     ValidationSummary,
 };
-pub use transync_syntax::id::{BlockId, BlockKind};
+pub use transync_syntax::id::{BlockId, BlockKind, SourceFormat};
 pub use validate::{
     AttemptOutcome, AutoGlossaryReport, AutoGlossaryStatus, BatchFault, OutputBudgetWarning,
     UnitValidationRecord, VALIDATION_REPORT_SCHEMA_VERSION, VALIDATION_SCHEMA_VERSION,
@@ -334,6 +334,27 @@ pub struct TranslateOptions {
     ///
     /// TRACE: DCR-0024
     pub cancel: Option<CancellationToken>,
+    /// Which intake reads `source` (ti 490d97, decision D8's library half).
+    ///
+    /// **Routing is explicit — the library never sniffs.** `Markdown` (the
+    /// default) is today's path, unchanged in every byte. `Html` parses the
+    /// source with the HTML intake (`transync-syntax`'s `intake::html`),
+    /// translates the same blocks through the same pipeline, validates the
+    /// regenerated document with the scanner-side layer-6 gate
+    /// (`full_rescan_html` — never a comrak reparse), and returns HTML in
+    /// [`TranslationOutput::translated_document`]. A Markdown string
+    /// declared `Html` produces one text-heavy block set and translates —
+    /// wrong shape, but *explicitly requested*, which is the boundary
+    /// ADR-0017's silent-path refusals protect; there is no reverse sniff,
+    /// because a body fragment is legitimately accepted HTML.
+    ///
+    /// The CLI's `--input-format` flag, the preamble-sniff message rewrite
+    /// and the pane derivation for HTML runs are the NEXT wave's (wave 6);
+    /// on an `Html` run this release, [`TranslationOutput`]'s two annotated
+    /// pane fields come back empty (their doc comment carries the rule).
+    ///
+    /// TRACE: ADR-0025
+    pub input_format: SourceFormat,
 }
 
 /// Caller-controlled severity for post-regeneration full-document
@@ -380,6 +401,9 @@ impl Default for TranslateOptions {
             auto_glossary: None,
             full_reparse_failure: FullReparseFailure::default(),
             cancel: None,
+            // The enum's own `#[default]`, spelled explicitly because this
+            // literal lists every field.
+            input_format: SourceFormat::Markdown,
         }
     }
 }
@@ -403,7 +427,9 @@ pub struct TranslationOutput {
     /// The full regenerated target document, in the source document's own
     /// format.
     ///
-    /// Today every input path is GFM Markdown, so this is Markdown — the field
+    /// An `input_format = Html` run returns HTML here; a Markdown run returns
+    /// Markdown — read the format from the input you handed the pipeline,
+    /// never from this field's name. The field
     /// was called `translated_markdown` until v0.4.0. It was renamed because
     /// the format is a property of the *input*, not of this field: the
     /// HTML→HTML path (ticket `490d97`) translates an HTML document and returns
@@ -412,7 +438,19 @@ pub struct TranslationOutput {
     /// the input you handed the pipeline, never from this field's name.
     pub translated_document: String,
     pub alignment_map: AlignmentMap,
+    /// The source pane: annotated HTML rendered from the source IR against
+    /// [`Self::alignment_map`].
+    ///
+    /// **Empty on an `input_format = Html` run** until the HTML pane
+    /// derivation lands (ti 490d97 wave 6). Panes are a sync surface, and
+    /// deriving them for an HTML document means synthesized fragments,
+    /// strip-then-inject and list grouping — not the Markdown renderer,
+    /// which must never read an HTML document any more than comrak's
+    /// reparse may validate one. Until that exists the honest value is
+    /// empty rather than a Markdown-rendered guess.
     pub annotated_source_html: String,
+    /// The target pane, on the same terms as [`Self::annotated_source_html`]
+    /// — including empty on an `input_format = Html` run until wave 6.
     pub annotated_target_html: String,
     pub validation_report: ValidationReport,
     pub detected_source_language: Option<String>,
@@ -422,6 +460,11 @@ pub struct TranslationOutput {
     /// the same extraction (ti 0f26b5), so a front end that titles a rendered
     /// document and the model that translated it cannot disagree about what
     /// the document is called.
+    ///
+    /// On an `input_format = Html` run it is the `<title>` block's extracted
+    /// text when the document has one, else the first heading's — the same
+    /// `unit::context` selection rule and the same projection the provider
+    /// saw (ti 490d97 wave 5).
     ///
     /// It is Markdown-derived prose, not source: ATX/setext markers and inline
     /// delimiters are gone because the parser consumed them. It is also
