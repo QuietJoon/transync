@@ -62,7 +62,12 @@ const MUST_NAME_SPECS: &[&str] = &[
     "web/SMOKE.md",
 ];
 
-const SPEC_FILES: &[&str] = &["scn13.spec.js", "engine.spec.js", "wasm.spec.js"];
+const SPEC_FILES: &[&str] = &[
+    "scn13.spec.js",
+    "engine.spec.js",
+    "wasm.spec.js",
+    "scn16.spec.js",
+];
 
 /// A line mentioning any of these is a line about the browser suite.
 const SUITE_MENTIONS: &[&str] = &[
@@ -71,6 +76,7 @@ const SUITE_MENTIONS: &[&str] = &[
     "scn13.spec.js",
     "engine.spec.js",
     "wasm.spec.js",
+    "scn16.spec.js",
     "Playwright",
 ];
 
@@ -309,7 +315,7 @@ fn no_living_doc_publishes_the_browser_suite_test_count() {
         "living document(s) state a count for the browser suite. The count rots \
          the next time a Playwright test is added, so name the spec files \
          (`web/tests/scn13.spec.js`, `web/tests/engine.spec.js`, \
-         `web/tests/wasm.spec.js`) instead of counting them (ti e9481b). If the passage is a dated snapshot rather \
+         `web/tests/wasm.spec.js`, `web/tests/scn16.spec.js`) instead of counting them (ti e9481b). If the passage is a dated snapshot rather \
          than a description of the suite today, it does not belong in a guarded \
          living document:\n  {}",
         offenders.join("\n  "),

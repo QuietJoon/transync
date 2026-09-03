@@ -24,6 +24,12 @@ browser layer.
 - `web/tests/engine.spec.js` — `sync.js`'s mount contract driven
   directly over a bare two-pane rig: the refusals and the reflow
   recompute that a bundle page cannot stage.
+- `web/tests/scn16.spec.js` — the SCN-16 HTML-run bundle (an
+  `--input-format html` run over the SCN-16 fixture, published by the
+  runner at `scn16/` inside the served dir) driven through the shipped
+  shell: bidirectional block-id sync over HTML-derived anchors, the
+  `<title>` translated but rendered by browser chrome rather than either
+  pane, and a console clean of warnings.
 - `web/tests/wasm.spec.js` — `web/demo-wasm.html`, whose panes the Rust
   renderer compiled to wasm produces in the browser (ADR-0019).
 

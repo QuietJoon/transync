@@ -203,7 +203,8 @@ web/                                    # workspace-level demo source-of-truth
 │                                       #    which is why they share one directory)
 └── tests/                              # headless Playwright (scn13.spec.js + wasm.spec.js
                                         #   + engine.spec.js, sync.js's mount contract driven
-                                        #   directly rather than through a shell)
+                                        #   directly rather than through a shell
+                                        #   + scn16.spec.js, the HTML-run bundle's shell)
 
 scripts/
 ├── smoke.sh                            # build + wasm gate + tests + rustdoc gate + build-wasm + CLI e2e
@@ -212,7 +213,8 @@ scripts/
 │                                       #   enforces the size budget; loud prereq failures
 ├── test-browser.sh                     # CLI fixture + wasm demo leg + Playwright
 │                                       #   (web/tests/scn13.spec.js + engine.spec.js
-│                                       #    + wasm.spec.js — every spec under web/tests/)
+│                                       #    + wasm.spec.js + scn16.spec.js — every spec
+│                                       #    under web/tests/)
 └── hooks/pre-commit                    # fmt, clippy, the two-crate wasm gate
 ```
 
@@ -251,6 +253,7 @@ column below.
 | SCN-13  | JS demo sync                                                | `web/js/sync.js`, `{render, align}`                                                                       | output of SCN-12; `web/tests/scn13.spec.js`            | headless Chromium via Playwright (`scripts/test-browser.sh`) |
 | SCN-14  | Full-document reparse                                       | `{regen, validate::full_reparse}`                                                               | `scn-14-full.md`                                       | none                                               |
 | SCN-15  | HTML-content translation end-to-end (post-MVP)              | `transync-html`, `{parser, unit (html_outcomes), validate::per_kind, regen, render, align}`, `web/js/sync.js` (toggle mirror) | `scn-15-html-blocks.md`                 | none (`MockTranslator`); browser leg via Playwright |
+| SCN-16  | HTML→HTML document translation end-to-end (post-MVP)        | `transync-html`, `{intake::html, id (Spelling/SourceFormat), regen, validate (full_rescan_html), render (html_pane), align}`, `web/js/sync.js` | `scn-16-html-document.html`; `web/tests/scn16.spec.js` | Integration + CLI; headless Chromium via Playwright (`scripts/test-browser.sh`) |
 
 ## Persistence / file touches per scenario
 
@@ -259,12 +262,13 @@ column below.
 | SCN-01..11, SCN-14, SCN-15 | Fixture `.md` (test-only)        | none (in-memory `TranslationOutput` returned)                                   |
 | SCN-12  | `scn-14-full.md`, embedded default profile        | `out.md`, `out.json`, `<html-out>/{index.html,source.html,target.html,sync.js,purify.min.js,alignment.json}` (staged writes) |
 | SCN-13  | output of SCN-12; `sync.js`                       | none by the product itself (the browser only fetches, and a static server must serve the bundle). Under `scripts/test-browser.sh` the harness regenerates that bundle into its own temp workdir (`TRANSYNC_FIXTURE_WORKDIR`) each run and serves it on loopback. |
+| SCN-16  | Fixture `.html` (`scn-16-html-document.html`, test-only)         | none in the integration form (in-memory `TranslationOutput` returned); the CLI form writes `out.html`, `alignment.json`, `validation-report.json` and the `html/` bundle into its `--out-dir`, and `scripts/test-browser.sh`'s scn16 leg republishes that bundle into its served fixture workdir each run |
 
 ## Integrations per scenario
 
 | SCN     | Real integration in an automated run?                                                                                                  |
 |---------|----------------------------------------------------------------------------------------------------------------------------------------|
-| SCN-01..11, SCN-14, SCN-15 | No — drive via `MockTranslator`. Deterministic. SCN-15's browser leg rides the headless Playwright suite (test **h**).       |
+| SCN-01..11, SCN-14, SCN-15, SCN-16 | No — drive via `MockTranslator` (SCN-16's CLI leg via the `test-stub-provider` echo `Translator`). Deterministic. SCN-15's browser leg rides the headless Playwright suite (test **h**); SCN-16's rides `web/tests/scn16.spec.js`. |
 | SCN-12  | Never automatically — there is no CI to run one (see SCN-13). The automated path is the `test-stub-provider` echo `Translator`, which returns content unchanged: that is what `scripts/smoke.sh` and `scripts/test-browser.sh` build their bundles with. The live path is human-invoked and double-gated — `crates/transync-openai/tests/live_smoke.rs` is `#[ignore]`d *and* self-skips unless `TRANSYNC_LIVE_SMOKE=1` and a non-empty `OPENAI_API_KEY` are both set; `scripts/smoke-live-gate.sh` is the wrapper that opts in. |
 | SCN-13  | Real browser, no CI — the repository ships no CI workflow, so this runs locally. `scripts/test-browser.sh` is the primary automated check: it regenerates a stub-provider CLI bundle and runs `web/tests/scn13.spec.js` headless (Chromium via Playwright), with the `web/SMOKE.md` manual checklist kept as fallback — the phrasing `mvp-scope.md` uses, which records the suite as **shipped 2026-07-13**. It is step 6 of `docs/project/release-checklist.md`. |
 
