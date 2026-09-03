@@ -2,7 +2,7 @@
 
 A Rust library that does two things:
 
-1. **Translates [GitHub Flavored Markdown](https://github.github.com/gfm/) documents** with a consumer-supplied LLM, preserving every structural invariant the markup carries (heading levels, table column counts and alignment, list topology, code-fence safety, blockquote nesting).
+1. **Translates [GitHub Flavored Markdown](https://github.github.com/gfm/) documents** — and, since ADR-0025 (ti `490d97`), whole **HTML documents** through the same pipeline (`--input-format html`) — with a consumer-supplied LLM, preserving every structural invariant the markup carries (heading levels, table column counts and alignment, list topology, code-fence safety, blockquote nesting).
 2. **Synchronizes the source and translated panes by semantic block ID**, not by scroll percentage — so the panes stay anchored across translation-induced length changes (CJK doubling source byte width, 50-row tables wrapping differently, code blocks staying fixed-height while their neighboring prose grows).
 
 Use it as a library behind your own LLM provider, or through the bundled `transync` CLI: `transync translate` runs the pipeline end to end and publishes the whole output set — translated Markdown, alignment map, validation report and a ready-to-open side-by-side HTML bundle — into one directory, and `transync serve` hands that bundle to a browser on `127.0.0.1`.
@@ -25,7 +25,7 @@ The application — not the LLM — owns block IDs, table shape, list topology, 
 
 Source and translated panes follow each other smoothly even when their rendered heights diverge.
 
-- **Stable `BlockId` flows through the entire pipeline** — Rust IR → LLM contract → regenerated Markdown → annotated HTML attribute (`data-sync-id`) → JS sync engine. The browser never reasons about scroll percentage.
+- **Stable `BlockId` flows through the entire pipeline** — Rust IR → LLM contract → regenerated document → annotated HTML attribute (`data-sync-id`) → JS sync engine. The browser never reasons about scroll percentage.
 - **Smooth proportional in-block following.** The active pane's reference line (4 px from the top) determines the active block and the fraction of it the user has scrolled past; the partner pane's `scrollTop` is set so the matching block shows the same proportional offset. A per-frame lerp (`SMOOTHING_FACTOR = 0.2`) eases motion so the partner glides toward the target rather than snapping.
 - **No oscillation.** Per-pane programmatic-scroll lock (90 ms) absorbs the cascade scroll event each pane fires when we set its `scrollTop`, without blocking the other pane's user input.
 - **Schema-versioned alignment map** (`schema_version: "1.2.0"`) — durable wire format between the renderer and the JS engine. Consumers MUST reject unknown majors.
@@ -35,17 +35,17 @@ Source and translated panes follow each other smoothly even when their rendered 
 ## How they fit together
 
 ```
-   .md  ──▶  parse  ──▶  Document IR  ──▶  build batches  ──▶  Translator
-                                                                    │
-                                                                    ▼
-                                                          per-batch result
-                                                                    │
-                              regenerated MD  ◀── regen ◀── validate (6 layers)
+   .md | .html  ──▶  parse/intake  ──▶  Document IR  ──▶  build batches  ──▶  Translator
+                                                                                   │
+                                                                                   ▼
+                                                                         per-batch result
+                                                                                   │
+                                       regenerated document  ◀── regen ◀── validate (6 layers)
                                        │
                           ┌────────────┴────────────┐
                           ▼                         ▼
                     AlignmentMap                 source.html
-                    (schema 1.2.0)               target.html
+                    (schema 1.3.0)               target.html
                           │                         │
                           └─────────┬───────────────┘
                                     ▼

@@ -588,6 +588,15 @@ answer, and a page on `attacker.example` that rebinds its own name to
 authority is checked. Serving a bundle to other machines with `--bind 0.0.0.0`
 therefore takes an `--allow-host <the address they reach it at>` as well.
 
+Since the HTML→HTML wave (ADR-0025, ti `490d97`), serve is also the
+**fidelity door**: an `--input-format html` run's `--out-dir` holds the
+translated page itself — `out.html`, full head, scripts, styles,
+anchor-free — beside the sync bundle in `html/`. The bundle's panes
+deliberately carry no page fidelity (they are a sync surface — no
+layout, no styles, no scripts), so to see the real translated page,
+serve the out-dir and open `out.html`:
+`transync serve --rendered <out-dir>`.
+
 This retires the deferred stub the command shipped as (STUB-061) from SL-13
 until 2026-08-09, which printed an address and exited `5`. Any other static
 server still works — the bundle is self-contained — but `scripts/test-browser.sh`,
@@ -598,7 +607,10 @@ server still works — the bundle is self-contained — but `scripts/test-browse
 
 The emitted `index.html` titles itself with the first of these that
 exists: `--title <text>`, the source document's **first level-1
-heading**, or the literal `transync`. The heading is used as prose —
+heading** (a Markdown run) — or, on an `--input-format html` run, the
+source document's `<title>` text, the same extraction the provider saw
+as `document_title` (ti `0f26b5`'s chain, middle rung re-seated;
+DCR-0038) — or the literal `transync`. The heading is used as prose —
 markers, emphasis and code-span backticks are gone, because the parser
 consumed them — and it is the same value the model was told the document
 is called, so the rendered page and the translation agree. A heading

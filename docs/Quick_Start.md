@@ -64,12 +64,24 @@ cargo run -p transync-cli --features test-stub-provider -- translate \
   --target-language ko
 ```
 
-That writes `out.md` (the regenerated Markdown), `align.json` (the
+That writes `out.md` (the regenerated document), `align.json` (the
 alignment map), and the six-file demo bundle in `html/` —
 `index.html`, `source.html`, `target.html`, `alignment.json`,
 `sync.js`, `purify.min.js`. The one `note:` line on stderr about an
 html block with no translatable text is expected: the fixture contains
 one.
+
+An HTML document goes through the same pipeline — declare the format
+(routing is flag-only; the sniff never guesses):
+
+```bash
+transync translate --input page.html --input-format html \
+  --out-dir out/ --target-language ko
+```
+
+That writes `out.html` (the translated page, anchor-free) beside the
+same `html/` sync bundle; `transync serve --rendered out/` shows the
+real page.
 
 To look at that bundle in a browser, serve it:
 

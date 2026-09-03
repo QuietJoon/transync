@@ -474,7 +474,9 @@ publish replaces.
   `mkdir out && transync translate --out-dir out` needs nothing. Two
   things follow for a target that holds output. **Deleting it** makes the next
   `--out-dir` publish refuse (exit 4) unless the complete published set —
-  `out.md`, `alignment.json`, `validation-report.json` and `html/` — is
+  `alignment.json`, `validation-report.json`, `html/`, and the run's
+  translated document (`out.md` for a Markdown run, `out.html` for an
+  `--input-format html` run; one of the two, never both) — is
   still there, in which case the set itself is evidence enough; recreate
   the file (any content) or pass `--force` once, and the publish writes a
   fresh marker. **Copying a bundle with a glob** (`cp <dir>/* elsewhere/`)
