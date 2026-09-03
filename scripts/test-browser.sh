@@ -14,7 +14,11 @@
 # Markdown payloads) on top of that bundle, inside the fixture dir only —
 # see the "WASM demo leg" block below for the import-path layout.
 #
+# The SCN-16 HTML-run bundle leg below feeds web/tests/scn16.spec.js — the
+# shell-driven browser gate for ti 490d97 (spec §12 wave 7).
+#
 # TRACE: SCN-13
+# TRACE: SCN-16
 # TRACE: OI-0023
 # TRACE: ADR-0019
 
@@ -219,6 +223,8 @@ fi
 # bundle inside the served fixture dir so the engine suite can read its pane
 # files and map off disk. Scratch only; the six-file bundle contract and the
 # SCN-14 corpus are untouched.
+# Wave 7's web/tests/scn16.spec.js additionally drives this bundle's shell at
+# /scn16/index.html.
 echo "[test-browser] regenerating the SCN-16 HTML-run bundle -> $HTML_OUT/scn16"
 SCN16_INPUT="$REPO_ROOT/crates/transync/tests/fixtures/scn-16-html-document.html"
 if [[ ! -f "$SCN16_INPUT" ]]; then
