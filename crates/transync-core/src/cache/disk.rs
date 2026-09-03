@@ -86,6 +86,18 @@ pub struct DiskCacheOptions {
     /// permanent: an operator reporting a real 1 GiB cache, or a `--offline`
     /// run (DCR-0046) failing at a miss for entries an open-time trim had
     /// evicted. Either one makes the lever worth its precondition.
+    ///
+    /// **A value at or below the unreclaimable floor is ignored, with a
+    /// warning** (OI-0044, fixed 2026-09-03). The trim evicts entries and
+    /// nothing else — the header and the document-scoped records
+    /// ([`DocumentMeta`], the glossary harvest) are exempt by design — so a
+    /// budget at or below their combined size names a total that no set of
+    /// entries could reach, the empty set included. Rather than discard every
+    /// entry on every open and report a trim, the open logs the arithmetic
+    /// (requested value, floor, and the floor's two components) and applies
+    /// [`Self::max_entries`] alone. The floor depends on how many
+    /// document-scoped records the log holds, so it is a per-open quantity, not
+    /// a constant this type could validate at construction.
     pub max_bytes: Option<u64>,
     /// Live-entry-count budget, enforced at the same point. `None` (the
     /// default) disables it — the byte budget is the one an operator can reason
@@ -497,10 +509,42 @@ fn trim_to_budget(replayed: &mut Replayed, opts: &DiskCacheOptions, path: &Path)
         return false;
     }
 
+    // OI-0044 / R0009-0082: eviction reclaims ENTRY bytes and nothing else.
+    // The header and the document-scoped records (`DocumentMeta`, the glossary
+    // harvest) are exempt from the trim by design, so a `max_bytes` at or
+    // below their combined size names a total no set of entries can reach —
+    // not even the empty set. Left unguarded, the loop below frees every
+    // entry, still reports over budget, and does it again on the next open:
+    // the cache discards its whole contents on every run while announcing a
+    // trim, which is the one shape a capacity policy must not have.
+    //
+    // Clamped rather than refused, per `DiskCacheOptions`' posture that an
+    // accelerator must not kill a run (DCR-0028): the byte budget drops out of
+    // the decision for this open — with the arithmetic named once so an
+    // operator can see it rather than guess — and `max_entries`, which
+    // eviction CAN satisfy, still applies.
+    let unreclaimable = header_bytes() + replayed.meta_bytes;
+    let mut byte_budget = opts.max_bytes;
+    if let Some(max) = byte_budget
+        && max <= unreclaimable
+    {
+        tracing::warn!(
+            target: "transync::cache",
+            "cache log {}: max_bytes = {max} is at or below the {unreclaimable} bytes eviction              cannot reclaim ({} header + {} document-scoped records), so no set of entries could              ever satisfy it; ignoring the byte budget for this open and keeping the entries.              Raise max_bytes above {unreclaimable} to make it mean something.",
+            path.display(),
+            header_bytes(),
+            replayed.meta_bytes,
+        );
+        byte_budget = None;
+    }
+    if byte_budget.is_none() && opts.max_entries.is_none() {
+        return false;
+    }
+
     let mut total = replayed.compacted_bytes();
     let mut count = replayed.entries.len() as u64;
     let over = |total: u64, count: u64| {
-        opts.max_bytes.is_some_and(|m| total > m) || opts.max_entries.is_some_and(|m| count > m)
+        byte_budget.is_some_and(|m| total > m) || opts.max_entries.is_some_and(|m| count > m)
     };
     if !over(total, count) {
         return false;
@@ -2016,6 +2060,114 @@ mod tests {
                 .unwrap()
                 .is_some(),
             "the compaction the trim forced carried the harvest across"
+        );
+    }
+
+    /// OI-0044 / R0009-0082: a `max_bytes` at or below the bytes eviction
+    /// cannot reclaim is not a budget — it is a request no set of entries can
+    /// satisfy. Before the fix the loop freed every entry, still read over
+    /// budget, and repeated it on the next open: the cache threw its whole
+    /// contents away on every run while announcing a trim. The entries must
+    /// SURVIVE, and across two opens, because one open cannot tell the
+    /// difference between "kept" and "about to be discarded again".
+    #[test]
+    fn a_byte_budget_below_the_unreclaimable_floor_keeps_the_entries() {
+        let dir = scratch("transync-diskcache-degenerate-budget");
+        {
+            let cache = DiskCache::open_with(&dir, unbounded()).expect("opens");
+            for i in 1..=4 {
+                cache.put(key(i), result(&format!("r{i}"))).unwrap();
+            }
+            // A document-scoped record, so the floor is header + meta rather
+            // than the header alone — the exemption is what makes the floor
+            // bite (and what makes it a per-open quantity).
+            cache
+                .put_document_meta(
+                    meta_key(9),
+                    DocumentMeta {
+                        detected_source_language: Some("en".to_string()),
+                    },
+                )
+                .unwrap();
+        }
+
+        // 1 byte: below the header alone, let alone header + meta.
+        let opts = DiskCacheOptions {
+            max_bytes: Some(1),
+            max_entries: None,
+        };
+        let reopened = DiskCache::open_with(&dir, opts.clone()).expect("reopens");
+        assert_eq!(
+            reopened.len(),
+            4,
+            "an unreachable byte budget evicts nothing"
+        );
+        assert!(
+            reopened.get(&key(1)).unwrap().is_some(),
+            "not even the oldest"
+        );
+        drop(reopened);
+
+        // Twice: the first open must not have merely deferred the discard.
+        let again = DiskCache::open_with(&dir, opts).expect("reopens");
+        assert_eq!(
+            again.len(),
+            4,
+            "and it converges — the second open keeps them too"
+        );
+        assert!(
+            again.get_document_meta(&meta_key(9)).unwrap().is_some(),
+            "the exempt record is still exempt",
+        );
+    }
+
+    /// The warning names the arithmetic — requested value, floor, and the
+    /// floor's two components — so an operator can see why the knob did
+    /// nothing instead of guessing. A silent clamp would be the same defect
+    /// one layer down.
+    #[test]
+    fn the_ignored_byte_budget_names_the_requested_value_and_the_floor() {
+        use crate::test_fixtures::{EventLog, record_events};
+        use std::sync::Arc;
+
+        let dir = scratch("transync-diskcache-degenerate-warns");
+        {
+            let cache = DiskCache::open_with(&dir, unbounded()).expect("opens");
+            cache.put(key(1), result("r1")).unwrap();
+            cache
+                .put_document_meta(
+                    meta_key(9),
+                    DocumentMeta {
+                        detected_source_language: Some("en".to_string()),
+                    },
+                )
+                .unwrap();
+        }
+
+        let log = Arc::new(EventLog::default());
+        {
+            let _guard = record_events(Arc::clone(&log));
+            let opts = DiskCacheOptions {
+                max_bytes: Some(1),
+                max_entries: None,
+            };
+            let reopened = DiskCache::open_with(&dir, opts).expect("reopens");
+            assert_eq!(reopened.len(), 1);
+        }
+        let said = log.messages_on("transync::cache");
+        let hit = said
+            .iter()
+            .find(|m| m.contains("cannot reclaim"))
+            .unwrap_or_else(|| panic!("the floor warning must fire: {said:?}"));
+        assert!(hit.contains("max_bytes = 1"), "the requested value: {hit}");
+        assert!(hit.contains("header"), "the floor's first component: {hit}");
+        assert!(
+            hit.contains("document-scoped records"),
+            "the floor's second component — the part that makes it per-open: {hit}",
+        );
+        assert!(
+            said.iter().all(|m| !m.contains("dropped")),
+            "and no trim is announced, because none happened: {said:?}",
         );
     }
 

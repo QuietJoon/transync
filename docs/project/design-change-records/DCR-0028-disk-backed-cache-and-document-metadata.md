@@ -309,6 +309,20 @@ This pass owns eviction semantics. Three distinct mechanisms, none conflated:
 - **Capacity eviction (new, disk only).** Enforced at **open**: after replay,
   if the live set exceeds `max_bytes` / `max_entries`, oldest-written live
   entries are dropped first until within budget, and the log is compacted.
+
+  **Amendment, 2026-09-03 (OI-0044 / R0009-0082, ti `0a3fca`).** "Until within
+  budget" was never quite true and is now scoped: the trim evicts **entries**,
+  and the header plus the document-scoped records (`DocumentMeta`, the glossary
+  harvest) are exempt from it — so a `max_bytes` at or below their combined
+  size named a total no set of entries could reach, the empty set included.
+  Unguarded, that made every open drop every entry, still read over budget, and
+  do it again next time: a cache that discarded its whole contents on every run
+  while announcing a trim. `trim_to_budget` now recognizes an unreachable byte
+  budget, logs the arithmetic (requested value, floor, and the floor's two
+  components) and applies `max_entries` alone — clamped rather than refused,
+  per this record's own "an accelerator must not kill a run" posture. The
+  exemption is now stated on the public `max_bytes` doc, which is where an
+  operator reads it.
   Compaction also triggers when dead records (superseded/evicted) have caught
   up with the live ones — at least as many dead as live, and at least one
   dead, with the document-scoped records counted among the live. Compaction

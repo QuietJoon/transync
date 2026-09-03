@@ -785,8 +785,22 @@ work — re-cutting `pipeline.rs`'s orchestration, which is already cut.
 - **Source:** R0009-0080, R0009-0081, R0009-0082 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** OPEN — **R0009-0082 RESOLVED 2026-09-03** (ti `0a3fca`); R0009-0080 and R0009-0081 remain
+- **Resolution:** partial. **R0009-0082 — the non-converging trim — is fixed.**
+  `trim_to_budget` now recognizes a `max_bytes` at or below the bytes eviction
+  cannot reclaim (header + the document-scoped records), logs the arithmetic
+  once — requested value, floor, and the floor's two components — and applies
+  `max_entries` alone, so the entries survive and the cache converges. Clamped
+  rather than refused, per `DiskCacheOptions`' "an accelerator must not kill a
+  run" posture; the floor is a per-open quantity (it depends on how many
+  document-scoped records the log holds), which is why it is not validated at
+  construction. The exemption is stated on the public `max_bytes` doc, and
+  DCR-0028 §4's "until within budget" sentence carries a dated amendment.
+  Pinned by two tests that were **observed red against the unfixed code**:
+  `a_byte_budget_below_the_unreclaimable_floor_keeps_the_entries` (which failed
+  `left: 0, right: 4` — every entry discarded, the defect itself) and
+  `the_ignored_byte_budget_names_the_requested_value_and_the_floor`. The entry
+  stays OPEN for R0009-0080 and R0009-0081, which are untouched.
 
 ### Problem
 
@@ -852,12 +866,13 @@ comment, but not on the public knob the operator actually sets.
 
 ### Required Actions
 
-1. **R0009-0082 first**, because it is the only one an operator can walk
+1. ~~**R0009-0082 first**, because it is the only one an operator can walk
    into: add a floor so the drop loop stops once dropping every entry cannot
    get under budget, and state on the public `max_bytes` doc that the header
-   and the document-scoped meta records are not subject to it. Whether meta
-   records should instead become evictable is a separate question and does
-   not block the floor.
+   and the document-scoped meta records are not subject to it.~~ **DONE
+   2026-09-03** (ti `0a3fca`) — see Resolution above. Whether meta records
+   should instead become evictable remains a separate open question and was
+   deliberately not answered by the floor.
 2. **R0009-0081:** record a last-good offset before each record and truncate
    to it on a write error, or drop the writer so the next call reopens.
    Either way, add the failing-writer test that does not exist.
@@ -1331,7 +1346,7 @@ bytes the pane does not hold (R0009-0078).
 | OI-0041  | Pre-network setup recomputes derived values              | OPEN (2026-08-26) | Low |
 | OI-0042  | Two worse-than-linear scans in the degraded regen cascade | OPEN (2026-08-26) | Low |
 | OI-0043  | Four modules called oversized; one is a real concern bundle | OPEN (2026-08-26) | Low |
-| OI-0044  | Disk cache log: unbounded read, poisonable write, non-converging trim | OPEN (2026-08-26) | Low |
+| OI-0044  | Disk cache log: unbounded read, poisonable write, ~~non-converging trim~~ | OPEN (2026-08-26) — trim member RESOLVED 2026-09-03 | Low |
 | OI-0045  | `serve` under-delivers a truncated body, over-advertises authorities | OPEN (2026-08-26) | Low |
 | OI-0046  | Three holes in the checking apparatus itself             | OPEN (2026-08-26) | Low |
 | OI-0047  | Sync engine freezes past its last anchor; silent drift on reflow | OPEN (2026-08-26) | Low |
