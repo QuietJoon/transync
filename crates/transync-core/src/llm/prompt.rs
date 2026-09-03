@@ -94,6 +94,11 @@ pub(crate) struct InstructionVariant {
     /// The row-window contract (DCR-0026), which rides on a batch holding at
     /// least one [`InputMode::TableRowWindow`] unit.
     pub(crate) table_row_windows: bool,
+    /// The run-level HTML-document clause (spec §6): rides on EVERY batch
+    /// of an HTML-document run, and never on a Markdown run's — including
+    /// its raw-HTML-island batches, whose instruction must stay
+    /// byte-identical to what it was before this wave.
+    pub(crate) html_document: bool,
 }
 
 /// The membership-dependent facts the instruction's optional clauses ride on,
@@ -113,6 +118,18 @@ pub(crate) struct DocumentFacts {
     pub(crate) has_html_unit: bool,
     /// At least one unit is a table row window (DCR-0026).
     pub(crate) has_row_window_unit: bool,
+    /// The units of an HTML-document run (spec §6). Derived — in
+    /// [`DocumentFacts::of`], the ONE place — from the `constraints.html`
+    /// sentinel `block_type == 0`, which `unit::payload::assemble` records
+    /// for exactly and only the blocks of an HTML document ("0 = a block of
+    /// an HTML document, where no CommonMark type applies"; a Markdown
+    /// island always carries comrak's 1–7). Constant across every batch of
+    /// a run, so — unlike the two membership facts above — it needs no
+    /// document-level upper bound: `of` at run level and `of` at batch
+    /// level always agree, and `unit::build_batches` debug-asserts the
+    /// run-level value against `Document.format` so the derivation and the
+    /// input format cannot drift apart unnoticed.
+    pub(crate) html_document: bool,
 }
 
 impl DocumentFacts {
@@ -124,6 +141,13 @@ impl DocumentFacts {
             has_row_window_unit: units
                 .iter()
                 .any(|u| matches!(u.input_mode, InputMode::TableRowWindow { .. })),
+            html_document: units.iter().any(|u| {
+                u.constraints
+                    .html
+                    .as_ref()
+                    .map(|h| h.block_type == 0)
+                    .unwrap_or(false)
+            }),
         }
     }
 
@@ -138,6 +162,7 @@ impl DocumentFacts {
             .fold(Self::default(), |acc, f| Self {
                 has_html_unit: acc.has_html_unit || f.has_html_unit,
                 has_row_window_unit: acc.has_row_window_unit || f.has_row_window_unit,
+                html_document: acc.html_document || f.html_document,
             })
     }
 }
@@ -155,6 +180,7 @@ impl InstructionVariant {
             code_spans: constraints.preserve_code_identifiers == Some(true),
             html_segments: facts.has_html_unit,
             table_row_windows: facts.has_row_window_unit,
+            html_document: facts.html_document,
         }
     }
 
@@ -260,6 +286,17 @@ pub(crate) fn instruction_text(variant: InstructionVariant) -> String {
              header and any recurring cell terminology the same way in every window. Never drop, \
              add, merge, split, or reorder rows, and never return a fragment without its header \
              and delimiter rows.",
+        );
+    }
+    // Spec §6: the run-level HTML-document clause. Appended LAST and gated
+    // on a fact no Markdown run can raise (the block_type-0 sentinel), so
+    // every instruction a Markdown run could assemble before this wave is
+    // byte-identical after it — islands included, which is what keeps their
+    // cache entries live and the goldens green.
+    if variant.html_document {
+        instruction.push_str(
+            " These units come from an HTML document. Segment text is HTML text \
+             content — never introduce Markdown syntax into a segment.",
         );
     }
     instruction
@@ -1278,7 +1315,16 @@ mod tests {
     fn every_variant_prices_the_instruction_the_request_carries() {
         for urls in [None, Some(true), Some(false)] {
             for code in [None, Some(true), Some(false)] {
-                for (html, window) in [(false, false), (true, false), (false, true), (true, true)] {
+                for (html, window, htmldoc) in [
+                    (false, false, false),
+                    (true, false, false),
+                    (false, true, false),
+                    (true, true, false),
+                    (false, false, true),
+                    (true, false, true),
+                    (false, true, true),
+                    (true, true, true),
+                ] {
                     let mut batch = fixture_batch();
                     batch.profile.constraints.preserve_urls = urls;
                     batch.profile.constraints.preserve_code_identifiers = code;
@@ -1293,13 +1339,24 @@ mod tests {
                         let unit = row_window_unit(&batch.units[0], 0);
                         batch.units.push(unit);
                     }
+                    // ti 490d97 wave 5's clause joins on the same terms.
+                    if htmldoc {
+                        let unit = html_document_unit(&batch.units[0]);
+                        batch.units.push(unit);
+                    }
 
                     let variant = InstructionVariant::for_batch(&batch);
                     // The clause rules, stated once and read off the wire below.
                     assert_eq!(variant.link_destinations, urls != Some(false));
                     assert_eq!(variant.code_spans, code == Some(true));
-                    assert_eq!(variant.html_segments, html);
+                    // A document unit is a SEGMENT unit too, so it raises the
+                    // segment clause on its own — the rule is the union, not
+                    // the `html` flag alone. Writing `html` here would make
+                    // the (false, _, true) rows red for a fixture reason and
+                    // teach nobody anything about the clause.
+                    assert_eq!(variant.html_segments, html || htmldoc);
                     assert_eq!(variant.table_row_windows, window);
+                    assert_eq!(variant.html_document, htmldoc);
 
                     let prompt = build_user_prompt(&batch).expect("prompt builds");
                     let v: serde_json::Value =
@@ -1363,6 +1420,68 @@ mod tests {
     }
 
     // Spec §4.1: html wire framing — conditional instruction + hints.
+    /// An HTML-DOCUMENT unit: same segment payload shape as `html_unit`, but
+    /// carrying the §6 sentinel (`block_type: 0`) — the recorded fact that no
+    /// CommonMark type applies. `html_unit` above stays an ISLAND (type 6);
+    /// the pair is what the derivation tests need.
+    fn html_document_unit(template: &TranslationUnit) -> TranslationUnit {
+        let mut unit = html_unit(template);
+        // A distinct ordinal: `html_unit` hardcodes `html-0009`, and the
+        // widened sweep pushes an island AND a document unit into one
+        // batch — two units sharing one id would be a fixture accident
+        // nothing here intends to test.
+        unit.unit_id = crate::id::BlockId::new("html", 10);
+        unit.constraints
+            .html
+            .as_mut()
+            .expect("html constraints")
+            .block_type = 0;
+        unit
+    }
+
+    /// Spec §6: the clause is run-level — it rides on a batch holding
+    /// HTML-document units, and a Markdown run's island batch keeps its
+    /// instruction BYTE-IDENTICAL (that identity is what keeps every
+    /// pre-wave-5 island cache entry alive and every golden green).
+    #[test]
+    fn the_html_document_clause_rides_the_sentinel_and_never_an_island() {
+        let mut doc_batch = fixture_batch();
+        let unit = html_document_unit(&doc_batch.units[0]);
+        doc_batch.units.push(unit);
+        let doc_variant = InstructionVariant::for_batch(&doc_batch);
+        assert!(doc_variant.html_document, "the sentinel is the carrier");
+        assert!(
+            doc_variant.html_segments,
+            "the segment clause rides too (§7's re-keyed has_html_unit)"
+        );
+        assert!(
+            instruction_text(doc_variant).contains("come from an HTML document"),
+            "the clause text ships: {}",
+            instruction_text(doc_variant),
+        );
+
+        let mut island_batch = fixture_batch();
+        let unit = html_unit(&island_batch.units[0]);
+        island_batch.units.push(unit);
+        let island_variant = InstructionVariant::for_batch(&island_batch);
+        assert!(
+            !island_variant.html_document,
+            "a Markdown run's island (block_type 6) must NOT raise it",
+        );
+        assert!(
+            !instruction_text(island_variant).contains("HTML document"),
+            "an island batch's instruction is byte-identical to before this \
+             wave: {}",
+            instruction_text(island_variant),
+        );
+        // The run-level reading agrees with the batch-level one — the flag is
+        // constant across a run, so no upper-bound machinery exists for it.
+        assert_eq!(
+            DocumentFacts::of(&doc_batch.units).html_document,
+            InstructionVariant::for_batch(&doc_batch).html_document,
+        );
+    }
+
     #[test]
     fn html_unit_gains_segment_instruction_and_hints() {
         let mut batch = fixture_batch();
@@ -1540,7 +1659,11 @@ mod tests {
             facts,
             DocumentFacts {
                 has_html_unit: true,
-                has_row_window_unit: true
+                has_row_window_unit: true,
+                // An island (block_type 6), never a document unit — the
+                // correct value, and exhaustive on purpose: this test's job
+                // is to hold every membership fact in view, so no `..`.
+                html_document: false,
             }
         );
         let variant = InstructionVariant::for_run(&both.profile.constraints, facts);

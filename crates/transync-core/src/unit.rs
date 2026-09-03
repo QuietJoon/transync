@@ -199,11 +199,27 @@ pub fn build_batches(
     // so they are reserved on the document-level upper bound (owner decision
     // 2026-08-06, extended to row windows by DCR-0026): does this document
     // hold an html unit, or a row-window unit, at all?
+    let facts = crate::llm::prompt::DocumentFacts::of(&units);
+    // ti 490d97 wave 5 (spec §6): the html_document clause is set run-level
+    // from the input format. The derivation reads the §6 sentinel off the
+    // units (the one carrier a bare batch holds — build_user_prompt's
+    // signature is frozen); this assert is the weld that the derived
+    // run-level value IS the input format, so the two can never drift apart
+    // silently. Debug builds only — debug_assert_eq! compiles out in
+    // release, where the §6 invariant chain plus the pins beside these
+    // modules are the whole guarantee. Exhaustive match, not `==`: a third
+    // SourceFormat variant must stop the compiler here.
+    debug_assert_eq!(
+        facts.html_document,
+        match doc.format {
+            crate::id::SourceFormat::Html => true,
+            crate::id::SourceFormat::Markdown => false,
+        },
+        "the sentinel derivation and Document.format disagree — the §6 \
+         invariant chain (format ⟹ spelling ⟹ assemble's sentinel) broke",
+    );
     let instruction_envelope = crate::llm::prompt::instruction_envelope_json(
-        crate::llm::prompt::InstructionVariant::for_run(
-            &profile.constraints,
-            crate::llm::prompt::DocumentFacts::of(&units),
-        ),
+        crate::llm::prompt::InstructionVariant::for_run(&profile.constraints, facts),
     );
     // DCR-0027 P1: partition, then pack — instead of handing the whole unit
     // list to one packing call, which let a batch straddle a `##` boundary and

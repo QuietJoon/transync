@@ -1594,23 +1594,29 @@ mod run_level_tests {
                 for html_segments in [false, true] {
                     // DCR-0026 added the fourth clause; the sweep grows with
                     // it, or a new clause could ship without its axis moving.
+                    // ti 490d97 wave 5 added the fifth (the run-level
+                    // HTML-document clause) and grew the sweep with it, as
+                    // this comment instructs.
                     for table_row_windows in [false, true] {
-                        let variant = InstructionVariant {
-                            link_destinations,
-                            code_spans,
-                            html_segments,
-                            table_row_windows,
-                        };
-                        assembled.push((
-                            variant,
-                            instruction_text(variant),
-                            InstructionDigest::of_variant(variant),
-                        ));
+                        for html_document in [false, true] {
+                            let variant = InstructionVariant {
+                                link_destinations,
+                                code_spans,
+                                html_segments,
+                                table_row_windows,
+                                html_document,
+                            };
+                            assembled.push((
+                                variant,
+                                instruction_text(variant),
+                                InstructionDigest::of_variant(variant),
+                            ));
+                        }
                     }
                 }
             }
         }
-        assert_eq!(assembled.len(), 16, "four independent clauses");
+        assert_eq!(assembled.len(), 32, "five independent clauses");
         for (a_variant, a_text, a_digest) in &assembled {
             for (b_variant, b_text, b_digest) in &assembled {
                 assert_eq!(
@@ -1709,6 +1715,111 @@ mod run_level_tests {
     /// `full_table_markdown`, one as `table_row_window` — shared one cache
     /// entry inside a single `InMemoryCache` run, and would have shared it
     /// across runs on `DiskCache`.
+    /// Spec §6, the no-new-axis verdict made checkable: an HTML-document
+    /// unit and a Markdown island unit whose every OTHER axis agrees —
+    /// same source bytes, same `html` kind label, same `html_segments` mode
+    /// label, same context, same profile, same languages — must not share a
+    /// cache entry, and the axis that separates them is `instruction_hash`:
+    /// the run-level HTML-document clause moves the assembled instruction
+    /// bytes. (`profile_prompt_hash` separates them TOO on any profile
+    /// carrying prompt_html — the [system].prompt_html selection — which is
+    /// the "either alone" claim; this test isolates the instruction half by
+    /// giving both batches one profile.) No `input_format` field joins
+    /// CacheKey: the field set is welded exhaustively from outside the crate
+    /// (`cache_key_field_set_is_the_documented_one`, no `..` rest pattern),
+    /// so an axis addition would be a red compile plus a closed-window §0
+    /// break — for a distinction the prompt-bytes rule already makes.
+    #[test]
+    fn an_html_document_unit_and_a_markdown_island_unit_are_not_one_entry() {
+        use crate::llm::InputMode;
+        use crate::unit::{build_batches, html_outcomes};
+
+        // A Markdown document with a raw-HTML island: the island unit is
+        // real, built by the real batcher, and carries comrak's block type.
+        let src =
+            "Intro paragraph.\n\n<details><summary>Click</summary>\n<p>body</p>\n</details>\n";
+        let opts = crate::TranslateOptions {
+            target_language: "ko".to_string(),
+            ..Default::default()
+        };
+        let mut doc = crate::parser::parse(src).expect("parses");
+        crate::id::assign_block_ids(&mut doc);
+        let batches = build_batches(&doc, &opts, None, &html_outcomes(&doc));
+        let island = batches
+            .iter()
+            .flat_map(|b| b.units.iter())
+            .find(|u| matches!(u.input_mode, InputMode::HtmlSegments))
+            .cloned()
+            .expect("the island is a segment unit");
+        let island_type = island
+            .constraints
+            .html
+            .as_ref()
+            .expect("segment constraints")
+            .block_type;
+        assert_ne!(
+            island_type, 0,
+            "an island carries comrak's type, never the §6 sentinel"
+        );
+
+        // One unit, two spellings of its origin: identical payload, kind and
+        // context; only constraints.html.block_type differs (comrak's type =
+        // island, 0 = HTML document) — the §6 record, never sent to the model.
+        let mut document = island.clone();
+        document
+            .constraints
+            .html
+            .as_mut()
+            .expect("segment constraints")
+            .block_type = 0;
+
+        let batch_of = |u: &crate::llm::TranslationUnit| {
+            let mut b = batches[0].clone();
+            b.units = vec![u.clone()];
+            b
+        };
+        let island_batch = batch_of(&island);
+        let document_batch = batch_of(&document);
+
+        let key_ctx = CacheKeyContext::for_run(
+            &opts,
+            ProviderFingerprint::new("test-provider", &["model", "url", "chat"]),
+        );
+        let island_key = key_ctx.key_for(
+            &opts,
+            &island,
+            InstructionDigest::for_batch(&island_batch),
+            CohortDigest::for_batch(&island_batch),
+        );
+        let document_key = key_ctx.key_for(
+            &opts,
+            &document,
+            InstructionDigest::for_batch(&document_batch),
+            CohortDigest::for_batch(&document_batch),
+        );
+        // Precondition: every axis except the instruction agrees — this is
+        // what makes the inequality below the CLAUSE's doing and nothing
+        // else's. If any of these preconditions fails, the test has drifted
+        // from its subject; fix the fixtures, not the assertions.
+        assert_eq!(island_key.source_hash, document_key.source_hash);
+        assert_eq!(island_key.block_kind, document_key.block_kind);
+        assert_eq!(island_key.input_mode, document_key.input_mode);
+        assert_eq!(island_key.context_hash, document_key.context_hash);
+        assert_eq!(
+            island_key.profile_prompt_hash,
+            document_key.profile_prompt_hash
+        );
+        assert_ne!(
+            island_key, document_key,
+            "an HTML run and a Markdown run of the same unit must not share \
+             an entry",
+        );
+        assert_ne!(
+            island_key.instruction_hash, document_key.instruction_hash,
+            "and the separating axis is the instruction the batch assembled",
+        );
+    }
+
     #[test]
     fn a_row_window_and_a_whole_table_are_not_one_entry() {
         use crate::llm::InputMode;
