@@ -1186,3 +1186,136 @@ mod head_tests {
         );
     }
 }
+
+// "Implicit closes, force-closes on unclosed leaves, and EOF force-close
+// each append a Document::warnings note — that channel is documented as
+// not parse-only." (spec §4)
+#[cfg(test)]
+mod warning_tests {
+    use super::*;
+
+    /// An implicit close (the second <p> pops the first) and a force-close
+    /// by the enclosing </div> each leave a note naming the block.
+    #[test]
+    fn an_implicit_close_and_a_force_close_each_leave_a_note() {
+        let doc = parse("<div><p>alpha<p>bravo</div>");
+        assert_eq!(doc.blocks.len(), 2);
+        assert_eq!(doc.warnings.len(), 2, "{:?}", doc.warnings);
+        assert!(
+            doc.warnings[0].contains("p-0001") && doc.warnings[0].contains("closed implicitly"),
+            "{}",
+            doc.warnings[0],
+        );
+        assert!(doc.warnings[1].contains("p-0002"), "{}", doc.warnings[1]);
+        // The force-closed ranges exclude trailing whitespace and the
+        // boundary tokens (spec §4 "ranges"):
+        let p1 = &doc.source_text[doc.blocks[0].source_range.start..doc.blocks[0].source_range.end];
+        assert_eq!(p1, "<p>alpha");
+    }
+
+    /// EOF force-close: the leaf and the still-open container are each
+    /// reported, and nothing panics.
+    #[test]
+    fn eof_force_close_warns_for_the_leaf_and_the_container() {
+        let doc = parse("<div><p>tail with no closers");
+        assert_eq!(doc.blocks.len(), 1);
+        assert_eq!(doc.blocks[0].kind.wire_str(), "paragraph");
+        assert!(
+            doc.warnings
+                .iter()
+                .any(|w| w.contains("p-0001") && w.contains("end of input")),
+            "{:?}",
+            doc.warnings,
+        );
+        assert!(
+            doc.warnings
+                .iter()
+                .any(|w| w.contains("<div>") && w.contains("end of input")),
+            "{:?}",
+            doc.warnings,
+        );
+    }
+
+    /// Spec §12 wave 3 acceptance: "an unclosed fragment force-closing with
+    /// a warning rather than a panic" — generalized to genuinely hostile
+    /// shapes. Identity must survive every one of them, because identity is
+    /// a range-bookkeeping property, not a well-formedness property.
+    #[test]
+    fn genuinely_broken_input_parses_without_panicking_and_round_trips() {
+        for src in [
+            "</p></div><p>orphans first",
+            "<p><div></span><p>text",
+            "<ul><li><table><tr>x",
+            "<<<>>><p>&</p>",
+            "<title>rcdata swallows <div> everything",
+            "<head><head><title>t</title>",
+        ] {
+            let doc = parse(src);
+            let (out, _) = crate::regen::regenerate(&doc, &std::collections::HashMap::new());
+            assert_eq!(out, doc.source_text, "for {src:?}");
+        }
+    }
+}
+
+// The spec's intake tripwire ("A debug assertion pins order/non-overlap at
+// intake"), pinned by tripping it: Document is pub-fields, so the bad
+// documents below are constructible outside parse, and the assertion must
+// name the block and the violation.
+#[cfg(test)]
+mod invariant_tests {
+    use super::*;
+
+    fn block(ordinal: u32, start: usize, end: usize) -> Block {
+        Block {
+            block_id: BlockId::new("p", ordinal),
+            kind: BlockKind::Paragraph,
+            spelling: Spelling::Html { block_type: None },
+            source_range: ByteRange { start, end },
+            source_hash: 0,
+            section_path: Vec::new(),
+            ast_path: AstPath(vec![0]),
+        }
+    }
+
+    fn doc_with(source: &str, blocks: Vec<Block>) -> Document {
+        Document {
+            source_text: source.to_string(),
+            format: SourceFormat::Html,
+            blocks,
+            warnings: Vec::new(),
+            ref_defs: String::new(),
+        }
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "inside or before its predecessor")]
+    fn the_assertion_trips_on_overlapping_ranges() {
+        debug_assert_block_invariants(&doc_with("abcdefgh", vec![block(1, 0, 5), block(2, 3, 8)]));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "splits a UTF-8 char")]
+    fn the_assertion_trips_on_a_non_boundary_offset() {
+        // Byte 2 is inside the three-byte '한'.
+        debug_assert_block_invariants(&doc_with("a한글b", vec![block(1, 0, 2)]));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "past the end of source_text")]
+    fn the_assertion_trips_on_an_out_of_bounds_range() {
+        debug_assert_block_invariants(&doc_with("short", vec![block(1, 0, 99)]));
+    }
+
+    /// The assertion is quiet on what parse actually builds — otherwise
+    /// every test above this line would already have tripped it, but say
+    /// so explicitly once.
+    #[test]
+    fn the_assertion_is_quiet_on_parse_output() {
+        let doc = parse("<h1>a</h1><p>b</p><ul><li>c</li></ul>");
+        debug_assert_block_invariants(&doc);
+        assert_eq!(doc.blocks.len(), 3);
+    }
+}
