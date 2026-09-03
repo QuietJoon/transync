@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-03-ti490d97-wave6
+  last_updated: 2026-09-04-ti490d97-wave7
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -377,6 +377,41 @@ project:
     out.md; workspace 46 binaries / 1271 passed / 0 failed; CLI suite 217;
     scripts/test-browser.sh 39 passed exit 0; two-package wasm gate exit 0
     with its string unchanged; ZERO fixture edits; exit_code_docs_drift and
+    TI 490d97 WAVE 7 LANDED 2026-09-04 (DCR-0039): the browser gate -
+    scn16.spec.js drives the HTML-run bundle through the shipped shell
+    (bidirectional block-id sync over HTML-derived anchors, the title absent
+    from both panes and present exactly once on the browser tab, zero console
+    warnings on the engine's channel), the docs-drift weld pins four spec files
+    with all three naming documents moving in the same commit, and the closure
+    ledger dispositions every deferred item from waves 0-6. The gate is proven
+    falsifiable: four probes against mutated copies of the real bundle drove a
+    leaked title anchor, a dissolved li group, an anchor-role title row and the
+    pre-ruling self-injected custom-element anchor each red on its named
+    assertion. Probe 4 is the one no earlier wave could run - every prior
+    browser proof bypassed the sanitizer - and probe 2 re-measured section 8
+    step 6's erratum: DOMPurify 3.2.6 passes a bare li through unchanged and in
+    place, so the grouping stands on D9's model and not on any relocation.
+    THE HTML->HTML FEATURE (ti 490d97) IS COMPLETE - ALL EIGHT WAVES LANDED.
+    The section 14.1 evidence is staged and NARROWS the question: a custom
+    element mid-sentence inside a p does NOT split the sentence (the p is the
+    element block and the element is interior), while the same sentence as
+    naked prose does split into run/element/run - so the hazard needs prose
+    that is not wrapped in an element, which real pages rarely are. Filed as
+    ti 84bf37 with three options; the ruling is the owner's. Still open with
+    homes: that ticket, island reclassification (schema-2.x window), the
+    oversize-leaf splitter, the parser to intake::markdown rename, and the
+    nine-item spec-amendment batch A-I recorded in DCR-0039 with exact
+    replacement wording (the spec file is byte-untouched). Five plan premises
+    had moved by execution and the landed tree won each time - CLAUDE.md and
+    docs/investigation are both gitignored here so those edits are local only,
+    open-issues.md holds ten more OPEN entries than the plan expected and none
+    is an HTML item, half the OI-0035 record gap had already been fixed by the
+    2026-08-24 reopen sweep, and template-webcomponent-extraction is Type 3 now.
+    Acceptance: scripts/test-browser.sh 42 passed exit 0 with the three scn16
+    tests listed; four probe captures each PW_EXIT non-zero; the diff over
+    crates/ and web/js/ names exactly one file, the weld test, and the diff over
+    fixtures, web/js and web/tests/support is EMPTY. The v0.5.0 cut is a
+    separate owner decision via the release checklist.
     sync_js_drift green at zero edits to either test file. WAVE 7 - the
     browser gate and closure - IS THE LAST and remains unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
     most recent release is still v0.4.0, and the owner's condition for closing
@@ -948,9 +983,12 @@ design:
     - DCR-0036-html-layer6-twin
     - DCR-0037-html-translation-entry-units-context-prompt
     - DCR-0038-html-panes-wire-cli
-    # DCR-0039 is RESERVED, not free: claimed by the unrun HTML->HTML wave 7,
-    # the last. DCR-0035..0038 above were reserved the same way and CLAIMED by
-    # waves 3/4/5/6
+    - DCR-0039-html-browser-gate-and-closure
+    # DCR-0039 LANDED 2026-09-04 with wave 7, the last: it was reserved from the
+    # start and was still free at execution, which is exactly the collision the
+    # reservation existed to prevent - DCR-0040..0048 were taken by unrelated
+    # work in the meantime. DCR-0035..0038 above were reserved the same way and
+    # CLAIMED by waves 3/4/5/6
     # (docs/superpowers/plans/2026-08-20-html-wave*.md), each appended here by
     # that wave's own records task. DCR-0040..DCR-0044 are out of sequence on
     # purpose - taking the next free number would have collided with an unrun
