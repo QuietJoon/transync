@@ -1319,3 +1319,68 @@ mod invariant_tests {
         assert_eq!(doc.blocks.len(), 3);
     }
 }
+
+// Ids, sections and paths (spec §4 "Ids, hashes, paths").
+#[cfg(test)]
+mod id_and_path_tests {
+    use super::*;
+
+    /// "opening/closing SectionStack scopes exactly as Markdown headings
+    /// do" — same close-through-then-open rule, same section_path shapes.
+    #[test]
+    fn headings_open_and_close_section_scopes_exactly_as_markdown_headings_do() {
+        let doc = parse("<h1>A</h1><p>one</p><h2>B</h2><p>two</p><h1>C</h1><p>three</p>");
+        let paths: Vec<Vec<&str>> = doc
+            .blocks
+            .iter()
+            .map(|b| b.section_path.iter().map(|id| id.0.as_str()).collect())
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                vec![],
+                vec!["h1-0001"],
+                vec!["h1-0001"],
+                vec!["h1-0001", "h2-0003"],
+                vec![],
+                vec!["h1-0005"],
+            ],
+        );
+    }
+
+    /// "an <li> takes its list container's path + item ordinal, exactly the
+    /// Markdown List-arm convention" — the prefix is shared within one list
+    /// and differs across adjacent lists.
+    #[test]
+    fn list_items_carry_the_container_path_plus_their_ordinal() {
+        let doc = parse("<ul><li>a</li><li>b</li></ul><ul><li>c</li></ul>");
+        let paths: Vec<&[usize]> = doc.blocks.iter().map(|b| &b.ast_path.0[..]).collect();
+        assert_eq!(paths, vec![&[0, 0][..], &[0, 1][..], &[1, 0][..]]);
+    }
+
+    /// "the same global-ordinal scheme … the pipeline's existing
+    /// assign_block_ids is idempotent over it".
+    #[test]
+    fn assign_block_ids_is_idempotent_over_the_html_intake() {
+        let mut doc = parse("<h1>t</h1><p>a</p><ul><li>b</li></ul><hr>");
+        let before: Vec<String> = doc.blocks.iter().map(|b| b.block_id.0.clone()).collect();
+        assert_eq!(before, vec!["h1-0001", "p-0002", "li-0003", "hr-0004"]);
+        crate::id::assign_block_ids(&mut doc);
+        let after: Vec<String> = doc.blocks.iter().map(|b| b.block_id.0.clone()).collect();
+        assert_eq!(before, after);
+    }
+
+    /// The hash covers the WHOLE element, attributes included, "so
+    /// <p class=\"a\">x</p> and <p>x</p> cannot alias in the cache"
+    /// (spec §4 "ranges").
+    #[test]
+    fn the_source_hash_covers_the_whole_element_attributes_included() {
+        let a = parse("<p class=\"a\">x</p>");
+        let b = parse("<p>x</p>");
+        assert_ne!(a.blocks[0].source_hash, b.blocks[0].source_hash);
+        assert_eq!(
+            a.blocks[0].source_hash,
+            crate::id::source_hash_bytes("<p class=\"a\">x</p>".as_bytes()),
+        );
+    }
+}
