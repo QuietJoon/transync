@@ -49,7 +49,7 @@ use crate::llm::{
 };
 use crate::parser::parse;
 use crate::profile::{default_profile, merge_auto_glossary};
-use crate::render::{render_source, render_target};
+use crate::render::{render_source, render_source_html, render_target, render_target_html};
 use crate::unit::build_batches;
 use crate::validate::{AutoGlossaryReport, AutoGlossaryStatus, truncate_diagnostic};
 use crate::{TranslateOptions, TranslationOutput};
@@ -775,20 +775,24 @@ where
     // its own — and why it is an error at all instead of a pane silently
     // missing a block.
     //
-    // ti 490d97 wave 5, deviation 5: the pane derivation for HTML runs is
-    // wave 6's (D6/§8 — synthesized fragments, strip-then-inject, li
-    // grouping). Until it lands, the honest value is empty: letting the
-    // Markdown renderer run here would put comrak and walk over an HTML
-    // document — the render-path twin of the very hazard the layer-6
-    // dispatch exists to prevent (spec §7: walk "must simply never be
-    // called on an HTML document").
+    // ti 490d97 wave 6 (spec §8): the pane derivation. Same refusal mapping
+    // as the Markdown arm; the run's html_outcomes map rides along so the
+    // extraction-failure placeholder and the batching / alignment decisions
+    // cannot disagree (outcome.rs's agreement rule, fourth consumer). The
+    // Markdown arm keeps comrak and walk, which must never see an HTML
+    // document — that separation is what this branch is for.
     let (annotated_source_html, annotated_target_html) = match doc.format {
         crate::id::SourceFormat::Markdown => (
             render_source(&doc, &alignment_map).map_err(render_fault("source"))?,
             render_target(&doc, &translated_document, &alignment_map)
                 .map_err(render_fault("target"))?,
         ),
-        crate::id::SourceFormat::Html => (String::new(), String::new()),
+        crate::id::SourceFormat::Html => (
+            render_source_html(&doc, &alignment_map, &html_outcomes)
+                .map_err(render_fault("source"))?,
+            render_target_html(&doc, &translated_document, &alignment_map, &html_outcomes)
+                .map_err(render_fault("target"))?,
+        ),
     };
 
     Ok(TranslationOutput {
@@ -5294,10 +5298,10 @@ mod html_run_tests {
 
     /// Echo everything: the identity run. translated_document is the source,
     /// byte for byte (wave 3's theorem + the splice identity, end to end),
-    /// the panes are EMPTY until wave 6 (deviation 5), and the alignment map
-    /// is real.
+    /// the panes are the §8 synthesized fragments (wave 6), and the
+    /// alignment map is real.
     #[tokio::test]
-    async fn an_echo_html_run_is_byte_identical_with_empty_panes() {
+    async fn an_echo_html_run_is_byte_identical_and_the_panes_are_real() {
         struct EchoAll;
         #[async_trait::async_trait]
         impl Translator for EchoAll {
@@ -5330,10 +5334,15 @@ mod html_run_tests {
             .expect("Ok");
         assert_eq!(out.translated_document, HTML_SRC, "identity, byte for byte");
         assert!(
-            out.annotated_source_html.is_empty() && out.annotated_target_html.is_empty(),
-            "panes are wave 6's (D6); comrak and walk must never see an HTML \
-             document, so until the pane derivation exists the honest value \
-             is empty — not a Markdown-rendered guess",
+            out.annotated_source_html.starts_with("<main>")
+                && out.annotated_target_html.starts_with("<main>"),
+            "wave 6: the panes are the §8 synthesized fragments now",
+        );
+        assert!(
+            out.annotated_source_html.contains("data-sync-id=\"p-")
+                && out.annotated_target_html.contains("data-sync-id=\"p-"),
+            "anchored rows reach both panes: {}",
+            out.annotated_source_html,
         );
         assert!(!out.alignment_map.blocks.is_empty(), "the map is real");
         // Suppressed by construction (spec §6): a deliberate HTML run needs

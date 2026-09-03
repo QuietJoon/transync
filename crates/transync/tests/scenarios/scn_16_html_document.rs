@@ -51,8 +51,8 @@ async fn smoke_scn_16_identity_and_the_title_row() {
     assert_eq!(out.alignment_map.schema_version, "1.3.0");
 
     // D5: the <title> is a real translated row with a non-sync role — the
-    // shape a thematic break has had since schema 1.0 — and no pane exists
-    // for it to anchor in (panes themselves are wave 6's; both empty here).
+    // shape a thematic break has had since schema 1.0 — and no pane anchor
+    // exists for it: §8's per-row rule skips every non-sync row.
     let title = out
         .alignment_map
         .blocks
@@ -61,7 +61,16 @@ async fn smoke_scn_16_identity_and_the_title_row() {
         .expect("the <title> has a real alignment row");
     assert_eq!(title.source_block_id.0, "title-0001");
     assert_eq!(title.sync_role, SyncRole::NonSync);
-    assert!(out.annotated_source_html.is_empty() && out.annotated_target_html.is_empty());
+    assert!(
+        out.annotated_source_html.starts_with("<main>")
+            && out.annotated_target_html.starts_with("<main>"),
+        "wave 6: the panes are the §8 synthesized fragments now",
+    );
+    assert!(
+        !out.annotated_source_html.contains("<script")
+            && !out.annotated_target_html.contains("<script"),
+        "the fixture's <script> is gap and never reaches a pane (D6)",
+    );
 
     // §6: document_title is the <title>'s extracted, entity-decoded text —
     // what the provider was told the document is called.

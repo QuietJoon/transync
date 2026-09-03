@@ -348,10 +348,9 @@ pub struct TranslateOptions {
     /// ADR-0017's silent-path refusals protect; there is no reverse sniff,
     /// because a body fragment is legitimately accepted HTML.
     ///
-    /// The CLI's `--input-format` flag, the preamble-sniff message rewrite
-    /// and the pane derivation for HTML runs are the NEXT wave's (wave 6);
-    /// on an `Html` run this release, [`TranslationOutput`]'s two annotated
-    /// pane fields come back empty (their doc comment carries the rule).
+    /// The CLI flag is `--input-format` (contracts §6), and
+    /// [`TranslationOutput`]'s two annotated pane fields carry the §8
+    /// synthesized fragments since DCR-0038.
     ///
     /// TRACE: ADR-0025
     pub input_format: SourceFormat,
@@ -441,16 +440,19 @@ pub struct TranslationOutput {
     /// The source pane: annotated HTML rendered from the source IR against
     /// [`Self::alignment_map`].
     ///
-    /// **Empty on an `input_format = Html` run** until the HTML pane
-    /// derivation lands (ti 490d97 wave 6). Panes are a sync surface, and
-    /// deriving them for an HTML document means synthesized fragments,
-    /// strip-then-inject and list grouping — not the Markdown renderer,
-    /// which must never read an HTML document any more than comrak's
-    /// reparse may validate one. Until that exists the honest value is
-    /// empty rather than a Markdown-rendered guess.
+    /// On an `input_format = Html` run these are the §8 synthesized
+    /// `<main>` fragments (DCR-0038): strip-then-inject over the blocks'
+    /// own elements, with every `BlockKind::Html` block — and every
+    /// element-less one, an img-run `Image` included — riding a transparent
+    /// `<div>` instead, because the shells' DOMPurify mount can remove an
+    /// element and every attribute on it. `li` blocks share one group;
+    /// head, gap bytes, doctype, comments, `<script>`/`<style>` and
+    /// non-sync rows are never present (D6 — a pane is a sync surface, not
+    /// a fidelity preview; `transync serve` over the published document is
+    /// the fidelity view). On a Markdown run they are the comrak-paired
+    /// fragments, unchanged.
     pub annotated_source_html: String,
-    /// The target pane, on the same terms as [`Self::annotated_source_html`]
-    /// — including empty on an `input_format = Html` run until wave 6.
+    /// The target pane, on the same terms as [`Self::annotated_source_html`].
     pub annotated_target_html: String,
     pub validation_report: ValidationReport,
     pub detected_source_language: Option<String>,
