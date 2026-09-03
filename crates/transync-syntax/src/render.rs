@@ -29,6 +29,8 @@
 //! TRACE: contracts.md §4
 
 pub mod attrs;
+pub mod html_pane;
+pub use html_pane::{render_source_html, render_target_html};
 
 use crate::align::{AlignmentBlock, AlignmentMap, FallbackStatus};
 use crate::id::{BlockId, BlockKind};
@@ -249,6 +251,21 @@ fn render_fragment<'p>(
     alignment: &'p AlignmentMap,
     pane: Pane<'p>,
 ) -> Result<String, RenderError> {
+    // Wave 2's handed-forward render/pane guard, the Markdown mirror
+    // (ADR-0025; spec §3 names the Markdown renderer among the format-
+    // committed consumers that must refuse the wrong document). Without
+    // this, comrak happily parses an HTML-intake document as Markdown,
+    // Guard-2 degrades every row to escaped byte ranges, and a plausible-
+    // looking pane comes out with no refusal anywhere — render_source is
+    // pub in a published crate and the wasm rebuild path is shipped
+    // precedent for out-of-pipeline calls, so the assert is not dead code.
+    // Same posture as the Html half: an assertion, not a dispatch.
+    debug_assert_eq!(
+        doc.format,
+        crate::id::SourceFormat::Markdown,
+        "render_fragment is the Markdown pane path; an HTML-intake document \
+         takes render_source_html/render_target_html"
+    );
     let ctx = PaneCtx::new(doc, alignment, pane)?;
 
     // R0002-0059: the pane's Markdown meets the SAME intake the source
