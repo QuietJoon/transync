@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-03-ti490d97-wave5
+  last_updated: 2026-09-03-ti490d97-wave6
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -303,7 +303,75 @@ project:
     workspace and CLI stub suites green; two-package wasm gate exit 0 with its
     string unchanged; empty containment diff outside crates/transync-core,
     crates/transync and the named docs; zero fixture, golden and browser-test
-    movement. Waves 6-7 unstarted - the OPERATOR surface does not exist yet. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
+    movement.
+    TI 490d97 WAVE 6 LANDED 2026-09-03 (DCR-0038): THE OPERATOR SURFACE
+    EXISTS. transync translate --input-format html --input page.html --out-dir
+    out/ writes out.html - the full page, head, scripts and doctype verbatim,
+    and ANCHOR-FREE - plus a bundle whose panes mount and sync by block id,
+    proven by a direct-drive browser test over the real bundle rather than
+    asserted. Five commits, 5ba9783 through b25ab75.
+    ALIGNMENT SCHEMA IS 1.3.0: per-row source_format (the block's SPELLING - a
+    Markdown run's html-island row says html), map-level input_format (the
+    run's INTAKE), and the title kind. Two facts, two names, never one field
+    doing double duty. The row's Option exists ONLY so a pre-1.3.0 map
+    deserializes; the documented reader rule for an absent value is
+    block_kind == html ? html : markdown, never a bare markdown default,
+    which would mislabel every 1.2.0 island row. Forward-minor BY DESIGN
+    rather than by assertion: no new sync_role value, no new required row
+    fact, both additions outside the facts the minimum-usable-row gate
+    polices, and title rides the non-sync role shipped since 1.0 - so the
+    engine's LOGIC is untouched and its whole sync.js diff is the schema
+    mirror. A one-minor-newer map carrying exactly 1.3.0's additions is
+    DRIVEN in the browser suite.
+    THE PANE DERIVATION is strip -> inject into the block's own element ->
+    balance -> group consecutive li, in a child of render so PaneCtx and its
+    three refusals are LITERALLY reused rather than imitated. The transparent
+    div survives for html-kind blocks and element-less ones (an img-run
+    included: a void records no extent, so the instrument has nothing for
+    injection to land in). That key is the ti d4bce2 re-keying and its ground
+    is MEASURED: DOMPurify removes an unknown element AND every attribute
+    riding it, so an anchor injected into <x-note> dies at the mount and the
+    pane grows a hole. The earlier "is it named in section 4's tables" key
+    closed that for custom elements but left iframe and noscript
+    self-injecting, since both are NAMED default-stop entries the sanitizer
+    also removes - and patching that would have meant naming which entries
+    the sanitizer keeps, i.e. a second opinion about what DOMPurify accepts.
+    Keying on the KIND refuses that too and needs no list at all. Neutralize
+    the key and the test prints the defect: the anchor spliced into the very
+    tag the sanitizer deletes.
+    TWO SILENT-REINTRODUCTION ROUTES ARE PINNED SHUT: regen.rs carries ZERO
+    data-sync-id (injection is bundle-only, and out.html is read off disk in
+    two independent places to hold that sentence), and strip-then-inject goes
+    red in BOTH wrong orders - inject-then-strip deletes our own anchors, no
+    strip leaves two claimants for one id.
+    THE CLI keeps the sniff a REFUSAL rather than making it a router: routing
+    is flag-only, --input-format markdown alone RE-TRIPS the sniff, there is
+    no reverse sniff on the html arm, and the pair with --allow-html-input is
+    an argument error at exit 1. No exit code and no ExitCode variant moved -
+    exit_code_docs_drift green at zero edits is the proof. The out-dir
+    complete-set fallback had to become a PREDICATE: with five allow-listed
+    names and a run that writes one document, the old length equality was
+    unsatisfiable and would have silently killed the ti-66339b marker-less
+    republish recovery.
+    THE FORWARD-SPECIMEN SWEEP FOUND SIX HARD-CODED LITERALS WHERE THE PLAN
+    PREDICTED THREE - one more in the file it named, and two in a file it
+    called untouched. forwardMinorVersion() now lives in the shared harness,
+    and every specimen derives from the served engine's own constant. The
+    scar generalizes: a forward-minor specimen must never be a literal, which
+    is exactly what this bump had to sweep.
+    TWO SPEC AMENDMENTS OWED (recorded in DCR-0038, spec file NOT edited):
+    section 7's blanket "walk must never be called on an HTML document" is
+    over-broad and should name the comrak-typed consumers it means, since the
+    spec's own section 4 and section 8 step 6 both require the prefix collapse
+    to run on HTML documents; and section 8 steps 3/4 under-describe the
+    wrapper's population, which after d4bce2 is one kind-keyed rule rather
+    than a three-way boundary.
+    Acceptance: hand-run demo exits 0 with an anchor-free out.html and no
+    out.md; workspace 46 binaries / 1271 passed / 0 failed; CLI suite 217;
+    scripts/test-browser.sh 39 passed exit 0; two-package wasm gate exit 0
+    with its string unchanged; ZERO fixture edits; exit_code_docs_drift and
+    sync_js_drift green at zero edits to either test file. WAVE 7 - the
+    browser gate and closure - IS THE LAST and remains unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
     most recent release is still v0.4.0, and the owner's condition for closing
     this one (stated 2026-08-24) is that 0.5.0 proper ships only after every
     REGISTERED TASK and every OPEN ISSUE is resolved, excluding those
@@ -872,9 +940,10 @@ design:
     - DCR-0035-html-intake-identity-round-trip
     - DCR-0036-html-layer6-twin
     - DCR-0037-html-translation-entry-units-context-prompt
-    # DCR-0038..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
-    # (6-7). DCR-0035/0036/0037 above were reserved the same way and CLAIMED by
-    # waves 3/4/5
+    - DCR-0038-html-panes-wire-cli
+    # DCR-0039 is RESERVED, not free: claimed by the unrun HTML->HTML wave 7,
+    # the last. DCR-0035..0038 above were reserved the same way and CLAIMED by
+    # waves 3/4/5/6
     # (docs/superpowers/plans/2026-08-20-html-wave*.md), each appended here by
     # that wave's own records task. DCR-0040..DCR-0044 are out of sequence on
     # purpose - taking the next free number would have collided with an unrun
