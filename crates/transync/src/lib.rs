@@ -61,7 +61,7 @@ pub use transync_core::{
 };
 
 // Block identity.
-pub use transync_core::{BlockId, BlockKind};
+pub use transync_core::{BlockId, BlockKind, SourceFormat};
 
 // Validation-report family.
 pub use transync_core::{

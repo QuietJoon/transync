@@ -72,11 +72,12 @@ mod first_class {
         GlossaryExtraction, GlossaryExtractionKey, GlossaryExtractionRequest, GlossaryScope,
         InMemoryCache, InputMode, ListTopologyEntry, MAX_EXTRACTION_SOURCE_BYTES, MergedGlossary,
         OutputBudgetWarning, OutputKind, ParseError, ProfileError, ProfileMetadata,
-        ProviderFingerprint, RetryContext, SyncRole, TableAlign, TokenizerHint, TranslateOptions,
-        TranslationBatch, TranslationBatchResult, TranslationOutput, TranslationUnit, Translator,
-        TranslatorError, TransyncError, UnitResult, UnitValidationRecord,
-        VALIDATION_REPORT_SCHEMA_VERSION, VALIDATION_SCHEMA_VERSION, ValidationLayer,
-        ValidationReport, ValidationSummary, merge_auto_glossary, translate, translate_with_cache,
+        ProviderFingerprint, RetryContext, SourceFormat, SyncRole, TableAlign, TokenizerHint,
+        TranslateOptions, TranslationBatch, TranslationBatchResult, TranslationOutput,
+        TranslationUnit, Translator, TranslatorError, TransyncError, UnitResult,
+        UnitValidationRecord, VALIDATION_REPORT_SCHEMA_VERSION, VALIDATION_SCHEMA_VERSION,
+        ValidationLayer, ValidationReport, ValidationSummary, merge_auto_glossary, translate,
+        translate_with_cache,
     };
 
     // `transync::llm` items (tier a).
@@ -170,6 +171,7 @@ const DOCUMENTED: &[&str] = &[
     "transync::ValidationSummary",
     "transync::BlockId",
     "transync::BlockKind",
+    "transync::SourceFormat",
     "transync::ValidationReport",
     "transync::ValidationLayer",
     "transync::AttemptOutcome",
