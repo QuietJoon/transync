@@ -201,6 +201,21 @@ const FIXTURES: &[(&str, &str)] = &[
 /// drawn four times — raw text (ti `2e2453`), voidness (ti `48f3c6`), the
 /// name boundary (ti `e20490`), and now the rename.
 ///
+/// The four `unterminated-*` entries are the sixth blind spot, and the first
+/// that is about the BALANCER rather than the scanner (ti `c1f9a8`). Not one
+/// corpus entry — nor any of the three repository fixtures — ended inside an
+/// unterminated comment, CDATA section, bogus comment or tag, so the pin could
+/// not see what `balance_fragment` did with one: nothing. It passed the
+/// fragment through unrepaired.
+///
+/// The harm is not cosmetic and is worse for three of the four kinds. An
+/// unterminated COMMENT swallows everything after it; the other three end at
+/// the first `>`, which in a mounted pane is the sync wrapper's own `</div>`.
+/// The wrapper then closes inside the region, stays open, and every following
+/// block nests inside this block's wrapper — `contracts.md` §4a's direct-child
+/// break, the same one wave 1 (`<div/>`) and DCR-0041 (`<svg><div>`) were each
+/// fixed for as live breaks.
+///
 /// Blessed twice for the reason `stray-*` is: the commit that adds them
 /// records the BROKEN tokenization, the fix re-blesses through the same
 /// interlock, and the diff between the two blessings is the reviewable record.
@@ -259,6 +274,11 @@ const EDGE_CASES: &[(&str, &str)] = &[
     // ti `4882ac` — a documented exclusion, made falsifiable.
     ("image-html", "<image>x"),
     ("image-foreign", "<svg><image>a</image>b</svg>"),
+    // ti `c1f9a8` — a fragment that ENDS inside an unterminated region.
+    ("unterminated-comment", "<div>x<!--"),
+    ("unterminated-bogus", "<div>x<?pi"),
+    ("unterminated-cdata-foreign", "<svg><text><![CDATA[y"),
+    ("unterminated-tag", "<div>x<p"),
 ];
 
 /// Every corpus entry as `(name, source)`, fixtures first.

@@ -109,3 +109,15 @@ stream: O:img:false
 ### image-foreign
 inventory: svg|image|/image|/svg
 stream: O:svg:false|O:image:false|C:image@13..21|C:svg@22..28
+### unterminated-comment
+inventory: div
+stream: O:div:false
+### unterminated-bogus
+inventory: div
+stream: O:div:false
+### unterminated-cdata-foreign
+inventory: svg|text
+stream: O:svg:false|O:text:false
+### unterminated-tag
+inventory: div
+stream: O:div:false
