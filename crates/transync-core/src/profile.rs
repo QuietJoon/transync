@@ -72,6 +72,21 @@ pub struct ProfileMetadata {
     /// the type docs for which boundary hands out which). Either state is
     /// accepted wherever a profile is taken.
     pub prompt_body: String,
+    /// The system prompt an **HTML-document run** compiles instead of
+    /// [`Self::prompt_body`] — the raw `[system].prompt_html` template, in
+    /// the template state always (selection happens before compilation, so
+    /// this field is never rewritten to a compiled form). `None` on a
+    /// profile that predates the key or chooses not to carry it; an HTML
+    /// run then reuses [`Self::prompt_body`] verbatim, with an advisory —
+    /// never a core-synthesized merge into operator-owned text (spec §6).
+    /// Selection is `select_prompt_for_format`, called once per run at
+    /// `unit::build_batches`' profile door, before the first compile, so
+    /// the initial body, every DCR-0027 cohort re-compile, and the
+    /// template rewind all inherit the selected body.
+    ///
+    /// TRACE: ti 490d97 wave 5 (spec §6)
+    #[serde(default)]
+    pub prompt_html: Option<String>,
     #[serde(default)]
     pub glossary: Vec<GlossaryEntry>,
     /// Typed `[constraints]` section (OI-0003). The boolean policies are
@@ -918,6 +933,8 @@ struct ProfileToml {
 #[derive(Debug, Clone, Deserialize)]
 struct SystemBlock {
     prompt: Option<String>,
+    #[serde(default)]
+    prompt_html: Option<String>,
 }
 
 /// Parse a profile TOML document into a [`ProfileMetadata`] with an
@@ -1019,10 +1036,33 @@ pub fn load_profile(toml_text: &str) -> Result<ProfileMetadata, ProfileError> {
     // Scanned after `normalize_glossary` so the indices here and there agree.
     load_warnings.extend(glossary_control_char_warnings(&glossary));
 
+    // ti 490d97 wave 5 (spec §6): `prompt`'s sibling body. No emptiness
+    // refusal — `prompt` stays the only required key — and an empty
+    // `prompt_html` normalizes to `None` so the fallback rule has ONE absent
+    // state rather than two.
+    let prompt_html = parsed
+        .system
+        .as_ref()
+        .and_then(|s| s.prompt_html.clone())
+        .filter(|p| !p.trim().is_empty());
+    // Recorded, never emitted here — ed8c57's shape for `prompt` itself, kept
+    // for its sibling. The pipeline boundary emits it for the body the run
+    // will actually compile: the loader cannot know the run's format, and an
+    // eager emission would double-print against that door on HTML runs and
+    // tell a Markdown-only operator about an HTML-only body.
+    if let Some(ph) = &prompt_html {
+        load_warnings.extend(
+            collect_unknown_template_var_warnings(ph)
+                .into_iter()
+                .map(|w| format!("[system].prompt_html: {w}")),
+        );
+    }
+
     Ok(ProfileMetadata {
         slug: parsed.slug,
         version: parsed.version,
         prompt_body,
+        prompt_html,
         glossary,
         constraints,
         batching,
@@ -1046,7 +1086,7 @@ fn collect_unknown_key_warnings(toml_text: &str) -> Vec<String> {
         "glossary",
         "auto_glossary",
     ];
-    const SYSTEM: &[&str] = &["prompt"];
+    const SYSTEM: &[&str] = &["prompt", "prompt_html"];
     const CONSTRAINTS: &[&str] = &[
         "preserve_code_identifiers",
         "preserve_urls",
@@ -1250,12 +1290,50 @@ pub fn render_prompt_body(
         slug: profile.slug.clone(),
         version: profile.version.clone(),
         prompt_body: body,
+        // Carried through so a compiled profile still knows its sibling.
+        // Selection happens BEFORE compilation, so this field is never the
+        // one a compile reads — it is carried for inspection, not dispatch.
+        prompt_html: profile.prompt_html.clone(),
         glossary: profile.glossary.clone(),
         constraints: profile.constraints.clone(),
         batching: profile.batching.clone(),
         render: profile.render.clone(),
         auto_glossary: profile.auto_glossary,
         load_warnings: profile.load_warnings.clone(),
+    }
+}
+
+/// Select the system prompt for the run's source format — ONE selection
+/// point, called by `unit::build_batches` before the first compile.
+///
+/// Markdown: no-op. Html with `prompt_html`: the html template becomes
+/// `prompt_body` (the field every compile and every cohort rewind reads).
+/// Html without it: `prompt_body` is left exactly as the operator wrote it —
+/// **never merged with, appended to, or rewritten** (spec §6) — and the
+/// advisory is returned for the caller to emit once on the
+/// `transync::profile` target. Returned rather than emitted here so the
+/// warning fires at the same door as every other profile diagnostic and is
+/// testable through the same EventLog.
+///
+/// TRACE: ti 490d97 wave 5 (spec §6)
+pub(crate) fn select_prompt_for_format(
+    profile: &mut ProfileMetadata,
+    format: transync_syntax::id::SourceFormat,
+) -> Option<String> {
+    match format {
+        transync_syntax::id::SourceFormat::Markdown => None,
+        transync_syntax::id::SourceFormat::Html => match profile.prompt_html.clone() {
+            Some(body) => {
+                profile.prompt_body = body;
+                None
+            }
+            None => Some(
+                "profile has no [system].prompt_html; its system prompt was \
+                 written for Markdown — this HTML-document run reuses \
+                 [system].prompt unchanged"
+                    .to_string(),
+            ),
+        },
     }
 }
 
@@ -1784,6 +1862,7 @@ mod tests {
             slug: "test".into(),
             version: "1.0.0".into(),
             prompt_body: "Translate from {{source_language}} to {{target_language}}.".into(),
+            prompt_html: None,
             constraints: ProfileConstraints::default(),
             batching: ProfileBatching::default(),
             render: ProfileRender::default(),
@@ -2472,6 +2551,7 @@ mod glossary_content_tests {
             slug: "t".into(),
             version: "1.0.0".into(),
             prompt_body: "Translate.".into(),
+            prompt_html: None,
             glossary,
             constraints: ProfileConstraints::default(),
             batching: ProfileBatching::default(),
@@ -3131,6 +3211,7 @@ mod compiled_prompt_state_tests {
                 slug: "tails".into(),
                 version: "1.0.0".into(),
                 prompt_body: format!("Translate.{tail}"),
+                prompt_html: None,
                 glossary: vec![GlossaryEntry {
                     source_term: "agent".into(),
                     target_term: "에이전트".into(),
@@ -3308,6 +3389,7 @@ mod template_rewind_tests {
             slug: "rewind".into(),
             version: "1.0.0".into(),
             prompt_body: body.to_string(),
+            prompt_html: None,
             glossary,
             constraints: ProfileConstraints {
                 preserve_urls: urls,

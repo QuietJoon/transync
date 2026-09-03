@@ -112,6 +112,16 @@ pub fn build_batches(
     }
 
     let mut raw_profile = opts.profile.clone().unwrap_or_else(default_profile);
+    // ti 490d97 wave 5 (spec §6): [system].prompt_html selection — before
+    // the first compile, so the initial body, every cohort re-compile, and
+    // the template rewind below inherit the selected body, and
+    // CohortDigest::profile_prompt_hash moves with the format. This door
+    // rather than the pipeline because it is the one BOTH callers pass
+    // through (the ti 28110f rule). The fallback is the operator's prompt
+    // verbatim — never a core-synthesized merge (spec §6).
+    if let Some(w) = crate::profile::select_prompt_for_format(&mut raw_profile, doc.format) {
+        tracing::warn!(target: "transync::profile", "{w}");
+    }
     // R0001-0016 / R0001-0017: the second gate on unusable `[batching]`
     // values, for the same reason the glossary gate below has one (R0001-0006)
     // — `ProfileMetadata` is `Deserialize` with public fields, so
@@ -1941,5 +1951,144 @@ mod input_budget_preflight_tests {
             "the state the finding describes: {:?}",
             batches.iter().map(|b| b.units.len()).collect::<Vec<_>>()
         );
+    }
+}
+
+// ti 490d97 wave 5 (spec §6): [system].prompt_html is selected at the
+// cohort-compile door, for the run's format, before the first compile — so
+// the initial body, every cohort re-compile, and the template rewind all
+// inherit it, and CohortDigest's profile_prompt_hash moves with it.
+#[cfg(test)]
+mod prompt_html_selection_tests {
+    use super::*;
+    use crate::profile::load_profile;
+    use crate::test_fixtures::{EventLog, record_events};
+    use std::sync::Arc;
+
+    fn html_doc() -> crate::parser::Document {
+        let mut doc =
+            transync_syntax::intake::html::parse("<h1>T</h1>\n<p>alpha</p>\n<p>bravo</p>\n");
+        crate::id::assign_block_ids(&mut doc);
+        doc
+    }
+
+    fn md_doc() -> crate::parser::Document {
+        let mut doc = crate::parser::parse("# T\n\nalpha\n\nbravo\n").expect("parses");
+        crate::id::assign_block_ids(&mut doc);
+        doc
+    }
+
+    fn batches_for(
+        doc: &crate::parser::Document,
+        profile: Option<crate::profile::ProfileMetadata>,
+    ) -> (Vec<crate::llm::TranslationBatch>, Vec<String>) {
+        let outcomes = html_outcomes(doc);
+        let opts = TranslateOptions {
+            target_language: "ko".to_string(),
+            profile,
+            ..TranslateOptions::default()
+        };
+        let log = Arc::new(EventLog::default());
+        let batches = {
+            let _guard = record_events(Arc::clone(&log));
+            build_batches(doc, &opts, None, &outcomes)
+        };
+        (batches, log.messages_on("transync::profile"))
+    }
+
+    /// The default profile ships a prompt_html body, and an HTML run's every
+    /// batch carries ITS compiled form — which is exactly what moves
+    /// CohortDigest::profile_prompt_hash between the two formats.
+    #[test]
+    fn an_html_run_compiles_the_html_prompt_and_a_markdown_run_does_not() {
+        let (html_batches, said) = batches_for(&html_doc(), None);
+        assert!(!html_batches.is_empty());
+        for b in &html_batches {
+            assert!(
+                b.profile.prompt_body.contains("HTML documents"),
+                "an HTML run's system prompt is the prompt_html body: {}",
+                b.profile.prompt_body,
+            );
+            assert!(
+                !b.profile.prompt_body.contains("GitHub Flavored Markdown"),
+                "and not the Markdown one: {}",
+                b.profile.prompt_body,
+            );
+        }
+        assert!(
+            said.iter().all(|m| !m.contains("prompt_html")),
+            "the shipped default has the key; no advisory fires: {said:?}",
+        );
+
+        let (md_batches, _) = batches_for(&md_doc(), None);
+        for b in &md_batches {
+            assert!(
+                b.profile.prompt_body.contains("GitHub Flavored Markdown"),
+                "a Markdown run's prompt is byte-identical to before this wave: {}",
+                b.profile.prompt_body,
+            );
+        }
+    }
+
+    /// §6: a custom profile without the key falls back to [system].prompt
+    /// UNCHANGED — never a core-synthesized merge into operator-owned text —
+    /// plus the advisory, emitted once, at this door, on the profile target.
+    #[test]
+    fn a_custom_profile_without_prompt_html_falls_back_verbatim_with_one_advisory() {
+        let toml =
+            "slug = \"p\"\nversion = \"1.0.0\"\n[system]\nprompt = \"Operator words only.\"\n";
+        let loaded = load_profile(toml).expect("loads");
+        let (batches, said) = batches_for(&html_doc(), Some(loaded));
+        for b in &batches {
+            assert!(
+                b.profile.prompt_body.starts_with("Operator words only."),
+                "the operator's prompt, verbatim at the front — no synthesized \
+                 HTML addendum: {}",
+                b.profile.prompt_body,
+            );
+        }
+        let hits: Vec<&String> = said.iter().filter(|m| m.contains("prompt_html")).collect();
+        assert_eq!(hits.len(), 1, "said once: {said:?}");
+        assert!(
+            hits[0].contains("written for Markdown"),
+            "the spec's sentence: {hits:?}"
+        );
+    }
+
+    /// The advisory is about a gap an HTML run actually hits: the same
+    /// custom profile on a MARKDOWN run says nothing — a warning nobody can
+    /// act on is a warning everybody learns to skip.
+    #[test]
+    fn the_advisory_never_fires_on_a_markdown_run() {
+        let toml =
+            "slug = \"p\"\nversion = \"1.0.0\"\n[system]\nprompt = \"Operator words only.\"\n";
+        let loaded = load_profile(toml).expect("loads");
+        let (_, said) = batches_for(&md_doc(), Some(loaded));
+        assert!(said.iter().all(|m| !m.contains("prompt_html")), "{said:?}");
+    }
+
+    /// A custom profile WITH the key is selected like the default's, and its
+    /// template variables substitute in the html body too.
+    #[test]
+    fn a_custom_prompt_html_is_selected_and_substituted() {
+        let toml = "slug = \"p\"\nversion = \"1.0.0\"\n[system]\nprompt = \"MD body.\"\nprompt_html = \"HTML body into {{target_language}}.\"\n";
+        let loaded = load_profile(toml).expect("loads");
+        assert!(
+            loaded
+                .load_warnings
+                .iter()
+                .all(|w| !w.contains("prompt_html")),
+            "prompt_html is a KNOWN [system] key — no unknown-key warning: {:?}",
+            loaded.load_warnings,
+        );
+        let (batches, said) = batches_for(&html_doc(), Some(loaded));
+        for b in &batches {
+            assert!(
+                b.profile.prompt_body.starts_with("HTML body into ko."),
+                "selected and substituted: {}",
+                b.profile.prompt_body,
+            );
+        }
+        assert!(said.iter().all(|m| !m.contains("prompt_html")), "{said:?}");
     }
 }
