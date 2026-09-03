@@ -1,6 +1,6 @@
 //! Output-set assembly and commit for `transync translate`.
 //!
-//! Both output modes publish the same *kind* of set — translated Markdown,
+//! Both output modes publish the same *kind* of set — the translated document,
 //! alignment map, optional validation report, optional HTML bundle — so the
 //! set is built once here and only the destinations and the commit function
 //! differ. `--out-dir` commits the whole directory through `publish_out_dir`;
@@ -10,6 +10,7 @@
 //! TRACE: EXT-2026-07 P1-6
 
 use super::TranslateArgs;
+use super::args::InputFormatArg;
 use super::args::{LanguageLabels, OutputTarget, is_source_language_sentinel};
 use super::report::Reporter;
 use crate::direction;
@@ -38,7 +39,7 @@ pub(crate) enum PublishError {
 /// validation report and the HTML bundle are part of the set, and which
 /// commit function runs.
 struct Destinations<'a> {
-    markdown: PathBuf,
+    document: PathBuf,
     map: PathBuf,
     /// `Some` when the validation report belongs to the set — always under
     /// `--out-dir`, only with `--validation-report` otherwise.
@@ -165,7 +166,13 @@ pub(crate) fn publish_outputs(
         // written in this mode), and the six-file bundle under html/, all
         // published into one directory.
         OutputTarget::Dir { dir } => Destinations {
-            markdown: PathBuf::from("out.md"),
+            // §9/§6: out.html for an HTML run, out.md for a Markdown run —
+            // one of the two, never both. Routing is flag-only, so the flag
+            // is the authority here too. Exhaustive by charter.
+            document: PathBuf::from(match args.input_format {
+                InputFormatArg::Markdown => "out.md",
+                InputFormatArg::Html => "out.html",
+            }),
             map: PathBuf::from("alignment.json"),
             report: Some(PathBuf::from("validation-report.json")),
             bundle_dir: Some(PathBuf::from("html")),
@@ -175,7 +182,7 @@ pub(crate) fn publish_outputs(
             output: out_path,
             map: map_path,
         } => Destinations {
-            markdown: out_path.clone(),
+            document: out_path.clone(),
             map: map_path.clone(),
             report: args.validation_report.clone(),
             bundle_dir: args.html_out.clone(),
@@ -245,7 +252,7 @@ pub(crate) fn publish_outputs(
     };
 
     let mut files: Vec<(PathBuf, &[u8])> = vec![
-        (dest.markdown, output.translated_document.as_bytes()),
+        (dest.document, output.translated_document.as_bytes()),
         (dest.map, alignment_json.as_slice()),
     ];
     if let Some(path) = dest.report {

@@ -751,12 +751,35 @@ transync translate
                             fallback_source and recorded in the map — and fixing
                             indented code removed the last thing this path reported,
                             which strengthens the refusal rather than weakening
-                            it. HTML→HTML translation is a separate,
-                            unimplemented feature. The flag exists
+                            it. The flag exists
                             because the sniff answers a question about the first line
                             only, and a Markdown document that opens with an <html>
-                            island is admissible input. ti 13e145.)
-  --output <path>           (required unless --out-dir is given; must accompany --map)
+                            island is admissible input. For an actual HTML document,
+                            pass --input-format html instead; this flag is for
+                            Markdown that genuinely OPENS with an <html>/<!doctype
+                            island, which needs the Markdown intake despite its
+                            preamble — --input-format markdown alone re-trips the
+                            sniff. Conflicts with --input-format html (exit 1).
+                            ti 13e145.)
+  [--input-format <markdown|html>] (default: markdown. Which intake parses
+                            --input; routing is FLAG-ONLY — the sniff above
+                            stays a refusal, never a router. markdown is
+                            today's path, sniff intact. html is the HTML→HTML
+                            path (ti 490d97): the HTML intake, the same
+                            pipeline and block ids, HTML back out — the sniff
+                            is not consulted and there is no reverse sniff,
+                            so a genuinely-Markdown file declared html
+                            translates as one text-heavy block set: wrong
+                            shape, explicitly requested, which is the
+                            boundary ADR-0017's silent-path refusals protect.
+                            An input the run cannot read is exit 2, the same
+                            clause every input failure already occupies — no
+                            new exit codes. Together with --allow-html-input:
+                            argument error, exit 1 — the pair asserts
+                            contradictory things about one input. DCR-0038.)
+  --output <path>           (required unless --out-dir is given; must accompany --map;
+                            the translated-document path — Markdown in, Markdown out;
+                            HTML in, HTML out)
   --map <path>              (required unless --out-dir is given; must accompany --output)
   --out-dir <dir>           (publish the whole output set into one directory via a
                             staged fileset commit; mutually exclusive with --output,
@@ -1029,7 +1052,9 @@ The same rule, and the same asymmetry, govern the `--out-dir` siblings (R0002-00
 
 ```
 <--out-dir>/
-├── out.md                   # translated Markdown
+├── out.md | out.html        # the translated document — out.md for a Markdown
+│                            #   run, out.html for --input-format html
+│                            #   (one of the two, never both)
 ├── alignment.json           # alignment map
 ├── validation-report.json   # per-unit validation report — ALWAYS written in this mode
 │                            #   (--validation-report has no effect here)
@@ -1142,7 +1167,7 @@ Out of scope by decision, not oversight: TLS, HTTP ranges, conditional requests 
 Exit codes:
 - `0` — success
 - `1` — argument error
-- `2` — input read / parse failure. Includes admission-control refusals: an `--input` larger than `--max-input-bytes` (default 64 MiB), or a `--profile` / `--system-prompt-file` larger than the fixed 4 MiB cap. The cap is enforced by reading `limit + 1` bytes (`Read::take`), so file metadata is never trusted alone (ADR-0016 amended; EXT-2026-07 P1-7). It also includes the **block-nesting refusal** below, which no byte cap can substitute for, and the **HTML-document refusal** (ti `13e145`, v0.4.0): an `--input` whose preamble declares an HTML document is declined unless `--allow-html-input` is given, because translating one as Markdown does not fail — it exits `0` and names the artifact a translated document while its prose has been re-read under Markdown inline rules, its title and section context have silently gone empty, and every four-space-indented run has come back re-emitted as a **fenced** block, a shape the input did not have (ti `d990b6` / `457e51`: `d990b6` measured all three harms as the code then stood, and expressly *denied* that the run came back fenced — the payload never reached `regen`; the fenced shape is `457e51`'s behavior, which replaced what `d990b6` did measure here). All three are silent: the third was the one loud harm — three attempts and a `fallback_source` row in the map — until ti `457e51` made indented code translate, which removed the only signal this path ever emitted and left the two silent harms carrying the rationale alone. A "successful" run the reader cannot tell from a correct one is the shape ADR-0017 refuses everywhere else. Code `2` rather than `1` because the arguments were well-formed and the file was readable; what this build cannot translate is the *document*, which is what code `2` already means for a source the parser refuses.
+- `2` — input read / parse failure. Includes admission-control refusals: an `--input` larger than `--max-input-bytes` (default 64 MiB), or a `--profile` / `--system-prompt-file` larger than the fixed 4 MiB cap. The cap is enforced by reading `limit + 1` bytes (`Read::take`), so file metadata is never trusted alone (ADR-0016 amended; EXT-2026-07 P1-7). It also includes the **block-nesting refusal** below, which no byte cap can substitute for, and the **HTML-document refusal** (ti `13e145`, v0.4.0): an `--input` whose preamble declares an HTML document is declined unless `--allow-html-input` (translate it as Markdown anyway) or `--input-format html` (translate it as the HTML document it is, ti `490d97` / DCR-0038) is given, because translating one as Markdown does not fail — it exits `0` and names the artifact a translated document while its prose has been re-read under Markdown inline rules, its title and section context have silently gone empty, and every four-space-indented run has come back re-emitted as a **fenced** block, a shape the input did not have (ti `d990b6` / `457e51`: `d990b6` measured all three harms as the code then stood, and expressly *denied* that the run came back fenced — the payload never reached `regen`; the fenced shape is `457e51`'s behavior, which replaced what `d990b6` did measure here). All three are silent: the third was the one loud harm — three attempts and a `fallback_source` row in the map — until ti `457e51` made indented code translate, which removed the only signal this path ever emitted and left the two silent harms carrying the rationale alone. A "successful" run the reader cannot tell from a correct one is the shape ADR-0017 refuses everywhere else. Code `2` rather than `1` because the arguments were well-formed and the file was readable; what this build cannot translate is the *document*, which is what code `2` already means for a source the parser refuses.
 - `3` — translation failure where every unit fell back to source (still wrote outputs; `--quiet` suppresses warning)
 - `4` — write failure. All outputs (out.md, alignment map, and the optional `--html-out` bundle, or the whole `--out-dir` tree) are committed through one **staged fileset commit**: a failure while content is being staged leaves no output touched; only a crash or I/O error during the final rename pass can leave a mixed set (reported on stderr) — a concurrent run cannot, see "Publication locking" above. The `--html-out` directory — and an existing `--out-dir` target — is preflighted **before the provider call**, not merely before the write (R0002-0029): a foreign-file refusal, and a destination set that names one file twice, are decided by the arguments and the filesystem alone, and learning either after a paid translation run would discard the whole run for a fact that was already true when it started. That early pass is advisory and silent; the authoritative one runs again at publication time — under the publication lock for `--out-dir` — because an answer given outside the lock can be stale by the time the rename runs. Both passes refuse with the same exit code and the same sentence. Review 0004 added three more questions to that early pass, on the same principle. **A destination set that nests one destination inside another** — `--output x --map x/y`, or `--output x` beside `--html-out x` — names no file twice and is still one publication demanding that `x` be a regular file and a directory at once; it is refused up front, naming both paths (R0004-0067), with containment compared on the same normalized identities as duplication and component-wise, so `xy` is not inside `x`. **A `--html-out` that exists and is not a directory** is refused **even under `--force`** (R0004-0063): `--force` is consent to destroy foreign *content*, not permission to skip a check that costs one `stat` and whose answer no waiver changes — the bundle writes its six files *into* a directory — and a dangling symlink at the path is refused for the same reason (a link resolving to a real directory is fine). That is not the `--out-dir` case: an `--out-dir` target that is a regular file **is** replaceable under `--force`, because that publish renames the whole tree into place and drops the file it moved aside. **A destination whose final path component is not valid UTF-8** is refused in either mode (R0004-0066): every staging name transync builds — `<name>.tmp.<pid>`, and the `.<name>.staging.<pid>.<token>` siblings — is that component plus a suffix, so the run could never publish it, and the refusal used to arrive from the staging code after the provider had been paid, blaming a missing file name the path did not lack.
 - `5` — other. The **residual**, and it stays one: a failure cause this build cannot name has no remediation this build can name either, and a code that guesses is worse than a code that admits it does not know.

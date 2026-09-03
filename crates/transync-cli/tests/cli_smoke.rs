@@ -554,8 +554,8 @@ fn cli_max_input_bytes_rejects_oversized_input() {
 
 /// ti `13e145`: an `--input` whose preamble declares an HTML document is
 /// refused at the boundary. Exit 2 — the same code the other admission
-/// refusals use — the message names the override flag and the absent
-/// HTML→HTML feature, and nothing is written.
+/// refusals use — the message names both escapes (`--input-format html` and
+/// `--allow-html-input`), and nothing is written.
 #[cfg(feature = "test-stub-provider")]
 #[test]
 fn cli_html_document_input_is_refused() {
@@ -590,8 +590,12 @@ fn cli_html_document_input_is_refused() {
         "stderr must name the override flag: {stderr}"
     );
     assert!(
-        stderr.contains("490d97"),
-        "stderr must name the absent HTML-to-HTML feature: {stderr}"
+        stderr.contains("--input-format html"),
+        "stderr must point at the HTML-document path that now exists: {stderr}"
+    );
+    assert!(
+        !stderr.contains("unimplemented") && !stderr.contains("not implemented"),
+        "the feature exists; the refusal must not lie in that direction: {stderr}"
     );
     assert!(
         !out_md.exists() && !out_json.exists(),
@@ -2516,5 +2520,253 @@ fn cli_unopenable_cache_dir_warns_and_completes() {
     assert!(
         workdir.join("out.md").is_file(),
         "the run still published its outputs"
+    );
+}
+
+/// §9: --allow-html-input asserts "Markdown despite the preamble";
+/// --input-format html asserts "an HTML document". Together they are an
+/// argument error — exit 1, not 2, because the ARGUMENTS are malformed.
+/// The bug this catches: clap cannot express a value-dependent conflict,
+/// so forgetting the manual check makes the pair silently run.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_input_format_conflict_is_an_argument_error() {
+    let workdir = ScratchDir::new("transync-cli-fmt-conflict");
+    let input = workdir.join("page.html");
+    std::fs::write(&input, HTML_DOCUMENT).unwrap();
+    let out_md = workdir.join("out.md");
+    let out_json = workdir.join("out.json");
+
+    let output = Command::new(bin())
+        .arg("translate")
+        .arg("--input")
+        .arg(&input)
+        .arg("--output")
+        .arg(&out_md)
+        .arg("--map")
+        .arg(&out_json)
+        .arg("--target-language")
+        .arg("ko")
+        .arg("--input-format")
+        .arg("html")
+        .arg("--allow-html-input")
+        .output()
+        .expect("transync binary must run");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an argument conflict is exit 1"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--allow-html-input") && stderr.contains("--input-format"),
+        "the refusal names both flags: {stderr}"
+    );
+    assert!(
+        !out_md.exists() && !out_json.exists(),
+        "no output on a refused run"
+    );
+}
+
+/// §9: `--input-format markdown` alone RE-TRIPS the sniff — the flag names
+/// the arm, not a waiver. The bug this catches: keying the sniff on the
+/// flag's PRESENCE instead of on the Markdown arm.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_explicit_markdown_still_trips_the_sniff() {
+    let workdir = ScratchDir::new("transync-cli-explicit-md");
+    let input = workdir.join("page.html");
+    std::fs::write(&input, HTML_DOCUMENT).unwrap();
+
+    let output = Command::new(bin())
+        .arg("translate")
+        .arg("--input")
+        .arg(&input)
+        .arg("--output")
+        .arg(workdir.join("out.md"))
+        .arg("--map")
+        .arg(workdir.join("out.json"))
+        .arg("--target-language")
+        .arg("ko")
+        .arg("--input-format")
+        .arg("markdown")
+        .output()
+        .expect("transync binary must run");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "the sniff still refuses, exit 2"
+    );
+}
+
+/// D8: no reverse sniff. A genuinely-Markdown file declared html produces
+/// one text-heavy block set and translates — wrong shape, explicitly
+/// requested. The bug this catches: someone "helpfully" adding a
+/// Markdown-shape sniff to the html arm.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_markdown_declared_html_translates_without_a_reverse_sniff() {
+    let workdir = ScratchDir::new("transync-cli-no-reverse-sniff");
+    let input = workdir.join("notes.md");
+    std::fs::write(&input, "# Title\n\nA paragraph.\n").unwrap();
+    let out = workdir.join("out.html");
+    let map = workdir.join("out.json");
+
+    let output = Command::new(bin())
+        .arg("translate")
+        .arg("--input")
+        .arg(&input)
+        .arg("--input-format")
+        .arg("html")
+        .arg("--output")
+        .arg(&out)
+        .arg("--map")
+        .arg(&map)
+        .arg("--target-language")
+        .arg("ko")
+        .output()
+        .expect("transync binary must run");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "explicitly requested is the ADR-0017 boundary: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(out.exists() && map.exists());
+}
+
+/// THE operator-visible feature (spec §12 wave 6), end to end over the
+/// SCN-16 fixture: out.html (never out.md), the wire's input_format html,
+/// the title row's D5 shape, panes that carry anchors and no script, the
+/// bundle titled by the source <title> — and out.html ANCHOR-FREE, which
+/// is the "anchors never touch the regen path" invariant read off disk.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_html_format_run_writes_out_html_and_a_syncing_bundle() {
+    let workdir = ScratchDir::new("transync-cli-html-run");
+    let input = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../transync/tests/fixtures/scn-16-html-document.html")
+        .canonicalize()
+        .expect("the SCN-16 fixture exists (wave 3)");
+    let out_dir = workdir.join("published");
+
+    let output = Command::new(bin())
+        .arg("translate")
+        .arg("--input")
+        .arg(&input)
+        .arg("--input-format")
+        .arg("html")
+        .arg("--out-dir")
+        .arg(&out_dir)
+        .arg("--target-language")
+        .arg("ko")
+        .output()
+        .expect("transync binary must run");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        out_dir.join("out.html").exists(),
+        "an HTML run publishes out.html"
+    );
+    assert!(
+        !out_dir.join("out.md").exists(),
+        "one of the two, never both (§9/§6)"
+    );
+
+    let published = std::fs::read_to_string(out_dir.join("out.html")).expect("readable");
+    assert!(
+        published.contains("<!DOCTYPE html>"),
+        "gaps are verbatim: doctype"
+    );
+    assert!(published.contains("<script>"), "gaps are verbatim: script");
+    assert!(
+        !published.contains("data-sync-id"),
+        "out.html is ANCHOR-FREE — injection is a bundle-only derivation \
+         and must never reach the regen path (spec §8)"
+    );
+
+    let alignment: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(out_dir.join("alignment.json")).expect("map readable"),
+    )
+    .expect("alignment JSON parses");
+    assert_eq!(alignment["schema_version"].as_str(), Some("1.3.0"));
+    assert_eq!(alignment["input_format"].as_str(), Some("html"));
+    let title = alignment["blocks"]
+        .as_array()
+        .expect("blocks")
+        .iter()
+        .find(|b| b["block_kind"].as_str() == Some("title"))
+        .expect("the fixture's <title> has a row");
+    assert_eq!(title["sync_role"].as_str(), Some("non-sync"), "D5");
+    assert_eq!(title["source_format"].as_str(), Some("html"));
+
+    let source_html = std::fs::read_to_string(out_dir.join("html/source.html")).expect("readable");
+    let target_html = std::fs::read_to_string(out_dir.join("html/target.html")).expect("readable");
+    for pane in [&source_html, &target_html] {
+        assert!(
+            pane.contains("data-sync-id=\"h1-"),
+            "anchors reach the pane"
+        );
+        assert!(pane.contains("<ul>"), "the nav items share a group (D9)");
+        assert!(!pane.contains("<script"), "script is gap, never pane (D6)");
+        assert!(
+            !pane.contains("data-sync-id=\"title-"),
+            "the title has no anchor (D5)"
+        );
+    }
+
+    // ti 0f26b5's chain, middle rung re-seated for HTML runs (§9): the
+    // bundle title is the source document's <title> text — the same
+    // extraction the provider saw — entity-decoded then re-escaped by the
+    // shell assembler.
+    let index = std::fs::read_to_string(out_dir.join("html/index.html")).expect("readable");
+    assert!(
+        index.contains("<title>Transync &amp; the two-pane page</title>"),
+        "flag > source <title> > transync: {index}"
+    );
+}
+
+/// Deviation 7, both directions: an HTML run's own out-dir republishes —
+/// and still republishes after the ownership marker is lost (the ti 66339b
+/// cp-drops-dotfiles recovery), which the naive published.len() == 5
+/// equality would have silently killed.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_html_out_dir_republishes_with_and_without_its_marker() {
+    let workdir = ScratchDir::new("transync-cli-html-republish");
+    let input = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../transync/tests/fixtures/scn-16-html-document.html")
+        .canonicalize()
+        .expect("fixture exists");
+    let out_dir = workdir.join("published");
+    let run = || {
+        Command::new(bin())
+            .arg("translate")
+            .arg("--input")
+            .arg(&input)
+            .arg("--input-format")
+            .arg("html")
+            .arg("--out-dir")
+            .arg(&out_dir)
+            .arg("--target-language")
+            .arg("ko")
+            .output()
+            .expect("transync binary must run")
+    };
+    assert_eq!(run().status.code(), Some(0), "first publish");
+    assert_eq!(run().status.code(), Some(0), "republish over the marker");
+    std::fs::remove_file(out_dir.join(".transync-out-dir")).expect("drop the marker");
+    let third = run();
+    assert_eq!(
+        third.status.code(),
+        Some(0),
+        "the marker-less COMPLETE html set republishes without --force: {}",
+        String::from_utf8_lossy(&third.stderr)
     );
 }

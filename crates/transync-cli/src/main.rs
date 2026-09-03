@@ -16,7 +16,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "transync",
     version,
-    about = "GFM Markdown translation with block-level sync."
+    about = "GFM Markdown and HTML document translation with block-level sync."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -25,7 +25,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Translate a Markdown document end-to-end.
+    /// Translate a Markdown or HTML document end-to-end.
     ///
     /// TRACE: SCN-12
     Translate(Box<translate_cmd::TranslateArgs>),

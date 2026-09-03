@@ -1262,8 +1262,13 @@ const HTML_SUBDIR: &str = "html";
 /// transync published it. See [`ensure_out_dir_replaceable`].
 ///
 /// EXT-2026-07 P1-6
+/// `out.md` and `out.html` are **alternatives** — a run writes exactly one —
+/// which is why the complete-set fallback in
+/// [`ensure_out_dir_replaceable`] is a predicate, not a count (ti `490d97`
+/// wave 6).
 const OUT_DIR_ENTRIES: &[&str] = &[
     "out.md",
+    "out.html",
     "alignment.json",
     "validation-report.json",
     HTML_SUBDIR,
@@ -1766,7 +1771,17 @@ fn ensure_out_dir_replaceable(target: &Path, force: bool, notify: Notify<'_>) ->
             ));
         }
     }
-    if owned || published.is_empty() || published.len() == OUT_DIR_ENTRIES.len() {
+    // ti 490d97 wave 6: a publication writes ONE translated document —
+    // out.md or out.html, never both — so "the complete published set" is
+    // the three fixed members plus at least one document file. The old
+    // len() == OUT_DIR_ENTRIES.len() equality would be unsatisfiable with
+    // five allow-listed names and silently kill the ti-66339b marker-less
+    // recovery.
+    let complete_set = published.contains("alignment.json")
+        && published.contains("validation-report.json")
+        && published.contains(HTML_SUBDIR)
+        && (published.contains("out.md") || published.contains("out.html"));
+    if owned || published.is_empty() || complete_set {
         return Ok(());
     }
     Err(io::Error::new(

@@ -19,7 +19,7 @@ mod report;
 use crate::direction;
 use crate::error::ExitCode;
 use args::{
-    apply_batching_overrides, resolve_auto_glossary_flag, resolve_bundle_title,
+    InputFormatArg, apply_batching_overrides, resolve_auto_glossary_flag, resolve_bundle_title,
     resolve_language_and_model_args, resolve_model, resolve_output_target, resolve_title_flag,
 };
 use clap::Args;
@@ -71,18 +71,42 @@ pub struct TranslateArgs {
     /// that went in did not. All three are silent now — the third one used to
     /// be the loud member of the set (it burned three attempts and settled as
     /// `fallback_source`, recorded in the map), and ti `457e51` fixed exactly
-    /// that, which removes the only signal this path ever emitted. HTML→HTML
-    /// translation is a separate, unimplemented feature (ti `490d97`).
+    /// that, which removes the only signal this path ever emitted.
     ///
     /// The flag exists because the sniff answers a question about the *first
     /// line* and the operator may know better — a Markdown document that
     /// genuinely opens with a `<html>` island is admissible input, and a guard
     /// with no way past it would be the CLI overruling the library.
     ///
+    /// **This is the island case, and only that** (ti `490d97` wave 6). For
+    /// an actual HTML document pass `--input-format html`, which routes to a
+    /// different intake; `--input-format markdown` alone re-trips the sniff,
+    /// so this flag is the only way to say "the Markdown intake despite the
+    /// preamble". Passing it together with `--input-format html` is an
+    /// argument error (exit 1): the two assert contradictory things about
+    /// one input.
+    ///
     /// TRACE: ti 13e145
     #[arg(long = "allow-html-input", default_value_t = false)]
     pub allow_html_input: bool,
-    /// Translated-Markdown output path. Required together with `--map`
+    /// Which intake parses `--input` (ti `490d97`, D8). `markdown` (the
+    /// default) is today's path with the preamble sniff intact — and the
+    /// sniff still fires when the flag is passed explicitly, because the
+    /// flag names the arm, not a waiver. `html` takes the HTML intake, the
+    /// same pipeline and block ids, and writes HTML back out.
+    ///
+    /// Routing is **flag-only**: there is no reverse sniff on the `html`
+    /// arm, because a body fragment is legitimately accepted HTML. A
+    /// genuinely-Markdown file declared `html` therefore translates as one
+    /// text-heavy block set — wrong shape, but explicitly requested, which
+    /// is the boundary ADR-0017's silent-path refusals protect. Conflicts
+    /// with `--allow-html-input` (exit 1).
+    ///
+    /// TRACE: ADR-0025
+    #[arg(long = "input-format", value_enum, default_value = "markdown")]
+    pub input_format: InputFormatArg,
+    /// Translated-document output path — Markdown in, Markdown out; HTML in
+    /// (`--input-format html`), HTML out. Required together with `--map`
     /// unless `--out-dir` is given.
     #[arg(long)]
     pub output: Option<PathBuf>,
@@ -427,6 +451,24 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
     let title_flag =
         resolve_title_flag(args).map_err(|msg| CliFailure::new(ExitCode::ArgumentError, msg))?;
 
+    // ti 490d97 wave 6 (§9): the pair asserts contradictory things about one
+    // input — "Markdown despite its preamble" / "an HTML document". Exit 1,
+    // not 2: the ARGUMENTS are malformed (§6's code-1/code-2 boundary). Clap
+    // cannot express a value-dependent conflict, so it is enforced here.
+    // Exhaustive by charter.
+    match args.input_format {
+        InputFormatArg::Html => {
+            if args.allow_html_input {
+                return Err(CliFailure::new(
+                    ExitCode::ArgumentError,
+                    "--allow-html-input says the input is Markdown despite its preamble; \
+                     --input-format html says it is an HTML document. Pass one or the other",
+                ));
+            }
+        }
+        InputFormatArg::Markdown => {}
+    }
+
     // R0002-0029: the destination guards need no translated content, so they
     // run before the provider does. A foreign --html-out directory or an
     // --out-dir target that is not a prior out-dir is a refusal the filesystem
@@ -465,13 +507,20 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
     // arguments are well-formed and the file is readable; what is wrong is the
     // document, and a script that fixes its own argv and retries must not be
     // told those are the same event.
-    if !args.allow_html_input
-        && let Some(marker) = html_document_marker(&source)
-    {
-        return Err(CliFailure::new(
-            ExitCode::InputReadFailure,
-            format!(
-                "--input {} looks like an HTML document (its preamble opens with `{marker}`) and \
+    // ti 490d97 wave 6 (D8): the sniff is consulted on the MARKDOWN arm only.
+    // The Html arm is empty — the sniff is not consulted, and there is no
+    // reverse sniff, because a body fragment is legitimately accepted HTML.
+    // Exhaustive by charter.
+    match args.input_format {
+        InputFormatArg::Html => {}
+        InputFormatArg::Markdown => {
+            if !args.allow_html_input
+                && let Some(marker) = html_document_marker(&source)
+            {
+                return Err(CliFailure::new(
+                    ExitCode::InputReadFailure,
+                    format!(
+                        "--input {} looks like an HTML document (its preamble opens with `{marker}`) and \
                  transync translates GFM Markdown. Translated as Markdown it would not fail — it \
                  would exit 0 over output nothing reports as wrong: text between the tag-opening \
                  runs re-enters as Markdown, so its prose is re-read under Markdown inline rules \
@@ -479,11 +528,13 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
                  the section context come from Markdown headings, so an <h1> leaves both empty \
                  and the prompt degrades silently; and a four-space-indented run becomes a code \
                  block that is translated and written back FENCED, so the document changes shape \
-                 and nothing reports it. HTML-to-HTML translation is a separate, unimplemented \
-                 feature (ti 490d97). Pass --allow-html-input to translate it as Markdown anyway",
-                args.input.display()
-            ),
-        ));
+                 and nothing reports it. Pass --input-format html to translate it as an HTML \
+                 document, or --allow-html-input to translate it as Markdown anyway (ti 490d97)",
+                        args.input.display()
+                    ),
+                ));
+            }
+        }
     }
 
     let mut profile = resolve_profile(
@@ -552,6 +603,7 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
     // explicit `false` distinguishable from unset (so `--no-auto-glossary`
     // can override a profile that enables it).
     opts.auto_glossary = resolve_auto_glossary_flag(args);
+    opts.input_format = args.input_format.to_source_format();
 
     // ti `30a744`: `--offline` is only coherent against a cache that outlives
     // the process. A fresh in-memory cache misses its first lookup by

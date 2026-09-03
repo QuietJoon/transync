@@ -426,8 +426,13 @@ transync translate
                                  its title and section context silently empty,
                                  and every four-space-indented run re-emitted as
                                  a fenced block (ti d990b6 / 457e51; all three
-                                 harms are silent — contracts.md 6)
-  --output <path>                translated Markdown; needs --map, unless --out-dir
+                                 harms are silent — contracts.md 6). Markdown that
+                                 opens with an HTML island; conflicts with
+                                 --input-format html
+  [--input-format <markdown|html>]    (default: markdown) which intake parses
+                                 --input; html is the HTML→HTML path — flag-only
+                                 routing, the sniff is never a router
+  --output <path>                the translated document; needs --map, unless --out-dir
   --map <path>                   alignment-map JSON; needs --output, unless --out-dir
   --out-dir <dir>                publish the whole output set into one directory;
                                  mutually exclusive with --output, --map, --html-out

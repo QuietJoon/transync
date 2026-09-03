@@ -274,6 +274,27 @@ pub(crate) fn resolve_output_target(args: &TranslateArgs) -> Result<OutputTarget
 // D1 §2.4: `apply_batching_overrides` precedence + the `--output-expansion-factor`
 // value-parser. Constructing `TranslateArgs` via a small clap harness keeps the
 // test robust to future field additions (defaults fill in).
+/// Which intake parses `--input` (D8: routing is flag-only; the sniff stays
+/// a refusal, never a router).
+///
+/// TRACE: ti 490d97 wave 6 (spec 2026-08-20 §9)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum InputFormatArg {
+    Markdown,
+    Html,
+}
+
+impl InputFormatArg {
+    /// The library-side format this flag names. Exhaustive by charter: a
+    /// third intake must stop the compiler here.
+    pub(crate) fn to_source_format(self) -> transync::SourceFormat {
+        match self {
+            InputFormatArg::Markdown => transync::SourceFormat::Markdown,
+            InputFormatArg::Html => transync::SourceFormat::Html,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
