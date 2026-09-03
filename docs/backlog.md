@@ -676,6 +676,17 @@ sentence that repeats it in prose; and the dedup must be order-preserving
 retain-first, because `the_authorities_print_the_way_they_are_typed`
 deliberately pins ordering.
 
+### parser-intake-markdown-rename
+
+- **Description:** The format seam is asymmetric on purpose — `intake::html` sits beside
+  `parser`, not beside a sibling `intake::markdown` — because the rename is mechanical
+  and large: ~43 references in `transync-syntax`, ~74 in `transync-core`, the wasm
+  import, `public_surface.rs`'s hidden-module pin, and four documents, for **zero**
+  behaviour change. Unblocked, pick-up-as-is; the paying wave's diff must be *only* the
+  rename, or the review cannot tell the move from a change.
+- **Background:** ti `490d97` wave 3 deviation 1; DCR-0035. Registered by wave 7's
+  closure so the deferral survives outside the DCR.
+
 ## Type 2 — needs decision / discussion next
 
 The open design questions here carry an `OI-` id rather than a ticket: a review gate
@@ -683,8 +694,9 @@ registers documents only, so each waits for `reopen`'s selection gate to offer i
 file a ticket for whatever is picked. The ticketed questions this section once listed —
 `40e2a5`, `66339b`, `1347b4` — were all resolved on 2026-08-10 and are gone from it.
 
-`sync-anchor-injection-via-raw-html` (OI-0035) is about which layer should own anchor
-trust in the browser. `out-dir-sparse-bundle-subset` (OI-0036) was settled with `66339b`
+`sync-anchor-injection-via-raw-html` (OI-0035) asked which layer should own anchor
+trust in the browser — resolved 2026-08-23 (route (c), both layers; ti `490d97` wave 1,
+DCR-0033); its entry below is retained for the record. `out-dir-sparse-bundle-subset` (OI-0036) was settled with `66339b`
 by the marker-file rule and is retained only for its record. `provider-payload-intake-guard`
 (OI-0037) sits in Type 1 below, since its approach is settled.
 `warm-cache-run-needs-no-credentials` (OI-0038) is the newest, from Review 0004, and is
@@ -821,6 +833,11 @@ RESOLVED.
 - **Type:** 2
 - **Verified:** yes — Review 0002 finding (R0002-0018), gate-accepted, user-routed track
 - **Sources:** `docs/project/open-issues-archive.md#OI-0035` (RESOLVED 2026-08-23, archived — was `open-issues.md` until then)
+- **Accepted residual (ti `490d97` wave 7, DCR-0039):** recorded in DCR-0033 and not
+  restated here beyond the one fact the note above omits — an impostor carrying a
+  *listed* id ahead of the genuine anchor still defeats the engine layer alone; the
+  render strip is what closes it for panes transync produces. Wave 7 corrected the
+  Type-2 preamble above, which had gone on framing this as an open design question.
 - **First seen:** 2026-08-08
 - **Last seen:** 2026-08-08
 
@@ -945,6 +962,38 @@ again, ticketed, or otherwise moved during the arc that followed.
 - **Description:** HTML attribute text (`alt`/`title`/`aria-label`) is not extracted for
   translation. A scope decision on widening the segment-extraction contract.
 - **Background:** DCR-0016 / ADR-0018 follow-up list (2026-08-03 design, §9).
+- **Cross-reference (ti `490d97` wave 7):** now also the HTML-document intake's recorded
+  limitation — ADR-0025 names the visible consequence (a shared link previews in the
+  source language). The owner gate is unchanged; the population grew from raw-HTML
+  islands to whole documents.
+
+### phrasing-custom-element-mid-sentence-review
+
+- **Description:** A custom element mid-sentence **stops** segmentation (D4's DEFAULT-STOP
+  default), so one sentence can cross three translation units. Accepted *for now* with
+  the PHRASING widening — and the owner **explicitly required re-confirmation against
+  real output**. Candidate lever if the review rejects it: a per-run or per-profile
+  phrasing-extension list, designed then, not now.
+- **Measured 2026-09-04 (ti `490d97` wave 7), and it is NARROWER than §14.1 states.**
+  Three shapes through the shipped `intake::html`, captured in
+  `/Volumes/Temp/claude/ti490d97-wave7/gate/phrasing-evidence/`:
+  - **Wrapped in `<p>` — no split.** `<p>The Pro plan costs <price-tag>29</price-tag>
+    per month.</p>` is **one** `paragraph` block: the `<p>` is the element block and the
+    custom element lives inside its extent. Three such sentences yielded
+    `paragraph paragraph paragraph`, not nine blocks.
+  - **Naked prose — the split fires.** The same sentence directly inside a `<div>`
+    yields `p-0002 html-0003 p-0004`: run, stopped element, run. This is the §14.1
+    hazard, reproduced.
+  - **Known phrasing is absorbed either way.** `<em>` keeps its run whole.
+  So the hazard is confined to prose that is **not wrapped in an element** — which real
+  pages rarely are. §14.1's own example (`Price: <my-price/> today`) is written in the
+  naked form without saying that the form is what makes it split.
+- **Background:** spec `2026-08-20-html-to-html-translation-design.md` §14.1 and §13.5;
+  ADR-0025 (D4). Wave 7 staged the evidence and filed the ticket; the ruling is the
+  owner's and is not wave 7's to take.
+- **Sources:** ticgit:84bf37 (filed 2026-09-04 with the measurement above and three
+  options: amend §14.1 to state the wrapping condition, add a phrasing-extension list,
+  or leave it).
 
 ### html-details-fold-reproduction _(owner-deferred 2026-08-06)_
 
@@ -1504,6 +1553,9 @@ paid out._
 - **Background:** DCR-0016 decision 6.
 - **Blocked by:** telemetry gate — build only if segment-count rejections dominate
   ValidationReport data; no such data yet.
+- **Population note (ti `490d97` wave 7):** every block of an HTML document now rides the
+  segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
+  more traffic to fire on.
 
 ### html-native-array-wire-field
 
@@ -1514,6 +1566,9 @@ paid out._
 - **Background:** DCR-0016 decision 7.
 - **Blocked by:** telemetry gate — build only if double-encoding proves a top
   validation-rejection cause.
+- **Population note (ti `490d97` wave 7):** every block of an HTML document now rides the
+  segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
+  more traffic to fire on.
 
 ### html-br-normalization-guard
 
@@ -1523,6 +1578,9 @@ paid out._
   normalizing `<br>` vs `<br/>` becomes a top inline-rejection cause.
 - **Background:** DCR-0016 revisit trigger.
 - **Blocked by:** telemetry gate — no rejection-cause instrumentation evidence.
+- **Population note (ti `490d97` wave 7):** every block of an HTML document now rides the
+  segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
+  more traffic to fire on.
 
 ### per-kind-expansion-factors
 
@@ -1587,6 +1645,11 @@ paid out._
   2026-08-04 syntax-split spec.
 - **Blocked by:** explicit YAGNI condition — a real second dialect must supply constraints
   before the trait is designed; none exists.
+- **Evidence note (ti `490d97` wave 7):** a second front-end now exists in-tree —
+  `intake::html` beside the comrak parser, a *module* seam, not a trait; ADR-0025 (D3)
+  explicitly rejected a format-axis crate split. The YAGNI condition should be re-read
+  against ADR-0025 at the next sweep rather than assumed still unmet; nothing in the
+  HTML wave required core to branch on a dialect capability.
 
 ### nested-anchor-scheme
 
@@ -1632,6 +1695,10 @@ paid out._
   segment scan tracks `template_depth` specifically to exclude it).
 - **Background:** DCR-0016 / 2026-08-03 design §9.
 - **Blocked by:** stated gate — "revisit only on demonstrated need"; none demonstrated.
+- **Cross-reference (ti `490d97` wave 7):** an HTML document's `<template>` is
+  DEFAULT-STOP in the new intake — a `BlockKind::Html` block extracting zero segments,
+  honest `PreservedZeroSegment` row — so the exclusion now has an anchor-bearing
+  spelling too. Gate unchanged.
 
 ### no-cli-surface-selects-the-second-provider
 
@@ -1681,3 +1748,26 @@ It has already fallen two flags behind (`--cache-dir`, `--table-strategy`) and k
 
 Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The ticket itself frames this as a decision rather than a defect, and names the two acceptable outcomes — a way to set the policy from the CLI, or an explicit statement in the CLI reference and the DCR that the defaults are fixed for CLI runs and the policy is a library-only knob. Either closes it honestly; leaving it silent does not, because a user who finds `DiskCacheOptions` in the API docs has no way to learn it is unreachable from the binary they are running. Blocked on that choice.
 
+### markdown-island-reclassification
+
+- **Description:** A Markdown document's raw-HTML islands stay `BlockKind::Html` with
+  `html-…` ids even where a semantic equivalent exists (an HTML `<table>` island is not a
+  `Table`). Reclassifying them moves block **ids**, and with the ids go alignment rows,
+  DOM anchors, and the `block_kind` cache axis — every consumer keyed on either.
+- **Background:** ADR-0025 D11; spec §13.9.
+- **Blocked by:** a schema-2.x-shaped window. The corpus-stability acceptance criterion
+  (a document's ids do not move within a minor line) forbids it in any 1.x window, so
+  this is not a "when there is time" item — it needs the window first.
+
+### html-oversize-leaf-block-split
+
+- **Description:** A giant `<table>` or custom element that exceeds the token budget has
+  no splitter on the HTML path. The design commits to the **shape** only — a packing-time
+  segment-window split in the DCR-0026 mold, never intake descent (D4 rejected
+  budget-driven block sets) — and to the shipped `(Table × Html)` exclusion from the GFM
+  row-window splitter. Watch item riding with it (spec §15.5): if regen ever splices
+  merged multi-element ranges, `BlankLinePolicy::Keep` and slice-agnostic extract/splice
+  hold (measured), but layer 3's inventory check must then run over the same merged slice.
+- **Background:** spec §15.4 and §15.5.
+- **Blocked by:** demonstrated need. D9's `li` grouping removed the most common trigger
+  (long lists), and no oversize-leaf abort has been observed on the corpus.
