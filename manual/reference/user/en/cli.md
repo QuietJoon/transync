@@ -136,7 +136,7 @@ These are the CLI's own refusals, all exit `1`, each printed as
 - `--map requires --output (or use --out-dir)`
 - `invalid --base-url: {e}`
 - `invalid TRANSYNC_OPENAI_BASE_URL: {e}`
-- `OPENAI_API_KEY not set; set it or build --features test-stub-provider`
+- `OPENAI_API_KEY not set; set it, pass --offline to run from cache alone, or build --features test-stub-provider`
 - `invalid profile TOML: {e}`
 - `failed to read --profile {path}: {e}` / `failed to read --system-prompt-file {path}: {e}`
 - `--profile {path} is not valid UTF-8` / `--system-prompt-file {path} is not valid UTF-8`

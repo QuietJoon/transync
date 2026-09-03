@@ -507,7 +507,7 @@ Two keys are absent above because they are conditional: `auto_glossary` appears 
 Stability:
 - `schema_version` is semver, read exactly like §3's: patch bumps add fields, minor bumps may add enumerated values or rename an optional field behind an alias, major bumps are breaking. Current version is **`1.1.0`** (DCR-0026): additive — no key was added or removed and every field keeps its meaning, but `per_unit` can now carry **row-window** rows whose `unit_id` names no block, which is a new row shape a `1.0.0` consumer never met. `1.0.0` (R0001-0027) was the first versioned report. A report carrying **no** `schema_version` key at all was produced before that landed and should be read as pre-`1.0.0`.
 - **Forward-minor policy**, same as §3: consumers MUST reject an unknown *major* and MUST accept an unknown *minor/patch* of the same major, tolerating keys they do not recognize. New optional keys can therefore land without a major bump.
-- **Ordering is part of the contract.** Every block list in the report is in **document (source) order** — the order `Document::blocks` traverses — never in `unit_id` string order, which groups by kind prefix (`c-`, `h1-`, `li-`, `p-`) and stops tracking the document. That holds for `per_unit` and for `full_reparse_fallbacks` (R0001-0028), and one pass in `pipeline/report.rs` owns both, so a list added later joins the rule in one place. A row-window row (above) ranks at its **parent's** document index and the id-string tiebreak then orders `t-0007` before `t-0007.w01` before `t-0007.w02`, so a split table's rows are contiguous. `skipped_source_nodes` is not a block list: it is parser notes in emission order, then the run's one document-level note when it has one (the html-dominance note, ti `13e145`), then the html notes in id order (§3's `html` table).
+- **Ordering is part of the contract.** Every block list in the report is in **document (source) order** — the order `Document::blocks` traverses — never in `unit_id` string order, which groups by kind prefix (`c-`, `h1-`, `li-`, `p-`) and stops tracking the document. That holds for `per_unit` and for `full_reparse_fallbacks` (R0001-0028), and one pass in `pipeline/report.rs` owns both, so a list added later joins the rule in one place. A row-window row (above) ranks at its **parent's** document index and the id-string tiebreak then orders `t-0007` before `t-0007.w01` before `t-0007.w02`, so a split table's rows are contiguous. `skipped_source_nodes` is not a block list: it is parser notes in emission order, then the run's one document-level note when it has one (the html-dominance note, ti `13e145`), then the html notes in id order (§3's `html` table). **That ordering is contractual; the wording inside each note is not** (ti `52109b`, 2026-09-03). `VALIDATION_REPORT_SCHEMA_VERSION` versions keys, structured row shapes and the ordering of a structured list — a new *kind* of free-text note in this array is neither, so it earns no minor. DCR-0026's 1.1.0 bump is not a precedent for it: a `per_unit` row is structured and a reader can key on `unit_id` and be wrong about it ("a new row shape a consumer never met"), whereas this array has no grammar this contract ever gave it and its only downstream reader treats it as heterogeneous and opaque. Versioning prose would make the number a changelog, and this channel is expected to grow further note kinds.
 - The Rust type is **`#[non_exhaustive]`** (§1), so adding a field is non-breaking on the Rust side and additive on the wire — the two layers agree here, which is why a field addition alone is a patch bump rather than a minor one.
 - The **counters are three disjoint channels** and are meant to be read together, never summed blindly into one "retry" number: `total_retries` counts re-dispatches of a unit's *own content*, `batch_schema_faults` counts rounds spent on a mangled response envelope, and `provider_retries` counts transient transport retries. §5 defines the budgets behind each.
 - **`VALIDATION_SCHEMA_VERSION` is a different axis and is not in this artifact.** It is a `CacheKey` component versioning the prompt/payload contract (§5a, `rough-schema.md` §14); it bumps for prompt-framing and payload-semantics changes that leave this JSON's shape untouched, and re-versioning this JSON orphans no cache entry. Neither number can be derived from the other.
@@ -806,7 +806,22 @@ transync translate
                             No profile
                             `[cache]` table — where the cache lives is an
                             invocation concern, and profiles travel between
-                            machines. DCR-0028.)
+                            machines. DCR-0028.
+                            CAPACITY IS NOT A CLI KNOB and that is settled
+                            (ti `650bbb`, 2026-09-03): a `--cache-dir` run
+                            always opens with `DiskCacheOptions::default()` —
+                            a 1 GiB byte budget and no entry cap — with no flag
+                            to change either. `DiskCacheOptions` stays a
+                            library knob for a program that embeds the crate.
+                            The load-bearing reason is OI-0044: `trim_to_budget`
+                            drops only entries while meta bytes count toward the
+                            total, so a budget set below header+meta discards
+                            everything on every open and never converges. That
+                            is unreachable at 1 GiB and one typo away behind a
+                            flag, so a lever needs OI-0044's floor first.
+                            Revisit when an operator reports a real 1 GiB cache,
+                            or when an --offline run (DCR-0046) fails at a miss
+                            for entries an open-time trim evicted.)
   [--target-output-tokens <n>]        (overlay [batching].target_output_tokens, the
                             provider output ceiling + output-aware packing cap;
                             0 = disable — no ceiling, output-aware packing and the
@@ -1583,6 +1598,23 @@ impl TransyncAnthropic {
 seam is what it exercises, and nothing in `transync-core`, `transync-syntax`,
 `transync-wasm` or the facade moves for it. §0 is untouched — the facade does
 not re-export provider crates, so a consumer names this crate directly.
+
+**The `transync` binary does not reach it, and that is settled rather than
+pending** (ti `473dd1`, 2026-09-03). `transync-cli` depends on `transync` and
+`transync-openai` only, so the three environment variables this adapter reads
+change no CLI run; reaching it means depending on this crate from your own
+program. DCR-0029 parked a `--provider` axis as an owner call and twenty days
+of no consumer asking is the answer. It is also more expensive than DCR-0029
+priced it: since DCR-0046 the CLI's `--offline` is wired through
+`TransyncOpenAI::offline` specifically, because fingerprint identity with
+`try_new` is what makes the cache namespace match — a second provider on that
+flag needs the same credential-free constructor and its own identity pin, or a
+documented refusal. And a provider axis would give the CLI a second answer to
+"what is the default model, base URL and environment-variable set", once per
+provider. If it is ever wanted it wants its own ticket and its own record; the
+implicit variant — pick the provider whose key happens to be exported — is
+rejected outright, because it makes the credential environment a hidden
+selector of the cache namespace.
 
 **Deliberately §7's twin, and deliberately one axis smaller.** Every
 construction rule §7 records for the OpenAI adapter holds here verbatim and

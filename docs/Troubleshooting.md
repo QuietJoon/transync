@@ -421,7 +421,7 @@ A run served entirely from accepted hits has zero `total_retries` and
 ## "OPENAI_API_KEY not set" expect-panic
 
 ```
-OPENAI_API_KEY not set; set it or build --features test-stub-provider
+OPENAI_API_KEY not set; set it, pass --offline to run from cache alone, or build --features test-stub-provider
 ```
 
 You ran `cargo run -p transync-cli -- translate …` without an API

@@ -128,3 +128,33 @@ lands the day a member takes the edge.
   fails toward translating rather than claiming it.
 - **It is not wired into the CLI.** No `--skip-if-source-is-target` flag exists;
   that would be its own decision, and would bring the first internal edge.
+
+## Composing the gate with what a run would actually send (ti `eb1d89`)
+
+The gate takes text; a consumer that wants to gate on *what transync would
+translate* needs that text. **The facade already hands it over**, and ti
+`eb1d89` closed on that basis 2026-09-03.
+
+`Translator` is §0 tier (a), and so is everything it receives:
+`TranslationBatch { units }` of `TranslationUnit { unit_id, block_kind,
+input_mode, source_payload, constraints }`. A `Translator` that captures its
+batches and answers `OutputKind::FailedNeedsFallback` for every unit — the
+`AlwaysFailsTranslator` shape in `test_stub` — with
+`max_per_unit_validation_retries = 0` sees every unit exactly as
+`unit::payload::assemble` built it, with no network. Feed `source_payload` to
+`Gate::verdict`, skipping units whose `block_kind` is `CodeBlock` or `Skipped`.
+
+**Why not a render→extract helper, which is what that ticket asked for.** Its
+premise was that `transync_html::extract`'s text nodes are "the set of strings
+that reach the model". They are not: `assemble` branches on `Spelling`, and a
+`Spelling::Markdown` block is dispatched as its **raw Markdown slice** —
+inline code included, a code block as a whole fence, a table whole. Only
+`Spelling::Html` blocks go through `extract`. So that helper would have been a
+second, provably disagreeing answer to "what gets translated", beside the one
+function that decides it — and its own acceptance criterion ("the segments
+match what a dispatched run sends") is unwritable as specified.
+
+What is honest to add later, if the stub shape proves annoying, is a *preview
+of the units themselves* — the same `TranslationUnit` values, so it cannot
+disagree with `assemble`. That is one §0 row and no new opinion, and it is
+cheap only while the v0.5.0 window is open.

@@ -1,5 +1,12 @@
 # Rust
 target/
+# A repo-local cargo config, if one exists, is a MACHINE's choice about where
+# builds land — not the project's. `.cargo/config.toml` here sets `build.target-dir`
+# for this checkout, and `.cargo/bin/` is a toolchain copy that came with it.
+# Neither belongs in the tree: committing the target-dir would impose one
+# machine's volume layout on every clone, and the binaries are large and
+# platform-specific. Owner decision 2026-09-03.
+.cargo/
 **/*.rs.bk
 Cargo.lock.bak
 

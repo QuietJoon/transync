@@ -64,6 +64,28 @@ const DEFAULT_MAX_LOG_BYTES: u64 = 1024 * 1024 * 1024;
 pub struct DiskCacheOptions {
     /// Byte budget for the log file, measured against what a compacted log
     /// would occupy. `None` disables the budget. Default: 1 GiB.
+    ///
+    /// **Library-only, and that is settled** (ti `650bbb`, 2026-09-03). The
+    /// CLI's `--cache-dir` always opens with [`Default`], so a `transync
+    /// translate` run gets 1 GiB and no entry cap and has no flag to change
+    /// either. DCR-0028 §6 already ruled out a profile `[cache]` table — a
+    /// cache is an invocation concern, not a document one — and a flag was
+    /// left unbuilt rather than declined; this is the declining.
+    ///
+    /// Two reasons, and the second is the load-bearing one. A single-operator
+    /// cache is unlikely to reach 1 GiB of JSONL entries, so the lever has no
+    /// demonstrated user. And exposing it is what would make **OI-0044**
+    /// reachable: `trim_to_budget` drops only `entries` while `meta_bytes`
+    /// counts toward the total, so a `max_bytes` set below header+meta discards
+    /// every entry on every open and never converges. At the 1 GiB default that
+    /// is unreachable; behind a flag it is one typo away. A CLI lever therefore
+    /// needs OI-0044's floor first, and shipping the flag before it would hand
+    /// users a documented way to build a cache that throws everything away.
+    ///
+    /// **The trigger for revisiting**, so this is falsifiable rather than
+    /// permanent: an operator reporting a real 1 GiB cache, or a `--offline`
+    /// run (DCR-0046) failing at a miss for entries an open-time trim had
+    /// evicted. Either one makes the lever worth its precondition.
     pub max_bytes: Option<u64>,
     /// Live-entry-count budget, enforced at the same point. `None` (the
     /// default) disables it — the byte budget is the one an operator can reason

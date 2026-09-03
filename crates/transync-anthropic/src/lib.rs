@@ -16,6 +16,24 @@
 //! `TRANSYNC_ANTHROPIC_BASE_URL`, all three read inside
 //! [`TransyncAnthropic::from_env`] and nowhere else.
 //!
+//! # The `transync` binary does not reach this crate
+//!
+//! **Setting those three variables changes no `transync` CLI run.** The binary
+//! depends on `transync` and `transync-openai` only, so reaching this adapter
+//! means depending on this crate from your own program. That is DCR-0029's
+//! scope, re-affirmed as a standing decision by ti `473dd1` on 2026-09-03: a
+//! `--provider` axis is real design work — provider-keyed default model, base
+//! URL and environment-variable set, two `ModelId` types to route, and a
+//! credential-free constructor to match `--offline` (DCR-0046) — and it wants
+//! its own ticket if it is ever wanted.
+//!
+//! This paragraph exists because this file was the last place still silent
+//! about it. The fact is stated in eight others — `README.md`, `CLAUDE.md`,
+//! `contracts.md` §8, the CLI reference, the Developer Guide, `mvp-scope.md`,
+//! the architecture overview and the root manifest's comment — and none of
+//! them is what a crates.io or docs.rs reader sees first.
+//!
+//! TRACE: ti 473dd1
 //! TRACE: ADR-0002
 //! TRACE: DCR-0029
 //! TRACE: contracts.md §8

@@ -590,6 +590,27 @@ pub struct UnitValidationRecord {
 ///   keeps its meaning and no key was added or removed, so a 1.0.0 reader
 ///   parses a 1.1.0 report; what it must not assume any more is that every
 ///   `unit_id` names a block in the alignment map (contracts.md §3a).
+///
+/// **What this constant versions, and what it does not** (ti `52109b`,
+/// 2026-09-03). It versions **keys, structured row shapes, and the ordering of
+/// a structured list**. It does **not** version the sentences inside
+/// [`ValidationReport::skipped_source_nodes`], which is a free-text note
+/// array: a new *kind* of note is not a schema change and does not earn a
+/// minor.
+///
+/// The question was live because DCR-0026 bumped 1.0.0 → 1.1.0 for what looks
+/// like the same thing — a new kind of entry in a list. The difference is what
+/// a consumer can join on. A `per_unit` row is structured, so a reader can key
+/// on `unit_id` and be wrong about it; DCR-0026's own words are "a new row
+/// shape a consumer never met". A `skipped_source_nodes` entry is prose with no
+/// grammar this contract ever gave it, and the only downstream reader treats
+/// the array as heterogeneous and opaque. Versioning it would turn the number
+/// into a prose changelog and would bump on every sentence the channel grows —
+/// and it is about to grow several.
+///
+/// So ti `13e145`'s document-level sentence did **not** owe 1.2.0, and the
+/// three-part ordering `contracts.md` §3a states remains contractual: the
+/// *order* is structure, the *wording* is not.
 pub const VALIDATION_REPORT_SCHEMA_VERSION: &str = "1.1.0";
 
 /// Caller-facing validation report (returned in [`crate::TranslationOutput`]).
