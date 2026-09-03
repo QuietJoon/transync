@@ -1,8 +1,8 @@
 ---
 type: Explanation
 title: Why layered validation and bounded retry/fallback
-description: Why the pipeline checks a translation through six independent layers instead of trusting the schema, why retries resubmit verbatim instead of coaching the model, which seams are allowed to refuse rather than degrade, and where the fallback paper trail is thinner than it looks.
-tags: [architecture, validation, ADR-0009, ADR-0017, ADR-0018, DCR-0025, DCR-0026]
+description: Why the pipeline checks a translation through six independent layers instead of trusting the schema, why the one layer that reads content twice had to be widened before it was right, why retries resubmit verbatim instead of coaching the model, which seams are allowed to refuse rather than degrade, and where the fallback paper trail is thinner than it looks.
+tags: [architecture, validation, ADR-0009, ADR-0017, ADR-0018, DCR-0025, DCR-0026, DCR-0048]
 audience: developer
 language: en
 generated:
@@ -18,6 +18,7 @@ sources:
   - { id: stub-manifest, resource: docs/project/stub-manifest.md }
   - { id: validate, resource: crates/transync-core/src/validate.rs }
   - { id: validate-per-kind, resource: crates/transync-core/src/validate/per_kind.rs }
+  - { id: validate-text-presence, resource: crates/transync-core/src/validate/text_presence.rs }
   - { id: pipeline-merge, resource: crates/transync-core/src/pipeline/merge.rs }
   - { id: pipeline-policy, resource: crates/transync-core/src/pipeline/policy.rs }
   - { id: unit-split, resource: crates/transync-core/src/unit/split.rs }
@@ -81,14 +82,50 @@ matches — every later layer agrees, because nothing *structural* changed.
 The block shipped marked `translated` with its visible sentence gone. No
 layer after the second one was ever going to see it, because they all
 check structure and the structure was fine. The fix (DCR-0025, amending
-ADR-0018) was to make the earliest layer state the rule the extractor
-already enforced: the segment scanner keeps a source text node only if
-its *decoded* form carries something other than whitespace, so a
-whitespace-only source segment cannot exist and a whitespace-only answer
-has no legitimate meaning. Rejecting it is therefore free of
-false positives, and the rejection is retryable like the rest of that
-layer — the message even names the correct provider answer, which is to
-echo the source segment back.
+ADR-0018) widened that layer to reject a segment whose characters were
+all whitespace.
+
+**And then the same thing happened to the fix.** `char::is_whitespace` is
+exactly the 25 Unicode `White_Space` codepoints. U+200B, U+200C, U+200D,
+U+2060, U+00AD and U+FEFF are not among them, and neither is U+2800
+BRAILLE PATTERN BLANK. A segment of only those characters is not "all
+whitespace", so it passed the widened guard and shipped — the same
+erasure, one character class over. Worse, the guard's reach had been
+overestimated in the other direction too: the Markdown side of the
+pipeline had *no* text check on any block kind, so `##` for a heading,
+blank cells for a table, a bare `rust` fence for a code block and
+`&nbsp;` for a paragraph all shipped as `translated`. This was found in
+2026-09 by trying to *use* the gap as a test lever, not by an audit
+(DCR-0048).
+
+The guard also stated a premise about the extractor that was not true.
+Its comment said the segment scanner keeps a source text node only if
+its decoded form carries something other than whitespace, "so a
+whitespace-only source segment cannot exist and rejecting one is free of
+false positives". The extractor's drop test is the *same*
+`char::is_whitespace`, so a source segment of only a zero-width space
+**is** kept and sent — and its faithful echo was rejected, spending the
+unit's whole retry budget to reach a fallback that changed nothing. One
+arm managed to sit on both wrong sides of the trade this section is
+about.
+
+The shape of the second fix is what the first one should have had. The
+rule is a **comparison, not a predicate**: reject when the source payload
+carried visible text and the translation carries none. That scope is what
+licenses an aggressive answer to "which characters render nothing" —
+a `<td>&#8203;</td>` layout shim, a zero-width-joiner-only emoji
+fragment, an empty-bodied fence and a thematic break each have no visible
+source text either, so the check never fires on them, and over-inclusion
+in the invisibility test costs nothing while under-inclusion is a miss.
+It also lives in **one** module for both intakes, because the original
+gap was two places disagreeing about what "no visible text" means. What
+they read differs, and that difference is load-bearing: on the raw-HTML
+path the segment strings, because the splice re-escapes `&` and a
+provider's `&nbsp;` therefore reaches the page as six visible characters;
+on the Markdown path comrak's decoded text, because nothing re-escapes
+there and `&nbsp;` / `&#8203;` are pure ASCII in the payload bytes. The
+rejection is retryable like the rest of that layer, and the message names
+the correct provider answer, which is to echo the source back.
 
 The code-fence rule closed in the same pass has the same shape. Fence
 metadata was compared only when the *source* fence carried an info

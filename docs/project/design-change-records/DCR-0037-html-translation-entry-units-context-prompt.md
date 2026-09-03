@@ -216,6 +216,20 @@ deliberately not fixed here: this wave adds no validator, and the predicate's
 exact membership (legitimate zero-width-joiner-only text exists) is an owner
 decision.
 
+> **AMENDED 2026-09-04 (DCR-0048).** The two paragraphs above are wrong about
+> scope, and the error was this record's, not the ticket's: **the twin does not
+> catch it.** Its net is a singleton — rule T's invisible set is
+> `White_Space ∪ {U+FEFF}` and the old guard's was `White_Space`, so the two
+> disagree about U+FEFF *only*, and U+200B / U+200C / U+200D / U+2060 / U+00AD
+> pass both. Even for U+FEFF the twin sees only a rule-T **anonymous run**
+> dissolve; an *element* block erased to U+FEFF keeps its ledger, gaps and
+> bookkeeping and ships. The wave-5 test appeared to prove otherwise because it
+> aimed at `doc.blocks[1]` — the run — not at `blocks[0]`, the `<p>`. And the
+> island framing understated the reach: the **Markdown path has no
+> text-presence check on any kind**, so all six were exposed, not just an
+> island. The lever swap this forced on `DissolvesRun` is recorded in DCR-0048;
+> the routing proof itself stands, and still speaks the twin's vocabulary.
+
 ## Evidence
 
 The gate files under `/Volumes/Temp/claude/ti490d97-wave5/gate/`:

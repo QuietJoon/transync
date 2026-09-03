@@ -287,12 +287,19 @@ project:
     written for exactly that attack. Defense in depth, working. The lever that
     DOES reach layer 6 is U+FEFF, and it walks a real gap: U+FEFF is not
     char::is_whitespace in Rust while rule T explicitly strips it, so a segment
-    of only U+FEFF passes every per-unit layer and dissolves the block. On an
-    HTML-DOCUMENT run the twin catches it; on a raw-HTML ISLAND in a Markdown
-    run layer 6 is reparse_full, which sees one HtmlBlock with an unchanged
-    label and cannot - a reachable content-erasure path with no defense. Filed
+    of only U+FEFF passes every per-unit layer and dissolves the block. Filed
     as ti c887bc with three options and a recommendation, deliberately NOT
-    fixed in a wave that adds no validator. (2) Spec section 6's
+    fixed in a wave that adds no validator. CORRECTED 2026-09-04 (ti c887bc /
+    DCR-0048): this entry's scope claim - "on an HTML-DOCUMENT run the twin
+    catches it; on a raw-HTML ISLAND in a Markdown run layer 6 is reparse_full
+    and cannot" - was wrong twice. The twin's net is a SINGLETON (rule T's set
+    is White_Space + U+FEFF, the guard's was White_Space, so they disagree
+    about U+FEFF only and every other zero-width char passes both), and even
+    for U+FEFF it catches only a rule-T anonymous RUN, never an element block.
+    The Markdown path had NO text-presence check on any kind, so all six were
+    exposed. RESOLVED by validate::text_presence - one scoped comparison
+    (source had visible text, translation has none) for both intakes. (2) Spec
+    section 6's
     context-projection hazard is stated backwards: it says the comrak
     projection would put RAW TAGS into the heading stacks; the observed red was
     empty COLLAPSE, left: [(1, "")], because an HtmlBlock is a leaf with no

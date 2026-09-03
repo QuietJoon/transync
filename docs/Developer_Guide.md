@@ -38,8 +38,11 @@ at it.
 - **Layered validation.** Every batch result is checked at six
   layers: schema, ID-set equality, per-kind shape (table column count,
   list topology, code-fence info, heading level, blockquote children),
-  fragment reparse, inline protection (link/image destinations;
-  policy-gated code spans), and a final full-document reparse. Any
+  fragment reparse, visible-text presence (a translation that erases every
+  visible character of a source that had some is rejected — the one content
+  question the structural layers cannot ask; ti `c887bc`), inline
+  protection (link/image destinations; policy-gated code spans), and a
+  final full-document reparse. Any
   failure triggers a bounded verbatim resubmission of the failed unit —
   same payload, same scope — carrying a non-content `RetryContext` side
   channel (attempt, rejecting layer, reason) alongside, never inside,

@@ -23,7 +23,7 @@ terms as the JS sync engine, and it is not a supported package.
 - Translation unit construction with section path + neighbor snippets.
 - Section-coherent, sequential token-budget batch grouping (DCR-0027) — the unit list is partitioned at every heading, and each section is then packed in document order until the budget or the `max_units_per_batch` cap is hit; the consumer or `TranslateOptions` configures the token budget. **A batch never straddles a `##`/`###` boundary**; a section too large for one batch packs into several, all inside that section, which is the only thing that separates one section's units. Whole-section coalescing (two small sections sharing a batch) is deliberately not done — see DCR-0027 OQ-A.
 - HTTP-free `Translator` trait (ADR-0002). The core crate has zero `reqwest` / `async-openai` dependency.
-- Layered validation: schema → ID set → per-block-kind shape → fragment reparse → full-doc reparse.
+- Layered validation: schema → ID set → per-block-kind shape → fragment reparse → visible-text presence → inline protection → full-doc reparse.
 - Retry then fallback to source; never silent corruption.
 - Markdown regeneration via Comrak AST reserialization with safe fence regeneration for code blocks and structural reserialization for tables.
 - Alignment map generation in a stable JSON shape (`schema_version` field; finalized Phase 2).
