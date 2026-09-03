@@ -38,19 +38,24 @@ Every `R0002-####`, `R0003-####` and `R0004-####` id in this file names a
 | 0003 | 2026-08-07 | 90 |
 | 0004 | 2026-08-11 | 100 |
 
-This needs saying because the round registry `reviews/README.md` also lists
-retired rounds numbered `0002` (2026-05-03, 92 findings), `0003` (2026-05-03,
-86 findings) and `0004` (2026-05-04, 1 finding — an external `resp-translator`
-consumer report), and its rule 4 still asserts that rounds `0002` and up "do
-not collide — each number was used once". That assertion predates the three
-rounds above and is no longer true; reconciling the registry is tracked
-separately. Until it is reconciled, read every bare id **in this file** as the
-2026-08 round, and resolve a bare id found anywhere else by its date or its
-subject rather than by the registry's rule.
+The registry `reviews/README.md` also lists 2026-05 rounds numbered `0002`
+(92 findings), `0003` (86) and `0004` (1 — an external `resp-translator`
+consumer report), so the numbers really do collide.
+
+**That is settled now and this file no longer needs a local rule** (ti
+`bdf8d981`, 2026-09-03). Registry rule 4 used to assert the rounds did not
+collide, which was false, and this section carried a scoped workaround —
+"read every bare id **in this file** as the 2026-08 round" — until it was
+fixed. Rule 4 now says the same thing repository-wide: a bare
+`R0002`/`R0003`/`R0004` id means the 2026-08 gated round, and a 2026-05 one is
+marked. The table above is kept because it is the shortest statement of these
+three rounds' shape, and rule 4's range table was verified against it.
 
 The three source review files were archived and removed after their findings
-were mined into the records this file points at; their text is recoverable from
-git history.
+were mined into the records this file points at. Their text is **not** in this
+repository's git history — no commit here ever held them — but it survives as
+unreferenced blobs in the salvaged stores, and the registry's round table
+carries the exact `cat-file` command for each.
 
 ## The measurement behind this file
 

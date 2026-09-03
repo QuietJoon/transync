@@ -12,6 +12,14 @@ Entries moved from `docs/project/open-issues.md` after their implementation impa
 > `R0001-0010` / `0009` (the `--model` and `--base-url` flags, not the live
 > round's findings of those numbers). `reviews/README.md` carries the round
 > registry and the retired round's finding index.
+>
+> **Extended 2026-09-03 (ti `bdf8d981`).** The same applies to the
+> `R0002`/`R0003`/`R0004` ids below: they are all from the **2026-05** rounds,
+> because this file's entries predate the three gated rounds of 2026-08-07/07/11
+> that reused those numbers. A bare id written after that date means the
+> **2026-08** round (`reviews/README.md` rule 4). Numbers settle most of them
+> without any marker — `R0004-0001` is the 2026-05 external consumer report by
+> rule, since that round had exactly one finding — and this note covers the rest.
 
 ***
 

@@ -22,18 +22,41 @@ false "mis-cited id" report before it was noticed.
 3. **A finding number above `0052` is a retired-round id wherever it
    appears.** `reviews/reviewed/0001.md` has exactly 52 findings, so `R0001-0079` can
    only be the 2026-05-02 round; the table below resolves it.
-4. **Rounds `0002` and up do not collide** — each number was used once — so
-   `R0002-…` through `R0009-…` are unambiguous bare and need no marker. They
-   are not all *resolvable*, though; see the round table.
+4. **`R0002`, `R0003` and `R0004` were each used TWICE, and a bare id means
+   the 2026-08 gated round.** The 2026-05 rounds are the marked side, exactly
+   as rule 2 already marks the retired `R0001` — one convention, applied again,
+   rather than a second one.
 
-   *(Range extended to `R0009` on 2026-08-24, when that round was registered.
-   It was claimed as `0002` and renumbered to the next free number **before any
-   citation existed**, precisely so this rule would keep holding — the owner's
-   decision, taken because 972 live `R0002-####` citations depend on it. The
-   rule's known exception is not this round: ti `bdf8d981` records that three
-   gated 2026-08 rounds reused `0002`/`0003`/`0004` and are absent from the
-   table below, which is what makes the rule false today. Fixing that is
-   `bdf8d981`'s scope, not this row's.)*
+   > `R0002-0031` in the 2026-05 round
+
+   *(Decided 2026-09-03, ti `bdf8d981`. Rule 4 used to assert these rounds did
+   not collide. They do: three gated rounds on 2026-08-07/07/11 reused the
+   numbers, and the rule was false for as long as it stood there.)*
+
+   The marker goes on the 2026-05 side because that is the small side and the
+   resolvable one is the other. Roughly forty to sixty 2026-05 citations sit in
+   about eight places, most already self-marking — the `CHANGELOG`'s `[0.2.0]`
+   section, and the several records that say "external consumer report from
+   `resp-translator`" — against roughly a thousand 2026-08 citations that
+   already read bare across `contracts.md`, both provider crates, DCR-0022,
+   DCR-0025, DCR-0030, DCR-0046 and ADR-0022/0023/0024. Default-bare belongs
+   where the lookup actually works: the 2026-08 texts resolve exactly (the
+   table gives the command), and most of the 2026-05 ones do not.
+
+   **Numbers settle most of it without any marker**, the way rule 3 does for
+   `R0001`. Counts verified 2026-09-03 by reading the recovered blobs:
+
+   | id range | round | why |
+   |---|---|---|
+   | `R0002-0087` … `0092` | 2026-05 | the 2026-08 round has 86 findings |
+   | `R0003-0087` … `0090` | 2026-08 | the 2026-05 round has 86 |
+   | `R0004-0001` | **2026-05** | the 2026-05 round has exactly one finding, and 28 `TRACE: R0004-0001` comments in `transync-core`/`-syntax` plus archived DCR-0002 and DCR-0004 all mean that external consumer report |
+   | `R0004-0002` … `0100` | 2026-08 | the 2026-05 round stops at `0001` |
+
+   So `R0004` needs **no marker at all** — every id in it is decided by its
+   number. Only `R0002-0001`…`0086` and `R0003-0001`…`0086` genuinely overlap,
+   and those are what the bare-means-2026-08 default is for.
+
 5. **Dated records are not rewritten to comply.** An ADR, a DCR, a released
    `CHANGELOG` section or an archived issue keeps the words it was written
    with; where its ids need a round, a dated note is appended saying so. The
@@ -47,9 +70,12 @@ false "mis-cited id" report before it was noticed.
 |---|---|---|---|
 | `R0001` (live) | 2026-07-15 | 52 (`0001`–`0052`) | `reviews/reviewed/0001.md`, with `reviews/reviewed/0001-dispositions.md` and the inert `reviews/reviewed/0001.patch` |
 | `R0001` (retired) | 2026-05-02 | 104 (`0001`–`0104`) | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0001.md`. Titles are indexed below. |
-| `R0002` | 2026-05-03 | 92 | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0002.md` |
-| `R0003` | 2026-05-03 | 86 | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0003.md` |
-| `R0004` | 2026-05-04 | 1 (`R0004-0001`, external `resp-translator` consumer report) | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0004.md` |
+| `R0002` (2026-05) | 2026-05-03 | 92 (`0001`–`0092`) | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0002.md` |
+| `R0002` (gated, **bare**) | 2026-08-07 | 86 (`0001`–`0086`) | never tracked in this history. `git --git-dir=/Volumes/Common/git-backup/transync-broken-git-20260817 cat-file -p 5b187df5b9e94e51` (also in the `20260810` store) |
+| `R0003` (2026-05) | 2026-05-03 | 86 (`0001`–`0086`) | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0003.md` |
+| `R0003` (gated, **bare**) | 2026-08-07 | 90 (`0001`–`0090`) | never tracked. `git --git-dir=/Volumes/Common/git-backup/transync-broken-git-20260817 cat-file -p fa12b94b6c743d53` (also in the `20260810` store) |
+| `R0004` (2026-05) | 2026-05-04 | 1 (`R0004-0001`, external `resp-translator` consumer report) | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0004.md` |
+| `R0004` (gated, **bare** from `0002`) | 2026-08-11 | 100 (`0001`–`0100`) | never tracked. `git --git-dir=/Volumes/Common/git-backup/transync-broken-git-20260817 cat-file -p e809dce2fdda1632` — **this store only**; the `20260810` store predates it |
 | `R0005` | 2026-05-04 | 1 (`R0005-0001`) | removed in `bb93b68`; `git show bb93b68^:reviews/reviewed/0005.md` |
 | `R0006` | 2026-05 (ADR-0010 places it one day after commit `49d19ee`) | — | **never tracked.** No file, no git object. The ids survive only in the ADRs, DCRs and `CHANGELOG` entries that quote the finding. |
 | `R0007` | by 2026-07-10 (DCR-0005 records it) | — | **never tracked**, as `R0006`. |

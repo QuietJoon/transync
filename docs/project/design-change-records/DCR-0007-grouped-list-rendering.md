@@ -9,7 +9,7 @@ status: active
 # DCR-0007: Grouped list rendering with `<li>` sync anchors
 
 - **Date:** 2026-07-10
-- **Source:** OI-0010 [archived] (R0003-0027) + folded R0006-0042; user-approved resolution session (review archived and removed)
+- **Source:** OI-0010 [archived] (R0003-0027, the **2026-05** round — ti `bdf8d981`, 2026-09-03: a bare `R0003` id written after 2026-08-07 means the gated round that reused the number) + folded R0006-0042; user-approved resolution session (review archived and removed)
 - **Affected ADRs:** none superseded. `docs/architecture/contracts.md` §4 and §4a updated
   (this change also applied DCR-0001's pending §4 prose migration for the
   table/code/blockquote wrapper-div rows).

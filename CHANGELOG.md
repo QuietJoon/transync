@@ -6274,8 +6274,19 @@ reach moved.
 > the same `0001`–`0052` range — `R0001-0025` here is
 > "`ValidationSummary.retried_units` is never populated", not the live round's
 > list-depth overflow. `reviews/README.md` carries the round registry and the
-> retired round's finding index. The `R0002`–`R0008` ids below do not collide
-> with anything.
+> retired round's finding index.
+>
+> **Corrected 2026-09-03 (ti `bdf8d981`).** This note used to end "the
+> `R0002`–`R0008` ids below do not collide with anything." That was `reviews/`
+> rule 4's claim and it was false: three gated rounds on 2026-08-07/07/11
+> reused `0002`, `0003` and `0004`. Every `R0002`/`R0003`/`R0004` id in **this**
+> section is from the **2026-05** round — the section predates the gated ones —
+> while a bare id written after that date means the 2026-08 round. Most ids
+> here need no marker anyway, because their numbers decide them
+> (`reviews/README.md` rule 4's range table); this note covers the seven in the
+> genuinely overlapping `R0002`/`R0003` `0001`–`0086` band. Nothing below is
+> rewritten: rule 5 keeps a released section's words and appends a note like
+> this one instead.
 
 Closes the sanctioned breaking window opened after v0.1.0; every entry
 below rode it. Release gate (OI-0030): `scripts/smoke-live-gate.sh`
