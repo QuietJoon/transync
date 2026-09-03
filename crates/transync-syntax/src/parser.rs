@@ -37,7 +37,7 @@ mod emit;
 mod options;
 pub mod ranges;
 pub mod refdefs;
-mod sections;
+pub(crate) mod sections;
 
 use crate::error::ParseError;
 use crate::id::{BlockId, BlockKind, SourceFormat, Spelling};
@@ -189,7 +189,10 @@ pub struct Section {
 /// NUL-bearing source is that `out.md` carries U+FFFD instead of the NUL —
 /// which is what the rendered panes have always shown, because they render
 /// through Comrak.
-fn normalize_source(source: &str) -> Cow<'_, str> {
+///
+/// The HTML intake (`intake::html`) calls this too, so both intakes mean the
+/// same string by "source bytes" (spec §4).
+pub(crate) fn normalize_source(source: &str) -> Cow<'_, str> {
     if source.as_bytes().contains(&0) {
         Cow::Owned(source.replace('\0', "\u{FFFD}"))
     } else {

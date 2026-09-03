@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Anchor &amp; sync, side by side">
+<title>Transync &amp; the two-pane page</title>
+<link rel="stylesheet" href="site.css">
+<style>
+main > section { margin: 0 auto; }
+</style>
+<script>
+if (2 < 1) { document.write("</div>"); }
+</script>
+</head>
+<body>
+<header>
+<h1 id="top">Anchors &amp; panes</h1>
+<nav>
+<ul>
+<li><a href="#what">What it is</a></li>
+<li><a href="#how">How it works</a></li>
+</ul>
+</nav>
+</header>
+<main>
+<section id="what">
+<h2>What it is</h2>
+<p>A translated page keeps its <em>structure</em> &mdash; only the text moves.</p>
+<img src="badge-build.svg" alt="build"> <img src="badge-docs.svg" alt="docs">
+<blockquote>
+<p>Blocks, not percentages.</p>
+</blockquote>
+</section>
+<section id="how">
+<h2>How it works</h2>
+<table>
+<tr><th>Side</th><th>Owner</th></tr>
+<tr><td>Structure</td><td>Rust</td></tr>
+</table>
+<pre><code>let doc = parse(&amp;source);</code></pre>
+<hr>
+<x-note tone="info">A custom element stops, loudly.</x-note>
+<!-- the trailing div below never closes: the intake must warn, not panic -->
+<div class="trailing">
+<p>This fragment never closes.
+</section>
+</main>
+</body>
+</html>

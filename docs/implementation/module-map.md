@@ -35,6 +35,10 @@ crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017
     │   └── depth.rs                    # THE one guarded hand-off of raw Markdown to
     │                                   #   comrak: nesting-depth refusal before parse
     ├── id.rs                           # BlockId assignment + source_hash + the two vocabularies (BlockKind, Spelling/SourceFormat)
+    ├── intake.rs                       # the format seam: one intake per source format (D3)
+    ├── intake/
+    │   └── html.rs                     # HTML document intake: five-class classification,
+    │                                   #   rule T, ids/sections/ast_path (ti 490d97 wave 3)
     ├── outcome.rs                      # per-block HtmlOutcome closure (DCR-0017 §3.1)
     ├── walk.rs                         # ONE shared top-level normalization + per-list item
     │                                   #   count; consumed by render AND validate::full_reparse

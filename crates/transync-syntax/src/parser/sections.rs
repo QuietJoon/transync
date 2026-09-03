@@ -17,13 +17,13 @@ use crate::id::BlockId;
 
 /// Open heading scopes, outermost first, each with the level that opened it.
 #[derive(Debug, Default)]
-pub(super) struct SectionStack {
+pub(crate) struct SectionStack {
     open: Vec<(BlockId, u8)>,
 }
 
 impl SectionStack {
     /// The heading chain enclosing whatever is emitted next.
-    pub(super) fn current_path(&self) -> Vec<BlockId> {
+    pub(crate) fn current_path(&self) -> Vec<BlockId> {
         self.open.iter().map(|(id, _)| id.clone()).collect()
     }
 
@@ -31,7 +31,7 @@ impl SectionStack {
     /// survives — the section path the heading itself belongs to. Call this
     /// *before* emitting the heading; the heading's own scope opens only once
     /// it has an ID ([`SectionStack::open_scope`]).
-    pub(super) fn close_through(&mut self, level: u8) -> Vec<BlockId> {
+    pub(crate) fn close_through(&mut self, level: u8) -> Vec<BlockId> {
         while let Some((_, lvl)) = self.open.last() {
             if *lvl >= level {
                 self.open.pop();
@@ -43,7 +43,7 @@ impl SectionStack {
     }
 
     /// Open the emitted heading's own scope.
-    pub(super) fn open_scope(&mut self, heading_id: BlockId, level: u8) {
+    pub(crate) fn open_scope(&mut self, heading_id: BlockId, level: u8) {
         self.open.push((heading_id, level));
     }
 }

@@ -1,0 +1,17 @@
+<section class="ref">
+<h1>parse_html</h1>
+<p>Builds the block IR from an <code>&lt;html&gt;</code> document.</p>
+<ol>
+<li>tokenize
+<li>pair
+<li>classify
+</ol>
+<pre>
+let doc = intake::html::parse(source);
+</pre>
+<dl>
+<dt>identity</dt>
+<dd>byte-for-byte, outside translated text</dd>
+</dl>
+<div class="note">
+<p>The tail of this fragment is deliberately unclosed

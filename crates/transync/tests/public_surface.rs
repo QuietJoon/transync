@@ -471,6 +471,7 @@ fn hidden_modules_are_not_documented_as_surface() {
     let forbidden = [
         "pipeline",
         "parser",
+        "intake",
         "unit",
         "batch",
         "validate",
