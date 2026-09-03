@@ -26,6 +26,7 @@ import {
   offsetTopOf,
   paneCenter,
   range,
+  forwardMinorVersion,
   readFixture,
   sampleScroll,
   scrollTopOf,
@@ -284,11 +285,15 @@ test.describe("SCN-13 dual-pane sync", () => {
     const logs = collectConsole(page);
     const errors = collectPageErrors(page);
 
-    // A same-major map with a newer minor ("1.3.0") is forward-compat drift
-    // (OI-0024): loadAlignment accepts it and wires the panes, but surfaces a
-    // visible console.warn rather than the silent console.debug.
+    // A same-major map with a newer minor is forward-compat drift (OI-0024):
+    // loadAlignment accepts it and wires the panes, but surfaces a visible
+    // console.warn rather than the silent console.debug. The specimen is
+    // DERIVED from the served engine's own KNOWN_SCHEMA — a literal here was
+    // "1.3.0", which the wave-6 bump turned into this engine's own version,
+    // silently ending the forward coverage this test exists for.
+    const forwardMinor = forwardMinorVersion();
     const map = JSON.parse(readFixture("alignment.json"));
-    map.schema_version = "1.3.0";
+    map.schema_version = forwardMinor;
     await page.route("**/alignment.json", (route) =>
       route.fulfill({
         contentType: "application/json",
@@ -303,7 +308,7 @@ test.describe("SCN-13 dual-pane sync", () => {
     // The forward-drift warning fired...
     expect(
       logs.some(
-        (m) => m.includes("is newer than this engine") && m.includes("1.3.0")
+        (m) => m.includes("is newer than this engine") && m.includes(forwardMinor)
       )
     ).toBe(true);
     // ...yet the engine mounted and syncs normally.
@@ -439,10 +444,10 @@ test.describe("SCN-13 dual-pane sync", () => {
     // contracts.md §3 lets a minor bump ADD enumerated values and obliges
     // consumers to accept newer minors. A role this engine cannot classify
     // is corruption in an in-band map (test i) and a value from the future
-    // in a 1.3.0 one — warned about, treated as a scroll anchor, still
-    // synced.
+    // in a newer-minor one — warned about, treated as a scroll anchor, still
+    // synced. The specimen is DERIVED, for the reason test g's is.
     const map = JSON.parse(readFixture("alignment.json"));
-    map.schema_version = "1.3.0";
+    map.schema_version = forwardMinorVersion();
     map.blocks[1].sync_role = "gutter";
     await page.route("**/alignment.json", (route) =>
       route.fulfill({

@@ -48,7 +48,7 @@ async fn smoke_scn_15() {
     let translator = MockTranslator::passthrough();
     let output = translate(SRC, &opts(), &translator).await.expect("Ok");
 
-    assert_eq!(output.alignment_map.schema_version, "1.2.0");
+    assert_eq!(output.alignment_map.schema_version, "1.3.0");
 
     // Every html-kind row is an anchor with block_kind "html".
     let html_rows: Vec<_> = output

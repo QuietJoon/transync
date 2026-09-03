@@ -23,6 +23,7 @@ import {
   collectPageErrors,
   offsetTopOf,
   scrollTopOf,
+  forwardMinorVersion,
   setScrollTop,
   waitForMounted,
   waitForScrollNear,
@@ -265,11 +266,12 @@ test.describe("sync.js mount contract", () => {
 
     // The bound is on the digit count, not on the version being newer: a
     // real forward-minor map still drifts forward and still mounts.
-    expect(await mount(page, mapOf(BLOCK_IDS, { schema_version: "1.3.0" }))).toBe(
+    const forwardMinor = forwardMinorVersion();
+    expect(await mount(page, mapOf(BLOCK_IDS, { schema_version: forwardMinor }))).toBe(
       "controller"
     );
     expect(
-      logs.some((m) => m.includes("is newer than this engine") && m.includes("1.3.0"))
+      logs.some((m) => m.includes("is newer than this engine") && m.includes(forwardMinor))
     ).toBe(true);
 
     expect(errors).toEqual([]);
@@ -460,7 +462,7 @@ test.describe("sync.js mount contract", () => {
     // And a newer minor does not buy it: contracts.md §3 lets a minor bump add
     // enumerated VALUES, never re-type a field, so there is no forward-compat
     // reading of a number here — unlike the divergent *string* just below.
-    const futureNonString = mapOf(BLOCK_IDS, { schema_version: "1.3.0" });
+    const futureNonString = mapOf(BLOCK_IDS, { schema_version: forwardMinorVersion() });
     futureNonString.blocks[2].target_block_id = 3;
     expect(await mount(page, futureNonString)).toBeNull();
 
@@ -468,7 +470,7 @@ test.describe("sync.js mount contract", () => {
     // contracts.md §3 requires a newer minor to be accepted, so the same
     // row there is warned about and the engine keeps pairing by the source
     // id — which is all it knows how to do.
-    const future = mapOf(BLOCK_IDS, { schema_version: "1.3.0" });
+    const future = mapOf(BLOCK_IDS, { schema_version: forwardMinorVersion() });
     future.blocks[2].target_block_id = "t-0003";
     expect(await mount(page, future)).toBe("controller");
     expect(logs.some((m) => m.includes("pairing by the source id anyway"))).toBe(true);

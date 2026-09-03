@@ -21,7 +21,7 @@ async fn smoke_scn_14() {
         .await
         .expect("pipeline returns Ok against the SCN-14 fixture");
 
-    assert_eq!(output.alignment_map.schema_version, "1.2.0");
+    assert_eq!(output.alignment_map.schema_version, "1.3.0");
     assert!(!output.translated_document.is_empty());
 
     // Top-level kind sequence equality: reparse the regenerated MD and

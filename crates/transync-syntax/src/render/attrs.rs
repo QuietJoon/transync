@@ -10,7 +10,7 @@ use crate::align::{AlignmentBlock, SyncRole};
 /// The four attributes below are the whole set. `data-parent-id` is
 /// **RESERVED and never emitted** (`contracts.md` §4a): the parser is
 /// leaf-block, so `AlignmentBlock::parent_id` — which stays on the wire at
-/// schema 1.2.0 — is always `null`, and the conditional that used to read it
+/// schema 1.x (1.3.0 at this writing) — is always `null`, and the conditional that used to read it
 /// could not fire. A future nested-anchor scheme reinstates it together with
 /// the reserved `child-only` sync role.
 ///

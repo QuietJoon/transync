@@ -38,7 +38,7 @@ import { mountSync, fetchOk } from "./sync.js";
  * different commit) and against the fetched map before mounting (data
  * drift). Both checks fail closed.
  */
-const KNOWN_SCHEMA = "1.2.0";
+const KNOWN_SCHEMA = "1.3.0";
 
 /** Debounce between the last keystroke and the wasm rebuild. */
 const DEBOUNCE_MS = 300;

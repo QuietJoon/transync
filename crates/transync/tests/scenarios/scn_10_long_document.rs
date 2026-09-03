@@ -29,7 +29,7 @@ async fn smoke_scn_10() {
         .await
         .expect("pipeline returns Ok against the SCN-10 30-section doc");
 
-    assert_eq!(output.alignment_map.schema_version, "1.2.0");
+    assert_eq!(output.alignment_map.schema_version, "1.3.0");
     assert!(!output.translated_document.is_empty());
 
     // Recording mock captured every batch; the count must be >= 4.

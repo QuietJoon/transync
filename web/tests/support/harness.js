@@ -58,6 +58,28 @@ export function readFixture(name) {
   return fs.readFileSync(path.join(FIXTURE_DIR, name), "utf8");
 }
 
+/**
+ * The version one minor NEWER than the SERVED engine's own KNOWN_SCHEMA —
+ * THE forward-minor specimen, for every suite that needs one.
+ *
+ * Derived, never hard-coded. A literal becomes a same-version map at the
+ * next bump and the forward coverage dies silently: the 1.3.0 bump
+ * (ti 490d97 wave 6) caught six such literals across two spec files —
+ * engine.spec.js tests c and g plus its `futureNonString` specimen, and
+ * scn13.spec.js tests g and j. It lives here rather than beside one
+ * suite's fixtures precisely because more than one suite needs it, and two
+ * copies of a derivation are how the next bump gets a half-swept tree.
+ *
+ * TRACE: ti 490d97 wave 6
+ * TRACE: OI-0024
+ */
+export function forwardMinorVersion() {
+  const line = readFixture("sync.js")
+    .split("\n")
+    .find((l) => l.includes("KNOWN_SCHEMA = {"));
+  return `${/major:\s*(\d+)/.exec(line)[1]}.${Number(/minor:\s*(\d+)/.exec(line)[1]) + 1}.0`;
+}
+
 // Collect every console message (log/info/warn/debug/error) emitted by
 // the page. MUST be called before page.goto so mount-time warnings —
 // warnMapDomDrift, the schema-version rejection — are captured.

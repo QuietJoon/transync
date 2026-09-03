@@ -4,7 +4,7 @@
 //! TRACE: contracts.md §3
 //! TRACE: ADR-0001
 
-use crate::id::BlockId;
+use crate::id::{BlockId, SourceFormat, Spelling};
 use crate::outcome::{HtmlOutcome, is_translatable_block};
 use crate::parser::Document;
 use crate::regen::BlockOffsets;
@@ -21,9 +21,14 @@ pub use crate::parser::ranges::ByteRange;
 ///
 /// Bumped 1.1.0 → 1.2.0 for the additive `"html"` `block_kind` value
 /// (HTML-content translation, spec 2026-08-03 §5).
-pub const ALIGNMENT_SCHEMA_VERSION: &str = "1.2.0";
+///
+/// Bumped 1.2.0 → 1.3.0 for three additive changes (ti 490d97 / DCR-0038):
+/// the per-row `source_format`, the map-level `input_format`, and the
+/// `"title"` `block_kind` value riding the `non-sync` role shipped since
+/// 1.0.
+pub const ALIGNMENT_SCHEMA_VERSION: &str = "1.3.0";
 
-/// On-disk JSON shape — `schema_version 1.2.0`.
+/// On-disk JSON shape — `schema_version 1.3.0`.
 ///
 /// Non-exhaustive: produced by the engine; consumers read fields rather
 /// than construct — new fields may be added in minor releases (additive
@@ -39,6 +44,12 @@ pub struct AlignmentMap {
     pub source_language: String,
     pub target_language: String,
     pub detected_source_language: Option<String>,
+    /// Which intake produced this run — the run-level fact a pane consumer
+    /// branches on (schema 1.3.0, ti 490d97). `#[serde(default)]` reads a
+    /// pre-1.3.0 map as `Markdown`, which is the format every pre-1.3.0 run
+    /// actually had, so the default is a fact rather than a guess.
+    #[serde(default)]
+    pub input_format: SourceFormat,
     pub generator: GeneratorMeta,
     pub blocks: Vec<AlignmentBlock>,
     pub validation_summary: ValidationSummary,
@@ -52,6 +63,9 @@ impl Default for AlignmentMap {
             source_language: String::new(),
             target_language: String::new(),
             detected_source_language: None,
+            // The enum's own `#[default]`, spelled explicitly because this
+            // literal lists every field.
+            input_format: SourceFormat::Markdown,
             generator: GeneratorMeta::default(),
             blocks: Vec::new(),
             validation_summary: ValidationSummary::default(),
@@ -116,9 +130,19 @@ pub struct AlignmentBlock {
     pub fallback_status: FallbackStatus,
     /// RESERVED, always `null`. The parser is leaf-block — every source
     /// block is top-level — so nothing populates this. It stays on the wire
-    /// (schema 1.2.0 pins it, `contracts.md` §3) for a future nested-anchor
+    /// (schema 1.x pins it (1.3.0 at this writing), `contracts.md` §3) for a future nested-anchor
     /// scheme, paired with the reserved `child-only` [`SyncRole`].
     pub parent_id: Option<BlockId>,
+    /// How the source SPELLED this block — `"markdown"` or `"html"` (schema
+    /// 1.3.0, ti 490d97). Mandatory in every map this engine emits; the
+    /// `Option` exists solely so `Deserialize` accepts a pre-1.3.0 map.
+    /// Reader rule for an absent value: `block_kind == "html" ? html :
+    /// markdown` — never a bare default to markdown, which would mislabel
+    /// every 1.2.0 html-island row. Distinct from
+    /// [`AlignmentMap::input_format`]: a Markdown run's map legitimately
+    /// carries html-spelled island rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_format: Option<SourceFormat>,
 }
 
 /// Whether the block is a primary scroll anchor, a container, etc.
@@ -274,6 +298,14 @@ pub fn build_alignment_map(
             sync_role: sync_role_for(&block.kind),
             fallback_status,
             parent_id: None,
+            // The row is the block's SPELLING (spec §3): an island inside a
+            // Markdown document says html here while the map says markdown.
+            // Exhaustive by charter; `Html { .. }` names the variant, the
+            // rest pattern covers its field.
+            source_format: Some(match block.spelling {
+                Spelling::Markdown => SourceFormat::Markdown,
+                Spelling::Html { .. } => SourceFormat::Html,
+            }),
         });
 
         // `R0001-0022` in the removed `reviews/reviewed/0001.md` (not the
@@ -336,6 +368,7 @@ pub fn build_alignment_map(
         source_language: source_language.to_string(),
         target_language: target_language.to_string(),
         detected_source_language,
+        input_format: doc.format,
         generator: GeneratorMeta::default(),
         blocks,
         validation_summary: summary,
@@ -624,5 +657,139 @@ mod html_row_tests {
             FallbackStatus::FallbackSource
         );
         assert_eq!(map.validation_summary.total_units, 1, "Unit blocks count");
+    }
+}
+
+// ti 490d97 wave 6 (spec §3): schema 1.3.0's two additive fields. The row
+// field is the block's SPELLING; the map field is the run's INTAKE — two
+// facts, two names, never one doing double duty (the synthesis found two
+// areas colliding on one name here, and the ruling is both fields).
+#[cfg(test)]
+mod wire_format_tests {
+    use super::*;
+    use crate::id::{SourceFormat, assign_block_ids};
+
+    fn built_map(mut doc: crate::parser::Document) -> AlignmentMap {
+        assign_block_ids(&mut doc);
+        let outcomes = crate::outcome::html_outcomes(&doc);
+        build_alignment_map(
+            &doc,
+            &HashMap::new(),
+            &crate::regen::BlockOffsets::default(),
+            "auto",
+            "ko",
+            None,
+            &outcomes,
+        )
+    }
+
+    /// A Markdown run: the map says markdown, a prose row says markdown, and
+    /// an html-ISLAND row says html — the row is the spelling, not the run.
+    /// This is what makes the reader rule for absent values non-arbitrary:
+    /// a bare "default markdown" would mislabel exactly this row.
+    #[test]
+    fn a_markdown_runs_rows_carry_their_spelling_and_the_map_carries_the_intake() {
+        let map = built_map(crate::parser::parse("prose\n\n<div>island</div>\n").expect("parses"));
+        assert_eq!(map.input_format, SourceFormat::Markdown);
+        let prose = map
+            .blocks
+            .iter()
+            .find(|r| r.block_kind == "paragraph")
+            .expect("p row");
+        assert_eq!(prose.source_format, Some(SourceFormat::Markdown));
+        let island = map
+            .blocks
+            .iter()
+            .find(|r| r.block_kind == "html")
+            .expect("island row");
+        assert_eq!(
+            island.source_format,
+            Some(SourceFormat::Html),
+            "an island inside a Markdown document is html-SPELLED; the run is still markdown",
+        );
+    }
+
+    /// An HTML-intake document: every row html, the map html, and the title
+    /// row carries the D5 shape — kind "title", role non-sync, format html.
+    #[test]
+    fn an_html_intake_map_says_html_everywhere_and_the_title_row_is_non_sync() {
+        let map = built_map(crate::intake::html::parse(
+            "<html><head><title>T</title></head><body><p>x</p></body></html>\n",
+        ));
+        assert_eq!(map.input_format, SourceFormat::Html);
+        for row in &map.blocks {
+            assert_eq!(
+                row.source_format,
+                Some(SourceFormat::Html),
+                "{}: format == Html implies every spelling is Html (spec §3's invariant)",
+                row.source_block_id.0,
+            );
+        }
+        let title = map
+            .blocks
+            .iter()
+            .find(|r| r.block_kind == "title")
+            .expect("title row");
+        assert_eq!(title.sync_role, SyncRole::NonSync);
+    }
+
+    /// Backward: a pre-1.3.0 map (no source_format, no input_format) still
+    /// deserializes — input_format reads as the format every pre-1.3.0 run
+    /// had, and the row's absence stays None (the documented reader rule is
+    /// the CONSUMER's, applied at read time, never invented by serde).
+    #[test]
+    fn a_pre_1_3_0_map_still_deserializes() {
+        // The §3 example row, verbatim shape, minus the two new fields.
+        let json = r#"{
+          "schema_version": "1.2.0",
+          "document_id": "a91f2c0d2e1bbb40",
+          "source_language": "en",
+          "target_language": "ko",
+          "detected_source_language": null,
+          "generator": { "name": "transync", "version": "0.4.0" },
+          "blocks": [{
+            "source_block_id": "h1-0001",
+            "target_block_id": "h1-0001",
+            "block_kind": "heading-1",
+            "source_order": 0,
+            "target_order": 0,
+            "source_range": { "start": 0, "end": 18 },
+            "target_range": { "start": 0, "end": 22 },
+            "sync_role": "anchor",
+            "fallback_status": "translated",
+            "parent_id": null
+          }],
+          "validation_summary": {
+            "total_units": 1, "translated": 1, "preserved": 0,
+            "partially_translated": 0, "fallback_source": 0, "retried_units": 0
+          }
+        }"#;
+        let map: AlignmentMap = serde_json::from_str(json).expect("a 1.2.0 map deserializes");
+        assert_eq!(map.input_format, SourceFormat::Markdown);
+        assert_eq!(map.blocks[0].source_format, None);
+    }
+
+    /// Forward: the wire keys and kebab-case values, and the None-row key
+    /// omission — the exact bytes a JS consumer sees.
+    #[test]
+    fn the_wire_keys_are_kebab_case_and_an_absent_row_value_omits_the_key() {
+        let map = built_map(crate::parser::parse("prose\n\n<div>island</div>\n").expect("parses"));
+        let v = serde_json::to_value(&map).expect("serializes");
+        assert_eq!(v["schema_version"], "1.3.0");
+        assert_eq!(v["input_format"], "markdown");
+        let rows = v["blocks"].as_array().expect("array");
+        assert!(rows.iter().any(|r| r["source_format"] == "markdown"));
+        assert!(rows.iter().any(|r| r["source_format"] == "html"));
+
+        // A hand-built None row (same crate; #[non_exhaustive] allows it here)
+        // omits the key rather than writing null — round-trip honesty for the
+        // one shape only a pre-1.3.0 file can hold.
+        let mut none_row = map.blocks[0].clone();
+        none_row.source_format = None;
+        let rv = serde_json::to_value(&none_row).expect("serializes");
+        assert!(
+            rv.get("source_format").is_none(),
+            "a None row must omit the key, not write null: {rv}",
+        );
     }
 }

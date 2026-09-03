@@ -133,7 +133,7 @@ async fn smoke_scn_03() {
     );
 
     // --- what came back ---------------------------------------------------
-    assert_eq!(output.alignment_map.schema_version, "1.2.0");
+    assert_eq!(output.alignment_map.schema_version, "1.3.0");
     let table_rows: Vec<&transync::AlignmentBlock> = output
         .alignment_map
         .blocks

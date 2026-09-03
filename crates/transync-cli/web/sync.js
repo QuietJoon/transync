@@ -133,7 +133,7 @@ const EXTERNAL_SCROLL_TOLERANCE_PX = 2;
  *
  * @param {HTMLElement} sourcePane
  * @param {HTMLElement} targetPane
- * @param {Object} alignmentMap  // schema_version "1.2.0"
+ * @param {Object} alignmentMap  // schema_version "1.3.0"
  * @returns {{ destroy: () => void, refresh: () => void } | null}  null when the map is refused
  */
 export function mountSync(sourcePane, targetPane, alignmentMap) {
@@ -688,7 +688,7 @@ function warnOffsetParentDrift(pane, blocks, label) {
 // The schema version this engine was written against. A map with the same
 // major but a newer minor/patch is forward-compat drift: still accepted, but
 // surfaced with a console.warn (OI-0024) instead of the silent console.debug.
-const KNOWN_SCHEMA = { major: 1, minor: 2, patch: 0 };
+const KNOWN_SCHEMA = { major: 1, minor: 3, patch: 0 };
 
 // The `sync_role` values this engine understands (contracts.md §3). It only
 // ever acts on "non-sync" — every other role means "this row anchors

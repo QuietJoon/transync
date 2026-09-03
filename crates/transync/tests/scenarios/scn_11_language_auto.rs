@@ -25,7 +25,7 @@ async fn smoke_scn_11() {
         .await
         .expect("pipeline returns Ok against the SCN-11 fixture");
 
-    assert_eq!(output.alignment_map.schema_version, "1.2.0");
+    assert_eq!(output.alignment_map.schema_version, "1.3.0");
     assert_eq!(
         output.alignment_map.source_language, "auto",
         "alignment map should echo opts.source_language verbatim",

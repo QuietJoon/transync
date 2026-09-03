@@ -105,8 +105,8 @@ fn cli_translate_smoke() {
         serde_json::from_str(&alignment_text).expect("alignment JSON should parse");
     assert_eq!(
         alignment["schema_version"].as_str(),
-        Some("1.2.0"),
-        "alignment_map.schema_version must be 1.2.0"
+        Some("1.3.0"),
+        "alignment_map.schema_version must be 1.3.0"
     );
     assert!(
         alignment["blocks"]
@@ -118,6 +118,29 @@ fn cli_translate_smoke() {
         alignment["generator"]["name"].as_str() == Some("transync"),
         "alignment_map.generator.name must be 'transync'"
     );
+
+    // ti 490d97 wave 6 (spec §11's cheap pin, written to §3's normative
+    // definition): the map declares the run's intake, and every row declares
+    // its block's SPELLING — which over the SCN-14 corpus (it contains raw
+    // html islands) makes the html arm non-vacuous.
+    assert_eq!(
+        alignment["input_format"].as_str(),
+        Some("markdown"),
+        "a Markdown run's map declares input_format markdown"
+    );
+    for row in alignment["blocks"].as_array().expect("blocks array") {
+        let expected = if row["block_kind"].as_str() == Some("html") {
+            "html"
+        } else {
+            "markdown"
+        };
+        assert_eq!(
+            row["source_format"].as_str(),
+            Some(expected),
+            "row {}: source_format is the block's spelling",
+            row["source_block_id"]
+        );
+    }
 
     let source_html = std::fs::read_to_string(html_out.join("source.html"))
         .expect("source.html should be readable");

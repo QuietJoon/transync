@@ -390,15 +390,16 @@ Template variables in `system.prompt`:
 - **Compiling is idempotent (R0001-0014).** One `ProfileMetadata` carries both states: the **template** `profile::load_profile` / `profile::default_profile` return (`prompt_body` = `[system].prompt` verbatim, variables unsubstituted, no sections appended) and the **compiled prompt** `profile::render_prompt_body` returns (variables substituted, then the `[constraints]` policy lines and the glossary bullets appended) — which is what rides on every `TranslationBatch::profile` and what the provider sends. Nothing in the type tells them apart, so `render_prompt_body` recognizes a `prompt_body` that already ends with exactly the sections that profile compiles and returns it byte-identical instead of appending a second copy: `profile_prompt_hash` is the same whether the caller passed the template or its compiled form. What is recognized is that profile's *own* compiled output — a profile whose glossary or constraints were edited after compiling is neither state, and its current sections are appended to whatever the body holds.
 - **A compiled profile is rewound before its glossary is changed, and a body that reaches the boundary already stacked is named (ti 28110f).** The edited-after-compiling state cannot be recognized after the fact: a compiled body's sections are identified by the fields that rendered them, and header-text matching would eat an authored template using the same words. What is fixable is the moment *before* the edit, and the library has exactly two of them — `pipeline::normalize_profile_glossary`, which drops entries that cannot mean what they say, and `pipeline::resolve_auto_glossary`, which merges the harvest in. Both rewind `prompt_body` to the template the compile consumed (the byte-exact inverse of the append: re-compiling that body reproduces the compiled bytes, so the rewind is a no-op on the wire when the glossary ends up unchanged) and hand the profile downstream in **template state**, so every compile appends one copy of each section to the one body. `build_batches` rewinds again for the same reason when it compiles a **cohort** whose glossary is not the full list (DCR-0027 §5): a cohort's sections would otherwise be appended beside the full glossary's. Neither the preflight nor a dropped entry is therefore a way to ship a doubled prompt under a compiled profile. For the state a caller can still hand in — compiled, then edited outside the library — `unit::build_batches` counts the lines of the prompt it has just compiled that are exactly a section header and reports any header appearing more than once on the `transync::profile` `tracing` target. That is a measurement of what will be sent, not a guess at provenance: two copies of a section are wrong however they got there. The count is taken there rather than at the translate boundary because that is the one door **both** callers pass through on the way onto a `TranslationBatch`: a caller who batches directly (`build_batches` is `#[doc(hidden)] pub`) is covered, a full run still says it exactly once rather than twice, and the body counted is the body the batches carry — after the glossary gate above it and after the auto-glossary merge, which the boundary cannot see. A *superseded* section that the current fields no longer render (one copy, none of them current) is below the count and stays silent.
 
-## 3. AlignmentMap JSON (durable wire — `schema_version 1.2.0`)
+## 3. AlignmentMap JSON (durable wire — `schema_version 1.3.0`)
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "document_id": "a91f2c0d2e1bbb40",
   "source_language": "en",
   "target_language": "ko",
   "detected_source_language": "en",
+  "input_format": "markdown",
   "generator": {
     "name": "transync",
     "version": "0.2.0"
@@ -414,7 +415,8 @@ Template variables in `system.prompt`:
       "target_range": { "start": 0,   "end": 22 },
       "sync_role": "anchor",
       "fallback_status": "translated",
-      "parent_id": null
+      "parent_id": null,
+      "source_format": "markdown"
     },
     {
       "source_block_id": "p-0002",
@@ -426,7 +428,8 @@ Template variables in `system.prompt`:
       "target_range": { "start": 24,  "end": 211 },
       "sync_role": "anchor",
       "fallback_status": "fallback_source",
-      "parent_id": null
+      "parent_id": null,
+      "source_format": "markdown"
     }
   ],
   "validation_summary": {
@@ -441,9 +444,12 @@ Template variables in `system.prompt`:
 ```
 
 Stability:
-- `schema_version` is semver. Patch bumps add fields; minor bumps may rename optional fields with aliases or add enumerated values; major bumps are breaking. Current version is **`1.2.0`** — bumped from `1.1.0` by the additive `"html"` `block_kind` value (ADR-0018 / DCR-0016); `1.1.0` had added the `"skipped"` value + the `data-skipped` DOM attribute (DCR-0013).
+- `schema_version` is semver. Patch bumps add fields; minor bumps may rename optional fields with aliases or add enumerated values; major bumps are breaking. Current version is **`1.3.0`** — bumped from `1.2.0` by three additive changes (ti `490d97` / DCR-0038): the per-row `source_format` (the block's **spelling** — a Markdown run's html-island row says `"html"`; reader rule for a pre-1.3.0 row with the field absent: `block_kind == "html" ? html : markdown`, never a bare markdown default, which would mislabel exactly those island rows), the map-level `input_format` (the run's **intake**, what a pane consumer branches on — two facts, two names, never one field doing double duty), and the `"title"` `block_kind` value. `1.2.0` had been bumped from `1.1.0` by the additive `"html"` `block_kind` value (ADR-0018 / DCR-0016); `1.1.0` had added the `"skipped"` value + the `data-skipped` DOM attribute (DCR-0013).
+
+- **Normativity note (schema 1.3.0).** Every "schema 1.x" statement in this section applies unchanged, and a 1.2.0-era engine reads a 1.3.0 map under the existing forward-minor policy: no new `sync_role` values were added, and both new fields sit outside the five facts the minimum-usable-row gate polices. The `"title"` value rides the `non-sync` role shipped since 1.0, so an older engine classifies it with no change at all.
 - **Forward-minor policy.** Consumers MUST reject unknown *major* versions and MUST accept unknown *minor/patch* versions of the same major, with a `console.warn` (forward-compat drift, OI-0024). A `1.1.0`-pinned engine therefore accepts a `1.2.0` map and only warns; it renders unknown `block_kind` values inertly (it reads `[data-sync-id]` only, and only for the ids the alignment map claims — §4, §4a).
-- `block_kind` wire format is the kebab-case form: `heading-1..6`, `paragraph`, `table`, `code-block`, `list-item`, `blockquote`, `thematic-break`, `image`, `html`, `skipped`.
+- `block_kind` wire format is the kebab-case form: `heading-1..6`, `paragraph`, `table`, `code-block`, `list-item`, `blockquote`, `thematic-break`, `title`, `image`, `html`, `skipped`.
+- **`title`** (schema 1.3.0, D5): an HTML document's `<title>` — real translatable content with a real unit and a real row, `sync_role: "non-sync"` because browser chrome renders it and there is nothing in a pane to anchor. The same row shape a thematic break has carried since schema 1.0, which is why a 1.2.0-era engine classifies it with no change.
   - **`skipped`** (schema 1.1.0, DCR-0013) is a top-level source node the pipeline does not model as translatable (front matter, footnote definition, unsupported node, …). Its alignment row is honest and inert: `fallback_status: preserved`, `sync_role: anchor` (it anchors scroll in both panes), `parent_id: null`, and it is **excluded from `validation_summary`** — a skipped block never inflates the `total_units` / fallback counters the CLI uses for exit code 3. It is never sent to the LLM; its source bytes are spliced verbatim into the translated Markdown. Raw HTML blocks were `skipped` until schema 1.2.0; they are now their own kind.
   - **`html`** (schema 1.2.0, ADR-0018 / DCR-0016) is a block-level raw-HTML node, now a **translatable** kind. `sync_role: anchor`, `parent_id: null`. Its `fallback_status` and whether it **counts** in `validation_summary` follow the per-block outcome:
 

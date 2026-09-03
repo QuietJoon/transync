@@ -455,7 +455,7 @@ mod tests {
         );
         let map: serde_json::Value =
             serde_json::from_str(&built.alignment_json).expect("map parses");
-        assert_eq!(map["schema_version"], "1.2.0");
+        assert_eq!(map["schema_version"], "1.3.0");
 
         let pair = render_pair_impl(FIXTURE_MD, &built.translated_md, &built.alignment_json)
             .expect("render_pair succeeds");

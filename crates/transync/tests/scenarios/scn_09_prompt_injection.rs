@@ -32,7 +32,7 @@ async fn smoke_scn_09() {
         .await
         .expect("pipeline returns Ok against the SCN-09 fixture");
 
-    assert_eq!(output.alignment_map.schema_version, "1.2.0");
+    assert_eq!(output.alignment_map.schema_version, "1.3.0");
 
     // Recorded batches should contain the offending paragraph as data.
     let recorded = translator.recorded();

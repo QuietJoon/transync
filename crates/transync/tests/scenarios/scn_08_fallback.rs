@@ -23,7 +23,7 @@ async fn smoke_scn_08() {
         .await
         .expect("pipeline returns Ok against the SCN-08 fixture");
 
-    assert_eq!(output.alignment_map.schema_version, "1.2.0");
+    assert_eq!(output.alignment_map.schema_version, "1.3.0");
     assert!(!output.translated_document.is_empty());
 
     // The failing unit must end up flagged FallbackSource.

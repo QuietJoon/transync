@@ -48,7 +48,7 @@ async fn smoke_scn_16_identity_and_the_title_row() {
 
     // Wave 5 ships no wire change: the map's schema is still 1.2.0 (row
     // source_format / map input_format are wave 6's, schema 1.3.0).
-    assert_eq!(out.alignment_map.schema_version, "1.2.0");
+    assert_eq!(out.alignment_map.schema_version, "1.3.0");
 
     // D5: the <title> is a real translated row with a non-sync role — the
     // shape a thematic break has had since schema 1.0 — and no pane exists
