@@ -42,6 +42,7 @@ release.
 - `transync_html::element_extents` / `ElementExtent` — the balancer's stack walk lifted out from under it, for the HTML intake to come.
 - `TagToken::Open` carries the byte span the scanner already computed; `TagToken::Skip { span }` names comments, CDATA sections and bogus comments, including the `<!doctype …>` region that previously produced no token at all.
 - `transync_html::strip_reserved_sync_attrs` — removes the six reserved sync-attribute names from element open tags (OI-0035 route (c), render half; no call site yet).
+- HTML document intake (`transync-syntax::intake::html`, ti `490d97` wave 3, spec §4): five-class element classification with default STOP, rule T anonymous text runs, whole-element byte ranges, emission-order ids, heading section scopes, `<title>` blocks, force-close warnings, and debug-asserted source-order/non-overlap invariants. `regen::regenerate(parse, &empty)` is byte-identical over the SCN-16 fixture and a real-page corpus. No LLM run, no pipeline change, no core change — the layer-6 HTML twin (wave 4) remains the gate before any HTML translation run. (DCR-0035)
 
 ### Fixed
 

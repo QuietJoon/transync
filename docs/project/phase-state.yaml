@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-01-ti490d97-wave2
+  last_updated: 2026-09-03-ti490d97-wave3
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -134,7 +134,59 @@ project:
     ProviderError::RateLimited under the same window (8d4efda, DCR-0040).
     Acceptance: workspace and CLI suites green with ZERO fixture edits,
     two-package wasm gate exit 0, string unchanged. Waves 3-7 unblocked; wave
-    4's layer-6 twin is a hard precondition for any HTML translation run. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
+    4's layer-6 twin is a hard precondition for any HTML translation run.
+    TI 490d97 WAVE 3 LANDED 2026-09-03 (DCR-0035): the HTML document intake
+    and the identity round-trip. transync-syntax::intake::html - spec section 4's
+    five classes with DEFAULT STOP, rule T anonymous text runs, whole-element
+    ranges, emission-order ids, THE shared SectionStack (widened, not copied),
+    comrak-convention ast_paths, <title> blocks in head mode, force-close
+    warnings, and debug-asserted source-order/non-overlap/in-bounds/UTF-8
+    invariants. Four commits: 949ec94 (module, fixtures, spine, three welds),
+    e257937 (rule T's fine grain + the five-class table pinned per element),
+    1a977e2 (warnings, hostile input, the invariant tripwire), 390051e (ids,
+    sections, paths, the alignment map).
+    IDENTITY IS A THEOREM, NOT A TEST HOPE: regenerate copies inter-block gaps
+    verbatim and splices source_text[range] for absent blocks, so byte-identity
+    holds EXACTLY when the intake's ranges are ordered, non-overlapping and in
+    bounds - which parse debug-asserts. The corollary shaped every test: a
+    ZERO-BLOCK parse makes regenerate reproduce the whole source as one gap, so
+    a byte-identity assertion ALONE is unfalsifiable. Every spine test pairs the
+    round trip with a block-set assertion, and the module landed with rule T
+    deliberately classifying nothing first - 2 passed / 3 failed, identity
+    already green, the three diffs naming exactly the missing runs. An
+    identity-only test must never be added.
+    FOUR OF THE PLAN'S PREMISES HAD MOVED since it was written 2026-08-20 and
+    were re-derived rather than transcribed. Three are the passages the plan
+    itself flagged SUPERSEDED by wave 1: a <div/> OPENS and does mint an extent,
+    so open() leaves self_closing unread because element_extents already models
+    HTML's two honouring sites, the PASS-THROUGH branch takes the container path
+    for it, and emit_extent_leaf's no-extent arm is a void name or foreign
+    content. The FOURTH the plan does not mention: ti c1f9a8 gave TagToken::Skip
+    two more fields, so the plan's Skip { span } patterns do not compile. One
+    PIN was re-derived the same way and it is the plan that was stale, not the
+    code: <div>Price: <my-price/> today</div> is TWO blocks, not three, because
+    </div> now closes the custom element implicitly and its trailing text is
+    inside it, as a browser has it.
+    THE PLAN'S BLOCKING PRECONDITION WAS DISCHARGED before the corpus was
+    blessed: ti e77173, the foreign-content breakout gap, closed by DCR-0041 on
+    2026-09-01. Blessing the corpus over the old walk would have re-derived
+    block sets, ids and section paths for a whole page class later, and ids are
+    the project's only sync currency.
+    THE parser -> intake::markdown RENAME IS DEFERRED ON RECORD: ~43 references
+    in transync-syntax, ~74 in transync-core including the crate-private
+    re-export, plus transync-wasm's import, public_surface.rs's pin and four
+    documents - 30+ files for zero behaviour. The seam is real without it: one
+    Document, one normalize_source, one id scheme, one SectionStack.
+    ONE SPEC AMENDMENT IS OWED (recorded in DCR-0035): section 4's img-exception
+    sentence read literally classifies <a href><img></a> as gap, silently
+    stripping the anchor and the alignment row from every linked badge and logo.
+    The wave implements the reading the spec's OWN stated rationale gives.
+    Acceptance: 46 binaries / 1214 passed / 0 failed, two-package wasm gate exit
+    0, ZERO edits to pre-existing fixtures or expectations, and a mechanically
+    verified EMPTY diff over transync-core, transync-cli, both provider crates,
+    transync-wasm, transync-html and web/ - the no-core-change half of the
+    wave's claim. This wave made NO HTML translation run possible; wave 4's
+    layer-6 twin remains the gate. Waves 4-7 unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
     most recent release is still v0.4.0, and the owner's condition for closing
     this one (stated 2026-08-24) is that 0.5.0 proper ships only after every
     REGISTERED TASK and every OPEN ISSUE is resolved, excluding those
@@ -700,7 +752,9 @@ design:
     - DCR-0032-transync-html-crate-extraction
     - DCR-0033-oi0035-anchor-trust-both-layers
     - DCR-0034-ir-semantic-kind-and-spelling-split
-    # DCR-0035..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
+    - DCR-0035-html-intake-identity-round-trip
+    # DCR-0036..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
+    # (4-7). DCR-0035 above was reserved the same way and CLAIMED by wave 3
     # (docs/superpowers/plans/2026-08-20-html-wave*.md), each appended here by
     # that wave's own records task. DCR-0040..DCR-0044 are out of sequence on
     # purpose - taking the next free number would have collided with an unrun
