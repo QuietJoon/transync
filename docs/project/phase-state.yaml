@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-03-ti490d97-wave4
+  last_updated: 2026-09-03-ti490d97-wave5
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -247,7 +247,63 @@ project:
     workspace 46 binaries / 1234 passed / 0 failed; two-package wasm gate exit 0,
     string unchanged; empty containment diff outside crates/transync-core and the
     named docs files. THE STANDING HARD RULE IS DISCHARGED - wave 5 may proceed.
-    Waves 5-7 unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
+    TI 490d97 WAVE 5 LANDED 2026-09-03 (DCR-0037): THE FEATURE WORKS at the
+    library surface. TranslateOptions.input_format (additive, Markdown by
+    default) routes a declared-HTML source through intake::html on the way in
+    and through layer6_gate -> full_rescan_html on the way out. Eight commits,
+    0fa8a08 through b0c5c72. Also landed: [system].prompt_html (additive key,
+    shipped default body, selected at the cohort-compile door BEFORE the first
+    compile so every DCR-0027 re-compile and the template rewind inherit it; a
+    profile without it falls back to the operator's prompt VERBATIM plus one
+    advisory, never a core-synthesized merge); the run-level
+    InstructionVariant.html_document clause with ONE derivation and a
+    debug_assert weld to Document.format; heading_plain_text projecting
+    Html-spelled headings and the <title> through transync_html::extract, in
+    the one function build_index's headings map is built from; SourceFormat
+    across the facade with its section-0 row; the re-texted dominance tail in
+    library vocabulary; and SCN-16's three legs.
+    THE ROUTING IS PROVEN LIVE, NOT CLAIMED: a Hard failure on an HTML run
+    speaks the twin's vocabulary (fresh segmentation) behind the historic
+    "full reparse failed: " prefix, with reparse_full's vocabulary asserted
+    ABSENT. That prefix was RE-PINNED rather than re-worded, discharging
+    DCR-0036's hand-forward by decision: re-wording would edit an
+    operator-visible error plus a shipped out-of-crate expectation, which is
+    the exact currency a wave claiming byte-identical Markdown must not spend.
+    THE NON-CHANGES ARE THE LOAD-BEARING CLAIMS: no new cache axis (contracts
+    section 5a carries the verdict - both prompt routes are already axes, and
+    CacheKey's exhaustive out-of-crate destructure makes an addition a red
+    compile plus a policy break); no VALIDATION_SCHEMA_VERSION bump (the bump
+    rules' explicit "Do NOT bump for validator tightening alone" case); no
+    alignment-schema move (still 1.2.0; 1.3.0 is wave 6's); NO edit under
+    validate/ or in pipeline/finalize.rs - the wave-4 gate is consumed, never
+    re-implemented, verified by an EMPTY containment diff rather than asserted;
+    and Markdown runs byte-identical throughout - the three prompt goldens pass
+    against UNREGENERATED files with git status over the golden directory
+    silent. TRANSYNC_REGEN_GOLDENS was never set: on this wave a red golden is
+    a finding, never a regeneration errand.
+    TWO FINDINGS CAME OUT OF EXECUTION. (1) The plan's routing lever - a
+    translator returning a single space - does NOT reach layer 6: per_kind
+    rejects any segment whose chars are all char::is_whitespace, a check
+    written for exactly that attack. Defense in depth, working. The lever that
+    DOES reach layer 6 is U+FEFF, and it walks a real gap: U+FEFF is not
+    char::is_whitespace in Rust while rule T explicitly strips it, so a segment
+    of only U+FEFF passes every per-unit layer and dissolves the block. On an
+    HTML-DOCUMENT run the twin catches it; on a raw-HTML ISLAND in a Markdown
+    run layer 6 is reparse_full, which sees one HtmlBlock with an unchanged
+    label and cannot - a reachable content-erasure path with no defense. Filed
+    as ti c887bc with three options and a recommendation, deliberately NOT
+    fixed in a wave that adds no validator. (2) Spec section 6's
+    context-projection hazard is stated backwards: it says the comrak
+    projection would put RAW TAGS into the heading stacks; the observed red was
+    empty COLLAPSE, left: [(1, "")], because an HtmlBlock is a leaf with no
+    inline children. Collapse degrades context identity rather than leaking
+    markup. Recorded as an owed section-14 amendment in DCR-0037; the shipped
+    source carries the true mechanism.
+    Acceptance: SCN-16's three legs green beside SCN-01..15 with ZERO edits;
+    workspace and CLI stub suites green; two-package wasm gate exit 0 with its
+    string unchanged; empty containment diff outside crates/transync-core,
+    crates/transync and the named docs; zero fixture, golden and browser-test
+    movement. Waves 6-7 unstarted - the OPERATOR surface does not exist yet. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
     most recent release is still v0.4.0, and the owner's condition for closing
     this one (stated 2026-08-24) is that 0.5.0 proper ships only after every
     REGISTERED TASK and every OPEN ISSUE is resolved, excluding those
@@ -815,8 +871,10 @@ design:
     - DCR-0034-ir-semantic-kind-and-spelling-split
     - DCR-0035-html-intake-identity-round-trip
     - DCR-0036-html-layer6-twin
-    # DCR-0037..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
-    # (5-7). DCR-0035/0036 above were reserved the same way and CLAIMED by waves 3/4
+    - DCR-0037-html-translation-entry-units-context-prompt
+    # DCR-0038..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
+    # (6-7). DCR-0035/0036/0037 above were reserved the same way and CLAIMED by
+    # waves 3/4/5
     # (docs/superpowers/plans/2026-08-20-html-wave*.md), each appended here by
     # that wave's own records task. DCR-0040..DCR-0044 are out of sequence on
     # purpose - taking the next free number would have collided with an unrun
