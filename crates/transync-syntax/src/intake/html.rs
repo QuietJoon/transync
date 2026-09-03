@@ -759,3 +759,430 @@ fn trim_ascii_ws_back(source: &str, mut end: usize, floor: usize) -> usize {
     }
     end
 }
+
+// Rule T (spec 2026-08-20 §4): anonymous text runs. Each test names the
+// sentence it pins.
+#[cfg(test)]
+mod rule_t_tests {
+    use super::*;
+
+    fn kinds_of(src: &str) -> Vec<&'static str> {
+        parse(src)
+            .blocks
+            .iter()
+            .map(|b| b.kind.wire_str())
+            .collect()
+    }
+
+    fn payloads_of(src: &str) -> Vec<String> {
+        let doc = parse(src);
+        doc.blocks
+            .iter()
+            .map(|b| doc.source_text[b.source_range.start..b.source_range.end].to_string())
+            .collect()
+    }
+
+    /// "a maximal run … that contains at least one non-whitespace byte
+    /// outside tag and Skip spans … becomes one Paragraph. A textless run
+    /// is gap."
+    #[test]
+    fn whitespace_only_and_bom_only_runs_are_gap() {
+        assert!(parse("<div>\n\t \n</div>\n").blocks.is_empty());
+        assert!(parse("<div>\u{feff}</div>").blocks.is_empty());
+        assert!(parse("\u{feff}\n").blocks.is_empty());
+    }
+
+    /// "U+FEFF stripped before the test — a leading BOM must not mint a
+    /// paragraph", and the trim excludes it from the range.
+    #[test]
+    fn a_bom_is_stripped_before_the_test_and_trimmed_from_the_range() {
+        let doc = parse("<div>\u{feff}Hello</div>");
+        assert_eq!(doc.blocks.len(), 1);
+        assert_eq!(
+            &doc.source_text[doc.blocks[0].source_range.start..doc.blocks[0].source_range.end],
+            "Hello",
+        );
+    }
+
+    /// MEASURED in the spec: pre-wave-0, `<!DOCTYPE html>` produced no
+    /// token AND no skip — ordinary text to the scanner — so without
+    /// `TagToken::Skip` this gap would mint a phantom paragraph. The Skip
+    /// span's exclusion from the byte test is the token's reason to exist.
+    #[test]
+    fn a_doctype_only_gap_mints_no_block_because_skip_spans_are_excluded() {
+        assert!(parse("<!DOCTYPE html>\n").blocks.is_empty());
+        assert!(
+            parse("<!-- a note -->\n<!-- another -->\n")
+                .blocks
+                .is_empty()
+        );
+        assert_eq!(kinds_of("<!DOCTYPE html>\n<p>x</p>\n"), vec!["paragraph"]);
+    }
+
+    /// "a textless run whose only non-whitespace content is ONE OR MORE
+    /// img elements becomes ONE Image block" — §11 pins the two-image case
+    /// because an earlier draft stated the rule two ways.
+    #[test]
+    fn one_or_more_imgs_in_a_textless_run_are_one_image_block() {
+        assert_eq!(
+            kinds_of("<div><img src=\"a.png\" alt=\"a\"></div>"),
+            vec!["image"]
+        );
+        let src = "<div>\n<img src=\"a.png\"> <img src=\"b.png\">\n</div>";
+        assert_eq!(
+            kinds_of(src),
+            vec!["image"],
+            "two adjacent imgs: ONE block, not two, not gap"
+        );
+        assert_eq!(
+            payloads_of(src),
+            vec!["<img src=\"a.png\"> <img src=\"b.png\">"]
+        );
+    }
+
+    /// An img beside real text is ordinary phrasing content of a paragraph
+    /// — the counter-case that keeps deviation 5's amended exception from
+    /// swallowing prose: one naked byte and the run is a Paragraph, linked
+    /// or not.
+    #[test]
+    fn an_img_with_real_text_is_still_a_paragraph() {
+        assert_eq!(
+            kinds_of("<div><img src=\"a.png\"> the caption</div>"),
+            vec!["paragraph"]
+        );
+        assert_eq!(
+            kinds_of("<div><a href=\"/x\"><img src=\"a.png\"></a> the caption</div>"),
+            vec!["paragraph"],
+        );
+    }
+
+    /// Deviation 5's amended reading, justified by spec §4's own rationale
+    /// ("so images keep a sync anchor instead of dissolving into gap") and
+    /// PHRASING's definition ("never a boundary"): a linked image is ONE
+    /// Image block, wrapper included; two adjacent linked images are still
+    /// ONE block (the §11 two-image rule); phrasing noise beside an img no
+    /// longer degrades the anchor; and a textless run with NO img at all
+    /// remains gap.
+    #[test]
+    fn a_linked_image_keeps_its_anchor_as_one_image_block() {
+        let src = "<div><a href=\"/home\"><img src=\"logo.png\" alt=\"logo\"></a></div>";
+        assert_eq!(kinds_of(src), vec!["image"]);
+        assert_eq!(
+            payloads_of(src),
+            vec!["<a href=\"/home\"><img src=\"logo.png\" alt=\"logo\"></a>"],
+        );
+        let two = "<div><a href=\"/a\"><img src=\"a.png\"></a> <a href=\"/b\"><img src=\"b.png\"></a></div>";
+        assert_eq!(
+            kinds_of(two),
+            vec!["image"],
+            "two adjacent linked images: ONE block"
+        );
+        assert_eq!(
+            kinds_of("<div><b> </b><img src=\"a.png\"></div>"),
+            vec!["image"],
+            "phrasing noise beside an img keeps the anchor (the pre-amendment reading made this gap)",
+        );
+        assert!(
+            parse("<div><b> </b><span></span></div>").blocks.is_empty(),
+            "a textless run with no img at all is still gap",
+        );
+    }
+
+    /// "without it `Hello <b>world</b> out there` at div level shatters
+    /// into three blocks" — the PHRASING class, absorbed into ONE run.
+    #[test]
+    fn phrasing_markup_is_absorbed_into_one_paragraph() {
+        let src = "<div>Hello <b>world</b> out there</div>";
+        assert_eq!(kinds_of(src), vec!["paragraph"]);
+        assert_eq!(payloads_of(src), vec!["Hello <b>world</b> out there"]);
+    }
+
+    /// "RCData counts as text (a bare <textarea> has translatable
+    /// content)" — its content is never tokenized, so it is naked bytes.
+    #[test]
+    fn rcdata_counts_as_text() {
+        assert_eq!(
+            kinds_of("<div><textarea>a < b</textarea></div>"),
+            vec!["paragraph"]
+        );
+    }
+
+    /// Rule T tests BYTES, not decoded text: `&nbsp;` is six non-whitespace
+    /// bytes, so the run mints a paragraph. Whether it holds translatable
+    /// segments is extraction's question, in wave 5 — not intake's.
+    #[test]
+    fn an_entity_spelled_run_is_text_by_the_byte_test() {
+        assert_eq!(kinds_of("<div>&nbsp;</div>"), vec!["paragraph"]);
+    }
+
+    /// "a custom element mid-sentence still stops (D4 verbatim), so
+    /// `Price: <my-price/> today` splits the sentence — loud rather than
+    /// silent" — accepted for now; §14's named review item.
+    ///
+    /// **TWO blocks, not the three this wave's plan predicted.** The plan
+    /// was written 2026-08-20, when `walk_elements` read a start tag's `/`
+    /// the way XML means it: `<my-price/>` minted no extent, so the
+    /// DEFAULT-STOP block was the tag span alone and ` today` became a
+    /// third block — a paragraph sitting OUTSIDE the element that a browser
+    /// says contains it. Since ti `490d97` wave 1 the slash is honoured
+    /// only where HTML honours it, so `<my-price/>` opens, `</div>` closes
+    /// it implicitly, and its whole extent — trailing text included — is
+    /// one DEFAULT-STOP block. The spec sentence still holds: the sentence
+    /// is still severed at the custom element, which is what §14 carries.
+    /// What changed is that the severed tail is no longer misattributed.
+    #[test]
+    fn a_custom_element_mid_sentence_still_stops_and_splits_the_sentence() {
+        let src = "<div>Price: <my-price/> today</div>";
+        assert_eq!(kinds_of(src), vec!["paragraph", "html"]);
+        assert_eq!(payloads_of(src), vec!["Price:", "<my-price/> today"]);
+        // The element has no end tag, so the force-close is reported rather
+        // than silently absorbing the tail.
+        let doc = parse(src);
+        assert_eq!(doc.warnings.len(), 1, "{:?}", doc.warnings);
+        assert!(
+            doc.warnings[0].contains("closed implicitly"),
+            "{}",
+            doc.warnings[0]
+        );
+    }
+}
+
+// The five-class table (spec 2026-08-20 §4), pinned per named element.
+#[cfg(test)]
+mod classification_tests {
+    use super::*;
+
+    fn kinds_of(src: &str) -> Vec<&'static str> {
+        parse(src)
+            .blocks
+            .iter()
+            .map(|b| b.kind.wire_str())
+            .collect()
+    }
+
+    /// STOP → semantic kind: h1–h6, p, figcaption, table, pre, blockquote,
+    /// hr.
+    #[test]
+    fn stop_elements_become_their_semantic_kinds() {
+        assert_eq!(
+            kinds_of("<h1>a</h1><h2>b</h2><h3>c</h3><h4>d</h4><h5>e</h5><h6>f</h6>"),
+            vec![
+                "heading-1",
+                "heading-2",
+                "heading-3",
+                "heading-4",
+                "heading-5",
+                "heading-6"
+            ],
+        );
+        assert_eq!(
+            kinds_of("<p>a</p><figcaption>b</figcaption>"),
+            vec!["paragraph", "paragraph"]
+        );
+        assert_eq!(
+            kinds_of("<table><tr><td>x</td></tr></table>"),
+            vec!["table"]
+        );
+        assert_eq!(
+            kinds_of("<blockquote><p>q</p></blockquote>"),
+            vec!["blockquote"]
+        );
+        assert_eq!(kinds_of("<hr>"), vec!["thematic-break"]);
+        let doc = parse("<pre>let x = 1;</pre>");
+        assert!(
+            matches!(
+                &doc.blocks[0].kind,
+                BlockKind::CodeBlock {
+                    info: None,
+                    fenced: true
+                }
+            ),
+            "spec §4: pre → CodeBlock {{ info: None, fenced: true }}, got {:?}",
+            doc.blocks[0].kind,
+        );
+    }
+
+    /// PASS-THROUGH, the full list: markup becomes gap, content stops
+    /// inside. Each wrapper must contribute zero blocks of its own.
+    #[test]
+    fn every_pass_through_element_is_gap_around_its_content() {
+        for wrapper in [
+            "html", "body", "div", "section", "article", "main", "nav", "aside", "header",
+            "footer", "hgroup", "figure", "details", "form", "fieldset", "search", "center",
+        ] {
+            let src = format!("<{wrapper}><p>inner</p></{wrapper}>");
+            assert_eq!(kinds_of(&src), vec!["paragraph"], "for <{wrapper}>");
+        }
+    }
+
+    /// D9: `ul`, `ol`, `menu`, `dl` pass through TO THEIR ITEMS. An
+    /// `<ol>`'s items are ordered; `dt`/`dd` are DEFAULT-STOP; an `<li>`
+    /// that is not a list child is nobody's semantic kind.
+    #[test]
+    fn list_containers_pass_through_to_their_items() {
+        let doc = parse("<ul><li>a</li><li>b</li></ul>");
+        assert!(
+            doc.blocks.iter().all(|b| matches!(
+                b.kind,
+                BlockKind::ListItem {
+                    ordered: false,
+                    task: None
+                }
+            )),
+            "{:?}",
+            doc.blocks.iter().map(|b| &b.kind).collect::<Vec<_>>(),
+        );
+        let doc = parse("<ol><li>a</li></ol>");
+        assert!(matches!(
+            doc.blocks[0].kind,
+            BlockKind::ListItem {
+                ordered: true,
+                task: None
+            }
+        ));
+        let doc = parse("<menu><li>a</li></menu>");
+        assert!(matches!(
+            doc.blocks[0].kind,
+            BlockKind::ListItem {
+                ordered: false,
+                task: None
+            }
+        ));
+        assert_eq!(
+            kinds_of("<dl><dt>t</dt><dd>d</dd></dl>"),
+            vec!["html", "html"]
+        );
+        assert_eq!(kinds_of("<div><li>stray</li></div>"), vec!["html"]);
+    }
+
+    /// DEFAULT-STOP → BlockKind::Html: summary, dt, dd, address, dialog,
+    /// iframe, noscript, template, legend, custom elements. `<template>`
+    /// needs no special case — it stops (zero segments is wave 5's story).
+    #[test]
+    fn the_default_stop_set_stops_as_block_kind_html() {
+        for src in [
+            "<summary>s</summary>",
+            "<address>a</address>",
+            "<dialog>d</dialog>",
+            "<iframe src=\"x\"></iframe>",
+            "<noscript><p>n</p></noscript>",
+            "<template><p>t</p></template>",
+            "<legend>l</legend>",
+            "<x-widget>custom</x-widget>",
+        ] {
+            assert_eq!(kinds_of(src), vec!["html"], "for {src}");
+        }
+    }
+
+    /// VERBATIM: script, style, link, meta, base — never a block, bytes
+    /// stay gap, and "script content cannot reach a run because script is
+    /// VERBATIM and a hard boundary".
+    #[test]
+    fn verbatim_elements_are_never_blocks() {
+        assert_eq!(
+            kinds_of("<script>if (a < b) { emit(\"</div>\"); }</script>\n<p>x</p>"),
+            vec!["paragraph"],
+        );
+        assert_eq!(
+            kinds_of("<style>main > p { color: red }</style>\n<p>x</p>"),
+            vec!["paragraph"]
+        );
+        assert_eq!(
+            kinds_of("<link rel=\"a\" href=\"b\">\n<meta name=\"c\">\n<base href=\"/\">\n<p>x</p>"),
+            vec!["paragraph"],
+        );
+    }
+}
+
+// Head mode and the D5 title (spec §4's <title> paragraph).
+#[cfg(test)]
+mod head_tests {
+    use super::*;
+
+    fn kinds_of(src: &str) -> Vec<&'static str> {
+        parse(src)
+            .blocks
+            .iter()
+            .map(|b| b.kind.wire_str())
+            .collect()
+    }
+
+    /// "title in head mode → Title", with an EMPTY section_path — a page
+    /// title opens no scope, and no glossary section-selector can mean it.
+    #[test]
+    fn the_title_stops_only_in_head_mode_and_opens_no_scope() {
+        let doc = parse("<head><title>Page &amp; title</title></head><body><p>x</p></body>");
+        assert_eq!(doc.blocks[0].kind.wire_str(), "title");
+        assert!(doc.blocks[0].section_path.is_empty());
+        assert_eq!(doc.blocks[1].kind.wire_str(), "paragraph");
+        // Outside head mode the same element is DEFAULT-STOP:
+        assert_eq!(kinds_of("<title>loose</title>"), vec!["html"]);
+        // <svg><title> is phrasing-held run content — never Title:
+        assert_eq!(
+            kinds_of("<div><svg><title>chart</title></svg> labelled</div>"),
+            vec!["paragraph"],
+        );
+    }
+
+    /// "everything in head mode except title" is VERBATIM gap, and "a
+    /// duplicate title yields two honest rows".
+    #[test]
+    fn everything_else_in_head_is_gap_and_a_duplicate_title_is_two_honest_blocks() {
+        let doc = parse(
+            "<head><meta charset=\"utf-8\"><style>p{}</style><title>a</title><title>b</title></head>",
+        );
+        assert_eq!(
+            doc.blocks
+                .iter()
+                .map(|b| b.kind.wire_str())
+                .collect::<Vec<_>>(),
+            vec!["title", "title"],
+        );
+    }
+
+    /// Plan deviation 3: the pairing table has no head-closes-at-body rule,
+    /// so on a page that omits </head> the MODE ends at the first <body>
+    /// open — the body must not dissolve into head-mode gap.
+    #[test]
+    fn a_missing_head_close_does_not_swallow_the_body() {
+        let doc = parse("<head><title>t</title><body><p>real content</p></body>");
+        assert_eq!(
+            doc.blocks
+                .iter()
+                .map(|b| b.kind.wire_str())
+                .collect::<Vec<_>>(),
+            vec!["title", "paragraph"],
+        );
+        assert!(
+            doc.warnings.iter().any(|w| w.contains("<head>")),
+            "the truly-unclosed head is still reported at EOF: {:?}",
+            doc.warnings,
+        );
+    }
+
+    /// Rule T must not leak into head mode at EOF: a page truncated inside
+    /// an unclosed <head> — exactly the shape a cut-off download produces —
+    /// ends with stray head text, and that tail is head-mode VERBATIM gap
+    /// (spec §4: everything in head mode except title), never a Paragraph.
+    /// Byte-identity survives either way; the BLOCK SET is what this pins.
+    #[test]
+    fn trailing_text_inside_an_unclosed_head_is_gap_not_a_paragraph() {
+        let doc = parse("<head><title>t</title>junk");
+        assert_eq!(
+            doc.blocks
+                .iter()
+                .map(|b| b.kind.wire_str())
+                .collect::<Vec<_>>(),
+            vec!["title"],
+            "the trailing head text must not mint a paragraph: {:?}",
+            doc.warnings,
+        );
+        let (out, _) = crate::regen::regenerate(&doc, &std::collections::HashMap::new());
+        assert_eq!(out, doc.source_text, "the tail stays verbatim gap");
+        assert!(
+            doc.warnings.iter().any(|w| w.contains("<head>")),
+            "the unclosed head still warns at EOF: {:?}",
+            doc.warnings,
+        );
+    }
+}
