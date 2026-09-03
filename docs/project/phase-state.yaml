@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-03-ti490d97-wave3
+  last_updated: 2026-09-03-ti490d97-wave4
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -186,7 +186,68 @@ project:
     verified EMPTY diff over transync-core, transync-cli, both provider crates,
     transync-wasm, transync-html and web/ - the no-core-change half of the
     wave's claim. This wave made NO HTML translation run possible; wave 4's
-    layer-6 twin remains the gate. Waves 4-7 unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
+    layer-6 twin remains the gate.
+    TI 490d97 WAVE 4 LANDED 2026-09-03 (DCR-0036): the layer-6 twin and the one
+    format branch - THE GATE, now discharged. transync-core::validate::
+    full_rescan_html re-reads a regenerated HTML document with the same scanner
+    the splice used and the same segmenter the intake used. Four checks in spec
+    section 7's order: (1) document-wide ORDERED tag inventory, gaps included;
+    (2) fresh segmentation back through intake::html::parse - block count and
+    kind-label sequence, per-<li> under D9, attribution mirroring
+    attribute_offenders through the regen offsets; (3) gap byte-identity
+    INCLUDING preamble and tail, the check with no Markdown twin; (4) boundary
+    sanity against the ACTUAL output length - presence, bounds, char boundaries,
+    monotone non-overlap - plus a hard error if check 3's deferral left any gap
+    uncovered. Plus layer6_gate in pipeline::finalize, exhaustive over
+    SourceFormat with BOTH arms named. One commit: 6503255.
+    WHY THE GATE HAD TO EXIST, SHARPER THAN "UNTESTED": comrak over an HTML
+    document produces SOME node sequence and can pass while checking nothing, so
+    an HTML run gated by reparse_full is WORSE THAN UNGATED - it carries a
+    gate's authority and none of its coverage. Observed live in the recorded
+    red: the pre-branch failure reason was "source kind paragraph != regenerated
+    kind html" and FallbackPerBlock over-downgraded PAST an honest translation on
+    its way to FallbackAll. After the branch, stage 1 downgrades exactly the
+    dissolved run and the translation survives.
+    CHECK 3 IS A GATE, NOT DECORATION - RECORDED, NOT ARGUED. A dropped
+    <!DOCTYPE> or comment leaves no LEDGER ENTRY (each scans as a Skip token,
+    which tag_inventory filters) and mints no block, so checks 1, 2 and 4 all
+    accept it. Both blind-spot tests were observed RED against the two-check twin
+    and green once check 3 landed. Seven named reds in that round, ZERO panics.
+    THE DCR-0004 CASCADE IS UNTOUCHED BY DIFF, NOT BY ASSERTION:
+    validate/full_reparse.rs, pipeline.rs and pipeline/report.rs are
+    BYTE-UNTOUCHED (empty diff), and finalize.rs's five hunks are three one-line
+    call-site reroutes, layer6_gate and the new test module - NO hunk in
+    downgrade_units / widen_to_neighbors / fall_back_all / regen_pass /
+    collect_validated. Both gates return the SAME ReparseFailure, which is what
+    makes the cascade format-blind by shape. Its terminal rung stays sound for
+    HTML because of wave 3's identity theorem: all-fallback regen IS the source
+    document, so it passes the twin trivially, with no new code.
+    NO HTML RUN BECAME REACHABLE, VERIFIED MECHANICALLY: one document
+    constructor (let mut doc = parse(source)?, the Markdown intake), ZERO
+    input_format in core's lib.rs, and intake::html in exactly two files (the
+    twin's check 2 and finalize's test module). The Html arm is TEST-ONLY until
+    wave 5's entry point and wave 6's flag, and html_dominance_warning's
+    "not implemented (ti 490d97)" tail is still TRUE.
+    TWO SPEC AMENDMENTS OWED (recorded in DCR-0036, spec file NOT edited):
+    section 12's "parallel with 3" claim - check 2 CONSUMES the intake, so this
+    execution ran 3 then 4, and a stub segmenter was rejected twice over (the
+    one-implementation-gate shape wave 3's deviation 2 rejected, and a SECOND
+    HTML opinion); and section 7's blind-spot wording - the regions DO produce a
+    Skip token since wave 0, and what they leave none of is a LEDGER ENTRY.
+    ONE PLAN DEVIATION RECORDED: the plan's three commits became one, because
+    validate is pub(crate) and -D dead_code fails the hook on a twin with no
+    caller, and --no-verify is never used. Every staged red was still produced
+    and recorded to the gate directory. Plan deviation 4 (a separate controller
+    owns docs/index.md) does not apply - one agent executed the wave, so leaving
+    docs_index_drift red would be leaving the tree broken, not handing over.
+    Acceptance: -p transync-core 480 passed / 0 failed with ZERO edits to any
+    pre-existing test (half the "Markdown still takes reparse_full" proof; the
+    positive half is a_markdown_document_still_takes_reparse_full_not_the_twin,
+    asserting reparse_full's reason vocabulary present and the twin's absent);
+    workspace 46 binaries / 1234 passed / 0 failed; two-package wasm gate exit 0,
+    string unchanged; empty containment diff outside crates/transync-core and the
+    named docs files. THE STANDING HARD RULE IS DISCHARGED - wave 5 may proceed.
+    Waves 5-7 unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
     most recent release is still v0.4.0, and the owner's condition for closing
     this one (stated 2026-08-24) is that 0.5.0 proper ships only after every
     REGISTERED TASK and every OPEN ISSUE is resolved, excluding those
@@ -753,8 +814,9 @@ design:
     - DCR-0033-oi0035-anchor-trust-both-layers
     - DCR-0034-ir-semantic-kind-and-spelling-split
     - DCR-0035-html-intake-identity-round-trip
-    # DCR-0036..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
-    # (4-7). DCR-0035 above was reserved the same way and CLAIMED by wave 3
+    - DCR-0036-html-layer6-twin
+    # DCR-0037..DCR-0039 are RESERVED, not free: one per unrun HTML->HTML wave
+    # (5-7). DCR-0035/0036 above were reserved the same way and CLAIMED by waves 3/4
     # (docs/superpowers/plans/2026-08-20-html-wave*.md), each appended here by
     # that wave's own records task. DCR-0040..DCR-0044 are out of sequence on
     # purpose - taking the next free number would have collided with an unrun

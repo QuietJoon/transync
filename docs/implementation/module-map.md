@@ -83,8 +83,12 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     │   ├── per_kind.rs                 # table column count, list topology, fence info, ...
     │   ├── inline.rs                   # destination / code-span / raw-tag protection
     │   ├── fragment_reparse.rs         # parse the translated payload as the same kind
-    │   └── full_reparse.rs             # parse the regenerated full doc; anchor count, label
-    │                                   #   sequence, per-list item count (DCR-0017 Guard 1)
+    │   ├── full_reparse.rs             # parse the regenerated full doc; anchor count, label
+    │   │                               #   sequence, per-list item count (DCR-0017 Guard 1)
+    │   └── full_rescan_html.rs         # the HTML layer-6 twin: ordered tag ledger, fresh
+    │                                   #   segmentation (D9 per-<li>), gap byte-identity,
+    │                                   #   boundary sanity; dispatched from finalize on
+    │                                   #   Document.format (DCR-0036)
     ├── pipeline.rs                     # thin phase sequence over the submodules below, plus
     │                                   #   the glossary + output-budget preflights (DCR-0019)
     ├── pipeline/
@@ -217,7 +221,7 @@ Module names in the "Crates / modules touched" column are **engine** modules —
 `ranges`/`refdefs`/`depth`), `id`, `regen`, `render` (+`attrs`), `align`,
 `outcome`, `walk`; `transync-core` owns `unit`
 (+`payload`/`budget`/`context`/`split`/`section`), `structure` (+`labels`),
-`batch`, `llm` (+`prompt`), `validate` (+ its five layers), `pipeline`
+`batch`, `llm` (+`prompt`), `validate` (+ its six layers), `pipeline`
 (+`policy`/`dispatch`/`finalize`/`report`/`retry`/`merge`), `cache` (+`disk`),
 `profile`. Since DCR-0018 they are **not**
 reachable through the `transync` facade (only `cache`, `llm`, and `profile`
