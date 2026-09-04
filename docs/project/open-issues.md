@@ -1253,6 +1253,37 @@ explanation.
   anchor mutation has no dedicated observer", a related but distinct row: it
   is about *detecting* the mutation, not about reporting it.
 
+### Appended 2026-09-05 — the bottom clamp regressed a browser test, and the unchecked boxes above are why nobody knew
+
+The Verification checklist above was never filled in, and the resolution
+shipped in commit `2ca092f` without the browser suite being run against it.
+`web/tests/engine.spec.js` test `l` went red in that same commit, and the
+regression was mis-diagnosed as a live security defect: with a duplicate
+`e-0001` planted at the follower's `e-0005` bottom, the follower landed at
+**746**, which was filed as the partner lookup answering with the SECOND
+occurrence of a listed id after a reflow recompute (ti `8cd7ba`, priority 1).
+
+It was the clamp. The reader sat `REFERENCE_OFFSET_PX` past the last claimed
+anchor's bottom, so no claimed anchor straddled the reference line and none was
+below it, the new clamp answered `e-0005` at progress 1, and `handleScroll`
+drove the follower to the end of *its* `e-0005` — the same pixel the planted
+duplicate's top happened to occupy, which is what made the two explanations
+indistinguishable from the number alone. Three measurements separate them:
+with the duplicate removed entirely the follower still lands at 746; with
+`51f0d93`'s pre-clamp `sync.js` served under the unchanged test it lands at 0;
+and a duplicate appended after mount, followed by a forced recompute, still
+pairs with its first occurrence. The first-occurrence policy never had a second
+home — `collectAnchors` gates both structures it fills, at mount and on every
+recompute — so nothing in this issue's fix is withdrawn and the clamp stands.
+
+What the episode says about this issue specifically: the clamp is a
+**consumer-visible behaviour change**, not an internal one. Before it, a reader
+past the last anchor left the follower wherever it was; after it, the follower
+moves to that anchor's end. A test written against the old behaviour reads the
+new one as a fault, and this one did. `contracts.md` §4a now states the clamp,
+because §4a described the anchor set and the reflow budget and said nothing
+about what the engine answers past the end of the anchored region.
+
 ***
 
 ## OI-0048: Four boundary checks are weaker than the contract a reader would infer

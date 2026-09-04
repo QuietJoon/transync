@@ -1291,6 +1291,23 @@ function ensureSmoothLoop(pane, label, state) {
  * back short of scrolling up. Such a position now clamps to the last-ending
  * anchor at progress 1.
  *
+ * **What that clamp is NOT, because a priority-1 ticket read it the other way
+ * (ti `8cd7ba`).** Reaching the branch requires content below the last anchor,
+ * and some of that content can carry a `data-sync-id` the alignment map never
+ * claimed. It is already gone by the time the walk runs: `collectAnchors`
+ * gates on the validated rows, so `blocks` holds claimed anchors only, and the
+ * id returned here — with it the partner geometry `handleScroll` reads — is
+ * always one of them. An unlisted anchor therefore buys nothing an ordinary
+ * unanchored paragraph of the same height does not: both extend the scroll
+ * box, neither can be selected. A follower that MOVES once the reader passes
+ * the last claimed anchor is this clamp doing its job, not an impostor
+ * driving. The ticket read the move as a capture because the clamp's
+ * destination — the last claimed anchor's end in the partner pane — coincided
+ * with a duplicate anchor the fixture had planted at exactly that anchor's
+ * bottom — so both readings name the same pixel, and no sharper arithmetic
+ * separates them. A control does: remove the duplicate and the follower still
+ * lands there.
+ *
  * TRACE: SCN-13
  */
 function activeBlockWithProgress(pane, blocks) {

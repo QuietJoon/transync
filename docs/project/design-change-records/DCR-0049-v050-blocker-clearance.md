@@ -152,3 +152,36 @@ untriaged.
   no fixes applied.
 - `scripts/test-browser.sh` — **41 passed, 1 failed**; the failure is ti
   `8cd7ba`, reproduced identically on `HEAD`'s JS and therefore pre-existing.
+
+## Correction — 2026-09-05 (appended note)
+
+**The claim above that "the suite was already red at `51f0d93`" is wrong, and
+the reasoning that produced it was invalid.** Left in place above rather than
+edited, per this project's rule that a dated record is amended and not
+rewritten.
+
+Measured afterwards (ti `8cd7ba`, DCR-0052): `web/tests/engine.spec.js` test
+`l` was **green at `51f0d93`** and went red at **`2ca092f`** — the first commit
+of this arc, which introduced OI-0047's bottom clamp into `sync.js`
+(`lastAnchor` appears 0 times in `51f0d93`'s `sync.js` and once in
+`2ca092f`'s; that commit moved the file by +206/-82). So the suite was red for
+four commits, all of them from this arc, and not for an unknown number of
+prior ones.
+
+The A/B test that produced the wrong claim swapped `web/js/sync.js` — but
+`engine.spec.js` loads `/sync.js` from the **generated bundle**, which embeds
+the CLI twin `crates/transync-cli/web/sync.js` through `include_str!`. Only one
+half of a byte-welded pair was reverted, so the engine under test never
+changed and an identical result was the experiment's only possible outcome.
+Running it also required setting `TRANSYNC_ALLOW_STALE_FIXTURE=1`, overriding
+the guard whose message says a stale run "would green a bundle that predates
+your edits" — the guard was correct and the override defeated it.
+
+What survives unchanged: the formatter really is exonerated, but by DCR-0052's
+control (serving `51f0d93`'s pre-clamp `sync.js` under the unchanged test lands
+the follower at 0), not by the invalid experiment recorded above.
+
+The wider point this record was making — that a manual suite with no CI can be
+red without anyone noticing — is unaffected in kind and weaker in degree: the
+gap was four commits, not an era. OI-0047's Verification checkboxes were never
+ticked, which is the actual reason the regression shipped.

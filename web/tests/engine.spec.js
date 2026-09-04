@@ -38,6 +38,10 @@ const TGT = "#eng-target";
 const BLOCK_IDS = ["e-0001", "e-0002", "e-0003", "e-0004", "e-0005"];
 const BLOCK_PX = 150;
 const PANE_PX = 200;
+// The engine's reference line, mirroring `REFERENCE_OFFSET_PX` in sync.js.
+// Read here so the expectations below name the geometry the engine computes
+// rather than a literal nobody can trace back to it (ti `8cd7ba`).
+const REFERENCE_OFFSET_PX = 4;
 
 /** A minimal map the engine accepts: one anchor row per rig block. */
 function mapOf(ids, overrides = {}) {
@@ -742,12 +746,66 @@ test.describe("sync.js mount contract", () => {
     await page.waitForTimeout(160);
 
     // Drive the reader onto the late anchor's band. Collected, it pairs with
-    // the follower's copy at 900 px and drags the pane there; inert, nothing
-    // straddles the line, `handleScroll` returns early and the follower stays
-    // home at 0.
+    // the follower's copy 150 px below the last claimed anchor and drags the
+    // pane there. Inert, no claimed anchor straddles the line and none is
+    // below it, so the BOTTOM CLAMP answers: the last-ending claimed anchor at
+    // progress 1, which puts the follower at the end of ITS copy of that
+    // anchor — well short of where the late one would have taken it.
+    //
+    // ti `8cd7ba`, and this is why the expectation is written out of the
+    // geometry rather than as a bound. It read `toBeLessThan(50)` until then,
+    // which asserted the follower had not moved AT ALL — the dead zone
+    // OI-0047 removed, not a property of the row gate. `activeBlockWithProgress`
+    // returned null past the last anchor and `handleScroll` did nothing, so
+    // "the follower stayed home" and "the late anchor is inert" were the same
+    // observation and the test could not tell them apart. They are different
+    // observations now: the clamp MOVES the follower, and what makes the late
+    // anchor inert is that the destination is computed from a CLAIMED anchor's
+    // geometry. The bound read that legitimate move as a capture — the ticket
+    // this comment names was filed on it, against a value that happens to
+    // coincide with the planted duplicate's offsetTop.
+    const claimedEnd = (await offsetTopOf(page, TGT, "e-0005")) + BLOCK_PX - REFERENCE_OFFSET_PX;
+    const lateCopy = await offsetTopOf(page, TGT, "x-8888");
     await setScrollTop(page, SRC, (await offsetTopOf(page, SRC, "x-8888")) + 4);
-    await advanceFrames(page, 45);
-    expect(await scrollTopOf(page, TGT)).toBeLessThan(50);
+    const landed = await waitForScrollNear(page, TGT, claimedEnd, 1);
+    expect(landed).toBeLessThan(lateCopy);
+
+    // Third leg (ti `8cd7ba`): the first-occurrence policy is not a mount-time
+    // one-off. A duplicate that arrives AFTER mount passes through the same
+    // `collectAnchors` on the next recompute — the single home of the policy,
+    // for both structures it fills — so the follower still pairs with the
+    // FIRST `e-0002`. The suite had no leg that could say so, which is how a
+    // report that the recompute rebuilds the lookup without the policy went
+    // unanswerable for as long as it did.
+    const dupWarnings = () =>
+      logs.filter((m) => m.includes("duplicate data-sync-id") && m.includes("e-0002")).length;
+    expect(dupWarnings()).toBe(0);
+    await appendBlock(page, "e-0002", BLOCK_PX);
+    await setPaneHeight(page, "eng-target", 261);
+    await advanceFrames(page, 6);
+    await page.waitForTimeout(160);
+    // Reflow-silent by design (contracts.md §4a): mount is the audit point, so
+    // the recompute drops the late copy without a word about it.
+    expect(dupWarnings()).toBe(0);
+
+    // Parked on `e-0002`'s own top, so the reference line sits
+    // REFERENCE_OFFSET_PX into the block and the follower's destination is its
+    // partner's top exactly — the FIRST `e-0002`, not the copy the recompute
+    // just saw at the end of the pane, which would have pinned the follower at
+    // its maximum instead.
+    await setScrollTop(page, SRC, await offsetTopOf(page, SRC, "e-0002"));
+    await waitForScrollNear(page, TGT, await offsetTopOf(page, TGT, "e-0002"), 2);
+
+    // Fourth leg: the same policy's OTHER half, which only the clamp can
+    // observe. `collectAnchors` drops a later duplicate from the scan array as
+    // well as from the lookup, so the last-ending claimed anchor is still
+    // `e-0005` — not the `e-0002` copy sitting at the bottom of the pane. Drive
+    // past everything and the clamp must answer with e-0005's end again; had
+    // the scan array kept the copy, the walk would have found it below the line
+    // and answered `e-0002` at progress 0 instead.
+    await setScrollTop(page, SRC, 100000);
+    const clampedAgain = await waitForScrollNear(page, TGT, claimedEnd, 1);
+    expect(clampedAgain).toBeLessThan(lateCopy);
 
     expect(errors).toEqual([]);
   });
