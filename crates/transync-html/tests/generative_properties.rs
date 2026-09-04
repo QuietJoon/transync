@@ -235,6 +235,146 @@ const ATOMS: &[&str] = &[
     "data-sync-id=\"p-9\">",
 ];
 
+/// Stale-frame PHRASES: whole multi-tag *shapes*, drawn like an atom
+/// (ti `ec235f`).
+///
+/// `ATOMS` is one entry per decision the scanner, the walk or the balancer
+/// makes, and concatenating ten of them uniformly does reach every one of
+/// those decisions. What it cannot reach is a **shape**.
+/// `<div><b><div></b></div>` is six particular atoms in one particular order:
+/// at one chance in `ATOMS.len()` per draw that is about `10^-12` per input,
+/// so the bounded run would need more iterations than this repository has
+/// hours. And a shape is exactly where the four routes found by the
+/// adversarial verification of ti `fdd989` lived — the finding that opened
+/// ti `ec235f` named "the generated space did not reach the stale-frame
+/// shapes" as one of its two gaps. So the shapes are drawn directly rather
+/// than hoped for.
+///
+/// Four classes, each named by the coverage state it reaches and each
+/// required by `the_generator_reaches_every_state_the_september_fixes_lived_in`
+/// — a phrase list that quietly stopped producing a class would otherwise
+/// leave this whole section decorative:
+///
+/// * `stale-frame:formatting-crosses-block` — a formatting element opened
+///   inside one block and closed inside another. HTML answers these with the
+///   adoption agency algorithm, which reparents nodes and leaves a **clone**
+///   of the formatting element on the stack; this crate's walk closes the
+///   nearest matching open frame and pops what sat above it. The two answers
+///   differ, and tickets `307283` / `895fb7` are that difference.
+/// * `stale-frame:breakout-inside-foreign` — a breakout tag, an integration
+///   point or a raw-text name met inside `<svg>` / `<math>`, i.e. the
+///   content-mode model DCR-0041 / 0042 / 0043 built. Ticket `9b4d66` is a
+///   surviving disagreement in it.
+/// * `stale-frame:non-innermost-close` — an end tag whose name matches a
+///   frame that is not the innermost one, so something has to be popped
+///   unclosed. HTML decides that with its scope rules; the walk decides it
+///   with a nearest-match search.
+/// * `stale-frame:implied-close` — the [`transync_html::implicitly_closes`]
+///   pairs, spelled as real sequences: a `<p>` followed by a block-level
+///   start tag, and the `<li>` / `<dt>` / `<dd>` / `<tr>` / `<td>` runs.
+///
+/// **Two families are deliberately absent, and that is a bound rather than an
+/// oversight.** `<select>` / `<option>` and `<ruby>` / `<rt>` / `<rp>` are
+/// `implicitly_closes` entries too, but their start tags put a browser into
+/// insertion modes ("in select", ruby's own annotation handling) that this
+/// crate models *not at all* — a flat stack has no notion of them. Generating
+/// them would measure the size of that absence rather than the four classes
+/// this ticket is about, and it would do it by flooding the browser oracle's
+/// divergence census with one class nobody is working on. `<table>` is
+/// included despite entering "in table" for the opposite reason: the ticket
+/// names `<li>`/`<td>`/`<tr>` sequences explicitly, and foster parenting is
+/// how a browser answers them.
+const PHRASES: &[(&str, &str)] = &[
+    // A formatting element crossing a block boundary. The first three are the
+    // shapes tickets 307283 / 895fb7 own; the rest walk the same route through
+    // `i`, `a` (which HTML gives its own extra rule), `em`, `font` and a
+    // nested pair.
+    ("stale-frame:formatting-crosses-block", "<b><div></b></div>"),
+    (
+        "stale-frame:formatting-crosses-block",
+        "<div><b><div></b></div>",
+    ),
+    ("stale-frame:formatting-crosses-block", "<b><div></b>"),
+    ("stale-frame:formatting-crosses-block", "<i><p>x</i></p>"),
+    (
+        "stale-frame:formatting-crosses-block",
+        "<a href=\"x\"><div>y</a><div>z</a>",
+    ),
+    (
+        "stale-frame:formatting-crosses-block",
+        "<em><ul><li>q</em></li></ul>",
+    ),
+    (
+        "stale-frame:formatting-crosses-block",
+        "<font color=\"r\"><p></font></p>",
+    ),
+    (
+        "stale-frame:formatting-crosses-block",
+        "<b><i><div></b></i>",
+    ),
+    // Breakout tags, integration points and raw-text names inside foreign
+    // content. The `<title>` pair is the shape ticket 9b4d66 lives in, and the
+    // planted `data-sync-id` is there because that ticket's harm is an
+    // impostor anchor rather than a lost closer.
+    ("stale-frame:breakout-inside-foreign", "<svg><p>x</svg></p>"),
+    (
+        "stale-frame:breakout-inside-foreign",
+        "<math><div>y</math></div>",
+    ),
+    (
+        "stale-frame:breakout-inside-foreign",
+        "<svg><foreignObject><p></foreignObject></svg>",
+    ),
+    (
+        "stale-frame:breakout-inside-foreign",
+        "<svg><title><div data-sync-id=\"p-3\">z</div></title></svg>",
+    ),
+    (
+        "stale-frame:breakout-inside-foreign",
+        "<math><mtext><b>q</mtext></math>",
+    ),
+    (
+        "stale-frame:breakout-inside-foreign",
+        "<svg><g><br></g></svg>",
+    ),
+    (
+        "stale-frame:breakout-inside-foreign",
+        "<svg><desc><div></desc>",
+    ),
+    (
+        "stale-frame:breakout-inside-foreign",
+        "<p><ul><svg></p><title><div>k</div></title></svg>",
+    ),
+    // An end tag matching a frame that is not the innermost one.
+    (
+        "stale-frame:non-innermost-close",
+        "<div><span></div></span>",
+    ),
+    ("stale-frame:non-innermost-close", "<ul><li><b></ul>"),
+    ("stale-frame:non-innermost-close", "<div><p><span></div>"),
+    (
+        "stale-frame:non-innermost-close",
+        "<blockquote><div><span></blockquote>",
+    ),
+    ("stale-frame:non-innermost-close", "<table><tr><td></table>"),
+    // The `implicitly_closes` pairs as sequences rather than as a table
+    // lookup.
+    ("stale-frame:implied-close", "<p><div></p>"),
+    ("stale-frame:implied-close", "<p><ul><li>a<li>b</ul>"),
+    ("stale-frame:implied-close", "<tr><td>a<td>b"),
+    ("stale-frame:implied-close", "<td>x</tr>"),
+    ("stale-frame:implied-close", "<dl><dt>a<dd>b</dl>"),
+    ("stale-frame:implied-close", "<p><table><tr><td>c"),
+];
+
+/// One draw in this many reaches for a `PHRASES` entry instead of an `ATOMS`
+/// entry. At `MAX_ATOMS` 10 that is about 0.7 phrases per input and roughly
+/// half of all inputs carrying at least one — enough that every phrase is
+/// drawn some hundreds of times over the bounded run, and few enough that the
+/// atom-only space `the_generator_reaches_every_state_the_september_fixes_lived_in`
+/// depends on is diluted by an eighth rather than replaced.
+const PHRASE_ODDS: usize = 8;
+
 /// The seeds. Pinned, because a moving seed makes a red unreproducible and
 /// turns this file into the flake the deterministic generator exists to avoid.
 const SEEDS: &[u64] = &[
@@ -256,7 +396,14 @@ fn synth(rng: &mut Rng) -> String {
     let n = 1 + rng.below(MAX_ATOMS);
     let mut s = String::new();
     for _ in 0..n {
-        s.push_str(ATOMS[rng.below(ATOMS.len())]);
+        // One draw in `PHRASE_ODDS` takes a whole stale-frame shape instead of
+        // a single atom (ti `ec235f`). Two draws rather than one, so the atom
+        // stream is diluted but not displaced.
+        if rng.below(PHRASE_ODDS) == 0 {
+            s.push_str(PHRASES[rng.below(PHRASES.len())].1);
+        } else {
+            s.push_str(ATOMS[rng.below(ATOMS.len())]);
+        }
     }
     s
 }
@@ -584,6 +731,18 @@ fn reached(html: &str, out: &mut BTreeSet<&'static str>) {
     if is_a_weld_site(html) {
         out.insert("orphan-deletion-weld");
     }
+
+    // The stale-frame classes (ti `ec235f`). Read LEXICALLY, by looking for the
+    // phrase's own bytes, and deliberately not through `scan_tags` /
+    // `element_extents`: a shape is a fact about the generated string, and
+    // asking the functions under test whether their input contains a shape
+    // they mis-model is the self-reference this ticket exists to remove.
+    // `synth` concatenates a phrase whole, so `contains` is exact.
+    for (class, bytes) in PHRASES {
+        if html.contains(bytes) {
+            out.insert(class);
+        }
+    }
 }
 
 /// The states every state must be in for the bounded run above it to mean
@@ -628,6 +787,15 @@ fn the_generator_reaches_every_state_the_september_fixes_lived_in() {
         "implied-or-breakout-close",
         // The class the bounded run used to exclude and now checks (OI-0046).
         "orphan-deletion-weld",
+        // The stale-frame shapes `PHRASES` was added to reach (ti `ec235f`).
+        // These four are what the browser oracle in
+        // `web/tests/html-oracle.spec.js` is pointed at, so a generator that
+        // stopped producing one would leave that suite green over a class it
+        // never sees.
+        "stale-frame:formatting-crosses-block",
+        "stale-frame:breakout-inside-foreign",
+        "stale-frame:non-innermost-close",
+        "stale-frame:implied-close",
     ];
 
     let mut seen: BTreeSet<&'static str> = BTreeSet::new();
@@ -755,6 +923,287 @@ fn the_properties_hold_over_a_deep_generated_run() {
     }
     // 128 of these were skipped before OI-0046's fix; they are checked now.
     println!("deep run: 400000 inputs, {weld_sites} of them weld sites, 0 excluded");
+}
+
+// ---------------------------------------------------------------------------
+// The browser-oracle corpus (ti ec235f)
+// ---------------------------------------------------------------------------
+//
+// Everything above this line shares one blind spot, and it is not fixable by
+// generating more input. Every oracle in this file — `unclosed`,
+// `orphan_spans`, `literal_angles`, `wrapper_survives` — is built out of
+// `scan_tags` / `element_extents` / `balance_fragment`, i.e. out of the
+// functions under test. Where this crate's stacks and a browser's tree
+// construction DISAGREE, both sides of every comparison above carry the same
+// disagreement, so it cannot be seen from here at all. That is the finding
+// that opened ti `ec235f`.
+//
+// The independent oracle is a real browser, and the repository already ships
+// one: headless Chromium under `web/tests/`, driven by
+// `scripts/test-browser.sh`. It cannot be called from a `#[test]`, so the
+// seam is a file: this emitter writes the generated inputs **together with
+// this crate's answers**, and `web/tests/html-oracle.spec.js` computes
+// Chromium's answers to the same three questions and compares. Which side is
+// which is stated there, per comparison, and stated once more in
+// `emit_browser_oracle_corpus`'s own docs below.
+//
+// There is **no CI** here (`crates/transync/tests/docs_gate_claims_drift.rs
+// ::the_repository_still_has_no_ci`), so this runs on demand like the rest of
+// the browser suite, and it is double-gated exactly like `regenerate_goldens`
+// and the deep run above: `#[ignore]`d AND env-var interlocked, so an ordinary
+// `cargo test --workspace` neither writes a file nor needs a browser
+// installed.
+
+/// The pane mount, in the shape `render::html_pane` produces and
+/// `contracts.md` §4a governs: one `<main>`, every block a direct child of it.
+/// The balanced fragment goes inside the first block's wrapper, and the second
+/// block is the **following sibling** whose survival §4a is about — every §4a
+/// break this crate has fixed was a fragment that ate the first wrapper's own
+/// `</div>` and pulled that sibling inside it.
+const PANE_MAIN_OPEN: &str = "<main>";
+const PANE_BLOCK1_OPEN: &str = "<div data-sync-id=\"p-0001\">";
+const PANE_BLOCK1_CLOSE: &str = "</div>";
+/// The following block. It carries `data-oracle-next` as well as its real
+/// `data-sync-id` because the corpus deliberately contains inputs that plant
+/// an impostor `data-sync-id` (that is ticket `9b4d66`'s harm), and a selector
+/// that an input can forge identifies nothing. No atom and no phrase can
+/// produce this name.
+const PANE_BLOCK2: &str = "<div data-sync-id=\"p-0002\" data-oracle-next=\"1\">next</div>";
+const PANE_MAIN_CLOSE: &str = "</main>";
+
+fn pane_mount(balanced: &str) -> String {
+    format!(
+        "{PANE_MAIN_OPEN}{PANE_BLOCK1_OPEN}{balanced}{PANE_BLOCK1_CLOSE}{PANE_BLOCK2}\
+         {PANE_MAIN_CLOSE}"
+    )
+}
+
+/// This crate's answer to §4a's question about `pane_mount(balanced)`: is the
+/// following block's anchor still a direct child of the `<main>`?
+///
+/// Returned as a `(bool, note)` pair rather than a tri-state, because the
+/// **bool** is what Chromium is asked and the note is only a diagnostic. The
+/// three notes are `ok`, `absent` (no element begins where the second block's
+/// open tag was written — the fragment swallowed it) and `depth-N` (an element
+/// does begin there, but nested N levels deep instead of 1).
+fn next_block_is_direct_child(balanced: &str) -> (bool, String) {
+    let pane = pane_mount(balanced);
+    let next_at =
+        PANE_MAIN_OPEN.len() + PANE_BLOCK1_OPEN.len() + balanced.len() + PANE_BLOCK1_CLOSE.len();
+    match element_extents(&pane).iter().find(|e| e.open.0 == next_at) {
+        // depth 0 is the `<main>`; its direct children sit at depth 1.
+        Some(e) if e.depth == 1 => (true, "ok".to_string()),
+        Some(e) => (false, format!("depth-{}", e.depth)),
+        None => (false, "absent".to_string()),
+    }
+}
+
+/// Inputs per seed handed to the browser oracle — a deterministic PREFIX of
+/// each seed's stream, so the browser corpus is a subset of exactly the inputs
+/// the bounded run above checks rather than a second, differently-generated
+/// population.
+///
+/// The cap is real and is **reported** rather than applied silently, both in
+/// this emitter's stdout and in the corpus's own `generator` object, which
+/// `web/tests/html-oracle.spec.js` prints: a bound nobody logs reads as
+/// "covered everything". 4 x 2_500 = 10_000 cases, in the same order of
+/// magnitude as the 9_214 Chromium cases the ti `fdd989` verification used to
+/// find the four routes.
+const BROWSER_ORACLE_PER_SEED: usize = 2_500;
+
+/// Inputs on which this crate and Chromium are **known** to disagree today.
+///
+/// They are not generated — they are the four routes the adversarial
+/// verification of ti `fdd989` found, and they are emitted FIRST and
+/// separately so `web/tests/html-oracle.spec.js` can hold each one to an exact
+/// recorded disagreement. Tickets `9b4d66`, `307283` and `895fb7` own the
+/// fixes; this file and that spec own only seeing them. It is expected and
+/// correct that Chromium contradicts this crate here — that is the evidence
+/// the oracle can go red at all, which an oracle that has never disagreed with
+/// anything cannot offer.
+const KNOWN_DIVERGENT: &[&str] = &[
+    // ti 9b4d66 — the balancer deletes the orphan `</p>` that had taken the
+    // walk out of foreign content, which puts `<title>` back inside `<svg>`,
+    // turns its interior back into markup, and revives an impostor
+    // `data-sync-id` the strip had correctly read as text.
+    "<p><ul><svg></p><title><div data-sync-id=\"p-0002\">impostor</div></title></svg>",
+    // ti 307283 / 895fb7 — the adoption agency algorithm. HTML leaves a clone
+    // of `<b>` on the stack inside the inner `<div>`, so the author's `</div>`
+    // closes the INNER div and the outer one is still open at EOF; the walk
+    // closes the nearest matching frame and reports nothing open, so the
+    // balancer appends nothing and the pane's own `</div>` is consumed.
+    "<div><b><div></b></div>",
+    // The same shape with the closer the author actually wrote: a browser ends
+    // balanced, and the walk deletes that closer as an orphan.
+    "<div><b><div></b></div></div>",
+    // ti 895fb7 — foreign content left by a breakout END tag, with an
+    // unterminated tag behind it. This one also breaks P1 above, so the
+    // bounded run would catch it if the generator reached it; the browser
+    // oracle is what says WHICH of the two answers is HTML's.
+    "<p/><ul><math></p><div \">",
+];
+
+/// JSON string escaping, `std` only — this crate has no `serde` and gains no
+/// dev-dependency for one writer (the `no [features]`, no-new-dependency
+/// discipline `PHRASES` and `Rng` are already written under). Non-ASCII passes
+/// through as UTF-8, which JSON permits and both readers accept.
+fn json_str(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+fn json_str_array(items: &[String], out: &mut String) {
+    out.push('[');
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        json_str(item, out);
+    }
+    out.push(']');
+}
+
+/// One corpus record: the input, and **this crate's** answers to the three
+/// questions the browser is about to answer independently.
+fn json_case(input: &str, out: &mut String) {
+    let balanced = balance_fragment(input);
+    let (direct, note) = next_block_is_direct_child(&balanced);
+    // The pane chain in the order `render.rs` calls it — the bytes a reader's
+    // browser is actually handed. P5/P6 above are about exactly this string.
+    let chained = balance_fragment(&strip_reserved_sync_attrs(input));
+
+    out.push_str("{\"input\":");
+    json_str(input, out);
+    out.push_str(",\"balanced\":");
+    json_str(&balanced, out);
+    out.push_str(",\"pane\":");
+    json_str(&pane_mount(&balanced), out);
+    out.push_str(",\"chained\":");
+    json_str(&chained, out);
+    // Crate side of comparison (a): the names `walk_elements` says are still
+    // open at the end of the raw input, and at the end of the balanced output
+    // (where P2 says there must be none).
+    out.push_str(",\"crate_open_at_input\":");
+    json_str_array(&unclosed(input, &element_extents(input)), out);
+    out.push_str(",\"crate_open_at_balanced\":");
+    json_str_array(&unclosed(&balanced, &element_extents(&balanced)), out);
+    // Crate side of comparison (b): §4a direct-child survival.
+    out.push_str(",\"crate_next_is_direct_child\":");
+    out.push_str(if direct { "true" } else { "false" });
+    out.push_str(",\"crate_next_note\":");
+    json_str(&note, out);
+    // Crate side of comparison (c): P6, asked exactly the way `check` asks it
+    // — through the strip itself. `true` means the strip still has something
+    // in the reserved namespace to cut, i.e. this crate is ALREADY reporting
+    // a violation for this input; the browser's job is to say whether that
+    // report is a live impostor anchor or a false alarm.
+    out.push_str(",\"crate_chained_carries_reserved\":");
+    let dirty = strip_reserved_sync_attrs(&chained).into_owned() != chained;
+    out.push_str(if dirty { "true" } else { "false" });
+    out.push('}');
+}
+
+/// Write the browser-oracle corpus.
+///
+/// Double-gated (`#[ignore]` + `TRANSYNC_HTML_ORACLE_CORPUS`) so an ordinary
+/// `cargo test --workspace`, `--include-ignored` included, neither writes a
+/// file nor pulls a browser into the default gate.
+/// `scripts/test-browser.sh` runs it into the served fixture directory:
+///
+/// `TRANSYNC_HTML_ORACLE_CORPUS=<dir>/corpus.json cargo test -p transync-html \
+///   --test generative_properties emit_browser_oracle_corpus \
+///   -- --ignored --test-threads=4`
+///
+/// **What travels, and which side of the comparison it is.** Every field this
+/// writes is THIS CRATE's answer — `balance_fragment`, `element_extents`. Not
+/// one Chromium answer is written here, and the spec that reads the file
+/// computes every one of its own from `DOMParser`. The two sides meet only in
+/// the spec's comparison, which is the whole point: an oracle whose expected
+/// value came from the code under test is the self-reference ti `ec235f` is
+/// about.
+#[test]
+#[ignore = "writes the browser-oracle corpus; run through scripts/test-browser.sh"]
+fn emit_browser_oracle_corpus() {
+    let Ok(dest) = std::env::var("TRANSYNC_HTML_ORACLE_CORPUS") else {
+        panic!(
+            "set TRANSYNC_HTML_ORACLE_CORPUS to the file this should write. \
+             `scripts/test-browser.sh` points it at the served fixture \
+             directory; nothing else is expected to run this test."
+        );
+    };
+
+    let mut out = String::new();
+    out.push_str("{\"generator\":{\"seeds\":[");
+    for (i, seed) in SEEDS.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!("\"{seed:#018x}\""));
+    }
+    out.push_str(&format!(
+        "],\"browser_per_seed\":{BROWSER_ORACLE_PER_SEED},\
+         \"bounded_per_seed\":{BOUNDED_PER_SEED},\"max_atoms\":{MAX_ATOMS},\
+         \"phrase_odds\":{PHRASE_ODDS},\"atoms\":{},\"phrases\":{}}}",
+        ATOMS.len(),
+        PHRASES.len(),
+    ));
+
+    out.push_str(",\"known_divergent\":[");
+    for (i, input) in KNOWN_DIVERGENT.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        json_case(input, &mut out);
+    }
+    out.push_str("],\"generated\":[");
+    let mut written = 0usize;
+    for seed in SEEDS {
+        let mut rng = Rng(*seed);
+        for i in 0..BOUNDED_PER_SEED {
+            let src = synth(&mut rng);
+            // The prefix, not a sample: `synth` has to be driven through the
+            // whole bounded stream anyway for the emitted cases to be the same
+            // inputs the bounded run checks, so the tail is generated and
+            // dropped rather than never produced.
+            if i >= BROWSER_ORACLE_PER_SEED {
+                continue;
+            }
+            if written > 0 {
+                out.push(',');
+            }
+            json_case(&src, &mut out);
+            written += 1;
+        }
+    }
+    out.push_str("]}");
+
+    std::fs::write(&dest, &out)
+        .unwrap_or_else(|e| panic!("the corpus should be writable at {dest}: {e}"));
+
+    let generated = SEEDS.len() * BOUNDED_PER_SEED;
+    assert_eq!(written, SEEDS.len() * BROWSER_ORACLE_PER_SEED);
+    println!(
+        "browser-oracle corpus -> {dest}\n  \
+         {} known-divergent + {written} generated cases, {} bytes\n  \
+         BOUND: {written} of the {generated} inputs the bounded run checks are \
+         browser-checked (the first {BROWSER_ORACLE_PER_SEED} of each of the \
+         {} seeds); the other {} are generated and DROPPED here",
+        KNOWN_DIVERGENT.len(),
+        out.len(),
+        SEEDS.len(),
+        generated - written,
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -36,7 +36,16 @@
 //! log in `docs/project/status.md` each record what was true when written, and
 //! are correct as written.
 //!
+//! The browser oracle joined last (ti `ec235f`). `web/tests/
+//! html-oracle.spec.js` puts headless Chromium in the loop as an INDEPENDENT
+//! answer about HTML tree construction, against a corpus the `transync-html`
+//! generative harness emits — and it joined `SPEC_FILES` the same way
+//! `engine.spec.js` did, by being named in the `MUST_NAME_SPECS` documents
+//! first. A spec no living document names is a spec that can be renamed or
+//! deleted with every guarded document still green.
+//!
 //! TRACE: ti e9481b — the count convention, applied to every living document.
+//! TRACE: ti ec235f
 
 use std::path::{Path, PathBuf};
 
@@ -67,6 +76,7 @@ const SPEC_FILES: &[&str] = &[
     "engine.spec.js",
     "wasm.spec.js",
     "scn16.spec.js",
+    "html-oracle.spec.js",
 ];
 
 /// A line mentioning any of these is a line about the browser suite.
@@ -77,6 +87,7 @@ const SUITE_MENTIONS: &[&str] = &[
     "engine.spec.js",
     "wasm.spec.js",
     "scn16.spec.js",
+    "html-oracle.spec.js",
     "Playwright",
 ];
 
@@ -315,7 +326,9 @@ fn no_living_doc_publishes_the_browser_suite_test_count() {
         "living document(s) state a count for the browser suite. The count rots \
          the next time a Playwright test is added, so name the spec files \
          (`web/tests/scn13.spec.js`, `web/tests/engine.spec.js`, \
-         `web/tests/wasm.spec.js`, `web/tests/scn16.spec.js`) instead of counting them (ti e9481b). If the passage is a dated snapshot rather \
+         `web/tests/wasm.spec.js`, `web/tests/scn16.spec.js`, \
+         `web/tests/html-oracle.spec.js`) instead of counting them (ti \
+         e9481b). If the passage is a dated snapshot rather \
          than a description of the suite today, it does not belong in a guarded \
          living document:\n  {}",
         offenders.join("\n  "),

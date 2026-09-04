@@ -32,6 +32,14 @@ browser layer.
   pane, and a console clean of warnings.
 - `web/tests/wasm.spec.js` — `web/demo-wasm.html`, whose panes the Rust
   renderer compiled to wasm produces in the browser (ADR-0019).
+- `web/tests/html-oracle.spec.js` — Chromium as an *independent* oracle for
+  `transync-html`: for generated fragments (a corpus the crate's own
+  generative harness emits into `html-oracle/` inside the served dir) it
+  compares the DOM a browser really builds against what the crate's walk and
+  balancer claim — which elements stay open, and whether a pane block's
+  fragment eats its own `</div>` and pulls the following anchor inside it
+  (`contracts.md` §4a). It carries a pinned list of what disagrees today, so
+  the list shrinks visibly as those tickets close (ti `ec235f`).
 
 Read the spec files themselves for the current coverage. This page names
 them and states no count on purpose: a count rots the next time a spec

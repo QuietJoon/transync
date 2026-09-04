@@ -224,16 +224,20 @@ web/                                    # workspace-level demo source-of-truth
 └── tests/                              # headless Playwright (scn13.spec.js + wasm.spec.js
                                         #   + engine.spec.js, sync.js's mount contract driven
                                         #   directly rather than through a shell
-                                        #   + scn16.spec.js, the HTML-run bundle's shell)
+                                        #   + scn16.spec.js, the HTML-run bundle's shell
+                                        #   + html-oracle.spec.js, Chromium as an independent
+                                        #     oracle for transync-html's walk/balancer)
 
 scripts/
 ├── smoke.sh                            # build + wasm gate + tests + rustdoc gate + build-wasm + CLI e2e
 ├── build-wasm.sh                       # wasm-pack --no-opt + explicitly resolved binaryen
 │                                       #   wasm-opt (cached 117 rejects current rustc output);
 │                                       #   enforces the size budget; loud prereq failures
-├── test-browser.sh                     # CLI fixture + wasm demo leg + Playwright
+├── test-browser.sh                     # CLI fixture + wasm demo leg + browser-oracle
+│                                       #   corpus + Playwright
 │                                       #   (web/tests/scn13.spec.js + engine.spec.js
-│                                       #    + wasm.spec.js + scn16.spec.js — every spec
+│                                       #    + wasm.spec.js + scn16.spec.js
+│                                       #    + html-oracle.spec.js — every spec
 │                                       #    under web/tests/)
 └── hooks/pre-commit                    # fmt, clippy --all-features, the two-package wasm
                                         #   gate, the rustdoc gate; plus a JS leg that SKIPS

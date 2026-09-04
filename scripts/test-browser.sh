@@ -263,6 +263,36 @@ if grep -q 'data-sync-id' "$WORKDIR/scn16-out.html"; then
   exit 1
 fi
 
+# --- Browser-oracle corpus leg (ti ec235f) --------------------------------
+#
+# web/tests/html-oracle.spec.js puts Chromium in the loop as an INDEPENDENT
+# oracle for transync-html: the generative harness in
+# crates/transync-html/tests/generative_properties.rs states the right
+# properties, but every oracle it has is built out of scan_tags /
+# walk_elements / balance_fragment — the functions under test — so a
+# divergence between this crate's stacks and a browser's HTML tree
+# construction is invisible from there by construction.
+#
+# The seam is this file. The Rust emitter writes the generated fragments
+# together with THE CRATE's answers; the spec computes CHROMIUM's answers
+# itself and compares. The emitter is double-gated (`#[ignore]` plus the
+# env var below), which is what keeps `cargo test --workspace` free of both
+# a browser dependency and a file write — there is no CI here, so this
+# runs on demand like the rest of the suite.
+#
+# `--test-threads=4` because the workspace rule caps every cargo test
+# invocation; this one is a single test, so the cap costs nothing.
+echo "[test-browser] emitting the browser-oracle corpus -> $HTML_OUT/html-oracle"
+mkdir -p "$HTML_OUT/html-oracle"
+TRANSYNC_HTML_ORACLE_CORPUS="$HTML_OUT/html-oracle/corpus.json" \
+  cargo test -p transync-html --test generative_properties -- \
+  --ignored --exact --nocapture --test-threads=4 emit_browser_oracle_corpus
+
+if [[ ! -s "$HTML_OUT/html-oracle/corpus.json" ]]; then
+  echo "[test-browser] FAIL: the browser-oracle corpus is missing or empty (ti ec235f)" >&2
+  exit 1
+fi
+
 cd "$WEB_DIR"
 
 if [[ -f "pnpm-lock.yaml" ]]; then
