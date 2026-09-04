@@ -293,7 +293,11 @@ Run all of them on the exact commit from step 1, and keep the output.
    commit to be tagged, and record whether a migration was needed and any
    behavioral delta. v0.2.0's was an empty profile `target_language` now
    failing fast with `stable_code "internal"` — exactly the class of change a
-   consumer that parses a profile at startup has to hear about. A green run
+   consumer that parses a profile at startup has to hear about. (That same
+   check moved to `stable_code "invalid_options"` in the v0.5.0 window,
+   OI-0048 / R0009-0053: `internal` claimed an engine bug about a value the
+   caller passed in, which is why both roster consumers guard the field
+   themselves and why naming the cause is what lets them stop.) A green run
    is a result worth writing down too; both are recorded per consumer, not
    as one verdict.
 

@@ -157,8 +157,10 @@ verifies all output files exist and `exec`s `transync serve --rendered
 **Open it at `http://localhost:7470/`.** The wildcard bind decides which
 *network* can open the socket; it does not decide which authorities the
 server answers for. Those are derived separately, and a wildcard bind
-names no interface — so `serve` answers only for `127.0.0.1:7470`,
-`[::1]:7470` and `localhost:7470`. A browser on another machine on the
+names no interface — so `serve` answers only for the loopback authorities
+of the socket's own family. The default `0.0.0.0` bind is IPv4-only, so that
+is `127.0.0.1:7470` and `localhost:7470`; a `--bind ::` run is dual-stack and
+adds `[::1]:7470`. A browser on another machine on the
 LAN types the dev box's address instead — say `http://10.0.0.2:7470/` —
 so its request carries `Host: 10.0.0.2:7470`, which is not on that list,
 and it gets a `421` rather than the demo. To browse from another

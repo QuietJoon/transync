@@ -57,9 +57,7 @@ const TITLE_TEXT = "Transync & the two-pane page";
 // MUST be called before page.goto so mount-time warnings are captured.
 function collectConsoleTyped(page) {
   const entries = [];
-  page.on("console", (msg) =>
-    entries.push({ type: msg.type(), text: msg.text() })
-  );
+  page.on("console", (msg) => entries.push({ type: msg.type(), text: msg.text() }));
   return entries;
 }
 
@@ -68,9 +66,7 @@ function collectConsoleTyped(page) {
 // error-typed message carrying the engine's own prefix counts too.
 function engineNoise(entries) {
   return entries.filter(
-    (m) =>
-      m.type === "warning" ||
-      (m.type === "error" && m.text.includes("transync:"))
+    (m) => m.type === "warning" || (m.type === "error" && m.text.includes("transync:")),
   );
 }
 
@@ -104,9 +100,7 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
     expect(anchorRows(map).length).toBeGreaterThanOrEqual(5);
   });
 
-  test("b — the shell mounts the panes; the title is chrome, never content", async ({
-    page,
-  }) => {
+  test("b — the shell mounts the panes; the title is chrome, never content", async ({ page }) => {
     const consoleLog = collectConsoleTyped(page);
     const errors = collectPageErrors(page);
     await page.goto(SHELL);
@@ -114,9 +108,7 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
 
     const map = JSON.parse(readFixture("scn16/alignment.json"));
     const expected = anchorRows(map).map((r) => r.source_block_id);
-    const titleId = map.blocks.find(
-      (r) => r.block_kind === "title"
-    ).source_block_id;
+    const titleId = map.blocks.find((r) => r.block_kind === "title").source_block_id;
 
     // POSITIVE BACKBONE: each pane carries exactly the anchors the map
     // promises — same ids, same order. This is what keeps the negatives
@@ -127,11 +119,8 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
     for (const sel of ["#source", "#target"]) {
       const ids = await page.evaluate(
         (s) =>
-          Array.from(
-            document.querySelectorAll(`${s} [data-sync-id]`),
-            (el) => el.dataset.syncId
-          ),
-        sel
+          Array.from(document.querySelectorAll(`${s} [data-sync-id]`), (el) => el.dataset.syncId),
+        sel,
       );
       expect(ids, sel).toEqual(expected);
     }
@@ -143,18 +132,15 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
     // a self-injected <x-note> anchor would die in this very mount (probe
     // P4 drives that red). Positive: the html-kind row's anchor exists in
     // both panes and IS the wrapper.
-    const htmlRow = map.blocks.find(
-      (r) => r.block_kind === "html" && r.sync_role !== "non-sync"
-    );
+    const htmlRow = map.blocks.find((r) => r.block_kind === "html" && r.sync_role !== "non-sync");
     expect(htmlRow, "the fixture's <x-note> mints an anchor-role html row").toBeTruthy();
     for (const sel of ["#source", "#target"]) {
       expect(
         await page.evaluate(
-          ([s, id]) =>
-            document.querySelector(`${s} [data-sync-id="${id}"]`).tagName,
-          [sel, htmlRow.source_block_id]
+          ([s, id]) => document.querySelector(`${s} [data-sync-id="${id}"]`).tagName,
+          [sel, htmlRow.source_block_id],
         ),
-        sel
+        sel,
       ).toBe("DIV");
     }
 
@@ -163,16 +149,12 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
     for (const sel of ["#source", "#target"]) {
       expect(
         await page.evaluate(
-          ([s, id]) =>
-            document.querySelectorAll(`${s} [data-sync-id="${id}"]`).length,
-          [sel, titleId]
+          ([s, id]) => document.querySelectorAll(`${s} [data-sync-id="${id}"]`).length,
+          [sel, titleId],
         ),
-        sel
+        sel,
       ).toBe(0);
-      expect(
-        (await page.locator(sel).innerText()).includes(TITLE_TEXT),
-        sel
-      ).toBe(false);
+      expect((await page.locator(sel).innerText()).includes(TITLE_TEXT), sel).toBe(false);
     }
     // ...while the SAME text IS the page's chrome: the §9 bundle-title
     // chain (flag > source <title> > "transync") put it on the browser
@@ -189,20 +171,15 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
     // the group really exists and carries anchored items.
     for (const sel of ["#source", "#target"]) {
       expect(
-        await page.evaluate(
-          (s) => document.querySelectorAll(`${s} main > li`).length,
-          sel
-        ),
-        sel
+        await page.evaluate((s) => document.querySelectorAll(`${s} main > li`).length, sel),
+        sel,
       ).toBe(0);
       expect(
         await page.evaluate(
-          (s) =>
-            document.querySelectorAll(`${s} main > ul > li[data-sync-id]`)
-              .length,
-          sel
+          (s) => document.querySelectorAll(`${s} main > ul > li[data-sync-id]`).length,
+          sel,
         ),
-        sel
+        sel,
       ).toBeGreaterThanOrEqual(2);
     }
 
@@ -213,9 +190,7 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
     expect(engineNoise(consoleLog)).toEqual([]);
   });
 
-  test("c — bidirectional sync by block id over HTML-derived anchors", async ({
-    page,
-  }) => {
+  test("c — bidirectional sync by block id over HTML-derived anchors", async ({ page }) => {
     const consoleLog = collectConsoleTyped(page);
     const errors = collectPageErrors(page);
     await page.goto(SHELL);
@@ -251,11 +226,7 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
     expect(tgtOffset).toBeLessThanOrEqual(await maxScrollOf(page, "#target"));
 
     // Forward: drive the source; the target follows to the same block.
-    await setScrollTop(
-      page,
-      "#source",
-      await offsetTopOf(page, "#source", driver)
-    );
+    await setScrollTop(page, "#source", await offsetTopOf(page, "#source", driver));
     await waitForScrollNear(page, "#target", tgtOffset, 8);
     expect(await activeSyncId(page, "#target")).toBe(driver);
 
@@ -263,11 +234,7 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
 
     // Reverse: drive the target back to the top block; the source follows.
     const srcOffset = await offsetTopOf(page, "#source", top);
-    await setScrollTop(
-      page,
-      "#target",
-      await offsetTopOf(page, "#target", top)
-    );
+    await setScrollTop(page, "#target", await offsetTopOf(page, "#target", top));
     await waitForScrollNear(page, "#source", srcOffset, 8);
     expect(await activeSyncId(page, "#source")).toBe(top);
 

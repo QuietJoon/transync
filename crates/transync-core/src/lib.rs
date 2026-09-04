@@ -530,7 +530,11 @@ where
     T: Translator + ?Sized,
 {
     if opts.target_language.trim().is_empty() {
-        return Err(TransyncError::Internal(
+        // OI-0048 (R0009-0053): a caller-input fault, reported as one. This
+        // raised `Internal` — stable code `internal`, i.e. "transync has a
+        // bug" — until v0.5.0, which is why consumers guard the field
+        // themselves; `InvalidOptions` is what lets them stop.
+        return Err(TransyncError::InvalidOptions(
             "TranslateOptions.target_language must be non-empty".to_string(),
         ));
     }

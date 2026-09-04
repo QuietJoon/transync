@@ -109,6 +109,23 @@ impl Server {
         &self.addr
     }
 
+    /// The rest of the startup output: every stderr line after the `listening
+    /// on` one up to and including `press Ctrl-C`, which is the last thing
+    /// printed before the accept loop. Reading to a known final line rather
+    /// than to EOF is what keeps this from blocking on a live server.
+    fn startup_tail(&mut self) -> String {
+        let mut seen = String::new();
+        let mut line = String::new();
+        while self.stderr.read_line(&mut line).unwrap_or(0) > 0 {
+            seen.push_str(&line);
+            if line.contains("press Ctrl-C") {
+                break;
+            }
+            line.clear();
+        }
+        seen
+    }
+
     /// Send `raw` verbatim — no normalization, no header rewriting — and read
     /// the whole response back.
     fn raw(&self, raw: &str) -> Response {
@@ -734,18 +751,91 @@ fn a_non_loopback_bind_takes_an_explicit_flag_and_warns() {
     );
     assert_eq!(via_loopback.status, 200);
 
-    let mut warning = String::new();
-    let mut line = String::new();
-    while server.stderr.read_line(&mut line).unwrap_or(0) > 0 {
-        warning.push_str(&line);
-        if line.contains("press Ctrl-C") {
-            break;
-        }
-        line.clear();
-    }
+    let warning = server.startup_tail();
     assert!(
         warning.contains("WARNING") && warning.contains("not a loopback address"),
         "a non-loopback bind must be called out; stderr =\n{warning}",
+    );
+}
+
+/// The startup line is guidance an operator types back, so it may name only
+/// authorities the bound socket can answer at (R0009-0008). `0.0.0.0` is an
+/// IPv4 listener: `http://[::1]:port/` never reaches it, so advertising that
+/// authority is a connection failure for whoever follows it and an allowlist
+/// row no request can match. The `421` body is asserted alongside because it
+/// prints the same list, and the two must not be able to disagree.
+///
+/// Like the test above, this binds an ephemeral port on every interface for
+/// the length of one request; that is the configuration under test.
+#[test]
+fn an_ipv4_wildcard_bind_advertises_only_the_authorities_it_can_answer_at() {
+    let root = ScratchDir::new("transync-serve-wildcard-authorities");
+    write_bundle(&root);
+    let mut server = Server::start(&root, &["--bind", "0.0.0.0"]);
+    let (_host, port) = server
+        .addr()
+        .rsplit_once(':')
+        .expect("the announced address is host:port");
+    let port = port.to_string();
+
+    let startup = server.startup_tail();
+    let announced = startup
+        .lines()
+        .find(|line| line.contains("answering for"))
+        .unwrap_or_else(|| panic!("serve announces its authorities; stderr =\n{startup}"))
+        .to_string();
+    assert!(
+        announced.contains(&format!("127.0.0.1:{port}")) && announced.contains("localhost"),
+        "the IPv4 loopback authorities are the ones a 0.0.0.0 socket has: {announced}",
+    );
+    assert!(
+        !announced.contains("[::1]"),
+        "an IPv4-only socket must not advertise the IPv6 loopback: {announced}",
+    );
+
+    let refused = raw_to(
+        &format!("127.0.0.1:{port}"),
+        &get_request("/index.html", "demo.example"),
+    );
+    assert_eq!(refused.status, 421);
+    assert!(
+        refused.text().contains(&format!("127.0.0.1:{port}")) && !refused.text().contains("[::1]"),
+        "the refusal prints the same list as the startup line; body = {}",
+        refused.text(),
+    );
+}
+
+/// A redundant `--allow-host` is a redundant flag, not a second authority
+/// (R0009-0009): the list an operator reads names each one once, in the order
+/// it was derived and typed.
+#[test]
+fn a_redundant_allow_host_is_not_listed_twice() {
+    let root = ScratchDir::new("transync-serve-dup-authorities");
+    write_bundle(&root);
+    let mut server = Server::start(&root, &["--allow-host", "localhost"]);
+    let (_host, port) = server
+        .addr()
+        .rsplit_once(':')
+        .expect("the announced address is host:port");
+    let port = port.to_string();
+
+    let startup = server.startup_tail();
+    let announced = startup
+        .lines()
+        .find(|line| line.contains("answering for"))
+        .unwrap_or_else(|| panic!("serve announces its authorities; stderr =\n{startup}"))
+        .to_string();
+    assert_eq!(
+        announced.matches(&format!("localhost:{port}")).count(),
+        1,
+        "the derived `localhost` and the flag that repeats it are one authority: {announced}",
+    );
+    // The flag still means what it says: the authority is answered for.
+    assert_eq!(
+        server
+            .raw(&get_request("/index.html", &format!("localhost:{port}")))
+            .status,
+        200,
     );
 }
 

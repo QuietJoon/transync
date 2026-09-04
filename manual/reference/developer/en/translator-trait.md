@@ -250,8 +250,8 @@ arm**, so a new variant cannot land without being assigned a code.
 `TransyncError::stable_code()` shares the same namespace and answers for
 every failure the library can produce. Its `Translator` arm **delegates**
 to `TranslatorError::stable_code()` rather than flattening the whole
-provider family to one string. The complete set is twenty-one codes
-(7 engine-side + 14 provider-side).
+provider family to one string. The complete set is twenty-two codes
+(8 engine-side + 14 provider-side).
 
 Engine-side, from `TransyncError`'s own variants:
 
@@ -263,6 +263,7 @@ Engine-side, from `TransyncError`'s own variants:
 | `profile_failed` | `Profile` |
 | `alignment_failed` | `Alignment` |
 | `cancelled` | `Cancelled` |
+| `invalid_options` | `InvalidOptions` |
 | `internal` | `Internal` |
 
 Provider-side: the fourteen `TranslatorError` codes in the variant table

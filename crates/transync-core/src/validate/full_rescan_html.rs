@@ -274,11 +274,21 @@ fn attribute_offenders(
         let Some(range) = offsets.0.get(&block.block_id) else {
             continue;
         };
-        let owned = fresh
+        // OI-0042: `fresh` is `intake::html::parse` output, whose ranges
+        // follow a monotone cursor (`debug_assert_block_invariants`), so
+        // `source_range.start` is non-decreasing and the count in
+        // `[range.start, range.end)` is the gap between two partition
+        // points — O(log N) instead of a scan per source block.
+        // `saturating_sub` keeps this function's no-panic promise: `range`
+        // comes from the bookkeeping, which check 4 has not yet vetted for
+        // inversion.
+        let lo = fresh
             .blocks
-            .iter()
-            .filter(|f| f.source_range.start >= range.start && f.source_range.start < range.end)
-            .count();
+            .partition_point(|f| f.source_range.start < range.start);
+        let hi = fresh
+            .blocks
+            .partition_point(|f| f.source_range.start < range.end);
+        let owned = hi.saturating_sub(lo);
         if owned != 1 {
             suspects.push(block.block_id.clone());
         }
@@ -1034,5 +1044,52 @@ mod tests {
         // which is total — so check 3's guards are the whole no-panic
         // surface this pin exists to hold.
         assert!(full_rescan_html(&doc, &out, &garbage).is_err());
+    }
+
+    /// OI-0042: check 2's attribution over an INVERTED bookkeeping range,
+    /// driven directly. `garbage_bookkeeping_never_panics` cannot cover
+    /// this — its working call sails THROUGH check 2, and this helper runs
+    /// only when check 2 fails — so the "must never slice or panic"
+    /// promise above needs its own red. The linearized form subtracts two
+    /// `partition_point`s over `fresh.blocks`, and an inverted query puts
+    /// the upper one BELOW the lower: the subtraction must saturate to the
+    /// conservative "owns nothing, so it is a suspect" answer rather than
+    /// wrap (release) or panic (overflow checks). Check 4 is the predicate
+    /// that names an inverted range, and it runs after this.
+    #[test]
+    fn attribute_offenders_survives_an_inverted_bookkeeping_range() {
+        let doc = parse_html("<p>alpha</p>\n<p>bravo</p>\n");
+        assert_eq!(
+            kinds(&doc),
+            vec!["paragraph", "paragraph"],
+            "fixture sanity"
+        );
+        let (out, mut offsets) = identity(&doc);
+        let fresh = parse_html(&out);
+        assert!(
+            attribute_offenders(&doc, &fresh, &offsets).is_empty(),
+            "identity regen: every source block owns exactly one fresh block"
+        );
+
+        let r = *offsets
+            .0
+            .get(&doc.blocks[0].block_id)
+            .expect("block 0 has a range");
+        assert!(
+            r.start < r.end,
+            "fixture sanity: a non-empty range to invert"
+        );
+        offsets.0.insert(
+            doc.blocks[0].block_id.clone(),
+            ByteRange {
+                start: r.end,
+                end: r.start,
+            },
+        );
+        assert_eq!(
+            attribute_offenders(&doc, &fresh, &offsets),
+            vec![doc.blocks[0].block_id.clone()],
+            "an inverted range owns nothing, which makes its block a suspect"
+        );
     }
 }

@@ -93,27 +93,54 @@ impl HostPolicy {
     ///   type — a name no attacker can point anywhere else.
     /// - **A wildcard bind** (`0.0.0.0`, `::`) names no interface, so nothing
     ///   can be derived from it but the loopback authorities it also listens
-    ///   on. The address other machines reach it by is the operator's to state
+    ///   on — and *which* those are is the socket's family, not the wildcard
+    ///   spelling (R0009-0008). `::` is dual-stack: an IPv4 client reaching it
+    ///   arrives as a v4-mapped address, so it genuinely answers at
+    ///   `127.0.0.1` as well as at `[::1]`. `0.0.0.0` is an IPv4 socket and
+    ///   **nothing ever arrives at it addressed `[::1]`**, so advertising that
+    ///   authority sends the operator who follows the startup line to a
+    ///   connection failure and leaves an allowlist row no request can reach.
+    ///   The address other machines reach it by is the operator's to state
     ///   with `--allow-host`; the alternative — answering for any name at all
     ///   the moment `--bind` is given — would leave the hole open in the one
     ///   configuration that includes loopback *and* is reachable from off the
     ///   machine.
+    ///
+    /// Entries are **deduplicated, first spelling kept** (R0009-0009), so a
+    /// redundant `--allow-host localhost` on a loopback bind adds nothing
+    /// rather than a second identical row in the startup line and in every
+    /// `421` body. Order is the order above, which is the order an operator
+    /// typed: the list is read, so it is not sorted.
     pub fn new(local: SocketAddr, allowed: &[Authority]) -> HostPolicy {
         let port = local.port();
         let ip = local.ip();
-        let mut answered = Vec::with_capacity(3 + allowed.len());
+        let mut answered: Vec<(Host, u16)> = Vec::with_capacity(3 + allowed.len());
         if ip.is_unspecified() {
-            answered.push((Host::Ip(IpAddr::V4(Ipv4Addr::LOCALHOST)), port));
-            answered.push((Host::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST)), port));
-            answered.push((Host::Name("localhost".to_string()), port));
+            answer(
+                &mut answered,
+                Host::Ip(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+                port,
+            );
+            if ip.is_ipv6() {
+                answer(
+                    &mut answered,
+                    Host::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST)),
+                    port,
+                );
+            }
+            answer(&mut answered, Host::Name("localhost".to_string()), port);
         } else {
-            answered.push((Host::Ip(ip), port));
+            answer(&mut answered, Host::Ip(ip), port);
             if ip.is_loopback() {
-                answered.push((Host::Name("localhost".to_string()), port));
+                answer(&mut answered, Host::Name("localhost".to_string()), port);
             }
         }
         for authority in allowed {
-            answered.push((authority.host.clone(), authority.port.unwrap_or(port)));
+            answer(
+                &mut answered,
+                authority.host.clone(),
+                authority.port.unwrap_or(port),
+            );
         }
         HostPolicy { answered }
     }
@@ -180,6 +207,24 @@ impl HostPolicy {
             .map(|(host, port)| format!("{host}:{port}"))
             .collect::<Vec<_>>()
             .join(", ")
+    }
+}
+
+/// Add one authority to the answered set unless it is already in it.
+///
+/// The duplicate is a display defect, never a policy one — the lookup is an
+/// `any` over this vector, so a repeat could not widen anything — and it is
+/// removed here rather than at print time because the two readers of the list
+/// (the startup line and a `421` body) must not be able to disagree.
+///
+/// Equality is authority identity, not spelling: [`Host::Name`] is lowercased
+/// and de-dotted by [`host_from`] and [`Host::Ip`] is an `IpAddr`, so
+/// `LocalHost.` and `localhost` collapse here the same way they compare in
+/// [`HostPolicy::verdict`].
+fn answer(answered: &mut Vec<(Host, u16)>, host: Host, port: u16) {
+    let entry = (host, port);
+    if !answered.contains(&entry) {
+        answered.push(entry);
     }
 }
 
@@ -506,15 +551,16 @@ mod tests {
     /// A wildcard bind names no interface. What it can still derive is the
     /// loopback authorities it is also listening on — the ones the rebinding
     /// attack aims at — and the operator states the rest.
+    ///
+    /// **`0.0.0.0` is an IPv4 socket**, so `[::1]` is not among them
+    /// (R0009-0008): a client that types `http://[::1]:4319/` never reaches
+    /// this socket at all, so the row could only ever mislead the operator
+    /// reading the startup line. This test pinned the opposite until
+    /// 2026-09-04 — the expectation was wrong, not the fix.
     #[test]
-    fn a_wildcard_bind_answers_for_loopback_and_for_what_was_allowed() {
+    fn an_ipv4_wildcard_bind_answers_for_ipv4_loopback_and_for_what_was_allowed() {
         let policy = policy("0.0.0.0:4319", &["192.168.1.5"]);
-        for host in [
-            "127.0.0.1:4319",
-            "localhost:4319",
-            "[::1]:4319",
-            "192.168.1.5:4319",
-        ] {
+        for host in ["127.0.0.1:4319", "localhost:4319", "192.168.1.5:4319"] {
             assert_eq!(
                 verdict(&policy, &format!("Host: {host}\r\n")),
                 Verdict::Answered,
@@ -522,9 +568,30 @@ mod tests {
             );
         }
         assert_eq!(
+            verdict(&policy, "Host: [::1]:4319\r\n"),
+            Verdict::Elsewhere,
+            "an IPv4-only socket does not answer at the IPv6 loopback",
+        );
+        assert_eq!(
             verdict(&policy, "Host: attacker.example:4319\r\n"),
             Verdict::Elsewhere,
         );
+    }
+
+    /// `::` is the other wildcard and it is dual-stack: an IPv4 client
+    /// reaching it arrives as a v4-mapped address, so it answers at
+    /// `127.0.0.1` too. Both loopback families stay, which is what
+    /// distinguishes this case from the IPv4 wildcard above.
+    #[test]
+    fn an_ipv6_wildcard_bind_answers_for_both_loopback_families() {
+        let policy = policy("[::]:4319", &[]);
+        for host in ["127.0.0.1:4319", "[::1]:4319", "localhost:4319"] {
+            assert_eq!(
+                verdict(&policy, &format!("Host: {host}\r\n")),
+                Verdict::Answered,
+                "{host}",
+            );
+        }
     }
 
     #[test]
@@ -537,5 +604,54 @@ mod tests {
             policy("[::1]:7470", &[]).answered_authorities(),
             "[::1]:7470, localhost:7470",
         );
+        // The two wildcards advertise the families their sockets have
+        // (R0009-0008), and only those.
+        assert_eq!(
+            policy("0.0.0.0:7470", &[]).answered_authorities(),
+            "127.0.0.1:7470, localhost:7470",
+        );
+        assert_eq!(
+            policy("[::]:7470", &[]).answered_authorities(),
+            "127.0.0.1:7470, [::1]:7470, localhost:7470",
+        );
+    }
+
+    /// R0009-0009: an `--allow-host` that repeats a derived authority is a
+    /// redundant flag, not a second authority — the list an operator reads
+    /// says each one once. Only the *repeat* is dropped: the first spelling
+    /// keeps its position, because this list is guidance and the order it is
+    /// printed in is the order it was derived and typed in.
+    #[test]
+    fn a_redundant_allow_host_does_not_print_twice() {
+        assert_eq!(
+            policy("127.0.0.1:7470", &["localhost"]).answered_authorities(),
+            "127.0.0.1:7470, localhost:7470",
+        );
+        assert_eq!(
+            policy("127.0.0.1:7470", &["127.0.0.1:7470", "LocalHost."]).answered_authorities(),
+            "127.0.0.1:7470, localhost:7470",
+            "spelling is not identity: an address literal and a de-dotted \
+             upper-case name are the authorities already derived",
+        );
+        assert_eq!(
+            policy("127.0.0.1:7470", &["demo.example", "demo.example:7470"]).answered_authorities(),
+            "127.0.0.1:7470, localhost:7470, demo.example:7470",
+            "a bare name means the bound port, so these two are one authority",
+        );
+        // What dedup must not do: collapse authorities that differ. The same
+        // name on another port is another authority, and it is still listed.
+        assert_eq!(
+            policy("127.0.0.1:7470", &["demo.example", "demo.example:9000"]).answered_authorities(),
+            "127.0.0.1:7470, localhost:7470, demo.example:7470, demo.example:9000",
+        );
+        // And the policy is unchanged by the dedup: both survive as verdicts.
+        let policy = policy("127.0.0.1:7470", &["localhost", "demo.example"]);
+        for host in ["127.0.0.1:7470", "localhost:7470", "demo.example:7470"] {
+            assert_eq!(
+                verdict(&policy, &format!("Host: {host}\r\n")),
+                Verdict::Answered,
+                "{host}",
+            );
+        }
     }
 }

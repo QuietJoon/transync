@@ -63,7 +63,9 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// At or below this size the file is read into memory, so the
 /// `Content-Length` announced is the length actually written. Above it the
-/// body streams and the length comes from the open handle's metadata.
+/// body streams and the length comes from the open handle's metadata — a
+/// promise made before the bytes are read, so [`send_file`] checks the copy
+/// against it and gives up the connection when the file no longer has them.
 const IN_MEMORY_LIMIT: u64 = 8 * 1024 * 1024;
 
 /// The methods a `405` advertises.
@@ -84,11 +86,13 @@ enum HeadRead {
 
 /// Answer one request on `stream`, then return so the caller can drop it.
 ///
-/// An `Err` here is a dead socket, not a rejected request — every rejection is
-/// a status code written back on this same connection. A response that could
-/// not be delivered inside [`RESPONSE_TIMEOUT`] is an `Err` of the same kind:
-/// there is nothing left to say to a peer that is not reading, so the socket
-/// is dropped and its slot goes back.
+/// An `Err` here is a response that could not be delivered, never a rejected
+/// request — every rejection is a status code written back on this same
+/// connection. There are three of them, and all three end the same way, with
+/// the socket dropped and its slot returned: a dead socket, a peer that did
+/// not read its response inside [`RESPONSE_TIMEOUT`], and — the one case where
+/// this server is the party that broke the message — a streamed body that came
+/// up short of the `Content-Length` already announced for it ([`send_file`]).
 ///
 /// Generic over the stream so the deadline can be exercised against a peer
 /// that accepts no bytes at all; `accept_loop` passes the socket.
@@ -249,6 +253,23 @@ async fn resolve(root: &Path, target: &str) -> Result<Found, Refusal> {
     })
 }
 
+/// Write the `200` for an open file: buffered below [`IN_MEMORY_LIMIT`],
+/// streamed above it.
+///
+/// The two branches answer the same question — *is the announced
+/// `Content-Length` the number of bytes this response actually carries?* —
+/// and they can afford different answers because only one of them still has
+/// the choice. Buffered, the read happens first, so the head states the length
+/// that was read and a file that changed size under it is simply described
+/// correctly. Streamed, the head is already on the wire when the body is read,
+/// so a file that **shrank** since `resolve` measured it (an operator
+/// regenerating the bundle is the innocent case) leaves no truthful body to
+/// send: the copy ends short of the promise. That is a protocol violation
+/// either way, and the only thing left to decide is whether the peer can tell
+/// — so the short copy is an `Err` (R0009-0002), which makes `accept_loop`
+/// drop the socket with the message incomplete rather than close it as if the
+/// response had been delivered. A conforming client records an incomplete
+/// message (RFC 9112 §8) instead of caching a truncated document.
 async fn send_file<S: AsyncWrite + Unpin>(
     stream: &mut S,
     method: Method,
@@ -271,7 +292,20 @@ async fn send_file<S: AsyncWrite + Unpin>(
     } else {
         write_head(stream, 200, "OK", content_type, &[], len).await?;
         let mut limited = file.take(len);
-        tokio::io::copy(&mut limited, stream).await.map(|_| ())
+        // `take` bounds the copy from above, so the only disagreement this
+        // can report is a body shorter than its own `Content-Length`.
+        let sent = tokio::io::copy(&mut limited, stream).await?;
+        if sent != len {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!(
+                    "{} shrank while it was being served: {len} bytes announced, {sent} sent \
+                     — the connection is dropped, since the response cannot be completed",
+                    canonical.display(),
+                ),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -287,6 +321,14 @@ async fn send_file<S: AsyncWrite + Unpin>(
 /// metadata is never trusted alone"), and it is what the streaming branch
 /// already applies, so both branches now answer a mid-request growth
 /// identically: the bytes that were there when the handle was opened.
+///
+/// **The other direction — a file that shrinks — is also handled here, and
+/// only here** (R0009-0002). `read_to_end` stops at the real end of the file,
+/// so a `cap` the file no longer reaches comes back short and `send_file`
+/// announces the length of *this* `Vec` rather than the metadata's. Buffering
+/// before announcing is what makes that possible, so it is a property of this
+/// branch and not of the server: past `IN_MEMORY_LIMIT` the head goes out
+/// first and a shrink can only be detected and the connection dropped.
 async fn read_capped(file: tokio::fs::File, cap: u64) -> io::Result<Vec<u8>> {
     let mut body = Vec::with_capacity(cap as usize);
     file.take(cap).read_to_end(&mut body).await?;
@@ -562,6 +604,57 @@ mod tests {
             "the read is capped at the measured length, not at what the file has since become",
         );
         assert_eq!(body, b"the length the head will announce");
+    }
+
+    /// R0009-0002, the direction the cap cannot rescue. Past
+    /// `IN_MEMORY_LIMIT` the `Content-Length` is on the wire before the body
+    /// is read, so a file that **shrank** since `resolve` measured it leaves
+    /// no truthful body to send. The copy ends short of the promise and the
+    /// response fails, which is what makes `accept_loop` drop the socket with
+    /// the message incomplete; before the fix the count `copy` returned was
+    /// thrown away (`.map(|_| ())`) and a short body was reported as a
+    /// delivered response.
+    ///
+    /// The shrink is staged as the state `resolve` hands on — a `len` the file
+    /// no longer reaches — rather than by racing a truncation against a live
+    /// server, because the two are the same input to `send_file` and only one
+    /// of them is deterministic.
+    #[tokio::test]
+    async fn a_file_that_shrank_fails_the_response_instead_of_under_delivering_it() {
+        let dir = crate::output::testing::scratch_dir("serve-shrink");
+        let path = dir.join("big.bin");
+        std::fs::write(&path, b"all that is left of it").unwrap();
+        let file = tokio::fs::File::open(&path).await.unwrap();
+
+        // Over the limit, so this is the streaming branch — and larger than
+        // the file, which is exactly what a truncation between `metadata()`
+        // and the copy leaves behind.
+        let announced = IN_MEMORY_LIMIT + 1;
+        let found = Found {
+            file,
+            len: announced,
+            canonical: path.clone(),
+        };
+
+        let mut sent: Vec<u8> = Vec::new();
+        let err = send_file(&mut sent, Method::Get, found)
+            .await
+            .expect_err("a body shorter than its Content-Length is not a delivered response");
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::UnexpectedEof,
+            "the connection is given up on, so `accept_loop` drops it: {err}",
+        );
+
+        let written = String::from_utf8_lossy(&sent).into_owned();
+        assert!(
+            written.contains(&format!("Content-Length: {announced}\r\n")),
+            "the head had already promised the measured length: {written}",
+        );
+        assert!(
+            sent.ends_with(b"all that is left of it"),
+            "and what the file still had was written before the promise broke",
+        );
     }
 
     /// The cap never invents bytes: a file shorter than its cap comes back

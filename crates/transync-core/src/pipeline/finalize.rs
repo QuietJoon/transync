@@ -169,9 +169,18 @@ fn widen_to_neighbors(doc: &crate::parser::Document, seeds: &[BlockId]) -> Vec<B
         .map(|b| &b.block_id)
         .collect();
 
+    // OI-0042: one pass to index, then O(1) per seed — the linear
+    // `position` scan made this O(seeds x blocks), and every comparison was
+    // a `BlockId(String)`. `entry().or_insert` preserves `position`'s
+    // FIRST-wins answer on a duplicate id; `collect()` would keep the last.
+    let mut first_index: HashMap<&BlockId, usize> = HashMap::with_capacity(top_level.len());
+    for (i, id) in top_level.iter().enumerate() {
+        first_index.entry(*id).or_insert(i);
+    }
+
     let mut indices = std::collections::BTreeSet::new();
     for seed in seeds {
-        let Some(i) = top_level.iter().position(|id| *id == seed) else {
+        let Some(&i) = first_index.get(seed) else {
             continue;
         };
         indices.insert(i);
@@ -361,6 +370,27 @@ mod reparse_policy_tests {
                 .map(|b| b.block_id.clone())
                 .collect::<Vec<_>>(),
             "a list item is a top-level seed and widens to its neighbors",
+        );
+    }
+
+    /// OI-0042: the linearized index lookup must keep `position`'s
+    /// FIRST-wins answer on a duplicated id. `HashMap::entry().or_insert`
+    /// is load-bearing here — `collect()` keeps the LAST index and would
+    /// widen around the wrong neighbourhood.
+    #[test]
+    fn widen_to_neighbors_takes_the_first_of_a_duplicated_id() {
+        let mut doc = parse("para A\n\npara B\n\npara C\n\npara D\n").expect("source parses");
+        assert_eq!(doc.blocks.len(), 4, "fixture sanity");
+        // `id::assign` never emits a duplicate, but `Document` is
+        // pub-fields and this lookup must not depend on a uniqueness it is
+        // not given.
+        let dup = doc.blocks[0].block_id.clone();
+        doc.blocks[2].block_id = dup.clone();
+        let top: Vec<BlockId> = doc.blocks.iter().map(|b| b.block_id.clone()).collect();
+        assert_eq!(
+            widen_to_neighbors(&doc, std::slice::from_ref(&dup)),
+            vec![top[0].clone(), top[1].clone()],
+            "the FIRST occurrence and its one neighbour, not index 2's"
         );
     }
 

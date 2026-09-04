@@ -29,11 +29,45 @@ import { defineConfig, devices } from "@playwright/test";
 
 const CONFIG_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-// Loopback-only demo server. Port is fixed and uncommon to avoid
-// colliding with the manual smoke server (scripts/smoke-live.sh uses
-// 7470).
+// Loopback-only demo server. The default port is uncommon to avoid
+// colliding with the manual smoke server (scripts/smoke-live.sh uses 7470)
+// — but it was a bare literal, so it also collided with a SECOND run of
+// this suite, and `reuseExistingServer` being off (below) turns that into a
+// startup failure rather than a queue. TRANSYNC_BROWSER_PORT gives the
+// second run somewhere to go (OI-0046, finding R0009-0018). With the
+// variable unset, the port, both URLs and the trace directory are exactly
+// what they were before the override existed.
+//
+// HOST is deliberately NOT overridable. tests/support/static-server.mjs
+// hard-codes 127.0.0.1 and this config hands it only a directory and a
+// port, so a host override would make `baseURL` and `webServer.url`
+// disagree with what the stand-in actually binds — and loopback-only is a
+// property this suite means to keep: nothing here binds a public interface.
 const HOST = "127.0.0.1";
-const PORT = 4319;
+const DEFAULT_PORT = 4319;
+// Unset or empty falls back; ANYTHING ELSE is parsed and must be a valid
+// port. `Number(x) || DEFAULT_PORT` would be shorter and wrong: it turns a
+// typo into a silent run on 4319, which is the collision this override
+// exists to avoid, so a bad value has to be loud.
+const PORT_OVERRIDE = process.env.TRANSYNC_BROWSER_PORT;
+const PORT =
+  PORT_OVERRIDE === undefined || PORT_OVERRIDE === "" ? DEFAULT_PORT : Number(PORT_OVERRIDE);
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65_535) {
+  throw new Error(
+    `TRANSYNC_BROWSER_PORT must be an integer port in 1-65535; got ${JSON.stringify(
+      PORT_OVERRIDE,
+    )}.`,
+  );
+}
+
+// Playwright wipes its output directory when a run starts, so two runs
+// sharing one directory destroy each other's traces — the same collision as
+// the port, one step further along. Derived from the port, which is the one
+// thing a second run has already had to change to get this far, and left at
+// Playwright's own default path when the port is the default so an ordinary
+// run writes exactly where it always did. `web/.gitignore` covers
+// `test-results/`; a non-default port writes a sibling beside it.
+const OUTPUT_DIR = PORT === DEFAULT_PORT ? "test-results" : `test-results-${PORT}`;
 
 // The bundle to serve. Nothing in this repository tracks one — it is a
 // CLI-emitted artifact — so the default is a repository-relative path a
@@ -131,9 +165,12 @@ let newestInput = 0;
 let newestInputPath = null;
 for (const rel of [...BUNDLE_INPUTS, ...BUNDLE_INPUT_FILES]) {
   const abs = path.join(REPO_ROOT, rel);
-  const at = fs.existsSync(abs) && fs.statSync(abs).isDirectory()
-    ? newestMtime(abs)
-    : (fs.existsSync(abs) ? fs.statSync(abs).mtimeMs : 0);
+  const at =
+    fs.existsSync(abs) && fs.statSync(abs).isDirectory()
+      ? newestMtime(abs)
+      : fs.existsSync(abs)
+        ? fs.statSync(abs).mtimeMs
+        : 0;
   if (at > newestInput) {
     newestInput = at;
     newestInputPath = rel;
@@ -162,6 +199,7 @@ const SERVE_BIN = process.env.TRANSYNC_SERVE_BIN;
 
 export default defineConfig({
   testDir: "./tests",
+  outputDir: OUTPUT_DIR,
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

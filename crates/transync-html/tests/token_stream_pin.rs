@@ -22,41 +22,54 @@
 //! open, and the balanced goldens record its decisions. The prohibition on
 //! blessing a red pin *instead of* reviewing it stands everywhere else.
 //!
+//! Every input the pin reads is a file of **this** crate (ti `4fb858`). Until
+//! 2026-09-04 the three document-scale entries were read out of
+//! `crates/transync/tests/fixtures/` through `CARGO_MANIFEST_DIR/../..`, which
+//! cost two things: `transync-html` publishes, and a published tarball carries
+//! this test and all of its goldens but none of another crate's fixtures, so
+//! the pin panicked from the tarball on the first `read_to_string`; and an
+//! ordinary fixture edit over in `transync` turned this pin red with a message
+//! that blamed a token change that had not happened — while forbidding the one
+//! honest response, re-blessing. The fixtures now live in
+//! `tests/fixtures/` beside this file as a frozen snapshot, so the corpus can
+//! only move when somebody moves it here, and the red messages below stay
+//! true.
+//!
 //! TRACE: ti 490d97 wave 0
+//! TRACE: ti 4fb858
 //! TRACE: DCR-0032
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use transync_html::{TagToken, balance_fragment, scan_tags, tag_inventory};
 
-/// Repo root, derived from this crate's manifest dir
-/// (`crates/transync-html` -> `../..`), the idiom `docs_index_drift.rs` uses.
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repo root should resolve from CARGO_MANIFEST_DIR/../..")
+/// This crate's own directory. Every path the pin reads — corpus and goldens
+/// alike — hangs off it and nothing else, which is what makes the pin runnable
+/// from a published tarball (ti `4fb858`).
+fn crate_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
 fn goldens_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/goldens")
+    crate_dir().join("tests/goldens")
 }
 
-/// The repository's existing HTML-bearing fixtures. They are Markdown
+/// The document-scale corpus: a frozen, in-crate snapshot of the
+/// repository's HTML-bearing scenario fixtures, taken byte-verbatim on
+/// 2026-09-04 from `crates/transync/tests/fixtures/{scn-15-html-blocks,
+/// scn-14-full,reader-honesty}.md` (ti `4fb858`). Paths are relative to
+/// `CARGO_MANIFEST_DIR`, and `a_corpus_fixture_never_reaches_outside_this_crate`
+/// holds them there.
+///
+/// These copies are **not** a mirror: nothing tracks the originals, and they
+/// are not supposed to. What the pin needs from them is document-scale HTML
+/// that does not move, and an input that another crate can edit is exactly the
+/// input a byte-exact golden must not be built on. They are Markdown
 /// documents; `scan_tags` is a byte scanner and does not care.
 const FIXTURES: &[(&str, &str)] = &[
-    (
-        "scn-15-html-blocks",
-        "crates/transync/tests/fixtures/scn-15-html-blocks.md",
-    ),
-    (
-        "scn-14-full",
-        "crates/transync/tests/fixtures/scn-14-full.md",
-    ),
-    (
-        "reader-honesty",
-        "crates/transync/tests/fixtures/reader-honesty.md",
-    ),
+    ("scn-15-html-blocks", "tests/fixtures/scn-15-html-blocks.md"),
+    ("scn-14-full", "tests/fixtures/scn-14-full.md"),
+    ("reader-honesty", "tests/fixtures/reader-honesty.md"),
 ];
 
 /// The regions the R0002-* / R0003-* incidents were about, plus the two
@@ -283,7 +296,7 @@ const EDGE_CASES: &[(&str, &str)] = &[
 
 /// Every corpus entry as `(name, source)`, fixtures first.
 fn corpus() -> Vec<(String, String)> {
-    let root = repo_root();
+    let root = crate_dir();
     let mut out = Vec::new();
     for (name, rel) in FIXTURES {
         let path = root.join(rel);
@@ -295,6 +308,50 @@ fn corpus() -> Vec<(String, String)> {
         out.push(((*name).to_string(), (*src).to_string()));
     }
     out
+}
+
+/// The packaging half of ti `4fb858`, made falsifiable in-crate.
+///
+/// `transync-html` is on the publication roster (`workspace_publication.rs`),
+/// and a published tarball contains this crate's `tests/` and nothing above
+/// it. `cargo publish --dry-run` runs no tests, so a corpus path that climbs
+/// out of the crate breaks nothing here and panics for the first person to run
+/// the suite from the tarball — which is how the original `../..` spelling
+/// survived a month unnoticed. This test is the gate that spelling would have
+/// tripped: it does not ask whether the file is readable *today*, it asks
+/// whether the path can only name a file that ships with the crate.
+#[test]
+fn a_corpus_fixture_never_reaches_outside_this_crate() {
+    // Anti-vacuity: an empty list would satisfy every assertion below.
+    assert_eq!(
+        FIXTURES.len(),
+        3,
+        "the document-scale corpus changed size; if that is deliberate, \
+         re-bless the goldens and update this count"
+    );
+    for (name, rel) in FIXTURES {
+        let path = Path::new(rel);
+        assert!(
+            path.is_relative(),
+            "fixture `{name}` is an absolute path (`{rel}`); it must be \
+             relative to CARGO_MANIFEST_DIR so it ships with the crate"
+        );
+        assert!(
+            !path
+                .components()
+                .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_))),
+            "fixture `{name}` reaches outside this crate (`{rel}`). A \
+             published tarball carries `crates/transync-html/**` and nothing \
+             else, so this pin would panic from the tarball, and an edit in \
+             the other crate would turn it red with a message blaming a token \
+             change that never happened (ti 4fb858). Copy the input under \
+             `tests/fixtures/` instead."
+        );
+        assert!(
+            crate_dir().join(path).is_file(),
+            "fixture `{name}` is missing at `{rel}`"
+        );
+    }
 }
 
 /// The stream every shipped consumer sees: `Open` and `Close`, nothing else.
@@ -366,8 +423,10 @@ fn the_open_close_stream_and_tag_inventory_are_byte_identical_to_the_golden() {
          unless this is a deliberate, reviewed tokenizer or walk change \
          landing through the two-bless protocol (ti 549b20 task 8; ti \
          490d97 wave 1), in which case this red IS the deliverable and the \
-         diff between the blessings is its record. Absent that, find out \
-         which region moved."
+         diff between the blessings is its record. The corpus is in-crate \
+         since ti 4fb858, so `git diff tests/fixtures/` names the only other \
+         cause — a moved snapshot input, which is re-blessed, not reviewed. \
+         Absent both, find out which region moved."
     );
 }
 
@@ -388,6 +447,9 @@ fn balance_fragment_output_is_byte_identical_to_the_golden() {
              golden — unless this is a deliberate, reviewed tokenizer or walk \
              change landing through the two-bless protocol (ti 549b20 task 8; \
              ti 490d97 wave 1), in which case this red IS the deliverable. \
+             The corpus is in-crate since ti 4fb858, so `git diff \
+             tests/fixtures/` names the only other cause — a moved snapshot \
+             input, which is re-blessed, not reviewed. \
              This is the message a WALK change reaches first: `walk_elements` \
              can move this output with `scan_tags` byte-identical, so a green \
              token-stream pin is not evidence that nothing moved."

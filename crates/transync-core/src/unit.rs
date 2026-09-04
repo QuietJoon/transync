@@ -221,6 +221,15 @@ pub fn build_batches(
     let instruction_envelope = crate::llm::prompt::instruction_envelope_json(
         crate::llm::prompt::InstructionVariant::for_run(&profile.constraints, facts),
     );
+    // OI-0040: the reference-definition append tripwire. HERE because this is
+    // the last point at which the run's real unit list is still owned — after
+    // the row-window split above (a window is validated as its own unit, so it
+    // pays the append too) and before `partition_by_section` below consumes it
+    // — and because `build_batches` runs exactly once per run, which is how
+    // often this note is allowed to speak.
+    if let Some(w) = ref_defs_append_warning(doc, &units) {
+        tracing::warn!(target: "transync::pipeline", "{w}");
+    }
     // DCR-0027 P1: partition, then pack — instead of handing the whole unit
     // list to one packing call, which let a batch straddle a `##` boundary and
     // left "which glossary entries apply to this batch's prompt" without a
@@ -600,6 +609,300 @@ mod html_dominance_tests {
     fn an_empty_document_is_silent() {
         assert_eq!(warning_for(""), None);
         assert_eq!(warning_for("---\n"), None);
+    }
+}
+
+/// Where [`ref_defs_append_warning`] starts speaking: 6,000,000 byte-units,
+/// i.e. inline-eligible units × `|Document.ref_defs|`.
+///
+/// Measured, not chosen. The append costs **8.7 ns per appended byte**
+/// (validated out of sample to 1.2 % on a held-back 1,200-unit × 50 KB point),
+/// and it is paid twice per unit because the pool goes onto both payloads —
+/// so a product of 6,000,000 is ~104 ms of extra comrak work. That is the
+/// smallest point in the sweep whose tax was clearly above run-to-run noise
+/// (1,200 units × a 5 KB pool: +105.9 ms on a 450 ms baseline, 23.5 %). Below
+/// it the append is not worth a sentence; above it, it is the run's shape.
+///
+/// For scale in the other direction: the largest pool anywhere in this
+/// repository's own 262-document corpus is 511 bytes, and `CHANGELOG.md` — the
+/// worst real case, 1,239 units against a 350 B pool — is a product of 433,650,
+/// about 7 % of this threshold. Nothing here fires it, which is exactly why the
+/// tripwire is code rather than a note in a register.
+const REF_DEFS_APPEND_WARN_BYTE_UNITS: u64 = 6_000_000;
+
+/// Nanoseconds of extra comrak work per byte of appended pool, per side: 87/10.
+///
+/// Kept as a rational rather than a `f64` so the reported figure is a
+/// deterministic function of the document and two runs over the same bytes
+/// read identically — the same rule `html_dominance_warning`'s truncated
+/// integer percent follows.
+const REF_DEFS_APPEND_NS_PER_BYTE_NUMERATOR: u64 = 87;
+const REF_DEFS_APPEND_NS_PER_BYTE_DENOMINATOR: u64 = 10;
+
+/// Say so when a run is large enough for the whole-document reference-
+/// definition append to cost real time (OI-0040).
+///
+/// **The deferral's own re-trigger, in code.** `validate::inline` appends
+/// `Document.ref_defs` — the WHOLE document's link-reference-definition pool —
+/// to BOTH payloads of every inline-eligible unit before its two comrak
+/// parses, so the reparsed bytes grow as O(units × |ref_defs|). The
+/// `[`-prefilter in `crate::validate::inline` (OI-0040 Required Action 1)
+/// removes that for any payload with no bracket to resolve, which is 90.7 % of
+/// `CHANGELOG.md`'s units and every unit of the 259 documents in this corpus
+/// that define no references at all. What it cannot reach is the
+/// reference-heavy document — link-reference house style, where nearly every
+/// block cites something — and there the append is back to full price. The fix
+/// for THAT is the label-filtered pool (append only the definitions a payload
+/// could reference), and it is deliberately deferred rather than built.
+///
+/// A deferral is only honest if someone would notice when it starts to matter,
+/// and measurement says nobody here would: 3 of 262 documents carry any pool,
+/// the largest is 511 bytes, `samples/` has none, and no gate can see it. So
+/// the condition reports itself. A run past
+/// [`REF_DEFS_APPEND_WARN_BYTE_UNITS`] is a run that would have benefited from
+/// the filtered pool, and it says so once, on `transync::pipeline` — the
+/// channel the sibling run-shape notes use (`unit::split`'s row-window split,
+/// `batch::output_budget_warnings`), because this is a fact about the run's
+/// size and not about the operator's profile.
+///
+/// **A note, never a refusal**, like every other advisory at this door: the
+/// pool is what makes reference-style link validation work at all (design D2
+/// §B4, ADR-0012 amendment §4), so nothing is dropped, skipped or capped. If
+/// this ever needs to become a refusal, that is ADR-0016's recorded revisit
+/// trigger — transync running as a service or over third-party documents,
+/// where `units × |ref_defs|` stops being operator-self-inflicted and an
+/// attacker defeats the prefilter with one `[` per block.
+///
+/// **What is counted.** Inline-eligible units only: `check_inline` returns
+/// early for a `CodeBlock` (a fence body has no inline nodes) and for an
+/// `InputMode::HtmlSegments` unit (its payload is a JSON segment array the
+/// splice check owns), and a unit that never reaches the append must not vote
+/// on whether the append is expensive. Two sides per unit, since the pool goes
+/// onto the source payload and the translated one. Retry rounds and the
+/// pre-network per-heading twin in `unit::context` are NOT counted: both would
+/// only raise the figure, and this note is a floor on the cost, not a budget.
+///
+/// TRACE: OI-0040
+pub(crate) fn ref_defs_append_warning(doc: &Document, units: &[TranslationUnit]) -> Option<String> {
+    let pool_bytes = doc.ref_defs.len() as u64;
+    if pool_bytes == 0 {
+        return None;
+    }
+    let eligible = units
+        .iter()
+        .filter(|u| {
+            !matches!(u.block_kind, crate::id::BlockKind::CodeBlock { .. })
+                && !matches!(u.input_mode, crate::llm::InputMode::HtmlSegments)
+        })
+        .count() as u64;
+    let byte_units = eligible.saturating_mul(pool_bytes);
+    if byte_units < REF_DEFS_APPEND_WARN_BYTE_UNITS {
+        return None;
+    }
+
+    // Integer arithmetic throughout: 2 sides × 8.7 ns per appended byte,
+    // truncated to whole milliseconds.
+    let est_ms = byte_units.saturating_mul(2 * REF_DEFS_APPEND_NS_PER_BYTE_NUMERATOR)
+        / (REF_DEFS_APPEND_NS_PER_BYTE_DENOMINATOR * 1_000_000);
+    Some(format!(
+        "this run appends the document's whole {pool_bytes}-byte \
+         link-reference-definition pool (`Document.ref_defs`) to both payloads of each \
+         of its {eligible} inline-eligible units before the inline layer's parses: \
+         {byte_units} byte-units, past the {REF_DEFS_APPEND_WARN_BYTE_UNITS} this note \
+         fires at, and about {est_ms} ms of extra parsing per validation round \
+         (measured at 8.7 ns per appended byte). \
+         Nothing is refused and nothing is skipped — the pool is what makes reference-style \
+         links validate. The append is already skipped for any payload carrying no `[`, so a \
+         document that cites few of its definitions pays little of this; this one does not. \
+         What remains is the label-filtered pool — append only the definitions a payload \
+         could reference — deferred with this note as its re-trigger (OI-0040)"
+    ))
+}
+
+// OI-0040: the deferral's tripwire. Both directions matter for the same reason
+// they do for the html-dominance note above — it has to fire on the shape it
+// exists for, and it has to stay silent on this repository's own corpus, which
+// is what makes it evidence rather than noise.
+#[cfg(test)]
+mod ref_defs_append_tripwire_tests {
+    use super::*;
+    use crate::id::{BlockId, BlockKind};
+    use crate::llm::{BatchId, BlockConstraints, BlockContext, InputMode};
+
+    /// A pool of `bytes` bytes, spelled as real definitions so the number
+    /// stands for something a document could actually contain.
+    fn pool(bytes: usize) -> String {
+        let mut s = String::new();
+        let mut i = 0;
+        while s.len() < bytes {
+            s.push_str(&format!(
+                "[ref{i:05}]: https://example.com/docs/page-{i:05}\n"
+            ));
+            i += 1;
+        }
+        s.truncate(bytes);
+        s
+    }
+
+    fn units(n: usize, kind: BlockKind, mode: InputMode) -> Vec<TranslationUnit> {
+        (0..n)
+            .map(|i| TranslationUnit {
+                unit_id: BlockId(format!("p-{i:04}")),
+                block_kind: kind.clone(),
+                input_mode: mode.clone(),
+                source_payload: "See [the docs][ref00000].".to_string(),
+                context: BlockContext::default(),
+                constraints: BlockConstraints::default(),
+                source_hash: 0,
+                batch_id: BatchId::new(1),
+                retry: None,
+            })
+            .collect()
+    }
+
+    /// A parsed document carrying `pool` as its reference-definition pool.
+    /// Parsed rather than hand-built so the field this reads is the one
+    /// `parser::refdefs` fills.
+    fn doc_with_pool(pool: &str) -> Document {
+        let mut doc = crate::parser::parse(&format!("Prose.\n\n{pool}")).expect("parses");
+        crate::id::assign_block_ids(&mut doc);
+        doc.ref_defs = pool.to_string();
+        doc
+    }
+
+    #[test]
+    fn a_large_pool_against_many_units_reports_itself() {
+        // The smallest point in the measured sweep that is above noise:
+        // 1,200 units × a 5 KB pool.
+        let p = pool(5_000);
+        let doc = doc_with_pool(&p);
+        let us = units(1_200, BlockKind::Paragraph, InputMode::TextFragment);
+        let w = ref_defs_append_warning(&doc, &us).expect("6,000,000 byte-units must fire");
+        assert!(
+            w.contains("link-reference-definition pool"),
+            "the note must say what it is about: {w}"
+        );
+        assert!(w.contains("6000000"), "it must show the product: {w}");
+        assert!(w.contains("1200"), "and the unit count: {w}");
+        assert!(
+            w.contains("104 ms"),
+            "and the measured cost, deterministically: {w}"
+        );
+        assert!(
+            w.contains("OI-0040"),
+            "and the record whose deferral it re-triggers: {w}"
+        );
+    }
+
+    #[test]
+    fn the_repositorys_own_worst_document_stays_silent() {
+        // CHANGELOG.md's measured shape: 1,239 units, a 350 B pool — 7 % of
+        // the threshold. If this ever fires, the note has become noise.
+        let doc = doc_with_pool(&pool(350));
+        let us = units(1_239, BlockKind::Paragraph, InputMode::TextFragment);
+        assert_eq!(ref_defs_append_warning(&doc, &us), None);
+    }
+
+    #[test]
+    fn a_document_with_no_definitions_is_never_asked() {
+        // 259 of this corpus's 262 documents, and every `samples/` fixture:
+        // an empty pool costs nothing at any unit count.
+        let doc = doc_with_pool("");
+        let us = units(100_000, BlockKind::Paragraph, InputMode::TextFragment);
+        assert_eq!(ref_defs_append_warning(&doc, &us), None);
+    }
+
+    #[test]
+    fn units_that_never_reach_the_append_do_not_vote() {
+        // Both of `check_inline`'s early returns, at a raw product ten times
+        // the threshold. A fence body has no inline nodes and an html unit's
+        // payload is a segment array, so neither pays the append — and a note
+        // priced off them would be a note about nothing.
+        let doc = doc_with_pool(&pool(20_000));
+        let fences = units(
+            3_000,
+            BlockKind::CodeBlock {
+                info: Some("sh".to_string()),
+                fenced: true,
+            },
+            InputMode::TextFragment,
+        );
+        assert_eq!(ref_defs_append_warning(&doc, &fences), None);
+        let segments = units(3_000, BlockKind::Paragraph, InputMode::HtmlSegments);
+        assert_eq!(ref_defs_append_warning(&doc, &segments), None);
+
+        // The contrast, or the two assertions above prove nothing: the same
+        // pool against the same number of ordinary paragraph units fires.
+        let paras = units(3_000, BlockKind::Paragraph, InputMode::TextFragment);
+        assert!(ref_defs_append_warning(&doc, &paras).is_some());
+    }
+
+    /// The wiring, not the predicate: a real `build_batches` run over a real
+    /// parsed document says it on `transync::pipeline`, and says it ONCE —
+    /// this door runs once per run and the note is priced off the whole unit
+    /// list, so a per-section or per-batch repeat would be the defect.
+    #[test]
+    fn the_note_reaches_the_pipeline_channel_once_per_run() {
+        use crate::test_fixtures::{EventLog, record_events};
+        use std::sync::Arc;
+
+        // 60 units against a ~110 KB pool clears 6,000,000 byte-units with a
+        // document small enough to parse and pack in a test: the product is
+        // what the tripwire reads, not either factor on its own.
+        let mut src = String::new();
+        for i in 0..60 {
+            src.push_str(&format!("Paragraph {i} of prose, citing nothing.\n\n"));
+        }
+        src.push_str(&pool(110_000));
+        let mut doc = crate::parser::parse(&src).expect("parses");
+        crate::id::assign_block_ids(&mut doc);
+        assert!(
+            doc.ref_defs.len() >= 100_000,
+            "the definitions must have reached the pool, not the blocks: {} B",
+            doc.ref_defs.len()
+        );
+
+        let opts = TranslateOptions {
+            source_language: "en".to_string(),
+            target_language: "ko".to_string(),
+            ..TranslateOptions::default()
+        };
+        let log = Arc::new(EventLog::default());
+        {
+            let _guard = record_events(Arc::clone(&log));
+            build_batches(&doc, &opts, None, &html_outcomes(&doc));
+        }
+        let said: Vec<String> = log
+            .messages_on("transync::pipeline")
+            .into_iter()
+            .filter(|m| m.contains("link-reference-definition pool"))
+            .collect();
+        assert_eq!(said.len(), 1, "once per run, on the run channel: {said:?}");
+        assert!(
+            said[0].contains("Document.ref_defs"),
+            "the message names the quantity that moves it: {}",
+            said[0]
+        );
+
+        // And the same 60 paragraphs with no definitions at all are silent —
+        // the ordinary document, and 259 of this corpus's 262.
+        let mut bare =
+            crate::parser::parse(&src[..src.find("[ref").expect("pool starts")]).expect("parses");
+        crate::id::assign_block_ids(&mut bare);
+        assert!(bare.ref_defs.is_empty());
+        let quiet = Arc::new(EventLog::default());
+        {
+            let _guard = record_events(Arc::clone(&quiet));
+            build_batches(&bare, &opts, None, &html_outcomes(&bare));
+        }
+        assert!(
+            quiet
+                .messages_on("transync::pipeline")
+                .iter()
+                .all(|m| !m.contains("link-reference-definition pool")),
+            "a document with no pool must not hear about one: {:?}",
+            quiet.messages_on("transync::pipeline")
+        );
     }
 }
 

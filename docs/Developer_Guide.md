@@ -577,8 +577,12 @@ authority this server answers for. For a bind that names an address, that is
 the address literal, plus `localhost` when the address is a loopback one, plus
 whatever `--allow-host` adds. A wildcard bind (`0.0.0.0`, `::`) is the
 exception in both directions: it names no interface, so it answers for the
-loopback authorities it is also listening on — `127.0.0.1`, `[::1]` and
-`localhost` — and for nothing derived from the wildcard itself, so
+loopback authorities it is actually listening on — **the ones of the bound
+socket's own family** — and for nothing derived from the wildcard itself. A
+`0.0.0.0` bind is IPv4-only, so it answers for `127.0.0.1` and `localhost`
+and **not** `[::1]`: advertising an authority the socket cannot receive on
+sent operators at a connection failure (OI-0045). A dual-stack `::` bind
+does answer at `127.0.0.1`, so it carries all three. Either way,
 `Host: 0.0.0.0:7470` is refused like any other unknown name. Anything
 else is a `421` (or a `400`, when the request states no `Host` or two of them),
 and the server prints the list it answers for at startup so a refusal is not a

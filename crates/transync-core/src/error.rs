@@ -64,6 +64,28 @@ pub enum TransyncError {
     #[error("cancelled")]
     Cancelled,
 
+    /// A value the CALLER supplied in [`crate::TranslateOptions`] is not
+    /// usable, and the run refused before doing any work.
+    ///
+    /// This is a caller-input fault, not an engine fault, and that distinction
+    /// is the whole reason the variant exists. Until v0.5.0 the one check of
+    /// this class — an empty or whitespace-only
+    /// [`crate::TranslateOptions::target_language`] — raised
+    /// [`TransyncError::Internal`], whose stable code `internal` tells a
+    /// consumer "transync has a bug". Consumers wrote their own guards to
+    /// avoid ever seeing it (both in-tree roster consumers do), which is
+    /// downstream compensation for an upstream mis-attribution rather than
+    /// evidence the check was unreachable. Naming the cause is what lets those
+    /// guards be removed.
+    ///
+    /// Stable code `invalid_options`. The CLI cannot produce it — clap
+    /// validates `--target-language` before the library is called — so it is a
+    /// programmatic-caller diagnostic, and `ExitCode::for_pipeline_failure`
+    /// deliberately leaves it on the catch-all arm.
+    ///
+    /// TRACE: OI-0048 (R0009-0053)
+    #[error("invalid options: {0}")]
+    InvalidOptions(String),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -95,6 +117,7 @@ impl TransyncError {
             TransyncError::Profile(_) => "profile_failed",
             TransyncError::Alignment(_) => "alignment_failed",
             TransyncError::Cancelled => "cancelled",
+            TransyncError::InvalidOptions(_) => "invalid_options",
             TransyncError::Internal(_) => "internal",
         }
     }

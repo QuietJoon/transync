@@ -209,11 +209,21 @@ const fmt = (x, d = 3) => x.toFixed(d);
 const pct = (ms) => `${((ms / FRAME_BUDGET_MS) * 100).toFixed(2)} %`;
 
 console.log("\nscroll-frame profile — ti `dd21ad` / OI-0016");
-console.log(`frames driven per pass: ${FRAMES}    frame budget: ${fmt(FRAME_BUDGET_MS, 2)} ms (60 Hz)`);
+console.log(
+  `frames driven per pass: ${FRAMES}    frame budget: ${fmt(FRAME_BUDGET_MS, 2)} ms (60 Hz)`,
+);
 console.log("self-time attributed to `activeBlockWithProgress` by the V8 sampler,");
 console.log("inside the real engine handling real scroll events.\n");
 
-const head = ["blocks", "sweep/frame", "of budget", "deep/frame", "of budget", "busy/frame", "of budget"];
+const head = [
+  "blocks",
+  "sweep/frame",
+  "of budget",
+  "deep/frame",
+  "of budget",
+  "busy/frame",
+  "of budget",
+];
 console.log(head.map((h, i) => (i === 0 ? h.padStart(7) : h.padStart(13))).join(""));
 for (const r of rows) {
   const sweepPF = r.sweepActive / Math.max(1, r.frames);
@@ -228,7 +238,7 @@ for (const r of rows) {
       pct(deepPF).padStart(13),
       `${fmt(busyPF)} ms`.padStart(13),
       pct(busyPF).padStart(13),
-    ].join("")
+    ].join(""),
   );
 }
 

@@ -149,7 +149,7 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
   // the same way a missing pane is.
   if (sourcePane === targetPane) {
     console.warn(
-      "transync: mountSync requires two distinct panes; refusing to mount one element as both source and target"
+      "transync: mountSync requires two distinct panes; refusing to mount one element as both source and target",
     );
     return null;
   }
@@ -233,7 +233,7 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
   if (anchorCount > 0 && rowIds.size === 0) {
     console.warn(
       `transync: rejecting alignment map — it describes no synchronizable ` +
-        `block, but the panes carry ${anchorCount} anchors`
+        `block, but the panes carry ${anchorCount} anchors`,
     );
     return null;
   }
@@ -241,9 +241,14 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
   const sourceAnchors = collectAnchors(sourcePane, "source", rowIds);
   const targetAnchors = collectAnchors(targetPane, "target", rowIds);
 
-  warnMapDomDrift(alignmentMap, sourceAnchors.byId, targetAnchors.byId);
-  warnOffsetParentDrift(sourcePane, sourceAnchors.blocks, "source");
-  warnOffsetParentDrift(targetPane, targetAnchors.blocks, "target");
+  // OI-0047: ONE latch, shared by this mount and every reflow recompute the
+  // controller below schedules, so each drift finding is reported when it
+  // appears and again when it changes — not once per resize frame, and not
+  // (as before) only ever at mount.
+  const driftLatch = new Map();
+  warnMapDomDrift(alignmentMap, sourceAnchors.byId, targetAnchors.byId, driftLatch);
+  warnOffsetParentDrift(sourcePane, sourceAnchors.blocks, "source", driftLatch);
+  warnOffsetParentDrift(targetPane, targetAnchors.blocks, "target", driftLatch);
 
   // The two per-pane contexts are MUTABLE and long-lived: `handleScroll`
   // and the toggle mirror read `blocks` / `partnerById` off them at call
@@ -277,6 +282,8 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
     targetCtx,
     state,
     rowIds,
+    alignmentMap,
+    driftLatch,
   });
 
   // Spec 2026-08-03 §5 (decision 9): mirror <details> toggle state across
@@ -380,17 +387,28 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
  *   reflow the engine itself causes — mirroring the toggle reflows the
  *   partner pane.
  *
- * One recompute does two things. It re-collects both anchor sets, so a
- * block list that went stale is replaced rather than merely re-measured;
- * and it re-runs the last driving pane's scroll handler, which is what
- * actually puts the follower back under the reader. `state.lastDriver` is
- * null until someone drives, and then a reflow has nothing to correct.
+ * One recompute does three things. It re-collects both anchor sets, so a
+ * block list that went stale is replaced rather than merely re-measured; it
+ * re-runs the two drift diagnostics against those fresh sets, latched so the
+ * console reports a change rather than a frame (OI-0047); and it re-runs the
+ * last driving pane's scroll handler, which is what actually puts the
+ * follower back under the reader. `state.lastDriver` is null until someone
+ * drives, and then a reflow has nothing to correct.
  *
  * Every signal is coalesced into a single animation frame: a window drag
  * delivers `ResizeObserver` entries at frame rate, and one recompute per
  * frame is the most that can be observed anyway.
  */
-function wireReflowRecompute({ sourcePane, targetPane, sourceCtx, targetCtx, state, rowIds }) {
+function wireReflowRecompute({
+  sourcePane,
+  targetPane,
+  sourceCtx,
+  targetCtx,
+  state,
+  rowIds,
+  alignmentMap,
+  driftLatch,
+}) {
   let torn = false;
   let rafId = null;
 
@@ -408,6 +426,23 @@ function wireReflowRecompute({ sourcePane, targetPane, sourceCtx, targetCtx, sta
     sourceCtx.partnerById = target.byId;
     targetCtx.blocks = target.blocks;
     targetCtx.partnerById = source.byId;
+    // R0009-0025 / OI-0047: the two drift diagnostics re-run here, over the
+    // sets just collected, latched so a verdict that has not changed prints
+    // nothing. They used to run at mount only, which meant a pane mutated
+    // after mount reported nothing whatsoever — measured: 0 warnings from
+    // `controller.refresh()` where a fresh mount of the same DOM emitted 3.
+    // What is lost without them is reporting rather than behaviour (the row
+    // gate above is not quiet, so an unlisted anchor stays inert either way),
+    // and that is exactly why the silence was worth ending: the consumer got
+    // correct-but-inert panes and no explanation.
+    //
+    // The `quiet` flag on the collection above stays as it is. The
+    // skip/duplicate warnings are recorded as reflow-silent by design in
+    // `contracts.md` §4a, and their finding is per-element rather than the
+    // whole-pane verdict a latch can compare.
+    warnMapDomDrift(alignmentMap, source.byId, target.byId, driftLatch);
+    warnOffsetParentDrift(sourcePane, source.blocks, "source", driftLatch);
+    warnOffsetParentDrift(targetPane, target.blocks, "target", driftLatch);
     if (state.lastDriver === "source") handleScroll(sourceCtx);
     else if (state.lastDriver === "target") handleScroll(targetCtx);
   };
@@ -535,7 +570,7 @@ function collectAnchors(pane, label, rowIds, quiet) {
       unlisted += 1;
       if (!quiet && unlisted <= 5) {
         console.warn(
-          `transync: ignoring anchor "${id}" in ${label} pane — no alignment row claims it`
+          `transync: ignoring anchor "${id}" in ${label} pane — no alignment row claims it`,
         );
       }
       continue;
@@ -544,7 +579,7 @@ function collectAnchors(pane, label, rowIds, quiet) {
       duplicates += 1;
       if (!quiet && duplicates <= 5) {
         console.warn(
-          `transync: duplicate data-sync-id "${id}" in ${label} pane; keeping the first occurrence and ignoring this one`
+          `transync: duplicate data-sync-id "${id}" in ${label} pane; keeping the first occurrence and ignoring this one`,
         );
       }
       continue;
@@ -554,12 +589,12 @@ function collectAnchors(pane, label, rowIds, quiet) {
   }
   if (!quiet && unlisted > 5) {
     console.warn(
-      `transync: ${unlisted - 5} more unlisted-anchor warnings suppressed (${label} pane)`
+      `transync: ${unlisted - 5} more unlisted-anchor warnings suppressed (${label} pane)`,
     );
   }
   if (!quiet && duplicates > 5) {
     console.warn(
-      `transync: ${duplicates - 5} more duplicate data-sync-id warnings suppressed (${label} pane)`
+      `transync: ${duplicates - 5} more duplicate data-sync-id warnings suppressed (${label} pane)`,
     );
   }
   return { blocks, byId };
@@ -585,9 +620,7 @@ function collectAnchors(pane, label, rowIds, quiet) {
 // count because `validateRows` refuses a duplicate `source_block_id` before
 // either is asked.
 function synchronizableRowIds(alignmentMap) {
-  const rows = Array.isArray(alignmentMap && alignmentMap.blocks)
-    ? alignmentMap.blocks
-    : [];
+  const rows = Array.isArray(alignmentMap && alignmentMap.blocks) ? alignmentMap.blocks : [];
   const ids = new Set();
   for (const row of rows) {
     if (row && row.sync_role !== "non-sync") ids.add(row.source_block_id);
@@ -595,16 +628,67 @@ function synchronizableRowIds(alignmentMap) {
   return ids;
 }
 
+/**
+ * The drift diagnostics' latch (OI-0047 / R0009-0025).
+ *
+ * `warnMapDomDrift` and `warnOffsetParentDrift` used to run at mount and
+ * nowhere else, so a pane mutated *after* mount reported nothing at all:
+ * `controller.refresh()` over a DOM carrying a duplicate id, an id no row
+ * claims and a block re-parented under a positioned `<figure>` emitted 0
+ * warnings, where mounting that same DOM fresh emitted 3. Both now re-run on
+ * every reflow recompute, and this is what makes that affordable to read.
+ *
+ * Each diagnostic reduces its finding to a VERDICT string and warns only when
+ * that string differs from the one recorded here under its key. A
+ * window-resize drag delivers a recompute per animation frame; unlatched, one
+ * misconfigured pane would print the same warning once per frame for as long
+ * as the drag lasted — which is why these two were left out of the recompute
+ * in the first place. Latched, the finding prints when it appears and again
+ * when it genuinely changes, which is the case the mount-only version could
+ * not report at all.
+ *
+ * A verdict returning to clean prints nothing — there is no "repaired"
+ * message — but it does replace the stored value, so a defect that comes back
+ * is announced again rather than swallowed by a stale latch. A probe that
+ * cannot reach a verdict (no blocks to measure, no window to ask) leaves the
+ * entry alone instead of recording "ok", or the unchanged drift behind it
+ * would read as new on the next frame.
+ *
+ * The shape rejected here was re-running the probes only on the explicit
+ * `controller.refresh()`. `refresh` is one of five recompute triggers, so that
+ * diagnostic would stay silent for every reflow the engine detects by itself
+ * — visible only to a caller who already suspected something.
+ *
+ * The cost this accepts, stated rather than implied: `warnOffsetParentDrift`
+ * reads `getComputedStyle(pane).position`, so `contracts.md` §4a's "One
+ * property read per pane at mount, never per frame" becomes one read per pane
+ * per *coalesced recompute frame*. It is bounded by the animation frame like
+ * every other recompute cost, and the latch is what keeps the output from
+ * growing with it.
+ */
+function verdictChanged(latch, key, verdict) {
+  if (latch.get(key) === verdict) return false;
+  latch.set(key, verdict);
+  return true;
+}
+
 // loadAlignment gates the schema version and the row shape; this surfaces
 // map-vs-DOM drift (an anchor the map promises that a pane lacks) so an
 // integration mistake is visible instead of silently degrading sync. Rows
 // whose sync_role is "non-sync" (e.g. thematic breaks) carry no DOM anchor
 // by design and are skipped.
-function warnMapDomDrift(alignmentMap, sourceById, targetById) {
-  const rows = Array.isArray(alignmentMap && alignmentMap.blocks)
-    ? alignmentMap.blocks
-    : [];
-  let missingCount = 0;
+//
+// Runs at mount AND on every reflow recompute since OI-0047, latched through
+// `verdictChanged`: the verdict is the whole set of missing anchors, so an
+// anchor that disappears (or arrives) after mount is reported once, and a
+// resize drag over an unchanged pane prints nothing.
+function warnMapDomDrift(alignmentMap, sourceById, targetById, latch) {
+  const rows = Array.isArray(alignmentMap && alignmentMap.blocks) ? alignmentMap.blocks : [];
+  // Every finding is collected before anything is printed, because the latch
+  // (OI-0047) turns on the WHOLE verdict: "p-2 missing in target" and "p-2
+  // missing in target, p-7 missing in source" are different findings, and only
+  // the second one should reopen the console after the first was reported.
+  const missing = [];
   for (const row of rows) {
     if (!row || row.sync_role === "non-sync" || !row.source_block_id) continue;
     // Both panes are probed for the SAME id, because that is the pairing the
@@ -615,21 +699,19 @@ function warnMapDomDrift(alignmentMap, sourceById, targetById) {
     // reported anchors present that the engine could never reach
     // (R0003-0002). `validateRows` now refuses such a map outright, and
     // this reads the one id both code paths key on.
-    const missing = [];
-    if (!sourceById.has(row.source_block_id)) missing.push("source");
-    if (!targetById.has(row.source_block_id)) missing.push("target");
-    if (missing.length === 0) continue;
-    missingCount += 1;
-    if (missingCount <= 5) {
-      console.warn(
-        `transync: alignment map block "${row.source_block_id}" has no DOM anchor in ${missing.join(" + ")} pane`
-      );
-    }
+    const panes = [];
+    if (!sourceById.has(row.source_block_id)) panes.push("source");
+    if (!targetById.has(row.source_block_id)) panes.push("target");
+    if (panes.length === 0) continue;
+    missing.push({ id: row.source_block_id, where: panes.join(" + ") });
   }
-  if (missingCount > 5) {
-    console.warn(
-      `transync: ${missingCount - 5} more missing-anchor warnings suppressed`
-    );
+  const verdict = missing.map((m) => `${m.id}:${m.where}`).join(",");
+  if (!verdictChanged(latch, "map-dom", verdict)) return;
+  for (const m of missing.slice(0, 5)) {
+    console.warn(`transync: alignment map block "${m.id}" has no DOM anchor in ${m.where} pane`);
+  }
+  if (missing.length > 5) {
+    console.warn(`transync: ${missing.length - 5} more missing-anchor warnings suppressed`);
   }
 }
 
@@ -667,21 +749,36 @@ function warnMapDomDrift(alignmentMap, sourceById, targetById) {
  * which have no offset geometry to be wrong about. Nor is an `offsetParent`
  * that is the pane anyway — a `<td>`/`<th>`/`<table>` pane is one without any
  * `position` at all — since then the offsets are already pane-relative.
+ *
+ * Runs at mount AND on every reflow recompute since OI-0047, latched per pane
+ * through [`verdictChanged`]: the verdict is the offending `offsetParent`'s
+ * tag name, or `"ok"` when the precondition holds, so a stylesheet swapped at
+ * runtime is reported once instead of once per resize frame. The two
+ * cannot-judge exits below — no block to probe, no window to ask — record
+ * nothing, since "unknown" is not a change of verdict.
  */
-function warnOffsetParentDrift(pane, blocks, label) {
+function warnOffsetParentDrift(pane, blocks, label, latch) {
+  const key = `offset-parent:${label}`;
   const probe = blocks[0];
   if (!probe) return;
   const view = pane.ownerDocument && pane.ownerDocument.defaultView;
   if (!view || typeof view.getComputedStyle !== "function") return;
-  if (view.getComputedStyle(pane).position !== "static") return;
+  if (view.getComputedStyle(pane).position !== "static") {
+    verdictChanged(latch, key, "ok");
+    return;
+  }
   const parent = probe.offsetParent;
-  if (parent === null || parent === pane) return;
+  if (parent === null || parent === pane) {
+    verdictChanged(latch, key, "ok");
+    return;
+  }
   const where = parent.tagName ? parent.tagName.toLowerCase() : String(parent);
+  if (!verdictChanged(latch, key, where)) return;
   console.warn(
     `transync: the ${label} pane is not the offsetParent of its blocks — ` +
       `contracts.md §4a wants a non-static \`position\` on the pane, but block ` +
       `offsets are being measured against <${where}>, so scroll sync will be ` +
-      `misaligned`
+      `misaligned`,
   );
 }
 
@@ -717,9 +814,7 @@ function loadAlignment(alignmentMap) {
   // safe integer by construction, so `Number` below cannot lose precision.
   const match = /^(\d{1,9})\.(\d{1,9})\.(\d{1,9})$/.exec(v);
   if (!match || match[1] !== "1") {
-    console.warn(
-      `transync: rejecting alignment map with unknown major schema_version=${v}`
-    );
+    console.warn(`transync: rejecting alignment map with unknown major schema_version=${v}`);
     return false;
   }
   // OI-0024: a newer minor/patch than KNOWN_SCHEMA is forward-compat drift —
@@ -727,8 +822,7 @@ function loadAlignment(alignmentMap) {
   const minor = Number(match[2]);
   const patch = Number(match[3]);
   const forwardDrift =
-    minor > KNOWN_SCHEMA.minor ||
-    (minor === KNOWN_SCHEMA.minor && patch > KNOWN_SCHEMA.patch);
+    minor > KNOWN_SCHEMA.minor || (minor === KNOWN_SCHEMA.minor && patch > KNOWN_SCHEMA.patch);
   // R0001-0043: the version says the map SPEAKS this schema; the rows say
   // whether it can actually drive synchronization. Both gates run before
   // the panes are wired.
@@ -739,7 +833,7 @@ function loadAlignment(alignmentMap) {
     console.warn(
       `transync: alignment map schema_version=${v} is newer than this engine ` +
         `(${KNOWN_SCHEMA.major}.${KNOWN_SCHEMA.minor}.${KNOWN_SCHEMA.patch}); ` +
-        `proceeding, but sync may be incomplete`
+        `proceeding, but sync may be incomplete`,
     );
     return true;
   }
@@ -801,21 +895,17 @@ function validateRows(blocks, forwardDrift) {
     const row = blocks[i];
     const at = `block #${i}`;
     if (!row || typeof row !== "object") {
-      console.warn(
-        `transync: rejecting alignment map — ${at} is not an object`
-      );
+      console.warn(`transync: rejecting alignment map — ${at} is not an object`);
       return false;
     }
     const id = row.source_block_id;
     if (typeof id !== "string" || id === "") {
-      console.warn(
-        `transync: rejecting alignment map — ${at} has no string source_block_id`
-      );
+      console.warn(`transync: rejecting alignment map — ${at} has no string source_block_id`);
       return false;
     }
     if (seen.has(id)) {
       console.warn(
-        `transync: rejecting alignment map — duplicate source_block_id "${id}" at ${at}`
+        `transync: rejecting alignment map — duplicate source_block_id "${id}" at ${at}`,
       );
       return false;
     }
@@ -833,27 +923,18 @@ function validateRows(blocks, forwardDrift) {
     // says, exactly like the non-string `sync_role` below: contracts.md §3
     // lets a newer minor add enumerated VALUES, never change a field's JSON
     // type, so there is no forward-compat reading of this.
-    if (
-      targetId !== undefined &&
-      targetId !== null &&
-      typeof targetId !== "string"
-    ) {
+    if (targetId !== undefined && targetId !== null && typeof targetId !== "string") {
       console.warn(
-        `transync: rejecting alignment map — ${at} ("${id}") has a ` +
-          `non-string target_block_id`
+        `transync: rejecting alignment map — ${at} ("${id}") has a ` + `non-string target_block_id`,
       );
       return false;
     }
-    if (
-      typeof targetId === "string" &&
-      targetId !== "" &&
-      targetId !== id
-    ) {
+    if (typeof targetId === "string" && targetId !== "" && targetId !== id) {
       if (!forwardDrift) {
         console.warn(
           `transync: rejecting alignment map — ${at} pairs source_block_id ` +
             `"${id}" with target_block_id "${targetId}"; schema 1.x pairs ` +
-            `anchors by identical id, so this map cannot be synchronized`
+            `anchors by identical id, so this map cannot be synchronized`,
         );
         return false;
       }
@@ -861,21 +942,21 @@ function validateRows(blocks, forwardDrift) {
       if (nonIdentity <= 5) {
         console.warn(
           `transync: alignment map ${at} pairs "${id}" with target_block_id ` +
-            `"${targetId}"; pairing by the source id anyway (forward-compat drift)`
+            `"${targetId}"; pairing by the source id anyway (forward-compat drift)`,
         );
       }
     }
     const role = row.sync_role;
     if (typeof role !== "string") {
       console.warn(
-        `transync: rejecting alignment map — ${at} ("${id}") has a non-string sync_role`
+        `transync: rejecting alignment map — ${at} ("${id}") has a non-string sync_role`,
       );
       return false;
     }
     if (!KNOWN_SYNC_ROLES.has(role)) {
       if (!forwardDrift) {
         console.warn(
-          `transync: rejecting alignment map — ${at} ("${id}") has unknown sync_role "${role}"`
+          `transync: rejecting alignment map — ${at} ("${id}") has unknown sync_role "${role}"`,
         );
         return false;
       }
@@ -883,19 +964,17 @@ function validateRows(blocks, forwardDrift) {
       if (unknownRoles <= 5) {
         console.warn(
           `transync: alignment map ${at} ("${id}") has unknown sync_role "${role}"; ` +
-            `treating it as a scroll anchor (forward-compat drift)`
+            `treating it as a scroll anchor (forward-compat drift)`,
         );
       }
     }
   }
   if (unknownRoles > 5) {
-    console.warn(
-      `transync: ${unknownRoles - 5} more unknown-sync_role warnings suppressed`
-    );
+    console.warn(`transync: ${unknownRoles - 5} more unknown-sync_role warnings suppressed`);
   }
   if (nonIdentity > 5) {
     console.warn(
-      `transync: ${nonIdentity - 5} more non-identity target_block_id warnings suppressed`
+      `transync: ${nonIdentity - 5} more non-identity target_block_id warnings suppressed`,
     );
   }
   return true;
@@ -929,10 +1008,10 @@ function wirePane(ctx) {
     // scrolling. Skip the writes when nothing is currently locked
     // or queued for this pane.
     if (
-      state.smoothLoopRafId[label] == null
-      && state.targets[label] == null
-      && state.lockUntil[label] === 0
-      && !state.smoothLoopActive[label]
+      state.smoothLoopRafId[label] == null &&
+      state.targets[label] == null &&
+      state.lockUntil[label] === 0 &&
+      !state.smoothLoopActive[label]
     ) {
       return;
     }
@@ -1081,9 +1160,7 @@ function handleScroll(ctx) {
   const partnerBlockTop = partnerEl.offsetTop;
   const partnerBlockHeight = Math.max(1, partnerEl.offsetHeight);
   const desiredScrollTop =
-    partnerBlockTop +
-    active.progress * partnerBlockHeight -
-    REFERENCE_OFFSET_PX;
+    partnerBlockTop + active.progress * partnerBlockHeight - REFERENCE_OFFSET_PX;
 
   state.targets[partnerLabel] = desiredScrollTop;
   ensureSmoothLoop(partner, partnerLabel, state);
@@ -1202,6 +1279,18 @@ function ensureSmoothLoop(pane, label, state) {
  * If no block straddles the line (e.g. between blocks during a fast
  * fling), fall back to the topmost-visible block with progress = 0.
  *
+ * **Both ends are clamped (OI-0047 / R0009-0021).** The fallback above
+ * already covers a viewport sitting above the first anchor — every block is
+ * below the reference line, so the topmost visible one answers at progress 0.
+ * The symmetric case was missing: once the reference line passes the last
+ * anchor's bottom, no block straddles it and none is below it either, and
+ * this returned `null`. `handleScroll` reads `null` as "nothing to do", so a
+ * pane carrying more than a viewport of unanchored content below its last
+ * anchor — inside the scroll box — froze the follower from
+ * `scrollTop > lastAnchorBottom - REFERENCE_OFFSET_PX` onward, with no way
+ * back short of scrolling up. Such a position now clamps to the last-ending
+ * anchor at progress 1.
+ *
  * TRACE: SCN-13
  */
 function activeBlockWithProgress(pane, blocks) {
@@ -1216,6 +1305,13 @@ function activeBlockWithProgress(pane, blocks) {
 
   let topmostVisible = null;
   let topmostVisibleTop = Infinity;
+  // The anchor that ends lowest, for the bottom clamp after the walk. Tracked
+  // OUTSIDE the two visibility filters below (OI-0047), because the position
+  // that needs the clamp is precisely the one where nothing is on screen:
+  // scrolled well past the last anchor, every block fails `bottom < scrollTop`
+  // and a tracker fed only by visible blocks would have nothing to offer.
+  let lastEnding = null;
+  let lastEndingBottom = -Infinity;
 
   // Walk every block, not until the first DOM-order overshoot —
   // multi-column or nested-wrapper layouts can produce DOM order that
@@ -1225,6 +1321,16 @@ function activeBlockWithProgress(pane, blocks) {
     const top = el.offsetTop;
     const height = el.offsetHeight;
     const bottom = top + height;
+
+    // Strict `>` keeps the FIRST occurrence in document order when two blocks
+    // end at the same y — the same tie-break `collectAnchors` applies to a
+    // duplicate id, so the clamp cannot select an element the partner lookup
+    // would answer differently about.
+    if (bottom > lastEndingBottom) {
+      lastEndingBottom = bottom;
+      lastEnding = el;
+    }
+
     if (top > visibleBottom) continue;
     if (bottom < scrollTop) continue;
 
@@ -1244,6 +1350,24 @@ function activeBlockWithProgress(pane, blocks) {
 
   if (topmostVisible) {
     return { id: topmostVisible.dataset.syncId, progress: 0 };
+  }
+  // The bottom clamp (OI-0047). Conditioned on the reference line actually
+  // being past the last anchor's bottom rather than installed as a blanket
+  // fallback: the other route to `null` with blocks present — the line sitting
+  // in a gap whose next block is below the fold — keeps the answer it had, so
+  // this adds the one missing clamp instead of re-deciding the whole tail.
+  //
+  // `clientHeight > 0` is the other half of that restraint. A pane with no
+  // layout box — `display: none` in a responsive or tabbed shell — reports 0
+  // for every `offsetTop`, every `offsetHeight` and its own `clientHeight`, so
+  // `ref` (which is never below REFERENCE_OFFSET_PX) sits "past" a last anchor
+  // that ends at 0 and the clamp would fire on entirely phantom geometry. That
+  // matters because a reflow recompute re-runs this for the last DRIVING pane:
+  // hiding the driver would otherwise jerk the still-visible follower to the
+  // driver's first block. A pane with no viewport has no reader position to be
+  // past the end of, and `null` is the right answer for it — as it was before.
+  if (lastEnding && pane.clientHeight > 0 && ref > lastEndingBottom) {
+    return { id: lastEnding.dataset.syncId, progress: 1 };
   }
   return null;
 }

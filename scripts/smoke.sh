@@ -57,36 +57,15 @@ cargo test -p transync-cli --features test-stub-provider -- --test-threads=4
 # shellcheck source-path=SCRIPTDIR source=lib/rustdoc-gate.sh
 source "$REPO_ROOT/scripts/lib/rustdoc-gate.sh"
 
-# The completeness check is what keeps that list honest, and it stays here:
-# a member that grows a src/lib.rs and is not named there fails the run
-# instead of quietly sitting outside the gate. ti 000e5a: the list was
-# written by hand at DCR-0018 and widened by hand at DCR-0020, and
-# transync-openai was left out both times — long enough for its public
-# `client` module doc to carry eight intra-doc links to private items
-# unnoticed. transync-cli is absent on purpose — it is bin-only, with no
-# public API to document.
-ungated=()
-for manifest in "$REPO_ROOT"/crates/*/Cargo.toml; do
-  member_dir="$(dirname "$manifest")"
-  member="$(basename "$member_dir")"
-  # Package name == directory name for every member here; a rename that
-  # breaks that shows up as a `cargo doc` "package not found", which is
-  # the loud failure we want either way.
-  [[ -f "$member_dir/src/lib.rs" ]] || continue
-  gated=0
-  for crate in "${RUSTDOC_GATE_CRATES[@]}"; do
-    if [[ "$crate" == "$member" ]]; then
-      gated=1
-      break
-    fi
-  done
-  if ((gated == 0)); then
-    ungated+=("$member")
-  fi
-done
-
-if ((${#ungated[@]})); then
-  echo "[smoke] FAIL: library member(s) outside the rustdoc gate: ${ungated[*]}" >&2
+# The completeness check that keeps that list honest moved into the library
+# with it (OI-0046, finding R0009-0015): sourcing above walked crates/*/ and
+# left every library member missing from RUSTDOC_GATE_CRATES in
+# RUSTDOC_GATE_UNGATED. The check now covers the hook's invocation as well as
+# this one, and the verdict is still smoke's to act on — a member that grows
+# a src/lib.rs and is not named there fails this run instead of quietly
+# sitting outside the gate.
+if ((${#RUSTDOC_GATE_UNGATED[@]})); then
+  echo "[smoke] FAIL: library member(s) outside the rustdoc gate: ${RUSTDOC_GATE_UNGATED[*]}" >&2
   echo "[smoke]   add them to RUSTDOC_GATE_CRATES in scripts/lib/rustdoc-gate.sh" >&2
   echo "[smoke]   (and to the gate command in docs/Developer_Guide.md and the" >&2
   echo "[smoke]   release checklist)." >&2

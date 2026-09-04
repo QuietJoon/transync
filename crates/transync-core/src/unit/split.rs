@@ -66,18 +66,27 @@ pub(crate) fn split_oversize_tables(
     let factor = crate::batch::resolve_expansion_factor(profile.batching.output_expansion_factor);
     let bpe = resolve_encoder(tokenizer_hint, model_id);
 
-    // Only pay for the rebuild if something actually splits: the common
-    // document has no oversize table at all.
-    if !units
+    // One planning pass, and the rebuild only if something actually splits:
+    // the common document has no oversize table at all. Planning every unit
+    // up front is what makes the pass single — the earlier shape asked
+    // `windows_of` twice for every unit up to the first splitting one — and
+    // each plan carries the `TableRows` it was built from, so `window_units`
+    // re-slices the parse `windows_of` already paid for instead of running a
+    // second whole comrak parse of the same payload (R0009-0044 /
+    // R0009-0045). What it costs is holding one `TableRows` per splitting
+    // unit at once instead of one at a time — bounded by the oversize
+    // tables' own bytes, which their units already carry.
+    let plans: Vec<Option<(TableRows, Vec<Vec<String>>)>> = units
         .iter()
-        .any(|u| windows_of(u, target, factor, &bpe).is_some())
-    {
+        .map(|u| windows_of(u, target, factor, &bpe))
+        .collect();
+    if plans.iter().all(Option::is_none) {
         return;
     }
     let mut out: Vec<TranslationUnit> = Vec::with_capacity(units.len() + 1);
-    for unit in units.drain(..) {
-        match windows_of(&unit, target, factor, &bpe) {
-            Some(plan) => {
+    for (unit, planned) in units.drain(..).zip(plans) {
+        match planned {
+            Some((rows, plan)) => {
                 tracing::debug!(
                     target: "transync::pipeline",
                     "table {} exceeds the effective output target ({target} tokens); \
@@ -86,7 +95,7 @@ pub(crate) fn split_oversize_tables(
                     plan.iter().map(Vec::len).sum::<usize>(),
                     plan.len(),
                 );
-                out.extend(window_units(&unit, &plan));
+                out.extend(window_units(&unit, &rows, &plan));
             }
             None => out.push(unit),
         }
@@ -94,8 +103,15 @@ pub(crate) fn split_oversize_tables(
     *units = out;
 }
 
-/// The row plan for `unit` — one `Vec<String>` of body rows per window — or
-/// `None` when this unit is not split at all.
+/// The row plan for `unit` — one `Vec<String>` of body rows per window,
+/// alongside the sliced parent the plan was built from — or `None` when this
+/// unit is not split at all.
+///
+/// The [`TableRows`] travels with the plan because the rows are the only
+/// record of what the plan indexes: a window is assembled by handing a run of
+/// them back to [`TableRows::window`], and re-deriving them from the parent
+/// payload means a second whole comrak parse of bytes this function just
+/// parsed (R0009-0045).
 ///
 /// Every refusal here is a documented one, and each leaves the unit exactly as
 /// it was: not a table; a table that fits; a payload that does not parse as
@@ -112,7 +128,7 @@ fn windows_of(
     target: usize,
     factor: f64,
     bpe: &CoreBPE,
-) -> Option<Vec<Vec<String>>> {
+) -> Option<(TableRows, Vec<Vec<String>>)> {
     // Spec §7: the explicit `(Table × Html)` exclusion. Keyed on the input
     // mode because that is the unit-level carrier of spelling (§6): after the
     // HTML intake lands, an HTML `<table>` is `BlockKind::Table` with an
@@ -134,7 +150,7 @@ fn windows_of(
         return None;
     }
     let plan = greedy_plan(&rows, &unit.unit_id, target, factor, bpe);
-    (plan.len() > 1).then_some(plan)
+    (plan.len() > 1).then_some((rows, plan))
 }
 
 /// Greedy sizing: body rows accumulate into a window until adding the next one
@@ -194,11 +210,16 @@ fn greedy_plan(
 /// would replay window 1's translation, silently duplicating rows. Hashing the
 /// window's own bytes is the same statement the whole-block path makes: one
 /// unit, one body, one hash.
-fn window_units(parent: &TranslationUnit, plan: &[Vec<String>]) -> Vec<TranslationUnit> {
-    // Re-sliced rather than threaded through: `windows_of` proved it slices,
-    // and this keeps the plan a plain list of rows.
-    let rows = split_table_rows(&parent.source_payload)
-        .expect("the plan was built from this payload's own slice");
+fn window_units(
+    parent: &TranslationUnit,
+    rows: &TableRows,
+    plan: &[Vec<String>],
+) -> Vec<TranslationUnit> {
+    // `rows` is the slice `windows_of` planned from, threaded through rather
+    // than re-derived: `split_table_rows` is a whole comrak parse, and the
+    // `.expect()` that stood here — "the plan was built from this payload's
+    // own slice" — was an invariant asserted at runtime that the signature
+    // now carries instead (R0009-0045).
     let window_count = plan.len() as u32;
     plan.iter()
         .enumerate()

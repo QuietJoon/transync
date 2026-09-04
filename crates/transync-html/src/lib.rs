@@ -1822,8 +1822,100 @@ fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(
     });
 }
 
+/// Would deleting `bytes[run_start..run_end]` — one coalesced run of orphan
+/// close tags — change how a byte that SURVIVES the deletion tokenizes?
+///
+/// This is the balancer's half of the **seam rule** ti `490d97` wave 1 gave
+/// `strip_reserved_sync_attrs` ("replace the run with one space wherever
+/// deleting it would weld bytes together"). Both functions cut bytes out of a
+/// fragment, so both owe the same invariant, and until OI-0046's generative
+/// run found it only one of them held it:
+///
+/// **Deleting an orphan must not change how any surviving byte tokenizes.**
+///
+/// An orphan span is a complete `Close` token, so it never sits inside another
+/// token: the byte before it and the byte after it are both in HTML's DATA
+/// state (or foreign content, which tokenizes tags identically). Raw text and
+/// RCDATA cannot contain one — only the element's own end tag is a token there
+/// — and neither can a comment, CDATA section or bogus comment, whose
+/// interiors [`scan_tags`] never tokenizes. So there are exactly two bytes
+/// whose meaning depends on what FOLLOWS them, and they are the whole hazard:
+///
+/// * **`<`** enters TAG OPEN, where `!`, `?`, `/` or an ASCII letter forms a
+///   token and anything else leaves the `<` a literal character. A `<`
+///   immediately before an orphan is necessarily one of those literals: the
+///   byte after it is the orphan's own `<`, and `<<` leaves the first one a
+///   character. Welding it mints markup out of text: `<</b>x` became `<x`,
+///   `a<</b>!-- …` minted an unterminated comment that swallows the pane,
+///   `a<</b>/div>tail` minted an end tag that closes the sync wrapper early,
+///   and `<</b>div data-sync-id="p-0009">` minted a live element carrying a
+///   live anchor out of bytes the strip had correctly passed over as text
+///   (invariant 7 / OI-0035 / DCR-0033 — the composition was the bypass, not
+///   either layer).
+/// * **`&`** enters CHARACTER REFERENCE, where `#` or an alphanumeric can
+///   still form one. No tag comes of it, so this half is content fidelity
+///   rather than a `contracts.md` §4a break — but it is a real edit to what
+///   the reader sees. In `a&</b>amp;` the `&` is a literal character (`&<`
+///   names no reference), so the six characters `a`, `&`, `a`, `m`, `p`, `;`
+///   reach the page; the plain delete made the bytes one reference and left
+///   two, `a` and `&`. The invariant above is about tokenization rather than
+///   about tags, so it covers this too.
+///
+/// Nothing else can weld. Every other byte in data position is a character
+/// both before and after the cut, and the byte after the run begins whatever
+/// it began before — the run it followed was a token boundary either way.
+///
+/// The separator is one U+0020 and it is always safe: a cut sits in character
+/// position, so the space is character data and can never become markup.
+///
+/// It is also not free, and the cost is worth stating. A browser renders
+/// `<</b>x` as the two characters `<x` — the `<` is data, the end tag closes
+/// nothing and is dropped — where this rule renders three, `< x`. Escaping
+/// the `<` to `&lt;` would render exactly two, and is still the wrong trade:
+/// it rewrites a byte that is NOT in the span being removed (and, for the `&`
+/// case, would rewrite the `&` itself), which turns the balancer into an
+/// editor of surviving content instead of a function that removes orphans.
+/// The strip already chose one space for the same hazard, and one rule for
+/// welding in this crate is worth more than one rendered space in a fragment
+/// that was malformed to begin with.
+fn orphan_cut_would_weld(bytes: &[u8], run_start: usize, run_end: usize) -> bool {
+    // A run at either end of the fragment has nothing to weld to. `<` and `&`
+    // at EOF are literal characters, so a trailing cut is free.
+    let Some(prev) = run_start.checked_sub(1).map(|i| bytes[i]) else {
+        return false;
+    };
+    let Some(&next) = bytes.get(run_end) else {
+        return false;
+    };
+    match prev {
+        b'<' => matches!(next, b'!' | b'?' | b'/') || next.is_ascii_alphabetic(),
+        b'&' => next == b'#' || next.is_ascii_alphanumeric(),
+        _ => false,
+    }
+}
+
 /// Render-path auto-balancing (spec §3.4): tags opened but never closed in
 /// the fragment are closed at its end, and orphan close tags are DROPPED.
+///
+/// "DROPPED" is a *replacement* rather than a plain deletion at one kind of
+/// seam (OI-0046): a run of orphan spans becomes a single U+0020 wherever
+/// removing its bytes would weld the surviving bytes into markup they were
+/// not. `orphan_cut_would_weld` carries the rule and the reason, and the
+/// invariant the two of them establish is that deleting an orphan never
+/// changes how a surviving byte tokenizes — which is also what makes this
+/// function a fixed point on its own output.
+///
+/// The other two passes cannot weld, and it is worth saying why rather than
+/// leaving it to be re-derived. An appended closer begins with `<`, and a `<`
+/// before a `<` stays the literal character it was (HTML's tag-open state
+/// emits it and reconsumes the second one), so a fragment ending in a literal
+/// `<` is safe to close. A truncation removes a suffix, and no byte can weld
+/// onto what is no longer there.
+///
+/// (Plain backticks, not an intra-doc link: that helper is private and this fn
+/// is `pub`, so a link would trip rustdoc's `private_intra_doc_links` lint,
+/// which the pre-commit rustdoc gate runs as `-D warnings`. Same note as on
+/// `strip_reserved_sync_attrs`; do not "restore" the link.)
 ///
 /// "Closed at its end" is conditional since ti `95f55b`: a closer that
 /// would land inside an unterminated trailing comment, CDATA section,
@@ -1844,16 +1936,42 @@ fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(
 /// close pops exactly what the explicit one would have.
 pub fn balance_fragment(html: &str) -> String {
     let walk = walk_elements(html);
+    let bytes = html.as_bytes();
 
     let mut out = String::with_capacity(html.len());
     let mut cursor = 0usize;
-    // Bytes the orphan pass removed BEFORE the trailing region, so the repair
-    // below can map that region's `html` offset onto `out`.
-    let mut removed = 0usize;
-    for (s, e) in walk.orphan_closes {
-        out.push_str(&html[cursor..s]);
-        removed += e - s;
-        cursor = e;
+    // The NET bytes the orphan pass took out before the trailing region — the
+    // deletions minus the separators the seam rule put back — so the repair
+    // below can map that region's `html` offset onto `out`. It is a net figure
+    // rather than a count of deleted bytes because a cut can be replaced by a
+    // space instead of removed (see `orphan_cut_would_weld`).
+    let mut shift = 0usize;
+    let cuts = &walk.orphan_closes;
+    let mut k = 0usize;
+    while k < cuts.len() {
+        // Coalesce the maximal run of ADJACENT orphan spans before judging the
+        // seam, for the reason `strip_reserved_sync_attrs` does: judging each
+        // cut alone would read the byte before it, which for the second of two
+        // touching cuts is a byte this pass has already deleted. `<</b></i>x`
+        // would then see the `>` of `</b>` as its predecessor, call the seam
+        // safe, and weld the literal `<` onto `x` anyway.
+        let run_start = cuts[k].0;
+        let mut run_end = cuts[k].1;
+        while k + 1 < cuts.len() && cuts[k + 1].0 == run_end {
+            k += 1;
+            run_end = cuts[k].1;
+        }
+        out.push_str(&html[cursor..run_start]);
+        if orphan_cut_would_weld(bytes, run_start, run_end) {
+            out.push(' ');
+            // Every orphan span is at least `</a>`, so the run is four bytes
+            // or more and the net shift stays positive.
+            shift += run_end - run_start - 1;
+        } else {
+            shift += run_end - run_start;
+        }
+        cursor = run_end;
+        k += 1;
     }
     out.push_str(&html[cursor..]);
 
@@ -1893,7 +2011,7 @@ pub fn balance_fragment(html: &str) -> String {
                 // A browser ABANDONS a tag cut off at EOF — no element, no
                 // attributes — so the faithful repair is deletion, which is
                 // the act this function already performs on an orphan closer.
-                None => out.truncate(span.0 - removed),
+                None => out.truncate(span.0 - shift),
             }
         }
     }
@@ -3434,6 +3552,78 @@ mod balance_tests {
     fn orphan_close_tag_is_dropped() {
         assert_eq!(balance_fragment("</details>"), "");
         assert_eq!(balance_fragment("tail</div>text"), "tailtext");
+    }
+
+    /// OI-0046: the seam rule, on the balancer's side of it. Same shape as
+    /// `strip_tests::a_cut_that_would_weld_bytes_leaves_one_space`, and the
+    /// four inputs are the four harms `generative_properties.rs::
+    /// deleting_an_orphan_no_longer_welds_a_literal_angle_bracket` measures
+    /// end to end.
+    #[test]
+    fn an_orphan_cut_that_would_weld_bytes_leaves_one_space() {
+        // A literal `<` welded onto a name byte minted a tag.
+        assert_eq!(balance_fragment("<</b>x"), "< x");
+        // Onto `!` it minted a comment that swallows the rest of the pane.
+        assert_eq!(
+            balance_fragment("a<</b>!-- swallow everything"),
+            "a< !-- swallow everything"
+        );
+        // Onto `/` it minted an end tag.
+        assert_eq!(balance_fragment("a<</b>/div>tail"), "a< /div>tail");
+        // Onto `?` it minted a bogus comment.
+        assert_eq!(balance_fragment("a<</b>?pi>tail"), "a< ?pi>tail");
+        // One space, never two: adjacent orphans are one coalesced run, and
+        // the run is replaced rather than padded per cut.
+        assert_eq!(balance_fragment("<</b></i>x"), "< x");
+        // `&` is the other byte whose meaning depends on what follows it. No
+        // tag comes of it, but the reader's text changes: the source shows
+        // six characters (the `&` is literal, since `&<` names no reference)
+        // and the welded reference would show two.
+        assert_eq!(balance_fragment("a&</b>amp;"), "a& amp;");
+    }
+
+    /// The other half of the seam rule: it fires only where deleting really
+    /// would change a token, so an ordinary orphan is still removed
+    /// byte-exactly. Without this the rule would pad every fragment with
+    /// spaces the author never wrote.
+    #[test]
+    fn an_orphan_cut_that_welds_nothing_is_still_deleted_byte_exactly() {
+        for (src, want) in [
+            ("tail</div>text", "tailtext"),
+            // `<` before the cut, but nothing markup-shaped after it.
+            ("<</b> x", "< x"),
+            ("<</b><div>y", "<<div>y</div>"),
+            ("<</b>", "<"),
+            ("a&</b> b", "a& b"),
+            ("a&</b>-b", "a&-b"),
+            // The cut is not adjacent to the literal `<` at all.
+            ("< x</b>y", "< xy"),
+        ] {
+            assert_eq!(balance_fragment(src), want, "input {src:?}");
+        }
+    }
+
+    /// The separator and ti `c1f9a8`'s trailing repair in one fragment, which
+    /// is where the arithmetic could go wrong: that repair maps an `html`
+    /// offset onto the output, so the offset has to be shifted by the cut's
+    /// NET size — four bytes deleted minus one space put back — rather than
+    /// by the bytes the cut removed.
+    #[test]
+    fn a_separator_shifts_the_trailing_repair_by_the_net_cut() {
+        // `<` literal, `</b>` orphan, `div ` text, `<p` a tag cut off at EOF.
+        // The orphan run is replaced by one space and the abandoned tag is
+        // truncated away; a shift of 4 instead of 3 would eat the `v ` too.
+        assert_eq!(balance_fragment("<</b>div <p"), "< div ");
+        // The truncation itself never welds: it removes a suffix, and the `<`
+        // it leaves at the end is a literal character exactly as it was.
+        assert_eq!(balance_fragment("a<<p"), "a<");
+        // Nor does an appended closer, because it begins with `<` and `<<`
+        // leaves the first one literal.
+        assert_eq!(balance_fragment("<div>x<"), "<div>x<</div>");
+        // The same seam with a terminator-bearing region instead: the repair
+        // appends rather than truncates, so it does not read the shift, but
+        // the separator must still be there.
+        assert_eq!(balance_fragment("<</b>div <!--x"), "< div <!--x-->");
     }
 
     #[test]

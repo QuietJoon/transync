@@ -1,0 +1,170 @@
+# STATUS: COMPLETED
+# CLAIM_TOKEN: 8CA89028-8A27-4491-9143-88FE3A391D8C
+# CLAIMED_AT: 2026-09-04T03:29:01Z
+# COMPLETED_AT: 2026-09-04T05:01:45Z
+# Summary:
+# - Make the out-directory/report conflict explicit and normalize model IDs.
+# - Normalize recognized profile directions consistently with the CLI.
+# - Count only alphabetic script characters and cover current auxiliary ranges.
+# - Escape Unicode line separators and bidirectional formatting in diagnostics.
+# - Recognize the self-closing delimiter in the narrow HTML marker.
+# Affected files:
+# - crates/transync-cli/src/translate_cmd.rs
+# - crates/transync-cli/src/translate_cmd/args.rs
+# - crates/transync-cli/src/translate_cmd/input.rs
+# - crates/transync-cli/src/translate_cmd/report.rs
+# - crates/transync-core/src/profile.rs
+# - crates/transync-lang/src/script.rs
+# Issue mapping:
+# - R0010-0012: add validation_report to --out-dir conflicts.
+# - R0010-0055: accept '/' after the html marker name.
+# - R0010-0058: trim explicit and environment model identifiers.
+# - R0010-0060: normalize recognized profile directions.
+# - R0010-0066: exclude digits and punctuation from in-script letter counts.
+# - R0010-0067/R0010-0068: render line/bidi format characters inert.
+# - R0010-0078/R0010-0079/R0010-0080/R0010-0081: extend script coverage.
+diff --git a/crates/transync-cli/src/translate_cmd.rs b/crates/transync-cli/src/translate_cmd.rs
+--- a/crates/transync-cli/src/translate_cmd.rs
++++ b/crates/transync-cli/src/translate_cmd.rs
+@@ -124,7 +124,10 @@ pub struct TranslateArgs {
+     ///
+     /// TRACE: EXT-2026-07 P1-6
+     /// TRACE: R0001-0035
+-    #[arg(long = "out-dir", conflicts_with_all = ["output", "map", "html_out"])]
++    #[arg(
++        long = "out-dir",
++        conflicts_with_all = ["output", "map", "html_out", "validation_report"]
++    )]
+     pub out_dir: Option<PathBuf>,
+     #[arg(long = "html-out")]
+     pub html_out: Option<PathBuf>,
+diff --git a/crates/transync-cli/src/translate_cmd/args.rs b/crates/transync-cli/src/translate_cmd/args.rs
+--- a/crates/transync-cli/src/translate_cmd/args.rs
++++ b/crates/transync-cli/src/translate_cmd/args.rs
+@@ -163,12 +163,13 @@ pub(crate) fn resolve_bundle_title(flag: Option<&str>, document_title: Option<&s
+ ///
+ /// TRACE: contracts.md §6
+ pub(crate) fn resolve_model(flag: Option<&str>) -> String {
+-    flag.map(str::to_string)
++    flag.map(str::trim)
++        .map(str::to_string)
+         .or_else(|| {
+             std::env::var("TRANSYNC_OPENAI_MODEL")
+                 .ok()
+-                .filter(|v| !v.trim().is_empty())
++                .map(|v| v.trim().to_string())
++                .filter(|v| !v.is_empty())
+         })
+         .unwrap_or_else(|| "gpt-5-chat-latest".to_string())
+ }
+diff --git a/crates/transync-cli/src/translate_cmd/input.rs b/crates/transync-cli/src/translate_cmd/input.rs
+--- a/crates/transync-cli/src/translate_cmd/input.rs
++++ b/crates/transync-cli/src/translate_cmd/input.rs
+@@ -133,7 +133,7 @@ pub(crate) fn html_document_marker(source: &str) -> Option<&'static str> {
+             continue;
+         }
+         match bytes.get(m.len()) {
+-            None | Some(b'>') => return Some(marker),
++            None | Some(b'>') | Some(b'/') => return Some(marker),
+             Some(c) if c.is_ascii_whitespace() => return Some(marker),
+             _ => {}
+         }
+diff --git a/crates/transync-cli/src/translate_cmd/report.rs b/crates/transync-cli/src/translate_cmd/report.rs
+--- a/crates/transync-cli/src/translate_cmd/report.rs
++++ b/crates/transync-cli/src/translate_cmd/report.rs
+@@ -60,6 +60,15 @@ pub(crate) fn diagnostic_line(msg: &str) -> String {
+             '\n' => out.push_str("\\n"),
+             '\r' => out.push_str("\\r"),
+             '\t' => out.push_str("\\t"),
++            // Unicode separators and bidi format characters are not
++            // `char::is_control`, but they can still create or visually
++            // reorder terminal/log lines derived from untrusted text.
++            '\u{061c}'
++            | '\u{200e}'..='\u{200f}'
++            | '\u{2028}'..='\u{202e}'
++            | '\u{2066}'..='\u{2069}' => {
++                out.push_str(&format!("\\u{{{:04x}}}", ch as u32));
++            }
+             c if c.is_control() => out.push_str(&format!("\\u{{{:02x}}}", c as u32)),
+             c => out.push(c),
+         }
+diff --git a/crates/transync-core/src/profile.rs b/crates/transync-core/src/profile.rs
+--- a/crates/transync-core/src/profile.rs
++++ b/crates/transync-core/src/profile.rs
+@@ -993,6 +993,13 @@ pub fn load_profile(input: &str) -> Result<ProfileMetadata, ProfileError> {
+     // ignoring it would render LTR without telling anyone. Warn and
+     // normalize to None so every reader sees the documented `auto` default.
+     let mut render = parsed.render.unwrap_or_default();
++    if let Some(direction) = render.target_direction.as_mut() {
++        if direction.eq_ignore_ascii_case("auto")
++            || direction.eq_ignore_ascii_case("ltr")
++            || direction.eq_ignore_ascii_case("rtl")
++        {
++            direction.make_ascii_lowercase();
++        }
++    }
+     let unknown_direction = match render.target_direction.as_deref() {
+         None | Some("auto") | Some("ltr") | Some("rtl") => None,
+         Some(other) => Some(other.to_string()),
+diff --git a/crates/transync-lang/src/script.rs b/crates/transync-lang/src/script.rs
+--- a/crates/transync-lang/src/script.rs
++++ b/crates/transync-lang/src/script.rs
+@@ -46,15 +46,38 @@ impl ExclusiveScript {
+     fn contains(self, c: char) -> bool {
+         match self {
+-            // Syllables, Jamo, and compatibility Jamo.
+-            Self::Hangul => {
+-                matches!(c, '\u{AC00}'..='\u{D7AF}' | '\u{1100}'..='\u{11FF}' | '\u{3130}'..='\u{318F}')
+-            }
++            // Syllables, Jamo, compatibility/extended Jamo, and halfwidth
++            // Hangul. `read` separately excludes non-alphabetic code points.
++            Self::Hangul => matches!(
++                c,
++                '\u{AC00}'..='\u{D7AF}'
++                    | '\u{1100}'..='\u{11FF}'
++                    | '\u{3130}'..='\u{318F}'
++                    | '\u{A960}'..='\u{A97F}'
++                    | '\u{D7B0}'..='\u{D7FF}'
++                    | '\u{FFA0}'..='\u{FFDC}'
++            ),
+             // Hiragana and Katakana. Han is excluded on purpose — Japanese
+             // shares it with Chinese, so it cannot discriminate.
+-            Self::Kana => matches!(c, '\u{3040}'..='\u{309F}' | '\u{30A0}'..='\u{30FF}'),
++            Self::Kana => matches!(
++                c,
++                '\u{3040}'..='\u{309F}'
++                    | '\u{30A0}'..='\u{30FF}'
++                    | '\u{31F0}'..='\u{31FF}'
++                    | '\u{FF66}'..='\u{FF9D}'
++                    | '\u{1AFF0}'..='\u{1AFFF}'
++                    | '\u{1B000}'..='\u{1B16F}'
++            ),
+             Self::Cyrillic => matches!(c, '\u{0400}'..='\u{04FF}' | '\u{0500}'..='\u{052F}'),
+-            Self::Arabic => matches!(c, '\u{0600}'..='\u{06FF}' | '\u{0750}'..='\u{077F}'),
+-            Self::Devanagari => matches!(c, '\u{0900}'..='\u{097F}'),
++            Self::Arabic => matches!(
++                c,
++                '\u{0600}'..='\u{06FF}'
++                    | '\u{0750}'..='\u{077F}'
++                    | '\u{0870}'..='\u{089F}'
++                    | '\u{08A0}'..='\u{08FF}'
++                    | '\u{FB50}'..='\u{FDFF}'
++                    | '\u{FE70}'..='\u{FEFF}'
++                    | '\u{10EC0}'..='\u{10EFF}'
++            ),
++            Self::Devanagari => matches!(
++                c,
++                '\u{0900}'..='\u{097F}' | '\u{A8E0}'..='\u{A8FF}' | '\u{11B00}'..='\u{11B5F}'
++            ),
+         }
+     }
+ }
+@@ -95,7 +118,7 @@ const FLOOR_DENOMINATOR: usize = 5;
+ pub(crate) fn read(text: &str, script: ExclusiveScript) -> Reading {
+     let (mut in_script, mut other) = (0usize, 0usize);
+     for c in text.chars() {
+-        if script.contains(c) {
++        if c.is_alphabetic() && script.contains(c) {
+             in_script += 1;
+         } else if c.is_alphabetic() {
+             other += 1;

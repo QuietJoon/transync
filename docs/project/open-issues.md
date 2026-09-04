@@ -268,8 +268,8 @@ offline instance namespaces the cache **byte-identically** — pinned by
 - **Decision:** ACCEPT (routed `fix`; the visibility half landed in `88964df`,
   the exit-status half is a decision above a fix route and was deliberately
   refused there)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04 (the linter half deliberately not adopted)
+- **Resolution:** The JS leg is real. Two things were fixes rather than decisions and landed first: the printed remediation no longer instructs `pnpm add -D @biomejs/biome`, which measurement showed makes the *next* commit fail with 180 errors because the old `cd web` scope also walked `vendor/purify.min.js` and the gitignored `wasm/transync_wasm.js`; and a tool **declared** in `web/package.json` but missing from `node_modules/.bin` now FAILS instead of skipping, because that is an uninstalled dependency rather than an absent decision. Then the format half was adopted (option A′): `biome.jsonc` at the repo root, formatter on, **linter and assist off**, `@biomejs/biome` pinned exactly at 2.5.12 because formatter output is not covered by semver. 457 lines reformatted across 10 of the 11 corpus files. The hook's JS leg was rewritten rather than re-scoped: the corpus comes from `git ls-files` and the binary is invoked **from the repo root**, so it now reaches `crates/transync-cli/web/sync.js` and `benchmark/scroll-frame/profile.mjs` — the 22% the `cd web` scope structurally could not see — and an empty file list is an explicit FAIL, which is the skip-is-a-pass bug this issue was about. **Why now rather than deferred:** the deferral's own re-trigger was "the first commit that already moves both `sync.js` copies together", chosen because the reformat is nearly free at that moment and pure churn at every other; OI-0047's fix is that commit, so deferring would have re-triggered in the same breath. The **lint** half stays unadopted on measurement: 62 diagnostics across all 31 historical blob versions, 61 of them one style preference (`useOptionalChain`) whose every fix edits a defensive guard in the sync engine, and the one real defect an unused local. Re-trigger for the lint half: a JS defect reaching a shipped bundle that a lint rule would have caught.
 
 ### Problem
 
@@ -366,8 +366,8 @@ Playwright exercises the sync engine, the WASM demo and SCN-13.
   R0009-0065 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04
+- **Resolution:** The `[`-prefilter landed at both `inline_inventory` sites and the run-level `unit_count × |ref_defs|` tripwire landed in `build_batches`; the shared-AST **seam** is deferred with that tripwire as its own re-trigger, so the deferral reports itself when it starts to matter. Three corrections to this entry as written: the parse count is **6/5/4** per attempt (heading-table-list-blockquote / paragraph / code), not "up to four" — `validate/text_presence.rs` added two on 2026-09-04; Required Action 2's routing of R0009-0034 / R0009-0037 onto **OI-0037 is dead** (OI-0037 resolved 2026-09-01 the other way — it shared a *guard*, not an artifact), so those two are re-homed here rather than closed; and the measured cost is +1,756 ms on a 1,289 ms baseline at 5,000 units × 20 KB pool, of which the prefilter recovers 51.8% at this corpus's bracket density and 0% at link-reference house style.
 
 ### Problem
 
@@ -498,8 +498,8 @@ would make the code worse:
   R0009-0050, R0009-0051, R0009-0073 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04 (partial — the rest declined or deferred, with evidence)
+- **Resolution:** `unit/split.rs` now plans in one pass and carries the sliced parent with the plan: `windows_of` runs once per unit instead of once per unit plus once more up to the first splitting table, a whole comrak `split_table_rows` per splitting table is gone, and **a panic site is deleted** — the invariant rides the signature instead of an `.expect`. `impl Default for ProfileMetadata` gained a `# Panics` section: the panic is real but unreachable for any caller of a built crate (the input is an `include_str!` compile-time constant, and 85 in-tree call sites plus three content assertions fail first), and all three structural fixes are worse than the disease — a `build.rs` duplicates `load_profile`'s rules, Rust literals violate the single-source rule `default_profile_single_source.rs` enforces, and a `Default` that stops equalling `default_profile()` hands out `prompt_body: ""`, converting an unreachable panic into a reachable silent-empty-prompt run. Six of the eight filed redundancies are **declined**, on this entry's own verdict that they were filed above their verified severity. R0009-0049 / R0009-0050 are **deferred**: their prescribed fix needs a new field on `GlossaryEntry`, a tier-(a) public type without `#[non_exhaustive]` whose serde shape is operator-edited profile TOML — a breaking wire change for a loop this entry itself records as dwarfed by the tiktoken encode beside it. Re-trigger: the next breaking window that is already moving `GlossaryEntry`.
 
 ### Problem
 
@@ -632,8 +632,8 @@ even though nothing reaches it today.
 - **Source:** R0009-0033, R0009-0079 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04
+- **Resolution:** All three sites linearized. **Dated scope note:** this entry names two sites, and a third — `validate/full_rescan_html.rs`'s `attribute_offenders`, written 2026-09-03 by `6503255` with the identical shape, eight days after this entry — is covered here rather than given its own register row, because splitting twins across two entries is how one of them rots. `widen_to_neighbors` also stopped comparing `String` where `usize` was available, which is why it was 8× its sibling: measured 26 ms at 5,000 blocks, 245 ms at 20,000, 1.9 s at 50,000 — and N is bounded by the caller's document, not by this repository, which is what moved this off the "cold path, therefore negligible" reading.
 
 ### Problem
 
@@ -701,8 +701,8 @@ throughput problem and should not be prioritized as one.
 - **Source:** R0009-0068, R0009-0069, R0009-0070, R0009-0071 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04
+- **Resolution:** `crates/transync-cli/src/output.rs` went **4,005 → 411 lines** across five concern modules — `fileset` (staged commit + atomicity), `publish` (`--out-dir`), `preflight` (bundle-directory shape), `bundle` (rendering + templates), `destination` (vetting + normalization) — beside the pre-existing `lock`. **Proven a pure move, not asserted:** an independent review wrote its own Rust lexer and found 119 of 119 item bodies and all 49 test bodies **byte-exact**, the code string-literal multiset identical at 746/746, and every order-sensitive body (`write_fileset_atomic`, `commit_staged_renames`, `publish_out_dir`, `stage_out_dir_files`, `rollback_created_dirs`, `cleanup_temps`) unchanged — so the staging → fsync → rename → rollback ordering carrying `--out-dir`'s all-or-nothing guarantee cannot have moved. Nothing became `pub`; all twelve private → `pub(super)` widenings have a verified cross-file caller. The other three files in this entry close as **measured non-issues**: they are mostly inline test code, as this entry already recorded. One finding came out of the split and is filed separately: nine broken intra-doc links, four of them in `output/lock.rs` — a file the split never opened — which no gate in this repository catches, because `rustdoc-gate.sh` excludes bin-only `transync-cli` and clippy does not check intra-doc links.
 
 ### Problem
 
@@ -902,8 +902,8 @@ comment, but not on the public knob the operator actually sets.
 - **Source:** R0009-0002, R0009-0008, R0009-0009 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04
+- **Resolution:** All three defects fixed, each with a test proven to fail against pre-fix code. `send_file`'s streaming branch now keeps the count `tokio::io::copy` returns and fails with `UnexpectedEof` naming both numbers, so a file that shrank between `metadata()` and the copy drops the connection instead of closing as if the response had been delivered — the only correct HTTP/1.1 answer once `Content-Length` is already on the wire. `HostPolicy` now advertises only the loopback authorities of the bound socket's own family, so a `0.0.0.0` bind stops naming `[::1]` and sending operators at a connection failure; the dual-stack `::` case still carries all three. **Required Action 2 is struck as wrong:** `contracts.md` §6's authority sentence is family-agnostic and enumerates nothing, so it needed no correction — the `[::1]` enumeration lived in `docs/Developer_Guide.md` and `docs/Quick_Start.md`, both now corrected, and in this entry's own prose.
 
 ### Problem
 
@@ -991,8 +991,8 @@ trying an authority that cannot work. R0009-0009 is display noise.
 - **Source:** R0009-0015, R0009-0018, R0009-0067 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04
+- **Resolution:** All three sub-items. (1) The rustdoc **completeness** loop moved from `scripts/smoke.sh` into the shared `scripts/lib/rustdoc-gate.sh` that both smoke and the hook already source, so the hook gained it — ~+13 net lines and 15 ms of hook time. Its only candid deferral trigger would have been "someone adds a library member without gating it", the very event it exists to catch, and **that trigger had already fired**: `Developer_Guide.md`'s documented gate command omitted `transync-lang`, added 2026-09-02. (2) `web/playwright.config.js`'s hard-coded port gained an env fallback, so two concurrent `test-browser.sh` runs stop colliding. (3) **The demonstration failed, and adopting the target was right.** `crates/transync-html/tests/generative_properties.rs` — 840 lines, a nine-line `splitmix64` generator over four pinned seeds, `std` only, **no dependency, no `cargo-fuzz`, no `#[ignore]`** — because the only automatic gate here is the pre-commit hook and a coverage-guided harness would run at no venue, which this repository has two measured records of (`benchmark/lang-detect/`'s single never-re-run `RESULTS.md`, and `smoke-live-gate.sh anthropic`, written and never executed). It found a **live defect on its first execution** — `balance_fragment`'s orphan-deletion pass welds a literal `<` onto its new neighbour, minting markup from text, with four harms including a `strip_reserved_sync_attrs` bypass that puts an attacker-chosen `data-sync-id` on a real element in a pane (ticket `fdd989`). **Why 8/8 historical divergences being pinned did not cover it, measured:** not one of the 38 `EDGE_CASES` entries produces a single orphan close tag — zero — so the entire orphan-deletion pass, the first thing `balance_fragment` does, had no corpus coverage at all; six entries carry a literal `<` and none carries one alongside an orphan closer. The two ingredients existed separately and never together, which is the combinatorial gap a hand-picked corpus structurally cannot close. One correction to this entry's own framing: the anchor-safety invariant (`walk_elements(&balanced).unclosed.is_empty()`) was asserted over **2** inputs, not the 213 literals the decision brief reported; the 41 goldens pin bytes, never that blessed bytes are still anchor-safe.
 
 ### Problem
 
@@ -1095,8 +1095,8 @@ once, on a code path the threat model says to assume hostile.
 - **Source:** R0009-0021, R0009-0025 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04
+- **Resolution:** `activeBlockWithProgress` gained the bottom clamp it was missing — it tracks the last-ending anchor during the existing walk and returns it at `progress: 1`, so the follower no longer freezes once the reference line passes the last anchor — and `warnMapDomDrift` / `warnOffsetParentDrift` now re-run on every coalesced reflow recompute, **latched** so a warning fires only when the verdict changes. Both `sync.js` copies moved in one commit, as `sync_js_drift.rs` requires. The refresh-only alternative was rejected: a diagnostic that fires only on an explicit `controller.refresh()` is one nobody sees. `contracts.md` §4a is amended for the consequence — its "one property read per pane at mount, never per frame" budget is now one read per pane **per recompute frame**, and that widening is the contract, because the old budget bought its cheapness by going silent exactly when geometry changes.
 
 ### Problem
 
@@ -1197,8 +1197,8 @@ explanation.
 - **Source:** R0009-0052, R0009-0053, R0009-0075, R0009-0078 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN
-- **Resolution:** —
+- **Status:** RESOLVED 2026-09-04 (R0009-0052 deferred)
+- **Resolution:** Policy adopted: **the library refuses at a boundary a real caller can reach, and records — with a named trigger — where no caller can reach it yet**, reachability measured against the consumer roster in `release-checklist.md`. R0009-0053 landed: `TransyncError::InvalidOptions(String)` with the new stable code `invalid_options`, so an empty `TranslateOptions.target_language` stops reporting `internal` — a code that told a consumer "transync has a bug" about a value the consumer passed in. **The reachability argument was corrected in flight and it inverted:** both roster consumers guard the field, which first read as "unreachable, do not build it", but the guards exist *because* transync mis-reported the cause — downstream compensation for an upstream defect, not evidence the fix was unneeded — and naming the cause is what lets those guards be retired. §1's own Rules paragraph independently forbids the cheaper route: "a new variant requires a **new** stable code rather than reuse of an existing one". R0009-0075 landed: `report.rs`'s `debug_assert!` is a collected missing-id list behind one bounded `tracing::warn!`. R0009-0078 landed as its **doc half only** — §4a now states that the source pane measures the *Block's* `source_range` and never the row's copy, which is equal by construction — with `render.rs` untouched. R0009-0052 is **deferred**: `ProfileConstraints` is `#[non_exhaustive]`, so no caller outside the crate can build the unrecognized value that would reach it. Re-trigger: a caller-built `ProfileConstraints` becomes constructible, or a consumer reports a silently-whole-block table.
 
 ### Problem
 
@@ -1341,13 +1341,13 @@ bytes the pane does not hold (R0009-0078).
 | OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | RESOLVED (2026-08-23) — archived | Low |
 | OI-0037  | Provider payloads bypass the parser's nesting intake guard | RESOLVED (2026-09-01) | Low |
 | OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | RESOLVED (2026-09-02) | Low |
-| OI-0039  | JS lint gate exits 0 while validating nothing            | OPEN (2026-08-26) | Low |
-| OI-0040  | Same bytes parsed/spliced repeatedly on the accepted path | OPEN (2026-08-26) | Low (R0009-0035 Medium) |
-| OI-0041  | Pre-network setup recomputes derived values              | OPEN (2026-08-26) | Low |
-| OI-0042  | Two worse-than-linear scans in the degraded regen cascade | OPEN (2026-08-26) | Low |
-| OI-0043  | Four modules called oversized; one is a real concern bundle | OPEN (2026-08-26) | Low |
+| OI-0039  | JS lint gate exits 0 while validating nothing            | RESOLVED (2026-09-04) — format half adopted; lint deferred | Low |
+| OI-0040  | Same bytes parsed/spliced repeatedly on the accepted path | RESOLVED (2026-09-04) — prefilter + tripwire; seam deferred | Low (R0009-0035 Medium) |
+| OI-0041  | Pre-network setup recomputes derived values              | RESOLVED (2026-09-04) — partial; rest declined/deferred | Low |
+| OI-0042  | Two worse-than-linear scans in the degraded regen cascade | RESOLVED (2026-09-04) — all three sites, twin included | Low |
+| OI-0043  | Four modules called oversized; one is a real concern bundle | RESOLVED (2026-09-04) — output.rs split, proven pure | Low |
 | OI-0044  | Disk cache log: unbounded read, poisonable write, ~~non-converging trim~~ | OPEN (2026-08-26) — trim member RESOLVED 2026-09-03 | Low |
-| OI-0045  | `serve` under-delivers a truncated body, over-advertises authorities | OPEN (2026-08-26) | Low |
-| OI-0046  | Three holes in the checking apparatus itself             | OPEN (2026-08-26) | Low |
-| OI-0047  | Sync engine freezes past its last anchor; silent drift on reflow | OPEN (2026-08-26) | Low |
-| OI-0048  | Four boundary checks weaker than the inferred contract   | OPEN (2026-08-26) | Low |
+| OI-0045  | `serve` under-delivers a truncated body, over-advertises authorities | RESOLVED (2026-09-04) | Low |
+| OI-0046  | Three holes in the checking apparatus itself             | RESOLVED (2026-09-04) — all three; (3) found a live defect | Low |
+| OI-0047  | Sync engine freezes past its last anchor; silent drift on reflow | RESOLVED (2026-09-04) | Low |
+| OI-0048  | Four boundary checks weaker than the inferred contract   | RESOLVED (2026-09-04) — R0009-0052 deferred | Low |

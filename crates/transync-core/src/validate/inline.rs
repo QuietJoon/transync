@@ -42,6 +42,10 @@
 //! Reference-label integrity is thus validated, closing the documented
 //! ADR-0012-amendment §4 gap. A genuinely undefined reference (no definition
 //! anywhere) stays literal text on both sides — a symmetric no-op, unchanged.
+//! The append is skipped when NEITHER payload carries a `[` — there is then
+//! no reference for the pool to resolve and the inventory is provably the
+//! same either way ([`effective_pool`], OI-0040); the decision is taken once
+//! for the pair, so both sides still see the same pool.
 //!
 //! TRACE: EXT-2026-07 P1-5
 //! TRACE: ADR-0012 (amendment §4)
@@ -59,7 +63,7 @@ enum DestKind {
 }
 
 /// Inline inventory extracted from one payload by a comrak walk.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 struct InlineInventory {
     /// Link/image destinations in pre-order document order.
     destinations: Vec<(DestKind, String)>,
@@ -93,7 +97,8 @@ struct InlineInventory {
 /// `ref_defs` is the document's link-reference-definition pool
 /// ([`crate::parser::refdefs`]); appended to both payloads so reference-style
 /// links resolve on each side (design D2 §B4). Pass `""` when the document
-/// defines none.
+/// defines none. Whether it is appended at all is [`effective_pool`]'s answer
+/// — one decision, taken from BOTH payloads, handed to both walks (OI-0040).
 ///
 /// TRACE: EXT-2026-07 P1-5
 pub fn check_inline(
@@ -116,8 +121,13 @@ pub fn check_inline(
     let enforce_dest = policy.preserve_urls != Some(false);
     let enforce_code = policy.preserve_code_identifiers == Some(true);
 
-    let source = inline_inventory(&unit.source_payload, ref_defs);
-    let translated = inline_inventory(&result.translated_payload, ref_defs);
+    // OI-0040: the pool is appended to both payloads or to neither, and the
+    // decision is taken ONCE from both of them — see `effective_pool` for why
+    // a payload with no `[` provably has the same inventory either way, and
+    // why the condition is their OR rather than each side's own.
+    let pool = effective_pool(&unit.source_payload, &result.translated_payload, ref_defs);
+    let source = inline_inventory(&unit.source_payload, pool);
+    let translated = inline_inventory(&result.translated_payload, pool);
 
     // Spec §4.3: always-on ordered raw-inline-HTML tag identity — hoisted
     // ABOVE the policy gates so no profile can disable it. A model has no
@@ -196,6 +206,59 @@ pub fn check_inline(
     Ok(())
 }
 
+/// The reference-definition pool [`check_inline`] actually appends:
+/// `ref_defs` when either payload could resolve a reference, `""` when
+/// neither can (OI-0040 Required Action 1).
+///
+/// The append is the one part of this layer with an algorithmic shape.
+/// `ref_defs` is a WHOLE-DOCUMENT pool and it is appended to BOTH payloads of
+/// every inline-eligible unit, so the bytes comrak reparses across a run grow
+/// as O(units × |ref_defs|) — measured at 8.7 ns per appended byte, which is
+/// 1.5 % of a run over this repository's own worst document (1,239 units, a
+/// 350 B pool) and +1,756 ms on a 1,289 ms baseline at 5,000 units with a
+/// 20 KB pool. This prefilter is the cheap half of that: a payload with no
+/// `[` byte cannot own a reference for the pool to resolve, so the pool is
+/// not appended to it and the parse is over the payload alone.
+///
+/// **Why skipping cannot change a verdict** — three legs, and the third is
+/// what makes the first two sufficient:
+///
+/// 1. `Link` and `Image` nodes need a `[` in the parsed text, and the pool
+///    contributes none of its own: [`crate::parser::refdefs`] pools only
+///    inter-block gaps that comrak parses to zero top-level nodes, so the
+///    pool's own brackets are definition labels that produce no node.
+/// 2. The `\n\n` separator means the pool always begins after a blank line,
+///    and the only CommonMark constructs that survive a blank line are fenced
+///    code and HTML blocks 1–5 (`<pre>`/`<script>`/`<style>`/`<textarea>`,
+///    `<!--`, `<?`, `<!X`, `<![CDATA[`). Every one of them holds literal
+///    content that is never inline-parsed, so pool bytes that an unterminated
+///    construct swallows become `CodeBlock` or `HtmlBlock` content — and this
+///    layer collects only `Link`/`Image`/`Code`/`HtmlInline`.
+/// 3. Appended bytes cannot REMOVE a node the preceding bytes produced.
+///
+/// **One decision, both sides.** The condition is the OR of the two payloads
+/// and the same `&str` reaches both walks, so DCR-0013's symmetry constraint
+/// (source and translated fragments both see the same pool) holds by
+/// construction. A per-side filter would be a false ACCEPT rather than a mere
+/// asymmetry: a bracket-free source against a translated payload that added
+/// `[문서][ref]` would leave the translated side unresolved, and an
+/// unresolved reference contributes no destination — so the added link would
+/// pass. `added_reference_use_in_bracket_free_source_is_rejected` pins that.
+///
+/// What this does NOT reach is the reference-heavy document, where every
+/// payload carries a `[` and the pool is appended to all of them anyway. That
+/// residual — the label-filtered pool — is deferred with a recorded
+/// re-trigger (OI-0040), and `unit::build_batches` carries the tripwire that
+/// fires when a run enters the shape where it starts to cost.
+///
+/// TRACE: OI-0040
+fn effective_pool<'a>(source: &str, translated: &str, ref_defs: &'a str) -> &'a str {
+    if ref_defs.is_empty() || !(source.contains('[') || translated.contains('[')) {
+        return "";
+    }
+    ref_defs
+}
+
 /// Walk `payload` under the canonical GFM options and collect its inline
 /// inventory: link/image destinations in document order, inline code-span
 /// literals, and raw inline HTML tag tokens in document order.
@@ -203,7 +266,10 @@ pub fn check_inline(
 /// When `ref_defs` is non-empty it is appended before the parse so
 /// reference-style links (`[text][ref]`, `![alt][ref]`, `[ref][]`, `[ref]`)
 /// resolve to real destinations — definitions produce no inline nodes, so
-/// they never add spurious inventory entries (design D2 §B4).
+/// they never add spurious inventory entries (design D2 §B4). The pool
+/// arriving here is already [`effective_pool`]'s answer for the PAIR, so
+/// `""` reaches this function both when the document defines nothing and
+/// when neither payload can resolve anything.
 fn inline_inventory(payload: &str, ref_defs: &str) -> InlineInventory {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
@@ -633,5 +699,137 @@ mod tests {
         let u = unit(BlockKind::Paragraph, "text <b>bold</b> tail");
         let moved = "text tail\n<b>bold</b>";
         assert!(check_inline(&policy(None, None), &u, &unit_result(moved), "").is_ok());
+    }
+
+    // OI-0040: the `[`-prefilter on the whole-document pool append. Every
+    // pre-existing pool test above carries `[` on both sides, so none of them
+    // reaches the skip branch — these four are the branch's only coverage.
+
+    #[test]
+    fn bracket_free_pair_skips_the_pool_and_keeps_the_same_inventory() {
+        // (1) Neither payload can resolve a reference, so the pool is not
+        // appended. The claim is not "this passes" — it is that the two
+        // walks are the SAME walk, which is what licenses the skip.
+        let src = "Plain prose with `code`, a <kbd>tag</kbd> and no brackets.";
+        let tgt = "괄호 없는 산문, `code`, <kbd>tag</kbd>.";
+        assert_eq!(
+            effective_pool(src, tgt, REF_POOL),
+            "",
+            "a bracket-free pair must not pay for the pool"
+        );
+        assert_eq!(
+            inline_inventory(src, REF_POOL),
+            inline_inventory(src, ""),
+            "appending the pool to a bracket-free payload must be inventory-neutral"
+        );
+        assert_eq!(
+            inline_inventory(tgt, REF_POOL),
+            inline_inventory(tgt, ""),
+            "and the same on the translated side"
+        );
+        let u = unit(BlockKind::Paragraph, src);
+        assert!(
+            check_inline(
+                &policy(Some(true), Some(true)),
+                &u,
+                &unit_result(tgt),
+                REF_POOL
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn bracket_bearing_pair_still_gets_the_pool_and_resolves() {
+        // (2) The include path: a `[` on either side means the pool is
+        // appended, and it still resolves to a real destination — the
+        // prefilter must not have turned reference resolution off.
+        assert_eq!(
+            effective_pool("See [the docs][ref].", "문서 참조.", REF_POOL),
+            REF_POOL
+        );
+        let inv = inline_inventory("See [the docs][ref].", REF_POOL);
+        assert_eq!(
+            inv.destinations,
+            vec![(DestKind::Link, "https://example.com/r".to_string())],
+            "the pooled definition must still resolve"
+        );
+        // And the reference-label guard still rejects, through the prefilter.
+        let u = unit(BlockKind::Paragraph, "See [the docs][ref] for more.");
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("자세한 내용은 [문서][참조]."),
+            REF_POOL,
+        )
+        .unwrap_err();
+        assert!(err.contains("count changed"), "{err}");
+    }
+
+    #[test]
+    fn added_reference_use_in_bracket_free_source_is_rejected() {
+        // (3) The asymmetric pair, and the reason the condition is the OR of
+        // the two payloads rather than each side's own: the source carries no
+        // bracket, the translated side ADDS a reference link. Under a
+        // per-side filter the translated payload would resolve `[ref]` and
+        // the source would not... which is the same count as filtering
+        // neither — but under an AND the pool would reach NEITHER side, the
+        // added `[문서][ref]` would stay literal text, and the tamper would
+        // PASS. This test is what fails if the condition is ever narrowed.
+        assert_eq!(
+            effective_pool("See the docs.", "[문서][ref] 참조.", REF_POOL),
+            REF_POOL,
+            "a bracket on either side must bring the pool to both"
+        );
+        assert_eq!(
+            effective_pool("[문서][ref] 참조.", "See the docs.", REF_POOL),
+            REF_POOL,
+            "and the decision must not depend on which side carries it"
+        );
+        let u = unit(BlockKind::Paragraph, "See the docs.");
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("[문서][ref] 참조."),
+            REF_POOL,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("count changed"),
+            "an added reference use must still reject: {err}"
+        );
+    }
+
+    #[test]
+    fn bracket_free_payload_ending_in_an_unterminated_comment_is_still_neutral() {
+        // (4) The one construct class that survives the `\n\n` separator:
+        // an unterminated HTML block (type 2 here, and the fenced-code twin)
+        // swallows the appended pool as LITERAL content. That content is
+        // never inline-parsed, so the inventory is empty with the pool and
+        // empty without it — leg (ii) of `effective_pool`'s argument, pinned.
+        let comment = "Prose above.\n\n<!-- an unterminated comment\n";
+        assert_eq!(effective_pool(comment, comment, REF_POOL), "");
+        assert_eq!(
+            inline_inventory(comment, REF_POOL),
+            inline_inventory(comment, ""),
+            "an unterminated comment swallowing the pool must not change the inventory"
+        );
+        let fence = "Prose above.\n\n```\nunterminated fence\n";
+        assert_eq!(effective_pool(fence, fence, REF_POOL), "");
+        assert_eq!(
+            inline_inventory(fence, REF_POOL),
+            inline_inventory(fence, ""),
+            "nor must an unterminated fence"
+        );
+        let u = unit(BlockKind::Paragraph, comment);
+        assert!(
+            check_inline(
+                &policy(Some(true), None),
+                &u,
+                &unit_result(comment),
+                REF_POOL
+            )
+            .is_ok()
+        );
     }
 }

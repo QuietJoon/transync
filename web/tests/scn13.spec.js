@@ -192,7 +192,7 @@ test.describe("SCN-13 dual-pane sync", () => {
         const el = pane.querySelector('[data-sync-id="' + id + '"]');
         return Math.abs(el.offsetTop - pane.scrollTop) <= 30;
       }`,
-      DRIVER_BLOCK
+      DRIVER_BLOCK,
     );
     expect(tgtOffset).toBeGreaterThan(0);
     expect(await activeSyncId(page, "#target")).toBe(DRIVER_BLOCK);
@@ -208,15 +208,12 @@ test.describe("SCN-13 dual-pane sync", () => {
     // the engine must not throw when asked to follow the absent block.
     const missingId = DRIVER_BLOCK;
     const original = readFixture("target.html");
-    const mutated = original.replace(
-      new RegExp(`^.*data-sync-id="${missingId}".*$\\n?`, "m"),
-      ""
-    );
+    const mutated = original.replace(new RegExp(`^.*data-sync-id="${missingId}".*$\\n?`, "m"), "");
     expect(mutated).not.toContain(`data-sync-id="${missingId}"`);
     expect(mutated.length).toBeLessThan(original.length);
 
     await page.route("**/target.html", (route) =>
-      route.fulfill({ contentType: "text/html", body: mutated })
+      route.fulfill({ contentType: "text/html", body: mutated }),
     );
 
     await page.goto("/");
@@ -224,9 +221,7 @@ test.describe("SCN-13 dual-pane sync", () => {
     await constrainPanes(page);
 
     // Mount-time drift warning fired for the missing target anchor.
-    expect(
-      logs.some((m) => m.includes("no DOM anchor") && m.includes(missingId))
-    ).toBe(true);
+    expect(logs.some((m) => m.includes("no DOM anchor") && m.includes(missingId))).toBe(true);
 
     // Scrolling the source to the now-orphaned block: the engine's scroll
     // handler runs (frames advanced), looks up the partner, finds none,
@@ -255,7 +250,7 @@ test.describe("SCN-13 dual-pane sync", () => {
         route.fulfill({
           contentType: "application/json",
           body: JSON.stringify(map),
-        })
+        }),
       );
 
       await page.goto("/");
@@ -263,10 +258,7 @@ test.describe("SCN-13 dual-pane sync", () => {
       await constrainPanes(page);
 
       expect(
-        logs.some(
-          (m) =>
-            m.includes("rejecting alignment map") && m.includes(badVersion)
-        )
+        logs.some((m) => m.includes("rejecting alignment map") && m.includes(badVersion)),
       ).toBe(true);
       expect(await isMounted(page)).toBe(false);
 
@@ -298,7 +290,7 @@ test.describe("SCN-13 dual-pane sync", () => {
       route.fulfill({
         contentType: "application/json",
         body: JSON.stringify(map),
-      })
+      }),
     );
 
     await page.goto("/");
@@ -307,9 +299,7 @@ test.describe("SCN-13 dual-pane sync", () => {
 
     // The forward-drift warning fired...
     expect(
-      logs.some(
-        (m) => m.includes("is newer than this engine") && m.includes(forwardMinor)
-      )
+      logs.some((m) => m.includes("is newer than this engine") && m.includes(forwardMinor)),
     ).toBe(true);
     // ...yet the engine mounted and syncs normally.
     expect(await isMounted(page)).toBe(true);
@@ -323,7 +313,9 @@ test.describe("SCN-13 dual-pane sync", () => {
     expect(errors).toEqual([]);
   });
 
-  test("h — html blocks live-render, never nest wrappers, and mirror details toggles", async ({ page }) => {
+  test("h — html blocks live-render, never nest wrappers, and mirror details toggles", async ({
+    page,
+  }) => {
     const errors = collectPageErrors(page);
     await page.goto("/");
     await waitForMounted(page);
@@ -342,7 +334,7 @@ test.describe("SCN-13 dual-pane sync", () => {
     // the following blocks) is exactly the shape that would do it; the
     // hero <div> (html-0018) is the closed control case.
     const nested = await page.evaluate(
-      () => document.querySelectorAll("[data-sync-id] [data-sync-id]").length
+      () => document.querySelectorAll("[data-sync-id] [data-sync-id]").length,
     );
     expect(nested).toBe(0);
 
@@ -395,11 +387,7 @@ test.describe("SCN-13 dual-pane sync", () => {
         },
         'unknown sync_role "sideways"',
       ],
-      [
-        "duplicate row",
-        (m) => m.blocks.push({ ...m.blocks[1] }),
-        "duplicate source_block_id",
-      ],
+      ["duplicate row", (m) => m.blocks.push({ ...m.blocks[1] }), "duplicate source_block_id"],
     ];
 
     for (const [name, mutate, expected] of cases) {
@@ -409,7 +397,7 @@ test.describe("SCN-13 dual-pane sync", () => {
         route.fulfill({
           contentType: "application/json",
           body: JSON.stringify(map),
-        })
+        }),
       );
 
       await page.goto("/");
@@ -417,10 +405,8 @@ test.describe("SCN-13 dual-pane sync", () => {
       await constrainPanes(page);
 
       expect(
-        logs.some(
-          (m) => m.includes("rejecting alignment map") && m.includes(expected)
-        ),
-        name
+        logs.some((m) => m.includes("rejecting alignment map") && m.includes(expected)),
+        name,
       ).toBe(true);
       expect(await isMounted(page), name).toBe(false);
 
@@ -436,7 +422,9 @@ test.describe("SCN-13 dual-pane sync", () => {
     expect(errors).toEqual([]);
   });
 
-  test("j — a newer-minor map may carry an unknown sync_role (warns, still syncs)", async ({ page }) => {
+  test("j — a newer-minor map may carry an unknown sync_role (warns, still syncs)", async ({
+    page,
+  }) => {
     const logs = collectConsole(page);
     const errors = collectPageErrors(page);
 
@@ -453,7 +441,7 @@ test.describe("SCN-13 dual-pane sync", () => {
       route.fulfill({
         contentType: "application/json",
         body: JSON.stringify(map),
-      })
+      }),
     );
 
     await page.goto("/");
@@ -462,14 +450,10 @@ test.describe("SCN-13 dual-pane sync", () => {
 
     expect(
       logs.some(
-        (m) =>
-          m.includes('unknown sync_role "gutter"') &&
-          m.includes("forward-compat drift")
-      )
+        (m) => m.includes('unknown sync_role "gutter"') && m.includes("forward-compat drift"),
+      ),
     ).toBe(true);
-    expect(
-      logs.some((m) => m.includes("rejecting alignment map"))
-    ).toBe(false);
+    expect(logs.some((m) => m.includes("rejecting alignment map"))).toBe(false);
 
     const tgtOffset = await offsetTopOf(page, "#target", DRIVER_BLOCK);
     await setScrollTop(page, "#source", await offsetTopOf(page, "#source", DRIVER_BLOCK));
@@ -480,7 +464,9 @@ test.describe("SCN-13 dual-pane sync", () => {
     expect(errors).toEqual([]);
   });
 
-  test("k — a duplicate anchor is dropped from the scan as well as the lookup", async ({ page }) => {
+  test("k — a duplicate anchor is dropped from the scan as well as the lookup", async ({
+    page,
+  }) => {
     const logs = collectConsole(page);
     const errors = collectPageErrors(page);
 
@@ -496,8 +482,7 @@ test.describe("SCN-13 dual-pane sync", () => {
     // the lookup name the same element, so neither can happen.
     const dupId = REVERSE_BLOCK;
     const original = readFixture("target.html");
-    const lineOf = (id) =>
-      original.match(new RegExp(`^.*data-sync-id="${id}".*$`, "m"))[0];
+    const lineOf = (id) => original.match(new RegExp(`^.*data-sync-id="${id}".*$`, "m"))[0];
     const dupLine = lineOf(dupId);
     const anchorLine = lineOf(DRIVER_BLOCK);
     // Function replacer: the fixture text is arbitrary content, and `$&`
@@ -506,7 +491,7 @@ test.describe("SCN-13 dual-pane sync", () => {
     expect(mutated.split(`data-sync-id="${dupId}"`).length - 1).toBe(2);
 
     await page.route("**/target.html", (route) =>
-      route.fulfill({ contentType: "text/html", body: mutated })
+      route.fulfill({ contentType: "text/html", body: mutated }),
     );
 
     await page.goto("/");
@@ -519,8 +504,8 @@ test.describe("SCN-13 dual-pane sync", () => {
         (m) =>
           m.includes("duplicate data-sync-id") &&
           m.includes(dupId) &&
-          m.includes("keeping the first occurrence")
-      )
+          m.includes("keeping the first occurrence"),
+      ),
     ).toBe(true);
 
     // Forward: the lookup answers with the FIRST occurrence, near the top —
@@ -536,9 +521,8 @@ test.describe("SCN-13 dual-pane sync", () => {
     // starts there (the mid-document heading) and the source follows to it,
     // instead of being flung back to the near-top block the copy claims.
     const copyTop = await page.evaluate(
-      (id) =>
-        document.querySelectorAll(`#target [data-sync-id="${id}"]`)[1].offsetTop,
-      dupId
+      (id) => document.querySelectorAll(`#target [data-sync-id="${id}"]`)[1].offsetTop,
+      dupId,
     );
     const dupSrcTop = await offsetTopOf(page, "#source", dupId);
     const driverSrcTop = await offsetTopOf(page, "#source", DRIVER_BLOCK);
@@ -551,9 +535,7 @@ test.describe("SCN-13 dual-pane sync", () => {
     expect(errors).toEqual([]);
   });
 
-  test("l — a failed artifact fetch cancels the siblings still in flight", async ({
-    page,
-  }) => {
+  test("l — a failed artifact fetch cancels the siblings still in flight", async ({ page }) => {
     const errors = collectPageErrors(page);
 
     // R0002-0053, shell half: the bundle's boot fetches three artifacts with
@@ -566,11 +548,11 @@ test.describe("SCN-13 dual-pane sync", () => {
     // error text is identical with or without the cancellation.
     const failed = [];
     page.on("requestfailed", (req) =>
-      failed.push(`${req.url()} ${req.failure()?.errorText ?? ""}`)
+      failed.push(`${req.url()} ${req.failure()?.errorText ?? ""}`),
     );
 
     await page.route("**/target.html", (route) =>
-      route.fulfill({ status: 500, contentType: "text/html", body: "" })
+      route.fulfill({ status: 500, contentType: "text/html", body: "" }),
     );
     await page.route("**/alignment.json", () => {});
 
@@ -629,21 +611,17 @@ test.describe("SCN-13 dual-pane sync", () => {
 
     expect(
       await page.evaluate(
-        () => document.querySelectorAll('#source [data-sync-id="p-0003"]').length
-      )
+        () => document.querySelectorAll('#source [data-sync-id="p-0003"]').length,
+      ),
     ).toBe(1);
     expect(
-      await page.evaluate(
-        () => document.querySelector('#source [data-sync-id="p-0003"]').tagName
-      )
+      await page.evaluate(() => document.querySelector('#source [data-sync-id="p-0003"]').tagName),
     ).toBe("P");
     // A nested anchor is the same defect seen from the other side: the impostor
     // sat inside the html block's own wrapper (contracts.md §4a wants every
     // anchor a direct child of <main>, list items excepted).
     expect(
-      await page.evaluate(
-        () => document.querySelectorAll("[data-sync-id] [data-sync-id]").length
-      )
+      await page.evaluate(() => document.querySelectorAll("[data-sync-id] [data-sync-id]").length),
     ).toBe(0);
     expect(logs.some((m) => m.includes("duplicate data-sync-id"))).toBe(false);
 
@@ -653,9 +631,7 @@ test.describe("SCN-13 dual-pane sync", () => {
     // necessity rests on it — a sanitizer that dropped `data-*` would already
     // have closed this route. The DCR's mechanism sentence quotes this.
     expect(
-      await page.evaluate(() =>
-        window.DOMPurify.sanitize('<div data-sync-id="p-0003">x</div>')
-      )
+      await page.evaluate(() => window.DOMPurify.sanitize('<div data-sync-id="p-0003">x</div>')),
     ).toContain('data-sync-id="p-0003"');
 
     expect(errors).toEqual([]);
@@ -692,10 +668,8 @@ test.describe("SCN-13 dual-pane sync", () => {
     // excepted. Reported by id so a failure names the block that sank.
     const nested = await page.evaluate(() =>
       Array.from(document.querySelectorAll("main [data-sync-id]"))
-        .filter(
-          (el) => el.parentElement.tagName !== "MAIN" && el.tagName !== "LI"
-        )
-        .map((el) => el.getAttribute("data-sync-id"))
+        .filter((el) => el.parentElement.tagName !== "MAIN" && el.tagName !== "LI")
+        .map((el) => el.getAttribute("data-sync-id")),
     );
     expect(nested).toEqual([]);
 
@@ -704,18 +678,15 @@ test.describe("SCN-13 dual-pane sync", () => {
     for (const pane of ["#source", "#target"]) {
       expect(
         await page.evaluate(
-          (sel) =>
-            document.querySelector(`${sel} [data-sync-id="p-0005"]`).tagName,
-          pane
-        )
+          (sel) => document.querySelector(`${sel} [data-sync-id="p-0005"]`).tagName,
+          pane,
+        ),
       ).toBe("P");
       expect(
         await page.evaluate(
-          (sel) =>
-            document.querySelector(`${sel} [data-sync-id="p-0005"]`)
-              .parentElement.tagName,
-          pane
-        )
+          (sel) => document.querySelector(`${sel} [data-sync-id="p-0005"]`).parentElement.tagName,
+          pane,
+        ),
       ).toBe("MAIN");
     }
 
@@ -724,10 +695,8 @@ test.describe("SCN-13 dual-pane sync", () => {
     // rather than having swallowed it.
     expect(
       await page.evaluate(
-        () =>
-          document.querySelector('#source [data-sync-id="html-0004"] .jsx-habit')
-            !== null
-      )
+        () => document.querySelector('#source [data-sync-id="html-0004"] .jsx-habit') !== null,
+      ),
     ).toBe(true);
 
     expect(errors).toEqual([]);

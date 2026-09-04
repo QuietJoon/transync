@@ -288,15 +288,62 @@ pub(crate) fn assemble_alignment_map(
         .collect();
     // Task-4 review: `build_alignment_map`'s completeness obligation — every
     // block `is_translatable_block` accepts has a finalized status here, so no
-    // translatable row can silently synthesize `preserved` — was doc-only.
-    // Debug-only and cheap: one pass over the blocks, one hash lookup each.
-    debug_assert!(
-        doc.blocks
+    // translatable row has to fall back on a synthesized one — was doc-only,
+    // and then debug-only.
+    //
+    // R0009-0075 / OI-0048: a `debug_assert!` guarded this in the one build
+    // nobody ships. `align::build_alignment_map` synthesizes `fallback_source`
+    // for a translatable block it finds no status for, which is the honest
+    // *label* — the row is the least-integrity one either way and it is counted
+    // into `summary.fallback_source` — but it makes "validated and rejected"
+    // and "dropped between batching and validation" the same observation in a
+    // release build. It is not a hypothetical distinction to a consumer:
+    // `validation_summary.fallback_source` is what a caller reads to answer
+    // "how much of this document is actually translated", so an engine bug
+    // arrives dressed as translation quality. Making `build_alignment_map`
+    // itself strict is not available — `transync-wasm`'s view mode depends on
+    // the synthesized status, with a test pinning it — so the check belongs
+    // here, at the seam that *does* know the run's full status set, and it
+    // reports rather than aborts: the artifact is not corrupt, so refusing to
+    // return it would trade a mis-labelled document for no document.
+    //
+    // Warn-shaped after `align`'s missing-offsets sibling: collect first, then
+    // one bounded line for the whole document, because a run that drops one
+    // unit can just as easily drop every unit and a line per block is a second
+    // failure mode. Cheap: one pass over the blocks, one hash lookup each.
+    let statusless: Vec<&str> = doc
+        .blocks
+        .iter()
+        .filter(|b| transync_syntax::outcome::is_translatable_block(b, html_outcomes))
+        .filter(|b| !statuses.contains_key(&b.block_id))
+        .map(|b| b.block_id.0.as_str())
+        .collect();
+    if !statusless.is_empty() {
+        // Same bound as `align`'s sample, for the same reason.
+        const SAMPLE: usize = 8;
+        let named = statusless
             .iter()
-            .filter(|b| transync_syntax::outcome::is_translatable_block(b, html_outcomes))
-            .all(|b| statuses.contains_key(&b.block_id)),
-        "every translatable block must carry a finalized status into build_alignment_map",
-    );
+            .take(SAMPLE)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let overflow = statusless.len().saturating_sub(SAMPLE);
+        tracing::warn!(
+            target: "transync::pipeline",
+            "{} translatable block(s) of this {}-block document reached \
+             build_alignment_map with no finalized status — a pipeline bug dropped the \
+             unit between batching and validation. Those rows carry `fallback_source`, \
+             which is indistinguishable from a validated rejection, so this run's summary \
+             counts them as translation quality rather than as the fault they are: {named}{}",
+            statusless.len(),
+            doc.blocks.len(),
+            if overflow > 0 {
+                format!(" (+{overflow} more)")
+            } else {
+                String::new()
+            },
+        );
+    }
     let mut alignment_map = build_alignment_map(
         doc,
         &statuses,
@@ -318,6 +365,130 @@ pub(crate) fn assemble_alignment_map(
         .filter(|r| r.attempts.iter().any(|a| a.attempt_number > 1))
         .count() as u32;
     alignment_map
+}
+
+// R0009-0075 / OI-0048: the completeness obligation `assemble_alignment_map`
+// carries for `build_alignment_map` is checked in the build a consumer runs.
+#[cfg(test)]
+mod status_completeness_tests {
+    use super::assemble_alignment_map;
+    use crate::FallbackStatus;
+    use crate::TranslateOptions;
+    use crate::test_fixtures::{EventLog, record_events};
+    use crate::validate::{ValidatedBatch, ValidatedUnit, ValidationReport};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    const SRC: &str = "alpha paragraph\n\nbravo paragraph\n\ncharlie paragraph\n";
+
+    fn unit(id: &crate::id::BlockId) -> ValidatedUnit {
+        ValidatedUnit {
+            unit_id: id.clone(),
+            final_status: FallbackStatus::Translated,
+            accepted_payload: Some("translated".to_string()),
+            rejected_by: None,
+            rejection_reason: None,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// One batch carrying a finalized status for every block of `doc` except
+    /// those whose id is in `dropped` — the shape a pipeline bug leaves behind.
+    fn batches(doc: &crate::parser::Document, dropped: &[&str]) -> Vec<ValidatedBatch> {
+        vec![ValidatedBatch {
+            units: doc
+                .blocks
+                .iter()
+                .filter(|b| !dropped.contains(&b.block_id.0.as_str()))
+                .map(|b| unit(&b.block_id))
+                .collect(),
+            batch_fault: None,
+        }]
+    }
+
+    /// Emitted on the pipeline channel, naming the block, once for the run.
+    #[test]
+    fn a_translatable_block_with_no_finalized_status_is_named_on_the_warn_channel() {
+        let doc = crate::parser::parse(SRC).expect("fixture parses");
+        let dropped = doc.blocks[1].block_id.0.clone();
+        let final_validated = batches(&doc, &[dropped.as_str()]);
+        let accepted: HashMap<crate::id::BlockId, String> = HashMap::new();
+        let (_, offsets) = crate::regen::regenerate(&doc, &accepted);
+
+        let log = Arc::new(EventLog::default());
+        let map = {
+            let _guard = record_events(Arc::clone(&log));
+            assemble_alignment_map(
+                &doc,
+                &final_validated,
+                &offsets,
+                &TranslateOptions {
+                    target_language: "ko".to_string(),
+                    ..Default::default()
+                },
+                None,
+                &HashMap::new(),
+                &ValidationReport::default(),
+            )
+        };
+
+        let said: Vec<String> = log
+            .messages_on("transync::pipeline")
+            .into_iter()
+            .filter(|m| m.contains("no finalized status"))
+            .collect();
+        assert_eq!(
+            said.len(),
+            1,
+            "one bounded line for the whole document: {said:?}"
+        );
+        assert!(
+            said[0].contains(&dropped),
+            "and it names the block that was dropped: {said:?}"
+        );
+
+        // The severity the register measured: the row is *labelled* honestly,
+        // which is exactly why the label alone cannot report the bug.
+        let row = map
+            .blocks
+            .iter()
+            .find(|r| r.source_block_id.0 == dropped)
+            .expect("the dropped block still gets a row");
+        assert_eq!(row.fallback_status, FallbackStatus::FallbackSource);
+    }
+
+    /// The guard the `debug_assert!` used to give, kept: a complete run says
+    /// nothing, so the line above is evidence of a fault rather than noise.
+    #[test]
+    fn a_complete_run_raises_no_completeness_warning() {
+        let doc = crate::parser::parse(SRC).expect("fixture parses");
+        let final_validated = batches(&doc, &[]);
+        let accepted: HashMap<crate::id::BlockId, String> = HashMap::new();
+        let (_, offsets) = crate::regen::regenerate(&doc, &accepted);
+
+        let log = Arc::new(EventLog::default());
+        {
+            let _guard = record_events(Arc::clone(&log));
+            assemble_alignment_map(
+                &doc,
+                &final_validated,
+                &offsets,
+                &TranslateOptions {
+                    target_language: "ko".to_string(),
+                    ..Default::default()
+                },
+                None,
+                &HashMap::new(),
+                &ValidationReport::default(),
+            );
+        }
+
+        let said = log.messages_on("transync::pipeline");
+        assert!(
+            said.iter().all(|m| !m.contains("no finalized status")),
+            "a run that finalized every block must be silent here: {said:?}"
+        );
+    }
 }
 
 // OI-0021 item 2: the report's document-order contract, driven end-to-end

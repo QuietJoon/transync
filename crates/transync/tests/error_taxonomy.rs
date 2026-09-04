@@ -105,6 +105,7 @@ fn every_engine_error() -> Vec<TransyncError> {
         TransyncError::Profile(transync::ProfileError::Malformed("p".into())),
         TransyncError::Alignment(serde_json::from_str::<u8>("x").expect_err("bad json")),
         TransyncError::Cancelled,
+        TransyncError::InvalidOptions("o".into()),
         TransyncError::Internal("i".into()),
     ]
 }
@@ -306,6 +307,7 @@ fn the_engine_side_codes_are_unchanged() {
             "profile_failed",
             "alignment_failed",
             "cancelled",
+            "invalid_options",
             "internal",
         ]
     );
@@ -327,6 +329,7 @@ fn the_documented_vocabulary_matches_the_codes_the_library_returns() {
         ("Profile", "profile_failed"),
         ("Alignment", "alignment_failed"),
         ("Cancelled", "cancelled"),
+        ("InvalidOptions", "invalid_options"),
         ("Internal", "internal"),
     ] {
         live.insert((code.to_string(), variant.to_string()));
@@ -339,4 +342,53 @@ fn the_documented_vocabulary_matches_the_codes_the_library_returns() {
         "stable_code() vocabulary drift — returned but not in contracts.md \
          §1: {undocumented:?}; documented but not returned: {orphaned:?}"
     );
+}
+
+/// A caller-input fault stops claiming an engine bug (OI-0048 / R0009-0053).
+///
+/// An empty or whitespace-only `TranslateOptions.target_language` is the one
+/// check of this class the library performs, and until v0.5.0 it raised
+/// `Internal` — stable code `internal`, which tells a consumer "transync has
+/// a bug" about a value the consumer itself passed in. Both in-tree roster
+/// consumers guard the field in their own config layers as a result; that is
+/// downstream compensation for an upstream mis-attribution, not evidence the
+/// check was unreachable, and naming the cause is what lets those guards be
+/// retired.
+///
+/// The refusal is pinned at the `translate_with_cache` door, before any
+/// provider work, so no `Translator` is needed to reach it.
+///
+/// TRACE: OI-0048 (R0009-0053)
+#[tokio::test]
+async fn an_empty_target_language_is_a_caller_fault_not_an_engine_bug() {
+    struct NeverCalled;
+    #[async_trait::async_trait]
+    impl transync::Translator for NeverCalled {
+        async fn translate_batch(
+            &self,
+            _batch: transync::TranslationBatch,
+            _cancel: &transync::CancellationToken,
+        ) -> Result<transync::TranslationBatchResult, TranslatorError> {
+            panic!("the door must refuse before any provider work");
+        }
+    }
+
+    let cache = transync::cache::InMemoryCache::new();
+    for label in ["", "   ", "\t\n"] {
+        let mut opts = transync::TranslateOptions::default();
+        opts.target_language = label.to_string();
+        let err = transync::translate_with_cache("# hi\n", &opts, &NeverCalled, &cache)
+            .await
+            .expect_err("an unusable target_language must refuse the run");
+
+        assert_eq!(
+            err.stable_code(),
+            "invalid_options",
+            "{label:?} is the caller's input, so the code must not be `internal`: {err}"
+        );
+        assert!(
+            matches!(err, TransyncError::InvalidOptions(_)),
+            "{label:?} must land on the caller-input variant: {err:?}"
+        );
+    }
 }

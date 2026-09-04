@@ -3,11 +3,23 @@
 # Runs format-check + lint per detected language.
 #
 # A language whose tooling is absent is SKIPPED, and a skip is not a pass.
-# The Rust leg is complete and fails loudly. The JS/TS leg is not: no linter
-# is a declared devDependency of web/, so every probe below misses and the
-# leg validates nothing. It says so in a summary at the end rather than
-# letting the skip scroll past — read that summary before trusting a green
-# commit to mean the browser code was checked (R0009-0014).
+# Both legs now fail loudly, but they cover different amounts:
+#
+#   - Rust: format + clippy + the wasm32 gate + the rustdoc gate.
+#   - JS: FORMAT ONLY. `biome format` over the whole hand-written corpus,
+#     scoped by git rather than by a directory walk. The LINT half is
+#     deliberately off (OI-0039 / DCR-0049 chose option A'), so a green
+#     commit means the browser code is formatted, not that it was linted.
+#     The summary at the end says so rather than letting it scroll past
+#     (R0009-0014).
+#
+# "Absent" means UNDECLARED. A tool that IS declared in the manifest and is
+# missing from node_modules/.bin is a broken install rather than an absent
+# decision, and that case fails the commit (OI-0039) — web/node_modules is
+# gitignored and scripts/install-hooks.sh runs no install, so on a fresh
+# clone this leg fails until `(cd web && pnpm install --frozen-lockfile)`
+# has been run. That is the intended shape: an adopted gate that quietly
+# does not run is the bug OI-0039 was filed for.
 #
 # Install with: scripts/install-hooks.sh
 
@@ -33,16 +45,17 @@ if [ -f Cargo.toml ]; then
   fi
   # The standing rustdoc gate (DCR-0018). Its crate list is not repeated
   # here: scripts/lib/rustdoc-gate.sh owns it, shared with scripts/smoke.sh,
-  # which also carries the completeness check that keeps the list total.
-  # Cheap next to the clippy run above (a warm re-document of the five
-  # crates measures ~1.4 s), and it catches the failure it exists for —
-  # a public item's intra-doc link to a private sibling — at the commit
-  # that writes it rather than at the next smoke run.
-  # Pre-declared so the emptiness check below is what decides, not `set -u`:
+  # and so is the completeness check that keeps the list total.
+  # Cheap next to the clippy run above (a warm re-document of the eight
+  # library crates measures a couple of seconds), and it catches the failure
+  # it exists for — a public item's intra-doc link to a private sibling — at
+  # the commit that writes it rather than at the next smoke run.
+  # Pre-declared so the emptiness checks below are what decide, not `set -u`:
   # bash expands an unset array to nothing without complaining, and `cargo
   # doc` with no -p documents the WHOLE workspace — a different gate, not a
   # smaller one.
   RUSTDOC_GATE_ARGS=()
+  RUSTDOC_GATE_UNGATED=()
   rustdoc_gate_lib="scripts/lib/rustdoc-gate.sh"
   # shellcheck source-path=SCRIPTDIR/.. source=lib/rustdoc-gate.sh
   [ -f "$rustdoc_gate_lib" ] && . "$rustdoc_gate_lib"
@@ -53,11 +66,32 @@ if [ -f Cargo.toml ]; then
     echo "[pre-commit] FAIL: $rustdoc_gate_lib did not define the rustdoc gate's crate list" >&2
     fail=1
   fi
+  # The gate above is only as total as its list, and until OI-0046's
+  # R0009-0015 the check that keeps the list total ran in scripts/smoke.sh
+  # ONLY — so the gate the hook ran on every commit stayed total just until
+  # the next library member landed and nobody ran smoke. The library now
+  # populates RUSTDOC_GATE_UNGATED for both callers. Pure bash globbing over
+  # crates/*/ — measured at ~15 ms, no cargo work.
+  if ((${#RUSTDOC_GATE_UNGATED[@]})); then
+    echo "[pre-commit] FAIL: library member(s) outside the rustdoc gate: ${RUSTDOC_GATE_UNGATED[*]}" >&2
+    echo "[pre-commit]   add them to RUSTDOC_GATE_CRATES in $rustdoc_gate_lib" >&2
+    echo "[pre-commit]   (and to the gate command in docs/Developer_Guide.md and" >&2
+    echo "[pre-commit]   the release checklist)." >&2
+    fail=1
+  fi
 fi
 
 # --- JavaScript / TypeScript --------------------------------------------------
 # There is no root package.json: the JS (browser demo + Playwright suite) lives
 # under web/. Use whichever package root exists so the checks actually run.
+#
+# The TOOL lives under web/. The CORPUS does not, and that distinction is the
+# whole of OI-0039's measurement: a leg that did `cd web` and walked `.` never
+# saw crates/transync-cli/web/sync.js or benchmark/scroll-frame/profile.mjs —
+# 2 of the 11 hand-written files, 22% of the bytes — while it DID read the
+# vendored purify.min.js and the gitignored wasm/ build output. So the binary
+# is resolved under $js_dir and then invoked from the repository root over an
+# explicit, git-derived file list.
 js_dir=""
 for candidate in . web; do
   if [ -f "$candidate/package.json" ]; then
@@ -67,31 +101,135 @@ for candidate in . web; do
 done
 
 js_skipped=""
+js_broken=""
+js_orphaned=""
+js_ran=""
+
+# THE JavaScript corpus: every tracked .js/.mjs/.cjs except the minified
+# vendor copies, which are byte-pinned by
+# crates/transync-cli/tests/sync_js_drift.rs and must never be rewritten.
+#
+# git owns this set, deliberately. An ignore file inside a config can drift
+# from what is actually committed; `git ls-files` cannot, and it reaches out
+# of web/ for free. Filtering in bash rather than through `| grep -v` keeps
+# git's own failure the only way this list can come up empty — which is
+# checked below, because "no files to check" exiting 0 is the same
+# skip-is-a-pass bug in a new costume.
+js_files=()
+while IFS= read -r js_file; do
+  case "$js_file" in
+  *.min.js) continue ;;
+  esac
+  js_files+=("$js_file")
+done < <(git ls-files '*.js' '*.mjs' '*.cjs')
+
+if [ -n "$js_dir" ] && ((${#js_files[@]} == 0)); then
+  echo "[pre-commit] FAIL: git ls-files '*.js' '*.mjs' '*.cjs' returned nothing, but $js_dir/package.json exists" >&2
+  echo "[pre-commit]   the JavaScript gate has no file set, so it cannot have passed" >&2
+  fail=1
+fi
 
 if [ -n "$js_dir" ]; then
+  # The npm package that provides each binary probed below. Needed because
+  # "is it installed" and "did anybody ask for it" are different questions,
+  # and only the second is answered by the manifest — where the PACKAGE name
+  # appears, not the binary name.
+  js_tool_package() {
+    case "$1" in
+    biome) echo "@biomejs/biome" ;;
+    tsc) echo "typescript" ;;
+    *) echo "$1" ;;
+    esac
+  }
+
+  # Is $1 named in one of the manifest's installed dependency maps? Read with
+  # awk rather than a JSON parser: this hook cannot assume node is on PATH,
+  # and a bare grep would also match a same-named tool CONFIG block, which
+  # package.json is allowed to carry ("prettier": { … }). peerDependencies is
+  # deliberately not consulted — a peer dependency is not something this
+  # project installs, so its absence from node_modules is not a broken tree.
+  js_tool_declared() {
+    awk -v pkg="$1" '
+      {
+        if ($0 ~ /"(dev|optional)?[Dd]ependencies"[ \t]*:/) in_deps = 1
+        if (in_deps && index($0, "\"" pkg "\"")) found = 1
+        if (in_deps && index($0, "}")) in_deps = 0
+      }
+      END { exit(found ? 0 : 1) }
+    ' "$js_dir/package.json"
+  }
+
   # Invoke the locally-installed binary directly — no `pnpm exec` / `npx exec`
-  # indirection (npx has no `exec` subcommand). A tool that is not installed is
-  # reported and skipped rather than failing the commit: no JS linter is a
-  # declared devDependency yet, so failing here would block every commit.
-  # Skips are accumulated so the end of the run can say the leg did not run.
+  # indirection (npx has no `exec` subcommand).
+  #
+  # A missing binary is TWO situations, and printing one line for both is the
+  # silence OI-0039 was filed for:
+  #
+  #   - DECLARED and not installed. node_modules is stale, half-installed or
+  #     absent. That is a broken environment, not a decision — a checked-in
+  #     dependency that quietly does not run is a gate that quietly does not
+  #     gate — so it FAILS the commit and says how to repair the tree.
+  #   - UNDECLARED. Nobody asked for the tool, so there is nothing to run and
+  #     nothing to repair; skip it, accumulate the name, and let the summary
+  #     at the end of the run name it as un-run alongside whatever did run.
+  #
+  # Invoked from the REPOSITORY ROOT, not from $js_dir: the corpus spans
+  # web/, crates/transync-cli/web/ and benchmark/, and biome resolves both
+  # its config (the root biome.jsonc) and the relative paths it is handed
+  # against the cwd. Only the binary's location is $js_dir's business.
   run_js_tool() {
     tool="$1"
     shift
-    if [ ! -x "$js_dir/node_modules/.bin/$tool" ]; then
-      echo "[pre-commit] SKIP: $tool not installed in $js_dir — run: (cd $js_dir && pnpm add -D $tool)" >&2
+    js_bin="$js_dir/node_modules/.bin/$tool"
+    if [ ! -x "$js_bin" ]; then
+      if js_tool_declared "$(js_tool_package "$tool")"; then
+        echo "[pre-commit] FAIL: $tool is declared in $js_dir/package.json but is not in $js_dir/node_modules/.bin" >&2
+        echo "[pre-commit]   the install is stale, not the decision — run: (cd $js_dir && pnpm install --frozen-lockfile)" >&2
+        js_broken="${js_broken:+$js_broken }$tool"
+        fail=1
+        return 0
+      fi
+      echo "[pre-commit] SKIP: $tool is not a declared dependency of $js_dir/package.json — nothing to run" >&2
       js_skipped="${js_skipped:+$js_skipped }$tool"
       return 0
     fi
-    echo "[pre-commit] ($js_dir) $tool $*"
-    ( cd "$js_dir" && "node_modules/.bin/$tool" "$@" ) || fail=1
+    echo "[pre-commit] $js_bin $1 (${#js_files[@]} tracked files, repo-rooted)"
+    js_ran="${js_ran:+$js_ran }$tool"
+    "$js_bin" "$@" || fail=1
   }
 
-  if [ -x "$js_dir/node_modules/.bin/biome" ]; then
-    # biome check covers format-check + lint in a single pass.
-    run_js_tool biome check .
-  else
-    run_js_tool prettier --check .
-    run_js_tool eslint .
+  # The root biome config IS the adoption record (OI-0039 / DCR-0049). Its
+  # presence, not a probe of node_modules, is what says this repository has a
+  # JavaScript format gate — so it is also what makes an undeclared or
+  # uninstalled biome a failure rather than a shrug.
+  biome_config=""
+  for candidate in biome.jsonc biome.json; do
+    if [ -f "$candidate" ]; then
+      biome_config="$candidate"
+      break
+    fi
+  done
+
+  # `biome format` is the format-check half only: biome.jsonc disables the
+  # linter and the assist actions, and `format` would ignore them regardless.
+  # That is A''s whole point — the lint half is a separate, recorded decision.
+  #
+  # Branch on the config, then on "installed OR declared", so a declared-but-
+  # uninstalled biome cannot fall through to two tools nobody declared and
+  # skip quietly.
+  if [ -n "$biome_config" ]; then
+    if [ ! -x "$js_dir/node_modules/.bin/biome" ] && ! js_tool_declared "@biomejs/biome"; then
+      echo "[pre-commit] FAIL: $biome_config is in the tree but @biomejs/biome is declared nowhere in $js_dir/package.json" >&2
+      echo "[pre-commit]   a format config with no formatter is a gate that cannot run — restore the devDependency" >&2
+      echo "[pre-commit]   (OI-0039 / DCR-0049 adopted it) or delete $biome_config deliberately." >&2
+      js_orphaned="${js_orphaned:+$js_orphaned }biome"
+      fail=1
+    elif ((${#js_files[@]})); then
+      run_js_tool biome format "${js_files[@]}"
+    fi
+  elif ((${#js_files[@]})); then
+    run_js_tool prettier --check "${js_files[@]}"
+    run_js_tool eslint "${js_files[@]}"
   fi
 
   if [ -f "$js_dir/tsconfig.json" ]; then
@@ -100,18 +238,52 @@ if [ -n "$js_dir" ]; then
 fi
 
 # A skipped leg exits 0 like a passing one, so the status alone cannot tell
-# them apart. Say it here, where the operator is already reading output.
-# The status is deliberately NOT failed on a skip: no linter is declared yet,
-# so failing would block every commit — including the ones that would add it.
-if [ -n "$js_skipped" ]; then
+# them apart. Say here, where the operator is already reading output, exactly
+# which halves ran — because the JavaScript leg covers formatting and NOT
+# linting, and no exit code can express that.
+#
+# An UNDECLARED tool is still deliberately not failed: nothing asked for it,
+# so there is nothing to repair. A declared-but-uninstalled tool already
+# failed above; it is repeated here so the summary and the status agree.
+if [ -n "$js_ran$js_skipped$js_broken$js_orphaned" ]; then
   {
     echo "[pre-commit] ----------------------------------------------------------"
-    echo "[pre-commit] THE JAVASCRIPT/TYPESCRIPT GATE DID NOT RUN."
-    echo "[pre-commit]   not installed in $js_dir: $js_skipped"
-    echo "[pre-commit] Nothing under $js_dir was format-checked or linted, so a"
-    echo "[pre-commit] successful exit below covers the Rust gates ONLY."
-    echo "[pre-commit] Close it by declaring a linter, e.g.:"
-    echo "[pre-commit]   (cd $js_dir && pnpm add -D @biomejs/biome)"
+    if [ -n "$js_ran" ]; then
+      echo "[pre-commit] THE JAVASCRIPT GATE RAN THE FORMAT HALF ONLY."
+      echo "[pre-commit]   ran, repo-rooted over ${#js_files[@]} tracked files: $js_ran"
+    else
+      echo "[pre-commit] THE JAVASCRIPT/TYPESCRIPT GATE DID NOT RUN."
+    fi
+    [ -n "$js_skipped" ] && echo "[pre-commit]   not declared in $js_dir/package.json (skipped): $js_skipped"
+    [ -n "$js_broken" ] && echo "[pre-commit]   declared but not installed (FAILED above): $js_broken"
+    [ -n "$js_orphaned" ] && echo "[pre-commit]   configured at the repo root but declared nowhere (FAILED above): $js_orphaned"
+    if [ -n "$js_ran" ]; then
+      echo "[pre-commit] The corpus is git's — every tracked .js/.mjs/.cjs except the"
+      echo "[pre-commit] byte-pinned minified vendor copies — so it includes the JS"
+      echo "[pre-commit] outside $js_dir (crates/transync-cli/web/, benchmark/)."
+      echo "[pre-commit] NO LINT RULE RAN. biome.jsonc disables the linter and the"
+      echo "[pre-commit] assist actions on purpose: OI-0039 / DCR-0049 adopted the"
+      echo "[pre-commit] format half and recorded the lint half as a separate, still"
+      echo "[pre-commit] -open decision. A green commit therefore means the browser"
+      echo "[pre-commit] code is FORMATTED, not that it was linted or type-checked."
+      echo "[pre-commit] Repair a format failure with:"
+      echo "[pre-commit]   $js_dir/node_modules/.bin/biome format --write \\"
+      echo "[pre-commit]     \$(git ls-files '*.js' '*.mjs' '*.cjs' | grep -v '\\.min\\.js\$')"
+      echo "[pre-commit] and re-stage. web/js/sync.js and crates/transync-cli/web/"
+      echo "[pre-commit] sync.js must stay byte-identical (sync_js_drift.rs), so"
+      echo "[pre-commit] format both or neither — the command above does both."
+    else
+      echo "[pre-commit] Nothing was format-checked, linted or type-checked, so a"
+      echo "[pre-commit] successful exit below covers the Rust gates ONLY."
+      echo "[pre-commit] Do NOT repair this with a bare \`pnpm add\`: the adopted"
+      echo "[pre-commit] shape is a root biome.jsonc (formatter on, linter off,"
+      echo "[pre-commit] lineWidth 100, double quotes — the Rust and JS scrapers"
+      echo "[pre-commit] panic at the defaults) plus package.json and pnpm-lock.yaml"
+      echo "[pre-commit] landing in the SAME commit, or scripts/test-browser.sh's"
+      echo "[pre-commit] --frozen-lockfile aborts the browser suite before a single"
+      echo "[pre-commit] test runs."
+    fi
+    echo "[pre-commit] docs/project/open-issues.md OI-0039 holds the measurements."
     echo "[pre-commit] ----------------------------------------------------------"
   } >&2
 fi

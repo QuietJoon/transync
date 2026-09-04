@@ -1,0 +1,77 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+  // OI-0039 / DCR-0049, option A': biome is adopted FORMAT-ONLY.
+  //
+  // The linter and the assist actions are off on purpose. Measurement over
+  // every JS blob version in the repository's reachable history produced 62
+  // lint diagnostics, 61 of which are one style preference
+  // (complexity/useOptionalChain) whose every fix rewrites a defensive guard
+  // inside the sync engine. Turning the linter on is a separate decision with
+  // its own record — do not flip it here as a drive-by.
+  //
+  // Scope: the authoritative file set is git's, not a directory walk.
+  // scripts/hooks/pre-commit passes `git ls-files '*.js' '*.mjs' '*.cjs'`,
+  // less the minified vendor copies, so the gate's scope cannot drift with
+  // the contents of an ignore file. The excludes below exist so that an
+  // interactive `biome format .` from the repo root agrees with the hook
+  // instead of walking into vendored, generated, and deliberately-malformed
+  // trees:
+  //   - the two byte-pinned purify.min.js copies (vendored, minified);
+  //   - web/wasm/ (gitignored output of scripts/build-wasm.sh) and the
+  //     Playwright report/result directories;
+  //   - the HTML intake's fixture corpus, which is deliberately malformed
+  //     test input and parse-errors under any HTML-aware tool;
+  //   - every *.json / *.jsonc in the tree: none is part of the hand-written
+  //     corpus, and a root walk otherwise reads .cargo, .claude and cargo
+  //     fingerprint files. Both a `**/`-prefixed and a bare pattern are
+  //     listed for each because the prefixed form alone does not match a
+  //     repository-root file.
+  //
+  // This file is a .jsonc rather than a .json on purpose: biome force-includes
+  // its OWN configuration file in every walk, no matter what `files.includes`
+  // says, so a commented biome.json is reported as a parse error by the very
+  // walk it configures. Under the .jsonc extension the comments are legal and
+  // the config formats clean.
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules/**",
+      "!**/target/**",
+      "!**/*.json",
+      "!*.json",
+      "!**/*.jsonc",
+      "!*.jsonc",
+      "!web/vendor/purify.min.js",
+      "!crates/transync-cli/web/purify.min.js",
+      "!web/wasm/**",
+      "!web/test-results/**",
+      "!web/playwright-report/**",
+      "!web/blob-report/**",
+      "!crates/transync-syntax/tests/fixtures/html-corpus/**",
+      "!crates/transync/tests/fixtures/scn-16-html-document.html"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": false
+  },
+  // lineWidth 100 and double quotes are not taste: they are pinned by three
+  // scrapers that read one-line declarations out of the formatted files.
+  // crates/transync-cli/tests/sync_js_drift.rs panics at the default width 80
+  // (KNOWN_SYNC_ROLES wraps) and its `.trim_matches('"')` silently fails
+  // under single quotes; web/tests/support/harness.js reads the
+  // `KNOWN_SCHEMA = {` line the same way.
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  }
+}

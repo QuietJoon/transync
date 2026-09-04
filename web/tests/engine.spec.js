@@ -86,7 +86,7 @@ async function installRig(page, ids) {
         document.body.appendChild(pane);
       }
     },
-    [ids, BLOCK_PX, PANE_PX]
+    [ids, BLOCK_PX, PANE_PX],
   );
 }
 
@@ -97,11 +97,9 @@ function mount(page, map) {
     const controller = mountSync(
       document.getElementById("eng-source"),
       document.getElementById("eng-target"),
-      map
+      map,
     );
-    return controller && typeof controller.destroy === "function"
-      ? "controller"
-      : controller;
+    return controller && typeof controller.destroy === "function" ? "controller" : controller;
   }, map);
 }
 
@@ -110,7 +108,7 @@ function rigTagged(page) {
   return page.evaluate(
     () =>
       !!document.getElementById("eng-source").__transyncController ||
-      !!document.getElementById("eng-target").__transyncController
+      !!document.getElementById("eng-target").__transyncController,
   );
 }
 
@@ -120,7 +118,7 @@ function setPaneHeight(page, paneId, px) {
     ([paneId, px]) => {
       document.getElementById(paneId).style.height = `${px}px`;
     },
-    [paneId, px]
+    [paneId, px],
   );
 }
 
@@ -136,7 +134,7 @@ function appendBlock(page, id, px) {
         document.getElementById(paneId).appendChild(block);
       }
     },
-    [id, px]
+    [id, px],
   );
 }
 
@@ -152,7 +150,7 @@ function plantAnchor(page, paneId, id, px, where) {
       if (where === "top") pane.insertBefore(el, pane.firstChild);
       else pane.appendChild(el);
     },
-    [paneId, id, px, where]
+    [paneId, id, px, where],
   );
 }
 
@@ -176,9 +174,9 @@ test.describe("sync.js mount contract", () => {
     // returning null rather than an inert controller no caller can tell
     // apart from a working one.
     expect(await mount(page, mapOf(BLOCK_IDS, { schema_version: "2.0.0" }))).toBeNull();
-    expect(
-      logs.some((m) => m.includes("rejecting alignment map") && m.includes("2.0.0"))
-    ).toBe(true);
+    expect(logs.some((m) => m.includes("rejecting alignment map") && m.includes("2.0.0"))).toBe(
+      true,
+    );
 
     // R0002-0015: and the refusal took the PREVIOUS mount down with it. The
     // tag is the documented "am I mounted?" read, so a stale one answers the
@@ -196,9 +194,7 @@ test.describe("sync.js mount contract", () => {
     expect(errors).toEqual([]);
   });
 
-  test("b — a map with no synchronizable row cannot drive anchored panes", async ({
-    page,
-  }) => {
+  test("b — a map with no synchronizable row cannot drive anchored panes", async ({ page }) => {
     const logs = collectConsole(page);
     const errors = collectPageErrors(page);
     await installRig(page, BLOCK_IDS);
@@ -235,8 +231,8 @@ test.describe("sync.js mount contract", () => {
       logs.some(
         (m) =>
           m.includes("describes no synchronizable block") &&
-          m.includes(`the panes carry ${BLOCK_IDS.length * 2} anchors`)
-      )
+          m.includes(`the panes carry ${BLOCK_IDS.length * 2} anchors`),
+      ),
     ).toBe(true);
 
     // The bound on that refusal: an empty document legitimately renders
@@ -269,18 +265,16 @@ test.describe("sync.js mount contract", () => {
     // real forward-minor map still drifts forward and still mounts.
     const forwardMinor = forwardMinorVersion();
     expect(await mount(page, mapOf(BLOCK_IDS, { schema_version: forwardMinor }))).toBe(
-      "controller"
+      "controller",
     );
     expect(
-      logs.some((m) => m.includes("is newer than this engine") && m.includes(forwardMinor))
+      logs.some((m) => m.includes("is newer than this engine") && m.includes(forwardMinor)),
     ).toBe(true);
 
     expect(errors).toEqual([]);
   });
 
-  test("d — fetchOk bounds a stalled request and honors a caller's abort", async ({
-    page,
-  }) => {
+  test("d — fetchOk bounds a stalled request and honors a caller's abort", async ({ page }) => {
     const errors = collectPageErrors(page);
     await installRig(page, BLOCK_IDS);
 
@@ -344,9 +338,7 @@ test.describe("sync.js mount contract", () => {
       const { mountSync } = await import("/sync.js");
       const pane = document.getElementById("eng-source");
       const controller = mountSync(pane, pane, map);
-      return controller && typeof controller.destroy === "function"
-        ? "controller"
-        : controller;
+      return controller && typeof controller.destroy === "function" ? "controller" : controller;
     }, mapOf(BLOCK_IDS));
     expect(verdict).toBeNull();
     expect(logs.some((m) => m.includes("requires two distinct panes"))).toBe(true);
@@ -381,15 +373,12 @@ test.describe("sync.js mount contract", () => {
     expect(await mount(page, mapOf(BLOCK_IDS))).toBe("controller");
     expect(
       logs.some(
-        (m) =>
-          m.includes("the target pane is not the offsetParent") && m.includes("<body>")
-      )
+        (m) => m.includes("the target pane is not the offsetParent") && m.includes("<body>"),
+      ),
     ).toBe(true);
     // Only the pane that violates it. The source pane is still relative, and
     // a check that fired for both would be noise nobody could act on.
-    expect(logs.some((m) => m.includes("the source pane is not the offsetParent"))).toBe(
-      false
-    );
+    expect(logs.some((m) => m.includes("the source pane is not the offsetParent"))).toBe(false);
 
     // A warning, not a refusal: the geometry is wrong but the panes still
     // pair by block id, and the caller may simply be mid-layout.
@@ -411,9 +400,7 @@ test.describe("sync.js mount contract", () => {
       wrapper.appendChild(first);
     });
     expect(await mount(page, mapOf(BLOCK_IDS))).toBe("controller");
-    expect(logs.some((m) => m.includes("the source pane is not the offsetParent"))).toBe(
-      false
-    );
+    expect(logs.some((m) => m.includes("the source pane is not the offsetParent"))).toBe(false);
 
     expect(errors).toEqual([]);
   });
@@ -442,11 +429,8 @@ test.describe("sync.js mount contract", () => {
     expect(await rigTagged(page)).toBe(false);
     expect(
       logs.some(
-        (m) =>
-          m.includes("pairs source_block_id") &&
-          m.includes("e-0003") &&
-          m.includes("t-0003")
-      )
+        (m) => m.includes("pairs source_block_id") && m.includes("e-0003") && m.includes("t-0003"),
+      ),
     ).toBe(true);
 
     // R0009-0022: a `target_block_id` that is not a string is not a block id
@@ -508,9 +492,7 @@ test.describe("sync.js mount contract", () => {
     // the resize observable — nothing about the block offsets changes.
     await setPaneHeight(page, "eng-target", 500);
     expect(await mount(page, mapOf([...BLOCK_IDS, LATE_ID]))).toBe("controller");
-    expect(logs.some((m) => m.includes("no DOM anchor") && m.includes(LATE_ID))).toBe(
-      true
-    );
+    expect(logs.some((m) => m.includes("no DOM anchor") && m.includes(LATE_ID))).toBe(true);
 
     // Drive the source to its own maximum. The follower wants ~550 and can
     // only reach 250.
@@ -532,11 +514,7 @@ test.describe("sync.js mount contract", () => {
     // never moves.
     await appendBlock(page, LATE_ID, LATE_PX);
     await setPaneHeight(page, "eng-target", 260);
-    await setScrollTop(
-      page,
-      SRC,
-      BLOCK_PX * BLOCK_IDS.length + LATE_PX - PANE_PX
-    );
+    await setScrollTop(page, SRC, BLOCK_PX * BLOCK_IDS.length + LATE_PX - PANE_PX);
     await waitForScrollNear(page, TGT, 890, 15);
     expect(await rigTagged(page)).toBe(true);
 
@@ -568,8 +546,7 @@ test.describe("sync.js mount contract", () => {
       img.width = 10;
       img.height = 350;
       // 1×1 transparent GIF — no network, and `load` still fires.
-      img.src =
-        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+      img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
       first.appendChild(img);
     });
 
@@ -584,9 +561,7 @@ test.describe("sync.js mount contract", () => {
     expect(errors).toEqual([]);
   });
 
-  test("j — a <details> toggle re-drives the follower, not just its twin", async ({
-    page,
-  }) => {
+  test("j — a <details> toggle re-drives the follower, not just its twin", async ({ page }) => {
     const errors = collectPageErrors(page);
     await installRig(page, BLOCK_IDS);
 
@@ -627,15 +602,13 @@ test.describe("sync.js mount contract", () => {
           first.appendChild(details);
         }
       },
-      [BODY_PX, BLOCK_PX]
+      [BODY_PX, BLOCK_PX],
     );
 
     // Built before the mount, so the engine's cached geometry is the settled
     // closed one and the toggle below is the only reflow in the test.
     expect(await mount(page, mapOf(BLOCK_IDS))).toBe("controller");
-    expect(await offsetTopOf(page, SRC, "e-0003")).toBe(
-      await offsetTopOf(page, TGT, "e-0003")
-    );
+    expect(await offsetTopOf(page, SRC, "e-0003")).toBe(await offsetTopOf(page, TGT, "e-0003"));
 
     // Park the reader on the third block; the panes agree.
     const third = BLOCK_PX * 2;
@@ -652,9 +625,8 @@ test.describe("sync.js mount contract", () => {
     // The mirror landed (otherwise the follower has nothing to re-align to)…
     expect(
       await page.evaluate(
-        () =>
-          document.querySelector('#eng-target [data-sync-id="e-0001"] details').open
-      )
+        () => document.querySelector('#eng-target [data-sync-id="e-0001"] details').open,
+      ),
     ).toBe(true);
     // …and the reader's own pane did not move a pixel, so no scroll event
     // fired and nothing but the recompute can drive the follower.
@@ -671,9 +643,7 @@ test.describe("sync.js mount contract", () => {
     expect(errors).toEqual([]);
   });
 
-  test("k — an anchor no alignment row claims cannot drive the follower", async ({
-    page,
-  }) => {
+  test("k — an anchor no alignment row claims cannot drive the follower", async ({ page }) => {
     const logs = collectConsole(page);
     const errors = collectPageErrors(page);
     await installRig(page, BLOCK_IDS);
@@ -698,9 +668,9 @@ test.describe("sync.js mount contract", () => {
           (m) =>
             m.includes('ignoring anchor "x-9999"') &&
             m.includes(`${pane} pane`) &&
-            m.includes("no alignment row claims it")
+            m.includes("no alignment row claims it"),
         ),
-        pane
+        pane,
       ).toBe(true);
     }
     // Two policies, kept distinct: an unlisted anchor is not a duplicate, and
@@ -743,8 +713,8 @@ test.describe("sync.js mount contract", () => {
         (m) =>
           m.includes("duplicate data-sync-id") &&
           m.includes("e-0001") &&
-          m.includes("keeping the first occurrence")
-      )
+          m.includes("keeping the first occurrence"),
+      ),
     ).toBe(true);
 
     const third = await offsetTopOf(page, TGT, "e-0003");
@@ -817,7 +787,7 @@ test.describe("sync.js mount contract", () => {
     expect(await mount(page, map)).toBe("controller");
     expect(
       logs.some((m) => m.includes("is newer than this engine")),
-      "the forward-drift warning is the policy's visible half"
+      "the forward-drift warning is the policy's visible half",
     ).toBe(true);
     expect(logs.some((m) => m.includes("rejecting alignment map"))).toBe(false);
     // The title row is inert in every direction: no drift warning about its
@@ -859,34 +829,29 @@ test.describe("sync.js mount contract", () => {
         ]) {
           const pane = document.createElement("div");
           pane.id = id;
-          pane.style.cssText =
-            "position:relative;height:200px;overflow:auto;margin:0;padding:0";
+          pane.style.cssText = "position:relative;height:200px;overflow:auto;margin:0;padding:0";
           pane.innerHTML = html;
           document.body.appendChild(pane);
         }
       },
-      [sourcePane, targetPane]
+      [sourcePane, targetPane],
     );
     expect(await mount(page, map)).toBe("controller");
 
     // D5: the title row is in the map, and NOTHING in a pane claims it.
     expect(
-      await page.evaluate(
-        () => document.querySelectorAll('[data-sync-id^="title-"]').length
-      )
+      await page.evaluate(() => document.querySelectorAll('[data-sync-id^="title-"]').length),
     ).toBe(0);
     // D9: no bare <li> as a direct pane child. The group is required by D9's
     // model (the container is gap; only items anchor), not by any sanitizer
     // behaviour — DOMPurify leaves a bare <li> in place, measured.
     expect(
-      await page.evaluate(
-        () => document.querySelectorAll("#eng-source > main > li").length
-      )
+      await page.evaluate(() => document.querySelectorAll("#eng-source > main > li").length),
     ).toBe(0);
 
     // Bidirectional block-id sync over real HTML-derived anchors.
     const h2 = await page.evaluate(
-      () => document.querySelector('#eng-source [data-sync-id^="h2-"]').dataset.syncId
+      () => document.querySelector('#eng-source [data-sync-id^="h2-"]').dataset.syncId,
     );
     const srcTop = await offsetTopOf(page, SRC, h2);
     const tgtTop = await offsetTopOf(page, TGT, h2);
@@ -903,7 +868,7 @@ test.describe("sync.js mount contract", () => {
     // first anchor starts at 0; the tolerance absorbs REFERENCE_OFFSET_PX
     // without the test hard-coding an engine internal.
     const firstId = await page.evaluate(
-      () => document.querySelector("#eng-target [data-sync-id]").dataset.syncId
+      () => document.querySelector("#eng-target [data-sync-id]").dataset.syncId,
     );
     const firstSrcTop = await offsetTopOf(page, SRC, firstId);
     await setScrollTop(page, TGT, 0);

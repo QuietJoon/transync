@@ -359,6 +359,8 @@ Five scripts prefer `/Volumes/Temp/claude/<name>` and silently fall back to `${T
 
 ### transync-html-token-pin-reads-another-crates-fixtures
 
+> **RESOLVED 2026-09-04 (`ticgit:4fb858`).** Option 1 — the corpus is vendored into the crate: `crates/transync-html/tests/fixtures/{scn-15-html-blocks,scn-14-full,reader-honesty}.md` are byte-verbatim copies, sha256-verified, so the pin no longer reaches through `CARGO_MANIFEST_DIR/../..` into a sibling crate. It was also the only admissible option: `publish = false` contradicts wave 0's roster decision, and the feature-gate variant this entry recorded is **barred outright** — `transync-html` may never carry a `[features]` table (CLAUDE.md, and the crate's own manifest header), because that would break the standing two-package `wasm32` gate. The ticket's own hold ("do not act during ti 490d97 waves 0-7 — the fixture freeze holds for the duration") expired when wave 7 landed.
+
 - **Type:** 1
 - **Verified:** yes — gated finding register
 - **Sources:** ticgit:4fb85819
@@ -469,6 +471,8 @@ before the guard.
 
 ### pre-network-recomputation (OI-0041)
 
+> **RESOLVED 2026-09-04 (partial); six of eight declined on this entry's own severity verdict, two deferred.** `unit/split.rs` plans in one pass and carries the sliced parent with the plan — one `windows_of` per unit, one fewer whole comrak parse per splitting table, and **a panic site deleted** because the invariant now rides the signature. `ProfileMetadata::default` is documented rather than restructured: the panic is unreachable for any caller of a built crate, and each structural alternative is worse (a `build.rs` duplicates `load_profile`'s rules; Rust literals violate the single-source rule; a `Default` that stops equalling `default_profile()` hands out an empty system prompt). R0009-0049 / R0009-0050 **deferred** — their fix needs a new field on `GlossaryEntry`, a tier-(a) public type *without* `#[non_exhaustive]` whose serde shape is operator-edited profile TOML, i.e. a breaking wire change for a loop this entry records as dwarfed by the tiktoken encode beside it. **Re-trigger: the next breaking window already moving `GlossaryEntry`.** **Does not count against the v0.5.0 gate.**
+
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0044, R0009-0045, R0009-0046,
   R0009-0047, R0009-0049, R0009-0050, R0009-0051, R0009-0073), gate-accepted,
@@ -520,6 +524,8 @@ TOML and can panic.
 
 ### degraded-regen-cascade-scans (OI-0042)
 
+> **RESOLVED 2026-09-04.** All three sites linearized — including `validate/full_rescan_html.rs`'s twin, written 2026-09-03, eight days after the entry, and covered here rather than given its own row because splitting twins across two entries is how one of them rots. `widen_to_neighbors` also stopped comparing `String` where `usize` was available, which is why it was 8× its sibling: 26 ms / 245 ms / 1.9 s at 5,000 / 20,000 / 50,000 blocks, and N is the caller's document rather than this repository's — which is what moved it off the "cold path, therefore negligible" reading.
+
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0033, R0009-0079),
   gate-accepted, user-routed track
@@ -553,6 +559,8 @@ fix for R0009-0033: containment there is **range**-based (`top.start` inside the
 entry's offset span), not id-based, so an ID lookup table is the wrong shape.
 
 ### module-size-versus-inline-tests (OI-0043)
+
+> **RESOLVED 2026-09-04.** `output.rs` 4,005 → 411 lines across five concern modules; the other three files close as **measured non-issues**, which is what this entry already suspected. The split is proven pure — an independent review found 119/119 item bodies and 49/49 test bodies **byte-exact** and the code string-literal multiset identical at 746/746, so the staging → fsync → rename → rollback ordering behind `--out-dir`'s all-or-nothing guarantee cannot have moved.
 
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0068, R0009-0069,
@@ -636,6 +644,8 @@ every unit entry and still forces a compaction, so the cache permanently retains
 nothing across opens. No test covers a failing writer.
 
 ### serve-body-and-authority-reporting (OI-0045)
+
+> **RESOLVED 2026-09-04.** All three fixed, each with a test proven red against pre-fix code. One correction to this entry: it says `contracts.md` carries the `[::1]` claim in prose and must move with the code — it does not. §6's authority sentence is family-agnostic; the enumeration lived in `docs/Developer_Guide.md` and `docs/Quick_Start.md`, both now corrected.
 
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0002, R0009-0008,
@@ -969,6 +979,8 @@ again, ticketed, or otherwise moved during the arc that followed.
 
 ### phrasing-custom-element-mid-sentence-review
 
+> **RESOLVED 2026-09-04 (`ticgit:84bf37`) — the owner ACCEPTED the current behaviour.** The re-confirmation ran on the shipped intake over 42 real pages (10.1 MB, 8,879 blocks, 346 custom-element start tags) across two disjoint corpora, the second deliberately covering the generator classes the first missed (Sphinx, MkDocs, Docusaurus, Jekyll, Hugo, GitBook, WordPress, Ghost, Notion, Confluence, gov.uk, MediaWiki, two production email templates): **zero mid-sentence splits.** The measurement also narrowed the hazard — the split fires only in prose **not wrapped in an element**; inside `<p>`, a heading or an `<li>` the wrapping element is the block and the custom element is interior. Twelve errata landed in the spec recording that, including in §4's PHRASING bullet and §13 limitation 5, which both stated the split unconditionally. The untaken lever now lives at `phrasing-extension-list-for-custom-elements`, deferred at filing.
+
 - **Description:** A custom element mid-sentence **stops** segmentation (D4's DEFAULT-STOP
   default), so one sentence can cross three translation units. Accepted *for now* with
   the PHRASING widening — and the owner **explicitly required re-confirmation against
@@ -1130,6 +1142,64 @@ The HTML→HTML feature: a second intake producing the same block IR, delivered 
 
 This was the umbrella the HTML work ran under, recorded here because a backlog that omits the largest open item in the tree is not a census. **All eight waves landed** — DCR-0032 (wave 0) through DCR-0039 (wave 7, 2026-09-04) — and the executed order was 0 → 2 → 3 → 4 → 5 → 6 → 7, corrected from the spec's original graph by wave 4's deviation 1. Retained for the record; it is no longer open work and does not count against the v0.5.0 gate. What the feature deliberately left open has its own entries: `phasing-custom-element-mid-sentence-review` (the owner's §14.1 re-confirmation, `ticgit:84bf37`), `markdown-island-reclassification`, `html-oversize-leaf-block-split` and `parser-intake-markdown-rename`.
 
+### bin-only-crates-are-outside-the-rustdoc-gate
+
+- **Type:** 1
+- **Verified:** yes — measured 2026-09-04 during OI-0043's `output.rs` split: nine broken intra-doc links,
+  four of them in `crates/transync-cli/src/output/lock.rs`, **a file the split never opened**, because its
+  `super::X` references silently became sibling references when the concerns moved out.
+- **Sources:** OI-0043's resolution (2026-09-04)
+- **First seen:** 2026-09-04 · **Last seen:** 2026-09-04
+
+#### Description
+
+Nothing in this repository would ever have reported those nine links. `scripts/lib/rustdoc-gate.sh` excludes
+`transync-cli` by design — its own comment reads "`transync-cli` is absent on purpose — it is bin-only, with
+no public API to document" — and `cargo clippy --all-targets -- -D warnings` does not check intra-doc links
+at all. So a bin-only crate's rustdoc can rot without limit, and a refactor in one file can break doc links
+in a file it never touched. A tenth break was latent behind `#[cfg(not(unix))]` and would have surfaced only
+on a Windows build.
+
+#### Background
+
+Distinct from OI-0046's rustdoc **completeness** sub-item, which asks whether every *library* member is
+inside the gate; this asks whether bin-only members should be doc-checked at all. The cheap shape is a
+`cargo doc -p transync-cli --no-deps --document-private-items` leg with `-D warnings`, which is what
+diagnosed these nine — it costs one more `cargo doc` invocation and needs no new dependency. The reason it
+was excluded was "no public API to document", which is true and beside the point: `--document-private-items`
+is how a developer reads this crate, and that is the reader the links are for.
+
+### phrasing-extension-list-for-custom-elements
+
+- **Type:** 2
+- **Verified:** yes — measured 2026-09-04 over 42 real pages (10.1 MB, 8,879 blocks, 346 custom-element
+  start tags): **zero** mid-sentence splits
+- **Sources:** ticgit:84bf37 (RESOLVED 2026-09-04 — the owner accepted the current behaviour), spec
+  `2026-08-20-html-to-html-translation-design.md` §14.1 / §13.5, ADR-0025 (D4)
+- **First seen:** 2026-09-04 · **Last seen:** 2026-09-04
+
+> **Deferred at filing, 2026-09-04, by owner ruling.** `84bf37` was closed by **accepting** the current
+> behaviour on the measurement above; this entry carries only the untaken lever, and it is recorded so the
+> option survives outside the closed ticket. **Does not count against the v0.5.0 gate.** **Re-trigger: a
+> real page whose prose sits directly inside a container rather than in `<p>`/heading/`<li>` AND whose
+> sentences are cut by a custom element** — the shape the 42-page corpus did not contain.
+
+#### Description
+
+An unknown element is DEFAULT-STOP (ADR-0025 D4), so a custom element used mid-sentence flushes the text run
+before it and starts a new one after. In prose **not wrapped in an element** that severs one sentence into
+`p-…` / `html-…` / `p-…` translation units. Wrapped in `<p>`, a heading or an `<li>` the wrapping element is
+the block and the custom element is interior, so the sentence stays one block — which is why the measured
+corpus shows zero splits. The candidate lever, if the naked case ever matters, is a per-run or per-profile
+phrasing-extension list letting an operator declare `price-tag`, `fa-icon` and friends as phrasing.
+
+#### Background
+
+The prohibition that constrains any design here: **unknown elements must not become PHRASING by default.**
+DOMPurify removes an unknown element and every attribute riding it, which is why wave 6's 2026-08-21 ruling
+puts such a block's anchor on a transparent `<div>` wrapper; treating one as inline phrasing would put its
+text inside a run whose markup the sanitizer then deletes.
+
 ### git-history-lost-twice-standing-record
 
 - **Type:** 2
@@ -1146,6 +1216,8 @@ The pre-restart history is unreachable and always will be. The ticket's stated s
 Verified: `git rev-list --count HEAD` is 48, `git tag` prints `v0.4.0`, `git fsck` is clean, and the root commit is `59ce8df723b4`, the 2026-08-17 restart rather than the original root. So half the claim stands permanently and half no longer reproduces. `docs/project/git-history-loss-2026-08-17.md` and its 2026-08-10 sibling record both events. Type 2 rather than type 1 because there is nothing to implement: what remains is a decision about what this ticket is *for*. Read as a defect it is unreproducible and should close; read as the standing record that this object store has now lost history twice — and that `/Volumes/Common` is therefore not reliable storage — it should stay open and be re-titled. That is an owner call, not a maintenance one.
 
 ### js-lint-gate-exit-status-is-dishonest (OI-0039)
+
+> **RESOLVED 2026-09-04 — format half adopted, lint half deferred with a re-trigger.** `biome.jsonc` at the repo root (formatter on, linter and assist **off**, `@biomejs/biome` pinned exactly at 2.5.12 because formatter output is not semver-covered); 457 lines reformatted across 10 files; the hook's JS leg rewritten to a `git ls-files` corpus invoked **from the repo root**, so it reaches the CLI `sync.js` twin and `profile.mjs` — the 22% the old `cd web` scope structurally could not see — and an empty file list is now an explicit FAIL. Two things landed first as fixes rather than decisions: the printed remediation no longer instructs an action that makes the next commit fail with 180 errors, and a tool **declared** in `web/package.json` but not installed now fails instead of skipping. Taken now because the deferral's own re-trigger — "the first commit that already moves both `sync.js` copies together" — is OI-0047's fix, so deferring would have re-triggered immediately. **Lint half deferred; re-trigger: a JS defect reaching a shipped bundle that a lint rule would have caught** (measured basis: 62 diagnostics over all 31 historical blob versions, 61 of them one style preference). **Does not count against the v0.5.0 gate.**
 
 - **Type:** 2
 - **Verified:** yes — Review 0009 finding (R0009-0014), gate-accepted,
@@ -1196,6 +1268,8 @@ message is already as loud as a message can be; what is unresolved is the
 status.
 
 ### repeated-parsing-on-the-accepted-path (OI-0040)
+
+> **RESOLVED 2026-09-04 (partial), and the residual is deferred with a SELF-FIRING trigger.** The `[`-prefilter landed at both `inline_inventory` sites; the shared-AST **seam** is deferred, and the deferral carries its own tripwire rather than a promise: `build_batches` now raises one run-level `tracing::warn` when `unit_count × |ref_defs|` passes 6,000,000 bytes, naming `Document.ref_defs` as the knob. **Re-trigger: that warning firing on a real run.** Measured: +1,756 ms on a 1,289 ms baseline at 5,000 units × 20 KB pool; the prefilter recovers 51.8% at this corpus's bracket density and 0% at link-reference house style, which is why the residual is real rather than closed. Also corrected here: this entry's sentence that R0009-0034 and R0009-0037 "are **not blocked** by anything and should ride OI-0037" is **dead** — OI-0037 resolved 2026-09-01 the other way (it shared a *guard*, not an artifact), so those two are re-homed onto OI-0040. **Does not count against the v0.5.0 gate.**
 
 - **Type:** 2
 - **Verified:** yes — Review 0009 findings (R0009-0031, R0009-0034,
@@ -1253,6 +1327,8 @@ refactor with a second justification, not a prerequisite.
 
 ### checking-apparatus-holes (OI-0046)
 
+> **RESOLVED 2026-09-04, and sub-item 3 paid for itself immediately.** (1) The rustdoc completeness loop moved into the shared `rustdoc-gate.sh`, so the hook gained it — its candid deferral trigger had **already fired** (`Developer_Guide.md`'s gate command omitted `transync-lang`). (2) The Playwright port got an env fallback. (3) The "existing coverage suffices" demonstration **failed on measurement**: 8/8 historical divergence classes are pinned, but **not one of the 38 pinned edge cases produces a single orphan close tag**, so `balance_fragment`'s orphan-deletion pass — the first thing it does — had zero corpus coverage; six entries carry a literal `<` and none carries one alongside an orphan closer. The two ingredients existed separately and never together, which is the combinatorial gap a hand-picked corpus cannot close. `generative_properties.rs` (840 lines, nine-line `splitmix64` over four pinned seeds, `std` only, no dependency, no `cargo-fuzz`, no `#[ignore]` — because the hook is the only automatic gate and a coverage-guided harness would run at no venue) found a **live anchor-injection defect on its first execution**, now `ticgit:fdd989`. 400,000 generated inputs over 4 seeds: 399,872 satisfy every property, 128 fail, all one class.
+
 - **Type:** 2
 - **Verified:** yes — Review 0009 findings (R0009-0015, R0009-0018,
   R0009-0067), gate-accepted, user-routed track
@@ -1303,6 +1379,8 @@ keep the harness. R0009-0017, the sibling foreign-server finding, was fixed in
 
 ### sync-engine-dead-zone-and-quiet-reflow (OI-0047)
 
+> **RESOLVED 2026-09-04.** The bottom clamp landed and the two drift diagnostics now re-run on every coalesced reflow recompute, **latched** so a warning fires only when the verdict changes; the refresh-only alternative was rejected because a diagnostic that fires only on an explicit call is one nobody sees. Both `sync.js` copies moved in one commit. `contracts.md` §4a is amended for the consequence: its "one property read per pane at mount, never per frame" budget is now one read per pane **per recompute frame**, and that widening is the contract.
+
 - **Type:** 2
 - **Verified:** yes — Review 0009 findings (R0009-0021, R0009-0025),
   gate-accepted, user-routed track
@@ -1352,6 +1430,8 @@ reflow" by design. What no record covers is that `warnMapDomDrift` and
 `crates/transync-cli/tests/sync_js_drift.rs`, so either fix is a two-file commit.
 
 ### boundary-checks-weaker-than-contract (OI-0048)
+
+> **RESOLVED 2026-09-04 (R0009-0052 deferred).** Policy: the library refuses where a real caller can reach, and records with a named trigger where none can yet. R0009-0053 landed as `TransyncError::InvalidOptions` with the new stable code `invalid_options`; **the reachability argument inverted in flight** — both roster consumers guard `target_language`, which first read as "unreachable", but the guards exist *because* transync reported the cause as `internal`, so they are downstream compensation for an upstream defect and naming the cause is what retires them. R0009-0075 landed; R0009-0078 landed as its doc half only. R0009-0052 **deferred**: `ProfileConstraints` is `#[non_exhaustive]`, so no external caller can build the unrecognized value. **Re-trigger: a caller-built `ProfileConstraints` becomes constructible, or a consumer reports a silently-whole-block table.** **Does not count against the v0.5.0 gate.**
 
 - **Type:** 2
 - **Verified:** yes — Review 0009 findings (R0009-0052, R0009-0053,

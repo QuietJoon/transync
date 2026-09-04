@@ -257,10 +257,15 @@ fn attribute_offenders(
             }
         }
         let Some((start, end)) = span else { continue };
-        let owned = regen_top
-            .iter()
-            .filter(|top| top.start >= start && top.start < end)
-            .count();
+        // OI-0042: `regen_top` is built from `root.children()` in document
+        // order, so `start` is non-decreasing and the count of entries in
+        // `[start, end)` is the gap between two partition points — O(log N)
+        // instead of a scan per source entry. `saturating_sub` because
+        // `span` is only well-formed while every contributing `offsets`
+        // range is, and scan 3's boundary work runs after this.
+        let lo = regen_top.partition_point(|top| top.start < start);
+        let hi = regen_top.partition_point(|top| top.start < end);
+        let owned = hi.saturating_sub(lo);
         if owned != 1 {
             // For a collapsed list we can't pin which item over- or
             // under-produced, so fall back the whole group.
@@ -388,6 +393,50 @@ mod tests {
             err.divergent_source_blocks,
             vec![ids[1].clone()],
             "only the block whose own bytes are too deep"
+        );
+    }
+
+    /// OI-0042: scan 2's attribution over an INVERTED `offsets` range.
+    /// The linearized `attribute_offenders` subtracts two
+    /// `partition_point`s over `regen_top`, and an inverted `span` puts
+    /// the upper one BELOW the lower — the subtraction must saturate to
+    /// the conservative "owns nothing, so it is a suspect" answer rather
+    /// than wrap (release) or panic (overflow checks). Reachable only
+    /// through a hand-built `BlockOffsets`, since regen's own ranges are
+    /// well-formed by construction — and that is exactly what
+    /// `finalize`'s cascade may hand this function, because scan 3 runs
+    /// AFTER the attribution.
+    #[test]
+    fn attribution_survives_an_inverted_offsets_range() {
+        let doc = parse("alpha\n\nbravo\n").expect("source parses");
+        let ids: Vec<BlockId> = doc.blocks.iter().map(|b| b.block_id.clone()).collect();
+        assert_eq!(ids.len(), 2, "fixture sanity");
+
+        let mut offsets = dummy_offsets(&doc);
+        let r = *offsets.0.get(&ids[0]).expect("block 0 has a range");
+        assert!(
+            r.start < r.end,
+            "fixture sanity: a non-empty range to invert"
+        );
+        offsets.0.insert(
+            ids[0].clone(),
+            crate::parser::ranges::ByteRange {
+                start: r.end,
+                end: r.start,
+            },
+        );
+
+        // An extra top-level block trips scan 2, which is one of the two
+        // arms that call the attribution.
+        let bad_regen = "alpha\n\nbravo\n\nuninvited\n";
+        let err = reparse_full(&doc, bad_regen, &offsets)
+            .expect_err("an extra top-level block must be rejected");
+        assert!(err.reason.contains("regenerated block count"), "got: {err}");
+        assert_eq!(
+            err.divergent_source_blocks,
+            vec![ids[0].clone()],
+            "the inverted range owns nothing, so its block is the suspect; \
+             `bravo`'s range still owns exactly one reparsed block"
         );
     }
 

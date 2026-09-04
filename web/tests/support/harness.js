@@ -23,11 +23,7 @@ import { fileURLToPath } from "node:url";
 // suite reads one bundle while the server serves another — so it is derived
 // the same way: repository-relative, not an absolute path tied to one
 // workstation (R0009-0019).
-const WEB_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-);
+const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const FIXTURE_DIR = path.resolve(
   process.env.TRANSYNC_FIXTURE_DIR || path.join(WEB_DIR, ".fixture", "html"),
 );
@@ -46,10 +42,23 @@ export const REFERENCE_OFFSET_PX = 4;
 // a self-contained <div> hero (html-0018). All four are "anchor" blocks,
 // so all four carry data-sync-id.
 export const SYNC_IDS = [
-  "h1-0001", "p-0002", "h2-0003", "p-0004", "c-0005",
-  "li-0006", "li-0007", "li-0008", "h2-0010", "p-0011",
-  "t-0012", "q-0013", "img-0014", "html-0015", "p-0016",
-  "html-0017", "html-0018",
+  "h1-0001",
+  "p-0002",
+  "h2-0003",
+  "p-0004",
+  "c-0005",
+  "li-0006",
+  "li-0007",
+  "li-0008",
+  "h2-0010",
+  "p-0011",
+  "t-0012",
+  "q-0013",
+  "img-0014",
+  "html-0015",
+  "p-0016",
+  "html-0017",
+  "html-0018",
 ];
 
 // Read a file straight from the served bundle so route-interception
@@ -100,9 +109,7 @@ export function collectPageErrors(page) {
 // Wait until mountSync has wired the panes (tags __transyncController on
 // both). Rejects via Playwright timeout if mount never completes.
 export function waitForMounted(page) {
-  return page.waitForFunction(
-    () => !!document.getElementById("source")?.__transyncController
-  );
+  return page.waitForFunction(() => !!document.getElementById("source")?.__transyncController);
 }
 
 // Wait until the panes' HTML has been injected (data-sync-id anchors
@@ -110,16 +117,12 @@ export function waitForMounted(page) {
 // to be refused (schema drift), where innerHTML is still set but no
 // engine is wired.
 export function waitForAnchors(page) {
-  return page.waitForFunction(
-    () => !!document.querySelector("#source [data-sync-id]")
-  );
+  return page.waitForFunction(() => !!document.querySelector("#source [data-sync-id]"));
 }
 
 // True iff the engine wired this run (both panes carry the controller).
 export function isMounted(page) {
-  return page.evaluate(
-    () => !!document.getElementById("source")?.__transyncController
-  );
+  return page.evaluate(() => !!document.getElementById("source")?.__transyncController);
 }
 
 // offsetTop of the anchor with `id` inside pane `sel` (#source/#target).
@@ -127,9 +130,8 @@ export function isMounted(page) {
 // the same coordinate space the engine reads.
 export function offsetTopOf(page, sel, id) {
   return page.evaluate(
-    ([sel, id]) =>
-      document.querySelector(`${sel} [data-sync-id="${id}"]`).offsetTop,
-    [sel, id]
+    ([sel, id]) => document.querySelector(`${sel} [data-sync-id="${id}"]`).offsetTop,
+    [sel, id],
   );
 }
 
@@ -155,10 +157,7 @@ export function maxScrollOf(page, sel) {
 }
 
 export function scrollTopOf(page, sel) {
-  return page.evaluate(
-    (sel) => document.querySelector(sel).scrollTop,
-    sel
-  );
+  return page.evaluate((sel) => document.querySelector(sel).scrollTop, sel);
 }
 
 // Programmatically scroll a pane; fires the native scroll event the
@@ -168,7 +167,7 @@ export function setScrollTop(page, sel, y) {
     ([sel, y]) => {
       document.querySelector(sel).scrollTop = y;
     },
-    [sel, y]
+    [sel, y],
   );
 }
 
@@ -201,8 +200,8 @@ export function waitForScrollNear(page, sel, expected, tol = 8, timeout = 8000) 
           if (performance.now() - start > timeout) {
             reject(
               new Error(
-                `waitForScrollNear: ${sel} at ${Math.round(el.scrollTop)}, expected ~${expected}±${tol}`
-              )
+                `waitForScrollNear: ${sel} at ${Math.round(el.scrollTop)}, expected ~${expected}±${tol}`,
+              ),
             );
             return;
           }
@@ -211,7 +210,7 @@ export function waitForScrollNear(page, sel, expected, tol = 8, timeout = 8000) 
         requestAnimationFrame(tick);
       });
     },
-    [sel, expected, tol, timeout]
+    [sel, expected, tol, timeout],
   );
 }
 
@@ -239,7 +238,7 @@ export function waitInPagePumped(page, predicateSource, args, timeout = 4000) {
         requestAnimationFrame(tick);
       });
     },
-    [predicateSource, args, timeout]
+    [predicateSource, args, timeout],
   );
 }
 
@@ -270,7 +269,7 @@ export function activeSyncId(page, sel) {
       }
       return topmost ? topmost.dataset.syncId : null;
     },
-    [sel, REFERENCE_OFFSET_PX]
+    [sel, REFERENCE_OFFSET_PX],
   );
 }
 
@@ -327,7 +326,7 @@ export function driveThenSampleAfterFrames(page, driverSel, y, followerSel, fram
         requestAnimationFrame(tick);
       });
     },
-    [driverSel, y, followerSel, frames]
+    [driverSel, y, followerSel, frames],
   );
 }
 

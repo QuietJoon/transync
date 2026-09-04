@@ -26,7 +26,7 @@
 //! release: unlinking it would let a later run create a fresh inode at the
 //! same path and lock that instead, while a waiting run still held the old
 //! one — two "exclusive" holders at once. Both directory guards
-//! ([`super::scan_bundle_dir`], [`super::ensure_out_dir_replaceable`]) list it
+//! (`super::preflight::scan_bundle_dir`, [`super::preflight::ensure_out_dir_replaceable`]) list it
 //! as a transync file, so it is never mistaken for foreign content.
 //!
 //! One caller does unlink a marker: the rollback of a directory level a failed
@@ -45,7 +45,7 @@
 //! a directory another run is publishing into, which was DCR-0021's stated
 //! boundary. Closing it is the callers' work rather than this module's: each
 //! mode also locks the one directory the other would be holding instead
-//! ([`super::claim_anchor`], [`super::published_dirs_inside`]). What is left to
+//! ([`super::fileset::claim_anchor`], `super::publish::published_dirs_inside`). What is left to
 //! *this* primitive is a peer publishing **deeper** inside an `--out-dir`
 //! target than the `html/` level transync itself writes, and a peer built
 //! before this lock existed. Neither is a lock problem: no finite claim set
@@ -184,7 +184,7 @@ fn same_file(file: &File, path: &Path) -> bool {
 /// Windows has no portable file identity in `std` (`file_index` is documented
 /// as not guaranteed), so the revalidation is skipped there and the lock
 /// behaves exactly as it did before ti `8792b7` — the same platform shape
-/// [`super::preserve_target_permissions`] uses. The exposure it leaves is the
+/// `super::fileset::preserve_target_permissions` uses. The exposure it leaves is the
 /// three-run sequence in [`lock_marker`], whose window is a few syscalls wide.
 #[cfg(not(unix))]
 fn same_file(_file: &File, _path: &Path) -> bool {

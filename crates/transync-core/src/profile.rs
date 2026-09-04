@@ -186,10 +186,25 @@ pub(crate) enum TableStrategy {
 /// Resolve `[constraints].default_table_strategy`.
 ///
 /// Unset, and every unrecognized value, resolves to
-/// [`TableStrategy::WholeBlock`] — the load-time warning has already named an
-/// unrecognized value, and this is the behavior that warning promises.
+/// [`TableStrategy::WholeBlock`].
+///
+/// **The warning that names an unrecognized value is [`load_profile`]'s, not
+/// this door's** (R0009-0052 / OI-0048). A profile that came through
+/// `load_profile` has already had `constraints.default_table_strategy has
+/// unknown value …` pushed onto [`ProfileMetadata::load_warnings`] and emitted
+/// on `transync::profile`, so for that caller whole-block is the behavior the
+/// warning promised. A [`ProfileConstraints`] built default-then-assign — the
+/// external construction route `contracts.md` §1 documents for a
+/// `#[non_exhaustive]` struct — never passed that check, so `Some("rowwindow")`
+/// resolves here with nothing having said so. Repeating the loader's line at
+/// this door was considered and not taken; the open-issue register carries the
+/// decision and the condition that reopens it. The consequence is bounded
+/// rather than silent end-to-end: an oversize table that should have been
+/// split is still named by the live output-budget preflight and aborts at the
+/// provider (ADR-0017), so the failure is loud but mis-diagnosed as size.
 ///
 /// TRACE: DCR-0026
+/// TRACE: R0009-0052
 pub(crate) fn resolve_table_strategy(constraints: &ProfileConstraints) -> TableStrategy {
     match constraints.default_table_strategy.as_deref() {
         Some("row-window-first") => TableStrategy::RowWindowFirst,
@@ -887,6 +902,45 @@ pub struct ProfileRender {
     pub target_direction: Option<String>,
 }
 
+/// The built-in profile — exactly [`default_profile`]'s value.
+///
+/// This impl exists because OI-0027 made the profile structs
+/// `#[non_exhaustive]`, which leaves an external caller two construction
+/// routes (contracts.md §1): default-then-assign, or deserialize. For this
+/// type there is a third, [`load_profile`], and it is the only one with no
+/// panic on it.
+///
+/// # Panics
+///
+/// Inherits [`default_profile`]'s panic: that function parses the
+/// `include_str!`-embedded `profiles/default.toml` at runtime and panics
+/// when the text does not load, on the ground that a built-in profile
+/// silently degrading to no system prompt would mask a broken build asset.
+///
+/// What bounds it is that the text is a compile-time constant of this
+/// crate — no argument, environment variable, filesystem state or caller
+/// input reaches the parse — so the panic asserts the integrity of *this
+/// crate's own source tree* and is not a failure mode of the call. A caller
+/// of a built `transync-core` has no input that reaches it, and a tree that
+/// could reach it fails its own test suite first: every `default_profile()`
+/// call site in the workspace runs the same parse, and three tests assert
+/// the parsed content (`the_default_profile_ships_no_active_glossary`,
+/// `the_default_profile_ships_row_window_first`, and
+/// `the_default_profile_examples_are_valid_if_uncommented`).
+///
+/// Taking the parse off this path — so the *shape* is panic-free and not
+/// merely the reachability — needs one of three things a local edit here
+/// cannot supply: build-time validation of the asset (the workspace has no
+/// build script, and this crate is published); a second copy of the profile
+/// as Rust literals, welded to the TOML by a test (against R0001-0041's
+/// single-source rule, which `transync-cli`'s `default_profile_single_source`
+/// test enforces); or a `Default` value that stops equalling
+/// `default_profile()` (an observable change to a published impl, handing
+/// out the empty `prompt_body` that `load_profile` itself refuses).
+/// Memoizing the parse behind a `OnceLock` moves the panic to first use
+/// rather than removing it.
+///
+/// TRACE: R0009-0046 / OI-0041
 impl Default for ProfileMetadata {
     fn default() -> Self {
         default_profile()

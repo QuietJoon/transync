@@ -59,7 +59,7 @@ const EXPECTED_MISSING_ASSET = "/logo.png";
 function collectTypedConsole(page) {
   const messages = [];
   page.on("console", (msg) =>
-    messages.push({ type: msg.type(), text: msg.text(), url: msg.location().url })
+    messages.push({ type: msg.type(), text: msg.text(), url: msg.location().url }),
   );
   return messages;
 }
@@ -67,9 +67,7 @@ function collectTypedConsole(page) {
 /** Everything at warn/error severity except the known-missing fixture asset. */
 function complaints(messages) {
   return messages.filter(
-    (m) =>
-      (m.type === "warning" || m.type === "error") &&
-      !m.url.endsWith(EXPECTED_MISSING_ASSET)
+    (m) => (m.type === "warning" || m.type === "error") && !m.url.endsWith(EXPECTED_MISSING_ASSET),
   );
 }
 
@@ -85,19 +83,15 @@ async function bootDemo(page) {
 function mountedIds(page, sel) {
   return page.evaluate(
     (sel) =>
-      Array.from(document.querySelectorAll(`${sel} [data-sync-id]`)).map(
-        (el) => el.dataset.syncId
-      ),
-    sel
+      Array.from(document.querySelectorAll(`${sel} [data-sync-id]`)).map((el) => el.dataset.syncId),
+    sel,
   );
 }
 
 /** Count of anchors across BOTH panes — 0 is the fail-closed assertion. */
 function anchorCount(page) {
   return page.evaluate(
-    () =>
-      document.querySelectorAll("#source [data-sync-id], #target [data-sync-id]")
-        .length
+    () => document.querySelectorAll("#source [data-sync-id], #target [data-sync-id]").length,
   );
 }
 
@@ -108,9 +102,7 @@ function mainFragment(html) {
 }
 
 test.describe("WASM render+edit demo", () => {
-  test("a — boots clean: both panes render locally, no console complaints", async ({
-    page,
-  }) => {
+  test("a — boots clean: both panes render locally, no console complaints", async ({ page }) => {
     const messages = collectTypedConsole(page);
     const errors = collectPageErrors(page);
 
@@ -173,7 +165,7 @@ test.describe("WASM render+edit demo", () => {
             live: digest(document, `${paneSel} [data-sync-id]`),
           };
         },
-        [fragment, paneSel]
+        [fragment, paneSel],
       );
 
       // Guard against a vacuous pass on two empty lists.
@@ -229,7 +221,7 @@ test.describe("WASM render+edit demo", () => {
     // ...and nowhere else: the source pane is regenerated from source.md and
     // must be untouched by a target-side payload edit.
     expect(await page.locator(`#source [data-sync-id="${editedId}"]`).textContent()).toBe(
-      sourceBefore
+      sourceBefore,
     );
     // Non-fatal error strip stayed shut — the rebuild was accepted.
     await expect(page.locator("#error-strip")).toBeHidden();
@@ -249,7 +241,7 @@ test.describe("WASM render+edit demo", () => {
     // the accepted cost of the honest status, not a second defect.
     await expect(page.locator('#source [data-sync-id="html-0018"]')).toHaveAttribute(
       "data-fallback",
-      "fallback_source"
+      "fallback_source",
     );
 
     // Invariant 1: the block-ID correspondence survives a rebuild. Same ids,
@@ -285,7 +277,7 @@ test.describe("WASM render+edit demo", () => {
         return !!el && Math.abs(el.offsetTop - pane.scrollTop) <= 30;
       }`,
       DRIVER_BLOCK,
-      8000
+      8000,
     );
     expect(await activeSyncId(page, "#target")).toBe(DRIVER_BLOCK);
 
@@ -302,7 +294,7 @@ test.describe("WASM render+edit demo", () => {
     // undefined. Rendered HTML is untrusted-source content; with no
     // sanitizer the demo must mount NOTHING rather than mount raw.
     await page.route("**/vendor/purify.min.js", (route) =>
-      route.fulfill({ contentType: "text/javascript; charset=utf-8", body: "" })
+      route.fulfill({ contentType: "text/javascript; charset=utf-8", body: "" }),
     );
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
@@ -320,12 +312,12 @@ test.describe("WASM render+edit demo", () => {
     const map = JSON.parse(readFixture("alignment.json"));
     map.schema_version = "9.9.9";
     await page.route("**/alignment.json", (route) =>
-      route.fulfill({ contentType: "application/json", body: JSON.stringify(map) })
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(map) }),
     );
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
     await expect(page.locator("#error-strip")).toHaveText(
-      /schema_version=9\.9\.9 is not major 1 .* refusing to mount/
+      /schema_version=9\.9\.9 is not major 1 .* refusing to mount/,
     );
     expect(await anchorCount(page)).toBe(0);
     await page.unroute("**/alignment.json");
@@ -344,13 +336,13 @@ test.describe("WASM render+edit demo", () => {
     const shaped = JSON.parse(readFixture("alignment.json"));
     shaped.blocks = 42;
     await page.route("**/alignment.json", (route) =>
-      route.fulfill({ contentType: "application/json", body: JSON.stringify(shaped) })
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(shaped) }),
     );
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
     await expect(page.locator("#error-strip")).toBeVisible();
     await expect(page.locator("#error-strip")).toHaveText(
-      /alignment map "blocks" is number, not an array of rows . refusing to mount/
+      /alignment map "blocks" is number, not an array of rows . refusing to mount/,
     );
     expect(await anchorCount(page)).toBe(0);
     await page.unroute("**/alignment.json");
@@ -365,14 +357,12 @@ test.describe("WASM render+edit demo", () => {
     const dup = JSON.parse(readFixture("alignment.json"));
     dup.blocks.push({ ...dup.blocks[1] });
     await page.route("**/alignment.json", (route) =>
-      route.fulfill({ contentType: "application/json", body: JSON.stringify(dup) })
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(dup) }),
     );
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
     await expect(page.locator("#error-strip")).toHaveText(
-      new RegExp(
-        `repeats source_block_id "${dup.blocks[1].source_block_id}" . refusing to mount`
-      )
+      new RegExp(`repeats source_block_id "${dup.blocks[1].source_block_id}" . refusing to mount`),
     );
     expect(await anchorCount(page)).toBe(0);
     await page.unroute("**/alignment.json");
@@ -391,7 +381,7 @@ test.describe("WASM render+edit demo", () => {
         b.block_kind !== "html" &&
         b.block_kind !== "skipped" &&
         b.sync_role !== "non-sync" &&
-        b.target_range.end > b.target_range.start
+        b.target_range.end > b.target_range.start,
     );
     expect(victim, "fixture has an editable row with a non-empty range").toBeTruthy();
     victim.target_range = {
@@ -399,14 +389,12 @@ test.describe("WASM render+edit demo", () => {
       end: victim.target_range.start,
     };
     await page.route("**/alignment.json", (route) =>
-      route.fulfill({ contentType: "application/json", body: JSON.stringify(reversed) })
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(reversed) }),
     );
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
     await expect(page.locator("#error-strip")).toHaveText(
-      new RegExp(
-        `alignment row "${victim.source_block_id}" has an unusable target_range`
-      )
+      new RegExp(`alignment row "${victim.source_block_id}" has an unusable target_range`),
     );
     expect(await anchorCount(page)).toBe(0);
     await page.unroute("**/alignment.json");
@@ -421,7 +409,7 @@ test.describe("WASM render+edit demo", () => {
     // catch rather than through a boot gate.
     const bypass = JSON.parse(readFixture("alignment.json"));
     const htmlRow = bypass.blocks.find(
-      (b) => b.block_kind === "html" && b.target_range.end > b.target_range.start
+      (b) => b.block_kind === "html" && b.target_range.end > b.target_range.start,
     );
     expect(htmlRow, "fixture has an html row with a non-empty range").toBeTruthy();
     htmlRow.target_range = {
@@ -429,14 +417,12 @@ test.describe("WASM render+edit demo", () => {
       end: htmlRow.target_range.start,
     };
     await page.route("**/alignment.json", (route) =>
-      route.fulfill({ contentType: "application/json", body: JSON.stringify(bypass) })
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(bypass) }),
     );
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
     await expect(page.locator("#error-strip")).toHaveText(
-      new RegExp(
-        `render failed:.*unusable target byte range: ${htmlRow.source_block_id} `
-      )
+      new RegExp(`render failed:.*unusable target byte range: ${htmlRow.source_block_id} `),
     );
     expect(await anchorCount(page)).toBe(0);
     await page.unroute("**/alignment.json");
@@ -476,7 +462,7 @@ test.describe("WASM render+edit demo", () => {
     expect(donor).toBeTruthy();
     map.blocks.push({ ...donor, source_block_id: GHOST_ID, target_block_id: GHOST_ID });
     await page.route("**/alignment.json", (route) =>
-      route.fulfill({ contentType: "application/json", body: JSON.stringify(map) })
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(map) }),
     );
 
     await bootDemo(page);
@@ -514,7 +500,7 @@ test.describe("WASM render+edit demo", () => {
     // IS the rebuild having run and thrown.
     await expect(strip).toBeVisible();
     await expect(strip).toHaveText(
-      new RegExp(`rebuild failed:.*absent from the source document: ${GHOST_ID}`)
+      new RegExp(`rebuild failed:.*absent from the source document: ${GHOST_ID}`),
     );
     // And it is the rejection rather than the post-mount structure warning.
     await expect(strip).not.toHaveText(/changed the document structure/);
@@ -560,15 +546,13 @@ test.describe("WASM render+edit demo", () => {
     expect(donor).toBeTruthy();
     map.blocks.push({ ...donor, source_block_id: "", target_block_id: "" });
     await page.route("**/alignment.json", (route) =>
-      route.fulfill({ contentType: "application/json", body: JSON.stringify(map) })
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(map) }),
     );
 
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
     await expect(page.locator("#error-strip")).toBeVisible();
-    await expect(page.locator("#error-strip")).toHaveText(
-      /sync engine refused the alignment map/
-    );
+    await expect(page.locator("#error-strip")).toHaveText(/sync engine refused the alignment map/);
     expect(await anchorCount(page)).toBe(0);
 
     await page.unroute("**/alignment.json");
@@ -594,18 +578,18 @@ test.describe("WASM render+edit demo", () => {
     // here, rather than a hand-authored stand-in.
     const drifted = readFixture("demo-wasm.html").replace(
       '<div id="target"',
-      '<div data-drifted-target'
+      "<div data-drifted-target",
     );
     expect(drifted).not.toContain('id="target"');
     await page.route("**/demo-wasm.html", (route) =>
-      route.fulfill({ contentType: "text/html; charset=utf-8", body: drifted })
+      route.fulfill({ contentType: "text/html; charset=utf-8", body: drifted }),
     );
 
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
     await expect(page.locator("#error-strip")).toBeVisible();
     await expect(page.locator("#error-strip")).toHaveText(
-      /missing required element #target . refusing to mount/
+      /missing required element #target . refusing to mount/,
     );
     expect(await anchorCount(page)).toBe(0);
 
@@ -636,13 +620,13 @@ test.describe("WASM render+edit demo", () => {
         body:
           'window.DOMPurify = { version: "throwing-stub", ' +
           'sanitize() { throw new Error("sanitize exploded"); } };',
-      })
+      }),
     );
     await page.goto(DEMO);
     await page.waitForSelector('body[data-demo-state="fatal"]', { timeout: 20_000 });
     await expect(page.locator("#error-strip")).toBeVisible();
     await expect(page.locator("#error-strip")).toHaveText(
-      /sanitizing the rendered HTML failed: sanitize exploded/
+      /sanitizing the rendered HTML failed: sanitize exploded/,
     );
     expect(await anchorCount(page)).toBe(0);
     await page.unroute("**/vendor/purify.min.js");
@@ -678,25 +662,20 @@ test.describe("WASM render+edit demo", () => {
     // re-parses the pane and the marker dies with the old DOM, so its
     // survival is the partial replacement observed directly rather than
     // inferred from a pane whose text would look the same either way.
-    await page.evaluate(
-      (id) => {
-        document.querySelector(`#source [data-sync-id="${id}"]`).dataset.probe = "kept";
-      },
-      editedId
-    );
+    await page.evaluate((id) => {
+      document.querySelector(`#source [data-sync-id="${id}"]`).dataset.probe = "kept";
+    }, editedId);
 
     const editedBlock = page.locator(`#target [data-sync-id="${editedId}"]`);
     const textBefore = await editedBlock.textContent();
     await editedBlock.click();
     await expect(page.locator("#editor-label")).toHaveText(`editing ${editedId}`);
-    await page
-      .locator("#editor")
-      .fill("A rebuild whose sanitizer explodes must change nothing.");
+    await page.locator("#editor").fill("A rebuild whose sanitizer explodes must change nothing.");
 
     const strip = page.locator("#error-strip");
     await expect(strip).toBeVisible();
     await expect(strip).toHaveText(
-      /sanitizing the rendered HTML failed: sanitize exploded, keeping the last good render/
+      /sanitizing the rendered HTML failed: sanitize exploded, keeping the last good render/,
     );
 
     // Nothing was written: the marker survived, both panes still carry the
@@ -704,10 +683,9 @@ test.describe("WASM render+edit demo", () => {
     // the session is still live.
     expect(
       await page.evaluate(
-        (id) =>
-          document.querySelector(`#source [data-sync-id="${id}"]`)?.dataset.probe ?? null,
-        editedId
-      )
+        (id) => document.querySelector(`#source [data-sync-id="${id}"]`)?.dataset.probe ?? null,
+        editedId,
+      ),
     ).toBe("kept");
     expect(await mountedIds(page, "#source")).toEqual(SYNC_IDS);
     expect(await mountedIds(page, "#target")).toEqual(SYNC_IDS);
@@ -764,13 +742,13 @@ test.describe("WASM render+edit demo", () => {
     await editor.fill(ACCEPTED);
 
     await expect(status).toHaveText(
-      new RegExp(`re-rendered \\d+ blocks after editing ${secondId}`)
+      new RegExp(`re-rendered \\d+ blocks after editing ${secondId}`),
     );
     await expect(page.locator(`#target [data-sync-id="${secondId}"]`)).toHaveText(ACCEPTED);
     // And the rejected payload did not travel with it: its block re-rendered
     // from the last ACCEPTED model, not from what was refused.
     expect(await page.locator(`#target [data-sync-id="${firstId}"]`).textContent()).toBe(
-      firstTextBefore
+      firstTextBefore,
     );
     // A clean rebuild clears the strip, so the earlier rejection is over.
     await expect(strip).toBeHidden();
@@ -807,14 +785,14 @@ test.describe("WASM render+edit demo", () => {
     const SHORT_MS = 400;
     const impatient = readFixture("js/wasm-demo.js").replace(
       "const WASM_INIT_TIMEOUT_MS = 60000;",
-      `const WASM_INIT_TIMEOUT_MS = ${SHORT_MS};`
+      `const WASM_INIT_TIMEOUT_MS = ${SHORT_MS};`,
     );
     expect(impatient).toContain(`const WASM_INIT_TIMEOUT_MS = ${SHORT_MS};`);
     await page.route("**/js/wasm-demo.js", (route) =>
       route.fulfill({
         contentType: "text/javascript; charset=utf-8",
         body: impatient,
-      })
+      }),
     );
 
     // A route that never answers — the server accepted and went silent.
@@ -825,8 +803,8 @@ test.describe("WASM render+edit demo", () => {
     await expect(page.locator("#error-strip")).toBeVisible();
     await expect(page.locator("#error-strip")).toHaveText(
       new RegExp(
-        `wasm init failed: timed out loading .*transync_wasm_bg\\.wasm after ${SHORT_MS} ms`
-      )
+        `wasm init failed: timed out loading .*transync_wasm_bg\\.wasm after ${SHORT_MS} ms`,
+      ),
     );
     // Fail-closed: nothing rendered, because nothing could be.
     expect(await anchorCount(page)).toBe(0);
@@ -863,7 +841,7 @@ test.describe("WASM render+edit demo", () => {
     expect(donor).toBeTruthy();
     map.blocks.push({ ...donor, source_block_id: GHOST_ID, target_block_id: GHOST_ID });
     await page.route("**/alignment.json", (route) =>
-      route.fulfill({ contentType: "application/json", body: JSON.stringify(map) })
+      route.fulfill({ contentType: "application/json", body: JSON.stringify(map) }),
     );
 
     await bootDemo(page);
@@ -886,7 +864,7 @@ test.describe("WASM render+edit demo", () => {
     const strip = page.locator("#error-strip");
     await expect(strip).toBeVisible();
     await expect(strip).toHaveText(
-      new RegExp(`rebuild failed:.*absent from the source document: ${GHOST_ID}`)
+      new RegExp(`rebuild failed:.*absent from the source document: ${GHOST_ID}`),
     );
     // The rejection, not the post-mount structure warning that shares this
     // strip — and nothing mounted, so the edited block still reads as it did.

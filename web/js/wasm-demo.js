@@ -192,13 +192,10 @@ function alignmentSchemaVerdict(map) {
         `is not major ${known.major} (demo speaks ${KNOWN_SCHEMA}) — refusing to mount`,
     };
   }
-  if (
-    found.minor > known.minor ||
-    (found.minor === known.minor && found.patch > known.patch)
-  ) {
+  if (found.minor > known.minor || (found.minor === known.minor && found.patch > known.patch)) {
     console.warn(
       `transync: alignment map schema_version=${raw} is newer than this demo ` +
-        `(${KNOWN_SCHEMA}); proceeding, but rendering may be incomplete`
+        `(${KNOWN_SCHEMA}); proceeding, but rendering may be incomplete`,
     );
   }
   return { ok: true };
@@ -236,8 +233,7 @@ function blocksVerdict(map) {
   return {
     ok: false,
     message:
-      `alignment map "blocks" is ${typeof rows}, not an array of rows ` +
-      `— refusing to mount`,
+      `alignment map "blocks" is ${typeof rows}, not an array of rows ` + `— refusing to mount`,
   };
 }
 
@@ -310,9 +306,7 @@ function sliceBytes(bytes, range) {
 function isEditableRow(row) {
   const id = row && row.source_block_id;
   if (typeof id !== "string" || id === "") return false;
-  return (
-    row.block_kind !== "html" && row.block_kind !== "skipped" && row.sync_role !== "non-sync"
-  );
+  return row.block_kind !== "html" && row.block_kind !== "skipped" && row.sync_role !== "non-sync";
 }
 
 /** Is `index` the start of a UTF-8 sequence (or the end of the buffer)? */
@@ -719,8 +713,8 @@ function applyEdit() {
         JSON.stringify(state.statuses),
         state.sourceLang,
         state.targetLang,
-        state.detected
-      )
+        state.detected,
+      ),
     );
     // R0002-0017: inside the boundary, not after it. `alignment_json` is
     // nested JSON from the same call, so a blob that returned a malformed
@@ -780,7 +774,7 @@ async function boot() {
   if (missing.length > 0) {
     showFatal(
       `the page is missing required element${missing.length > 1 ? "s" : ""} ` +
-        `#${missing.join(", #")} — refusing to mount`
+        `#${missing.join(", #")} — refusing to mount`,
     );
     return;
   }
@@ -806,7 +800,7 @@ async function boot() {
     if (wasmTimedOut) {
       showFatal(
         `wasm init failed: timed out loading ${WASM_MODULE_URL.pathname} ` +
-          `after ${WASM_INIT_TIMEOUT_MS} ms`
+          `after ${WASM_INIT_TIMEOUT_MS} ms`,
       );
     } else {
       showFatal(`wasm init failed: ${err && err.message ? err.message : err}`);
@@ -909,7 +903,7 @@ async function boot() {
   wireEditing();
   setStatus(
     `${map.blocks.length} blocks rendered locally — ` +
-      `${state.editable.size} editable; click one in the right pane`
+      `${state.editable.size} editable; click one in the right pane`,
   );
   // Readiness signal for the headless suite: the panes are mounted and the
   // click handler is live.
