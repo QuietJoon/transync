@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-05-v050-blocker-clearance
+  last_updated: 2026-09-05-v050-release-condition-met
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -1014,6 +1014,9 @@ design:
     - DCR-0047-the-balancer-repairs-an-unterminated-trailing-region
     - DCR-0048-visible-text-presence-is-a-validation-layer
     - DCR-0049-v050-blocker-clearance
+    - DCR-0050-four-tokenizer-divergences-and-the-plaintext-decision
+    - DCR-0051-one-open-element-stack
+    - DCR-0052-the-bottom-clamp-is-the-contract
   rewind_required_to_phase: null
   status: handoff_complete
 
