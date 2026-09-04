@@ -289,3 +289,32 @@ Every gate captured bare-to-file with its native exit status appended after it.
   7,697/10,000 agreeing and 3,874 abstentions with the reason for the movement
   written into the pin. None of the four `KNOWN_DIVERGENT` routes healed, so
   none was retired.
+## Amendment (2026-09-05) — the census moved, and this record's own lesson is why it is readable
+
+*An appended note, not a rewrite. Everything above stands as written.*
+
+This record's four fixes moved the browser-oracle census by exactly zero, shown
+byte-level, and adding nine atoms then moved it as a different population. The
+lesson it drew — a census is comparable only within a fixed atom alphabet — is
+what makes the NEXT change's numbers mean anything.
+
+**DCR-0051** changed no atom. `ATOMS` and `PHRASES` are byte-identical to the
+alphabet this record blessed, so its numbers compare directly with the pin it
+left behind:
+
+| | DCR-0050 (blessed) | DCR-0051 |
+|---|---|---|
+| cases in full agreement, of 10,000 | 7,697 | 8,619 |
+| browser-declared abstentions | 3,874 | 3,863 |
+| distinct divergence mechanisms | 13 | 9 |
+| `sec4a:break-nested` | 1,358 | 8 |
+| `reserved:dom-only` | 1 | 0 |
+
+The `reserved:dom-only` line is the one this record's own §2 would care about
+most: it is the only mechanism that ever put a live impostor sync anchor in a
+real DOM, and it was pinned here at 1 case with ti `bb961a` filed against it.
+
+Three of the four `KNOWN_DIVERGENT` routes this record re-blessed have since gone
+HEALTHY and been deleted from both halves of the ledger. The `comment_end` and
+`tag_name_end` shape this record argued for — one rule, one home, read by both
+layers — is the shape DCR-0051 applied to the open-element stack itself.

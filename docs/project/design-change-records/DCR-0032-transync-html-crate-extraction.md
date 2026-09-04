@@ -681,3 +681,35 @@ it**, and `git log --date=short` is the check. DCR-0033 line 29 states it for
 wave 1; the wave 2, 3, 5 and 7 plans carry execution-date placeholders since
 2026-08-23 for the same reason.
 
+## Amendment (2026-09-05) — the fifteenth through nineteenth divergences from `htmlseg`, in one change
+
+*An appended note, not a rewrite. Everything above stands as written.*
+
+This record's running list of deliberate behavioural divergences from the old
+`transync-syntax::htmlseg` grows by five in one commit, **DCR-0051**, and they
+are five faces of one change rather than five independent fixes: the crate had
+TWO open-element stacks — `scan_tags_with_state`'s `mode_stack` and
+`walk_elements`' `open_stack` — and they popped differently from each other and
+from a browser. There is one now, the scanner keeps it, and the walk replays the
+mutations reported on each token.
+
+What that one stack gained, each measured in headless Chromium first:
+
+1. **The special-element guard** on "any other end tag" (ti `307283`, ti
+   `bb961a`).
+2. **HTML's four scopes** — normal, list-item, button and table — for the
+   block-level, `li`, `h1`–`h6` and table end tags (ti `307283` / R0010-0039, ti
+   `da6bb5`).
+3. **Foreign content's end-tag dispatch**, including `</p>` and `</br>` as
+   BREAKOUT end tags and the spec's step ORDER for everything else (ti `9b4d66`,
+   ti `895fb7`).
+4. **The start tags "in body" ignores** — a stray `<td>`/`<tr>`/`<tbody>`/… no
+   longer opens a frame (ti `da6bb5`).
+5. **The `mglyph` / `malignmark` dispatcher exception** inside MathML text
+   integration points, plus its `annotation-xml` + `<svg>` sibling (ti
+   `a7e625`), and — falling out of the same change — a nested `<svg>` inside
+   `<math>` being a MathML element rather than an SVG one.
+
+Two of the five closed routes that put an attacker-chosen `data-sync-id` into a
+live DOM. The adoption agency algorithm is deliberately still absent; DCR-0051
+records the residual and ti `525bef` owns it.

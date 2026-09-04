@@ -117,3 +117,25 @@ adding a name to `is_svg_html_integration_point`.
 
   *Closed the same day by that ticket, recorded in **DCR-0043**.* It used the
   mode this record had just moved down, and cost one expression.
+## Amendment (2026-09-05) — the premise this record's test was defending is gone
+
+*An appended note, not a rewrite. Everything above stands as written.*
+
+This record states that "the scanner does not model optional end tags", so its
+stack can hold frames `walk_elements` has already popped, and that this is safe
+while no implicitly-closed name changes the content mode — pinned by
+`no_implicitly_closed_name_changes_the_content_mode`.
+
+**DCR-0051 removed the premise.** There is one open-element stack now, it
+applies HTML's implied end tags, and the scanner cannot hold a frame the walk
+has popped because the walk keeps no stack of its own to pop from. The safety
+argument was also wrong on its own terms: it reasoned about the extra frame's
+own mode and never about `truncate` popping the frames above it, which is ti
+`9b4d66` — a live impostor `data-sync-id` in a reader's DOM.
+
+The test **keeps its name** so this reference resolves, and its docstring says
+what it now pins: that `KEYS` is closed under `implicitly_closes`, and that no
+implicitly-closed name moves a content mode. Everything else in this record —
+raw text and RCDATA as HTML-CONTENT states, `title` as an SVG integration point,
+the content-mode stack living in the scanner — is unchanged and is what DCR-0051
+built on.

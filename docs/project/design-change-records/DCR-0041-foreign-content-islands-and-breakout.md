@@ -121,3 +121,28 @@ also the regression test for the extraction.
   foreign element, breakout against a non-breakout tag, `font` with and
   without its attributes, `annotation-xml` at four encodings, and the §4a
   scenario in both the flagged and unflagged spelling.
+## Amendment (2026-09-05) — the three-valued mode became two per frame, and the breakout rule grew an end-tag half
+
+*An appended note, not a rewrite. Everything above stands as written.*
+
+**DCR-0051** keeps this record's `ContentMode` and its breakout model unchanged
+in meaning, and splits where they are stored. Each frame of the (now single)
+open-element stack carries **two** modes rather than one:
+
+* `child` — the mode this element's children are read in. This is the value this
+  record introduced, and it is still what `current_mode` reports and what the
+  breakout loop tests (`pop while child != Html` is exactly the spec's "while
+  the current node is not a MathML text integration point, an HTML integration
+  point, or an element in the HTML namespace").
+* `own` — the element's own namespace, which this record had no need for and
+  DCR-0051 does: it decides whether an END tag is dispatched to the
+  foreign-content rules, whether a frame is in HTML's special category, and
+  whether it terminates a scope search.
+
+`<svg><desc>` is the pair that separates them (`own == Svg`, `child == Html`),
+and reading the wrong one is ti `bb961a`.
+
+The breakout rule also gained the half this record did not name: **`</p>` and
+`</br>` are breakout END tags**, listed by HTML alongside the breakout start
+tags. `<p><ul><svg></p><title>…` depends on it, and getting it by accident —
+through a stale-frame `truncate` — is ti `9b4d66`.

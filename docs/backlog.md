@@ -282,6 +282,52 @@ sweep in, which is a reason to schedule that fix rather than five separate ones.
 
 ---
 
+### transync-html-one-open-element-stack — six tickets, one root cause — **RESOLVED 2026-09-05**
+
+- **Type:** 1
+- **Verified:** yes — five reproduced by the reviews and the browser oracle that filed
+  them; the sixth (`a7e625`) filed SPEC-TRACED and confirmed by Chromium before it was
+  fixed, as it asked to be.
+- **Sources:** ticgit:9b4d663e, ticgit:307283df, ticgit:895fb712, ticgit:da6bb5e0,
+  ticgit:bb961a70, ticgit:a7e62558
+- **First seen:** 2026-09-04 · **Last seen:** 2026-09-05 · **Resolved:** 2026-09-05
+
+#### Description
+
+| ticket | finding | class |
+|---|---|---|
+| `9b4d66` | `scan_tags`' stale-frame `truncate` pops frames `walk_elements` and a browser keep, so `<title>` reads as HTML RCDATA and a planted `data-sync-id` survives `strip_reserved_sync_attrs` into a live DOM | **P1**, reopened OI-0035 |
+| `307283` | `balance_fragment`'s `Close` pop is "any other end tag" with the guards removed: no special-element guard, no table scope. One §4a escape the balancer **creates** | P2, contracts §4a |
+| `895fb7` | `balance_fragment` not idempotent on stale-frame input — appends `</math>`, then deletes it | P2 |
+| `da6bb5` | the OVER-open direction: a stray `<td>`/`<tr>`/`<tbody>` start tag opens a frame HTML ignores, and implied end tags were nearest-match where HTML uses scope | P2 |
+| `bb961a` | an ignored `</desc>` puts the crate in foreign content reading a CDATA section where Chromium is in HTML content reading a bogus comment — a live `data-sync-id` plus a `parent-td` §4a break | **P1**, OI-0035 again |
+| `a7e625` | `mglyph`/`malignmark` keep their children in MathML; `child_content_mode` returned `Html` for every child of `mi`/`mo`/`mn`/`ms`/`mtext` | P2, was `needs-measurement` |
+
+#### Background
+
+All six were the same defect: the crate kept **two** open-element stacks —
+`scan_tags_with_state`'s `mode_stack` and `walk_elements`' `open_stack` — and they popped
+differently from each other and from a browser. Fixed by **DCR-0051**, which makes the
+scanner keep THE stack and the walk replay it, and teaches that one stack HTML's
+special-element guard, its four scopes, foreign content's end-tag dispatch (with `</p>`
+and `</br>` as breakout end tags), the start tags "in body" ignores, implied end tags by
+scope, and the `mglyph`/`malignmark` dispatcher exception.
+
+Measured against Chromium through the ti `ec235f` browser oracle, on an **unchanged**
+atom alphabet so the numbers compare with DCR-0050's pin: agreement 7,697 → 8,619 of
+10,000, mechanisms 13 → 9, `sec4a:break-nested` **1,358 → 8**, `reserved:dom-only`
+**1 → 0**. Three of the four `KNOWN_DIVERGENT` routes went HEALTHY and were deleted from
+both halves of the ledger.
+
+**What is left, and it counts against the gate:** ti `525bef`, filed by DCR-0051 before
+pinning its census, for the adoption agency algorithm and the list of active formatting
+elements — the one part of HTML's tree construction the record deliberately leaves out.
+Residual measured at 8 of 10,000 generated fragments and recorded in `contracts.md` §4b.
+
+---
+
+---
+
 ### git-object-loss-residual-blobs
 
 - **Type:** 1

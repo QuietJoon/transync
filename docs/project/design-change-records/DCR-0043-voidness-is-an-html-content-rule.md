@@ -73,3 +73,24 @@ context, and `scan_tags` is the one that pairs the two.
   did not move — the hazard guard held — and the **token stream did not move at
   all**, since this is a walk change and `scan_tags`' token projection cannot
   see it.
+## Amendment (2026-09-05) — voidness is now one of several HTML-content rules on one stack
+
+*An appended note, not a rewrite. Everything above stands as written.*
+
+Nothing here changed behaviour at **DCR-0051**; the `parent_mode == Html &&
+is_void(&name)` test is the same expression and the `</br>` hazard is still
+retired the same way (`br` is a breakout tag, so `<svg><br>` lands in HTML
+content before voidness is consulted).
+
+What changed is the company it keeps. The HTML-content gate this record
+established is now the gate for four more rules on the same stack: the start
+tags "in body" ignores, HTML's implied end tags applied by SCOPE, the
+`mglyph`/`malignmark` dispatcher exception, and the `image` → `img` rename that
+ti `e923ef` had already put beside it. The pattern this record named — one rule,
+one home, HTML-content-qualified — held for all of them.
+
+One asymmetry is worth recording, because it is the reverse of this record's:
+`</br>` is now never deleted as an orphan either. A browser turns it into a
+`<br>` START tag, so removing the author's bytes removes a line break the
+reader would have seen. This record's hazard was the balancer **appending** one;
+DCR-0051's is the balancer **deleting** one.

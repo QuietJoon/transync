@@ -1484,6 +1484,13 @@ Any ONE of these reopens the set as blocking work:
   DCR-0050) and R0010-0066 (ti `15acc0`).
 - Still blocking, ticketed: R0010-0033 (ti `a7e625`, spec-traced and awaiting
   oracle measurement); R0010-0039 and R0010-0043 folded into ti `307283`.
+
+  *All three RESOLVED 2026-09-05 by DCR-0051.* R0010-0033 was **confirmed** by
+  the oracle rather than accepted from its spec trace — Chromium parses
+  `<math><mi><mglyph><script><div>` as `<math><mi><mglyph><script></script>
+  </mglyph><div></div></mi></math>`, and `malignmark` measures identically —
+  and R0010-0039's table scope and R0010-0043's special-element guard both
+  landed in the one open-element stack that record introduces.
 - 0061 and 0062 are the same function in `profile.rs`; one fix covers both.
 - 0015 and 0016 are the same preflight-vs-publish seam in
   `crates/transync-cli/src/output/`.

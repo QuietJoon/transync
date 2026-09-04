@@ -117,3 +117,23 @@ a browser parses it in isolation.**
 adding fields to `Skip` breaks a downstream constructor or pattern. Legal
 **only** while the v0.5.0 window is open, which is why this landed now rather
 than after the tag — after it, the same change waits for v0.6.0.
+## Amendment (2026-09-05) — the region is unchanged; what counts as an orphan is not
+
+*An appended note, not a rewrite. Everything above stands as written.*
+
+**DCR-0051** leaves the trailing-region repair exactly as this record left it —
+terminated where a browser terminates it, deleted where a browser abandons it,
+with `TagToken::Skip` carrying the kind and terminated-ness so the balancer never
+classifies bytes itself. The `Skip` variant, `SkipKind` and
+`SkipKind::terminator` are untouched.
+
+What moved is the *other* deletion this function performs. "Orphan close tags are
+DROPPED" now means something narrower, and the line is the pane's: a closer is an
+orphan only when its search runs off the bottom of the fragment's own stack, so
+that in a mounted pane it would carry on into the sync wrapper's own `<div>`. A
+closer stopped by a special element or a scope terminator *inside* the fragment
+is inert — a browser stops in the same place — and its bytes stay. `</p>` and
+`</br>` are never orphans at all, because a browser turns each into content.
+
+The direction of travel is the same as this record's: fewer edits to a reader's
+bytes, and each remaining edit tied to something a browser measurably does.

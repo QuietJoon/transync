@@ -756,35 +756,61 @@ fn comment_end(html: &str, open: usize) -> Option<usize> {
 /// `e20490`, one region larger.
 struct ScannedTag {
     token: TagToken,
-    /// `Open` only: the content mode this element's **children** are read in.
-    /// Carries the current mode for the inert variants, where it means
-    /// nothing.
-    child_mode: ContentMode,
-    /// `Open` only: did this tag push an element onto the scanner's stack?
-    /// False for a void name and for a self-closing tag in the two places
-    /// HTML honours the flag; always false for `Close` and `Skip`.
-    opens_element: bool,
-    /// `Open` only: did this start tag tear the parser **out** of foreign
-    /// content before it was processed (see [`breaks_out_of_foreign`])? The
-    /// walk mirrors the pop on its own stack.
-    broke_out: bool,
+    /// How many frames came off THE stack **before** this token was processed:
+    /// HTML's implied end tags at a start tag, and the pops that a breakout
+    /// start tag — or a breakout `</p>` / `</br>` — performs to leave foreign
+    /// content. [`walk_elements`] records each of them as implicitly closed at
+    /// this token's own start offset, exactly as it used to record the pops it
+    /// computed for itself.
+    pre_pops: usize,
+    /// What processing the token then did to the stack.
+    effect: StackEffect,
+}
+
+/// The one mutation a token makes to THE open-element stack, after
+/// [`ScannedTag::pre_pops`] have been applied.
+///
+/// This enum is why there is only one stack discipline in this crate.
+/// `walk_elements` used to re-derive "did this close something, and what"
+/// from the token stream with its own `rposition` search, which is how the
+/// two ended up popping differently from each other AND from a browser
+/// (ti `9b4d66`, `307283`, `895fb7`, `da6bb5`, `bb961a`). The scanner has to
+/// reach this verdict anyway — it decides the content mode the next byte is
+/// tokenized in — so the walk reads it here rather than voting a second time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StackEffect {
+    /// A start tag that inserted an element.
+    Push,
+    /// An end tag that closed `n` frames. The DEEPEST of the `n` is the
+    /// element this tag closed; the rest were closed implicitly by it.
+    Close(usize),
+    /// The token moved nothing and its bytes STAY. Two shapes reach here: a
+    /// `Skip` region, which is not structure at all, and an end tag a browser
+    /// turns into content rather than into a pop — `</p>` mints an empty
+    /// paragraph and `</br>` mints a `<br>`, so deleting either silently edits
+    /// what the reader sees.
+    Inert,
+    /// The token moved nothing and its bytes must GO: an end tag whose search
+    /// ran out of frames on THIS fragment's stack. In a mounted pane the
+    /// search would continue into the sync wrapper's own `<div>`, so leaving
+    /// the bytes is how `contracts.md` §4a's direct-child rule breaks.
+    Orphan,
 }
 
 impl ScannedTag {
-    /// A token that opens nothing: a close tag, or a skipped region.
-    fn inert(token: TagToken, mode: ContentMode) -> Self {
+    /// A token that opens nothing and closes nothing: a skipped region.
+    fn inert(token: TagToken) -> Self {
         ScannedTag {
             token,
-            child_mode: mode,
-            opens_element: false,
-            broke_out: false,
+            pre_pops: 0,
+            effect: StackEffect::Inert,
         }
     }
 }
 
-/// The content mode a tag lands in, given the scanner's open-element stack.
-fn current_mode(stack: &[(String, ContentMode)]) -> ContentMode {
-    stack.last().map_or(ContentMode::Html, |(_, m)| *m)
+/// The content mode a tag lands in, given the open-element stack.
+fn current_mode(stack: &[Frame]) -> ContentMode {
+    stack.last().map_or(ContentMode::Html, |f| f.child)
 }
 
 /// Minimal tag tokenizer for balancing: understands comments, CDATA
@@ -808,23 +834,27 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
     let mut i = 0usize;
     // Inside a raw-text / RCDATA element: only its own close tag ends it.
     let mut raw_until: Option<String> = None;
-    // The open elements, each with the [`ContentMode`] its children are read
-    // in. This replaced R0003-0067's `foreign_depth` counter in ti `2e2453`:
-    // a saturating count of open `<svg>`/`<math>` roots can say "somewhere
-    // inside foreign content", which is enough to pick a CDATA terminator and
-    // not enough for anything else. Foreign content contains ISLANDS of HTML
-    // — `foreignObject`, `desc`, SVG's `title`, MathML's text integration
-    // points — so the question "is this tag foreign" is answered by the stack
-    // top, never by a depth.
+    // THE open-element stack. Not "the scanner's" — there is one, and
+    // [`walk_elements`] replays the mutations reported on each [`ScannedTag`]
+    // instead of keeping a second one.
     //
-    // Implied closes (see `implicitly_closes`) are deliberately NOT applied
-    // here, so this stack can hold frames `walk_elements` has already popped.
-    // That cannot change the answer: every name in an `implicitly_closes` set
-    // is an ordinary HTML element, so its child mode equals its parent's, and
-    // an extra frame of that shape reports the mode the one below it would.
-    // `implicitly_closed_names_never_change_the_content_mode` pins it rather
-    // than leaving it to this paragraph.
-    let mut mode_stack: Vec<(String, ContentMode)> = Vec::new();
+    // Each frame carries both content modes because the two answer different
+    // questions and HTML asks both. `child` decides how the NEXT byte is
+    // tokenized (raw text, a CDATA terminator, whether a `/` is honoured) and
+    // is what [`current_mode`] reports; `own` is the element's own namespace,
+    // which decides whether an end tag is dispatched to foreign content at
+    // all, and whether this frame is in HTML's **special** category or
+    // terminates a scope search. A single mode per frame cannot express both:
+    // `<svg><desc>` has `own == Svg` and `child == Html`, and reading the
+    // wrong one of those is ti `bb961a`.
+    //
+    // Until DCR-0051 this stack applied NO implied end tags, on the recorded
+    // grounds that an extra frame "cannot change the answer" because its child
+    // mode equals its parent's. The reasoning was about the extra frame's own
+    // mode and never about `truncate` popping the frames ABOVE it — and that
+    // is what it cost: `<p><ul><svg></p>` left a stale `p` at the bottom, the
+    // close tag found it, and the `<svg>` came off with it (ti `9b4d66`).
+    let mut open_elements: Vec<Frame> = Vec::new();
 
     while i < bytes.len() {
         if bytes[i] != b'<' {
@@ -859,14 +889,11 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             // searches begin at different offsets.
             let closer = comment_end(html, i);
             let end = closer.unwrap_or(html.len());
-            tokens.push(ScannedTag::inert(
-                TagToken::Skip {
-                    span: (i, end),
-                    kind: SkipKind::Comment,
-                    terminated: closer.is_some(),
-                },
-                current_mode(&mode_stack),
-            ));
+            tokens.push(ScannedTag::inert(TagToken::Skip {
+                span: (i, end),
+                kind: SkipKind::Comment,
+                terminated: closer.is_some(),
+            }));
             i = end;
             continue;
         }
@@ -880,7 +907,7 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
         // not match. The terminator differs by context, so the depth
         // decides which one ends the skip.
         if html[i..].starts_with("<![CDATA[") {
-            let terminator = if current_mode(&mode_stack) != ContentMode::Html {
+            let terminator = if current_mode(&open_elements) != ContentMode::Html {
                 "]]>"
             } else {
                 ">"
@@ -898,14 +925,11 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             } else {
                 SkipKind::BogusComment
             };
-            tokens.push(ScannedTag::inert(
-                TagToken::Skip {
-                    span: (i, end),
-                    kind,
-                    terminated: closer.is_some(),
-                },
-                current_mode(&mode_stack),
-            ));
+            tokens.push(ScannedTag::inert(TagToken::Skip {
+                span: (i, end),
+                kind,
+                terminated: closer.is_some(),
+            }));
             i = end;
             continue;
         }
@@ -919,14 +943,11 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
         if html[i..].starts_with("<!") || html[i..].starts_with("<?") {
             let closer = html[i..].find('>');
             let end = closer.map(|p| i + p + 1).unwrap_or(html.len());
-            tokens.push(ScannedTag::inert(
-                TagToken::Skip {
-                    span: (i, end),
-                    kind: SkipKind::BogusComment,
-                    terminated: closer.is_some(),
-                },
-                current_mode(&mode_stack),
-            ));
+            tokens.push(ScannedTag::inert(TagToken::Skip {
+                span: (i, end),
+                kind: SkipKind::BogusComment,
+                terminated: closer.is_some(),
+            }));
             i = end;
             continue;
         }
@@ -988,14 +1009,11 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
                 }
                 let end = (k + 1).min(bytes.len());
                 if bytes.get(j) != Some(&b'>') {
-                    tokens.push(ScannedTag::inert(
-                        TagToken::Skip {
-                            span: (start, end),
-                            kind: SkipKind::BogusComment,
-                            terminated: k < bytes.len(),
-                        },
-                        current_mode(&mode_stack),
-                    ));
+                    tokens.push(ScannedTag::inert(TagToken::Skip {
+                        span: (start, end),
+                        kind: SkipKind::BogusComment,
+                        terminated: k < bytes.len(),
+                    }));
                 }
                 i = end;
                 continue;
@@ -1092,45 +1110,90 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             // browser abandons a tag truncated at EOF (no element, no
             // attributes), so `Skip` — recognized and stepped over, not
             // markup — is exactly what it is.
-            tokens.push(ScannedTag::inert(
-                TagToken::Skip {
-                    span: (start, bytes.len()),
-                    kind: SkipKind::UnterminatedTag,
-                    // Unterminated by construction: this arm is only reached
-                    // when the scan ran off the end looking for `>`.
-                    terminated: false,
-                },
-                current_mode(&mode_stack),
-            ));
+            tokens.push(ScannedTag::inert(TagToken::Skip {
+                span: (start, bytes.len()),
+                kind: SkipKind::UnterminatedTag,
+                // Unterminated by construction: this arm is only reached
+                // when the scan ran off the end looking for `>`.
+                terminated: false,
+            }));
             break;
         }
         let span = (start, j + 1);
         if closing {
-            // The same pop HTML's "any other end tag" performs, and the same
-            // one `walk_elements` performs: find the nearest matching open
-            // element and discard everything above it. An unmatched close tag
-            // is an orphan and moves nothing.
-            if let Some(pos) = mode_stack.iter().rposition(|(t, _)| t == &name) {
-                mode_stack.truncate(pos);
+            // HTML's end-tag handling, in the ONE place that keeps the stack —
+            // see [`end_tag_effect`] for which of its rules are modelled and
+            // which are not. This used to be a bare `rposition` + `truncate`
+            // whose comment called it "the same pop HTML's 'any other end tag'
+            // performs". It was not: HTML's version stops at the first SPECIAL
+            // element, its block-level end tags ask about SCOPE first, and
+            // `</p>` and `</br>` leave foreign content before either applies.
+            // Each of those three is a ticket in this family.
+            let effect = end_tag_effect(&open_elements, &name);
+            for _ in 0..(effect.breakout + effect.close) {
+                open_elements.pop();
             }
-            let mode = current_mode(&mode_stack);
-            tokens.push(ScannedTag::inert(TagToken::Close { name, span }, mode));
+            tokens.push(ScannedTag {
+                token: TagToken::Close { name, span },
+                pre_pops: effect.breakout,
+                effect: if effect.close > 0 {
+                    StackEffect::Close(effect.close)
+                } else if effect.delete {
+                    StackEffect::Orphan
+                } else {
+                    StackEffect::Inert
+                },
+            });
         } else {
+            // How many frames this token takes off the stack before it is
+            // processed at all: the foreign-content breakout, then HTML's
+            // implied end tags. Both are recorded on the token so the walk can
+            // replay them; neither is re-derived there.
+            let mut pre_pops = 0usize;
+
+            // Which rules the token is dispatched to. Normally the current
+            // node's child mode — but HTML's tree-construction dispatcher has
+            // two start-tag exceptions inside foreign content, and both are
+            // measured divergences rather than pedantry:
+            //
+            // * `mglyph` and `malignmark` are the two names a MathML text
+            //   integration point does NOT hand to the HTML rules, so they
+            //   stay MathML and a `<script>` beneath one is a foreign element
+            //   rather than a raw-text run (ti `a7e625`).
+            // * an `<svg>` start tag inside a MathML `annotation-xml` IS handed
+            //   to the HTML rules, whatever the element's `encoding`, so it
+            //   opens a real SVG element.
+            let mut parent_mode = match open_elements.last() {
+                Some(f)
+                    if f.own == ContentMode::MathMl
+                        && is_mathml_text_integration_point(&f.name)
+                        && (name == "mglyph" || name == "malignmark") =>
+                {
+                    ContentMode::MathMl
+                }
+                Some(f)
+                    if f.own == ContentMode::MathMl
+                        && f.name.eq_ignore_ascii_case("annotation-xml")
+                        && name == "svg" =>
+                {
+                    ContentMode::Html
+                }
+                _ => current_mode(&open_elements),
+            };
+
             // A breakout start tag tears the parser out of foreign content
             // BEFORE it is processed, so the mode this tag is read in — and
             // therefore everything below — is the one it lands in after the
             // pop, not the one it was written inside (DCR-0041).
-            let mut parent_mode = current_mode(&mode_stack);
-            let broke_out =
-                parent_mode != ContentMode::Html && breaks_out_of_foreign(&name, html, span);
-            if broke_out {
-                while mode_stack
+            if parent_mode != ContentMode::Html && breaks_out_of_foreign(&name, html, span) {
+                while open_elements
                     .last()
-                    .is_some_and(|(_, m)| *m != ContentMode::Html)
+                    .is_some_and(|f| f.child != ContentMode::Html)
                 {
-                    mode_stack.pop();
+                    open_elements.pop();
+                    pre_pops += 1;
                 }
-                parent_mode = current_mode(&mode_stack);
+                parent_mode = current_mode(&open_elements);
             }
 
             // ti `e923ef`: HTML's one tag-name substitution, and it is an
@@ -1185,17 +1248,55 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             // ordinary foreign element. `plaintext` is not a breakout tag, so
             // nothing pulls it out of `<svg>` first.
             if parent_mode == ContentMode::Html && name == "plaintext" {
-                tokens.push(ScannedTag::inert(
-                    TagToken::Skip {
-                        span: (start, bytes.len()),
-                        kind: SkipKind::PlainText,
-                        // Unterminated by construction: HTML has no bytes that
-                        // end this state.
-                        terminated: false,
-                    },
-                    parent_mode,
-                ));
+                tokens.push(ScannedTag::inert(TagToken::Skip {
+                    span: (start, bytes.len()),
+                    kind: SkipKind::PlainText,
+                    // Unterminated by construction: HTML has no bytes that
+                    // end this state.
+                    terminated: false,
+                }));
                 break;
+            }
+
+            // ti `da6bb5`, the OVER-open direction. In the "in body" insertion
+            // mode a `caption` / `col` / `colgroup` / `frame` / `tbody` / `td`
+            // / `tfoot` / `th` / `thead` / `tr` start tag is a parse error the
+            // parser IGNORES outright — no element, no frame. Pushing one made
+            // `balance_fragment` append a `</td>` or `</tr>` to a fragment
+            // HTML needs none for, which is inventing structure in a pane:
+            // exactly the direction [`implicitly_closes`]' own docstring says
+            // this walk must not take. Inside a real table these are a
+            // different insertion mode's tags and open normally, which is what
+            // the table-scope test asks.
+            //
+            // `head`, `body`, `html` and `frameset` are on the same spec list
+            // and are DELIBERATELY not here — see the residual note on
+            // [`start_tag_is_ignored`].
+            if parent_mode == ContentMode::Html && start_tag_is_ignored(&open_elements, &name) {
+                tokens.push(ScannedTag {
+                    token: TagToken::Open {
+                        name,
+                        self_closing,
+                        span,
+                    },
+                    pre_pops,
+                    effect: StackEffect::Inert,
+                });
+                i = j + 1;
+                continue;
+            }
+
+            // HTML's implied end tags, applied HERE rather than in the walk
+            // (ti `9b4d66`) and by SCOPE rather than at the top of the stack
+            // (ti `da6bb5`). Foreign content has no such rule — "any other
+            // start tag" simply inserts a foreign element — so the gate is the
+            // same one raw text, voidness and the `image` rename already carry.
+            if parent_mode == ContentMode::Html {
+                let popped = implied_start_tag_pops(&open_elements, &name);
+                for _ in 0..popped {
+                    open_elements.pop();
+                }
+                pre_pops += popped;
             }
 
             // A `/` on a raw-text/RCDATA start tag is ignored by real HTML
@@ -1253,9 +1354,14 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             // `meta`. DCR-0041's breakout model is what retired the trade.
             let void_here = parent_mode == ContentMode::Html && is_void(&name);
             let opens_element = !void_here && !(self_closing && honours_flag);
-            let child_mode = child_content_mode(parent_mode, &name, html, span);
+            let own_mode = own_content_mode(parent_mode, &name);
+            let child_mode = child_content_mode(own_mode, &name, html, span);
             if opens_element {
-                mode_stack.push((name.clone(), child_mode));
+                open_elements.push(Frame {
+                    name: name.clone(),
+                    own: own_mode,
+                    child: child_mode,
+                });
             }
             tokens.push(ScannedTag {
                 token: TagToken::Open {
@@ -1263,9 +1369,12 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
                     self_closing,
                     span,
                 },
-                child_mode,
-                opens_element,
-                broke_out,
+                pre_pops,
+                effect: if opens_element {
+                    StackEffect::Push
+                } else {
+                    StackEffect::Inert
+                },
             });
         }
         i = j + 1;
@@ -1487,20 +1596,35 @@ fn breaks_out_of_foreign(name: &str, html: &str, span: (usize, usize)) -> bool {
     name.eq_ignore_ascii_case("font") && tag_has_any_attr(html, span, &["color", "face", "size"])
 }
 
-/// The content mode for the children of `name`, opened inside `parent`.
+/// The content mode an element is **itself** in — its namespace, as opposed
+/// to the one its children are read in.
+///
+/// `<svg>` and `<math>` are the only two start tags that ENTER foreign
+/// content, and they do it from HTML content only: inside foreign content
+/// "any other start tag" inserts an element in the namespace of the adjusted
+/// current node, so `<math><svg>` is a **MathML** element that happens to be
+/// named `svg`. Measured (DCR-0051): Chromium parses `<math><svg><desc><div>`
+/// with the `div` at TOP LEVEL — `desc` under a MathML `svg` is not an SVG
+/// HTML integration point, so the breakout tag leaves foreign content
+/// entirely. Reading the name without the parent claimed an HTML island that
+/// is not there.
+fn own_content_mode(parent: ContentMode, name: &str) -> ContentMode {
+    match parent {
+        ContentMode::Html if name.eq_ignore_ascii_case("svg") => ContentMode::Svg,
+        ContentMode::Html if name.eq_ignore_ascii_case("math") => ContentMode::MathMl,
+        other => other,
+    }
+}
+
+/// The content mode for the children of `name`, an element whose own
+/// namespace is `own`.
 fn child_content_mode(
-    parent: ContentMode,
+    own: ContentMode,
     name: &str,
     html: &str,
     span: (usize, usize),
 ) -> ContentMode {
-    if name.eq_ignore_ascii_case("svg") {
-        return ContentMode::Svg;
-    }
-    if name.eq_ignore_ascii_case("math") {
-        return ContentMode::MathMl;
-    }
-    match parent {
+    match own {
         ContentMode::Svg if is_svg_html_integration_point(name) => ContentMode::Html,
         ContentMode::MathMl if is_mathml_text_integration_point(name) => ContentMode::Html,
         // `annotation-xml` is an HTML integration point only when its
@@ -1520,6 +1644,526 @@ fn child_content_mode(
     }
 }
 
+// ---------------------------------------------------------------------------
+// THE open-element stack discipline (DCR-0051)
+// ---------------------------------------------------------------------------
+
+/// One frame of THE open-element stack.
+///
+/// Two modes, because HTML asks two different questions of an open element
+/// and answering both from one field is what ti `bb961a` cost. `child` is
+/// what the TOKENIZER needs — does `<script>` open a raw-text run here, does
+/// `<![CDATA[` end at `]]>` or at the first `>`, is a `/` honoured — and it
+/// is what [`current_mode`] reports. `own` is the element's NAMESPACE, and it
+/// decides three tree-construction questions the tokenizer never asks: is an
+/// end tag dispatched to the foreign-content rules, is this frame in HTML's
+/// **special** category, and does it terminate a scope search.
+///
+/// `<svg><desc>` is the pair that separates them: `own == Svg`, `child ==
+/// Html`.
+#[derive(Debug, Clone)]
+struct Frame {
+    /// Lowercased tag name, exactly as [`scan_tags`] reports it.
+    name: String,
+    /// The namespace the element itself is in.
+    own: ContentMode,
+    /// The content mode its children are read in.
+    child: ContentMode,
+}
+
+/// HTML's **special** category, in the spec's own order.
+///
+/// Its one job here is in-body's "any other end tag", which walks down from
+/// the current node and stops dead at the first special element instead of
+/// closing whatever nearest frame happens to share the name. Without it
+/// `<div><b><div></b>` closed the inner `div` at `</b>` (ti `307283`) and
+/// `<svg><desc><div></desc>` closed back into foreign content (ti `bb961a`).
+///
+/// The foreign members of the category — MathML's `mi`/`mo`/`mn`/`ms`/`mtext`
+/// /`annotation-xml` and SVG's `foreignObject`/`desc`/`title` — are not
+/// listed here because they are exactly the names [`is_integration_point`]
+/// already answers, and they are ALSO the foreign scope terminators. One
+/// list, two questions; a second copy is the defect shape this whole change
+/// is about.
+const SPECIAL_HTML_ELEMENTS: &[&str] = &[
+    "address",
+    "applet",
+    "area",
+    "article",
+    "aside",
+    "base",
+    "basefont",
+    "bgsound",
+    "blockquote",
+    "body",
+    "br",
+    "button",
+    "caption",
+    "center",
+    "col",
+    "colgroup",
+    "dd",
+    "details",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "embed",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "frame",
+    "frameset",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "iframe",
+    "img",
+    "input",
+    "keygen",
+    "li",
+    "link",
+    "listing",
+    "main",
+    "marquee",
+    "menu",
+    "meta",
+    "nav",
+    "noembed",
+    "noframes",
+    "noscript",
+    "object",
+    "ol",
+    "p",
+    "param",
+    "plaintext",
+    "pre",
+    "script",
+    "search",
+    "section",
+    "select",
+    "source",
+    "style",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "template",
+    "textarea",
+    "tfoot",
+    "th",
+    "thead",
+    "title",
+    "tr",
+    "track",
+    "ul",
+    "wbr",
+    "xmp",
+];
+
+/// In-body's block-level end tags: the ones HTML answers with a SCOPE search
+/// and a pop-until-popped, rather than with "any other end tag"'s
+/// stop-at-the-first-special walk.
+///
+/// The difference is not cosmetic. `<div><section></div>` closes both — the
+/// `section` is walked straight through, because a scope search only stops at
+/// a scope TERMINATOR — while "any other end tag" would have stopped at it and
+/// ignored the token. `body`, `html` and `form` ride along: HTML gives each of
+/// them a rule of its own that this crate does not model (they change
+/// insertion mode, or consult the form pointer), and a scope-bounded pop is
+/// what an intake reading a whole HTML document needs from them anyway.
+const BLOCK_END_TAGS: &[&str] = &[
+    "address",
+    "applet",
+    "article",
+    "aside",
+    "blockquote",
+    "body",
+    "button",
+    "center",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "header",
+    "hgroup",
+    "html",
+    "listing",
+    "main",
+    "marquee",
+    "menu",
+    "nav",
+    "object",
+    "ol",
+    "pre",
+    "search",
+    "section",
+    "summary",
+    "ul",
+];
+
+/// The start tags in-body IGNORES outright (ti `da6bb5`), minus the four this
+/// crate deliberately keeps.
+///
+/// **The residual, recorded rather than left to be rediscovered.** HTML's list
+/// also carries `head`, `body`, `html` and `frameset`, and they are not here
+/// because this crate has no insertion modes: `intake::html` walks whole HTML
+/// DOCUMENTS through [`element_extents`], where those four are processed in
+/// "before head" / "in head" / "after head" and really do open elements. A
+/// fragment carrying a second `<body>` therefore still opens one here where a
+/// browser ignores it — the over-open direction, which appends a closer rather
+/// than losing one.
+fn start_tag_is_ignored(stack: &[Frame], name: &str) -> bool {
+    matches!(
+        name,
+        "caption" | "col" | "colgroup" | "frame" | "tbody" | "td" | "tfoot" | "th" | "thead" | "tr"
+    ) && !matches!(in_scope(stack, &[&"table"], Scope::Table), Search::Found(_))
+}
+
+/// Is this frame one of the foreign elements HTML treats as an island of HTML
+/// — MathML's text integration points and `annotation-xml`, SVG's
+/// `foreignObject` / `desc` / `title`?
+///
+/// The same six-and-three names are HTML's foreign **special** elements and
+/// its foreign **scope terminators**, so both questions read this one answer.
+fn is_integration_point(f: &Frame) -> bool {
+    match f.own {
+        ContentMode::Html => false,
+        ContentMode::MathMl => {
+            is_mathml_text_integration_point(&f.name)
+                || f.name.eq_ignore_ascii_case("annotation-xml")
+        }
+        ContentMode::Svg => is_svg_html_integration_point(&f.name),
+    }
+}
+
+/// Is this frame in HTML's special category?
+fn is_special(f: &Frame) -> bool {
+    if f.own != ContentMode::Html {
+        return is_integration_point(f);
+    }
+    SPECIAL_HTML_ELEMENTS.contains(&f.name.as_str())
+}
+
+/// Which of HTML's four scope flavours a search uses. They differ only in
+/// what stops them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    Normal,
+    ListItem,
+    Button,
+    Table,
+}
+
+/// Does this frame stop a scope search?
+fn terminates_scope(f: &Frame, scope: Scope) -> bool {
+    if scope == Scope::Table {
+        // Table scope's list is short and has no foreign members at all, which
+        // is what makes `</td>` reach past a `<div>` foster-parented into a
+        // table while `</div>` cannot reach past the table itself.
+        return f.own == ContentMode::Html
+            && matches!(f.name.as_str(), "html" | "table" | "template");
+    }
+    if f.own != ContentMode::Html {
+        return is_integration_point(f);
+    }
+    if matches!(
+        f.name.as_str(),
+        "applet" | "caption" | "html" | "table" | "td" | "th" | "marquee" | "object" | "template"
+    ) {
+        return true;
+    }
+    match scope {
+        Scope::ListItem => matches!(f.name.as_str(), "ol" | "ul"),
+        Scope::Button => f.name == "button",
+        Scope::Normal | Scope::Table => false,
+    }
+}
+
+/// How a downward search over the stack ended.
+///
+/// The two failure answers are NOT interchangeable, and telling them apart is
+/// what lets the balancer keep bytes it used to delete. A fragment is mounted
+/// INSIDE the sync wrapper's own `<div>`, so a browser's search continues past
+/// the bottom of this stack and into that wrapper — `RanOut` is therefore the
+/// case where leaving the bytes lets a `</div>` close the wrapper, which is
+/// `contracts.md` §4a's direct-child break. `Blocked` stopped at a frame the
+/// fragment itself contributes, ABOVE anything the wrapper adds, so a browser
+/// mounting the pane stops in the same place and the bytes are inert there
+/// too. Deleting those was the old behaviour and it was not free: an
+/// approximation is not a browser's verdict, and `</b>` in
+/// `<div><b><div></b></div>` is a token this crate declines to act on while a
+/// browser reparents through it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Search {
+    /// The frame at this index matched.
+    Found(usize),
+    /// A scope terminator — or, for "any other end tag", a special element —
+    /// stopped the search inside this fragment.
+    Blocked,
+    /// The stack ran out first.
+    RanOut,
+}
+
+/// The nearest frame named by `names` that a `scope` search reaches.
+///
+/// The target test comes first, exactly as HTML orders its two steps: that is
+/// why `</table>` finds the `table` a scope search would otherwise be stopped
+/// by.
+fn in_scope(stack: &[Frame], names: &[&&str], scope: Scope) -> Search {
+    for (i, f) in stack.iter().enumerate().rev() {
+        if f.own == ContentMode::Html && names.iter().any(|n| **n == f.name) {
+            return Search::Found(i);
+        }
+        if terminates_scope(f, scope) {
+            return Search::Blocked;
+        }
+    }
+    Search::RanOut
+}
+
+/// What an end tag does to the stack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EndTagEffect {
+    /// Frames popped by foreign content's breakout rule for `</p>` and
+    /// `</br>`, before the HTML rules see the token.
+    breakout: usize,
+    /// Frames the token then closed; the deepest of them is the element it
+    /// closed. Zero means it closed nothing.
+    close: usize,
+    /// Delete the bytes: the token moved nothing HERE, and in a mounted pane
+    /// the search would have carried on into the sync wrapper's own `<div>`.
+    delete: bool,
+}
+
+/// HTML's end-tag handling, as much of it as a stack of names can honestly
+/// keep — the ONE answer both [`scan_tags_with_state`] and [`walk_elements`]
+/// use (DCR-0051).
+///
+/// **What is modelled**, each because a browser measurement said the old
+/// `rposition` + `truncate` was wrong about it:
+///
+/// * Foreign content's own dispatch. `</p>` and `</br>` are BREAKOUT end tags
+///   there — HTML lists them with the breakout start tags — so they pop out of
+///   `<svg>`/`<math>` before anything else and are then reprocessed by the
+///   HTML rules (ti `9b4d66`, ti `895fb7`). Every other end tag walks down the
+///   foreign run looking for its own name and falls through to the HTML rules
+///   at the first HTML-namespace frame.
+/// * "Any other end tag"'s **special-element guard** (ti `307283`, ti
+///   `bb961a`).
+/// * **Scope** for the block-level end tags, for `li`, for `h1`..`h6` and for
+///   the table ones — including the table-scope terminators that make
+///   `<div><table>a</div>` leave the table open (R0010-0039).
+/// * `</p>` out of button scope minting an empty paragraph rather than
+///   closing anything, and `</br>` minting a `<br>`. Both are `Inert` rather
+///   than `Orphan`: a browser turns them into content, so deleting them edits
+///   what the reader sees.
+///
+/// **What is NOT modelled, and why the omission is safe.** The **adoption
+/// agency algorithm** is absent: a formatting end tag is routed through "any
+/// other end tag" instead. Where the two differ, AAA removes the formatting
+/// element from the stack and inserts a clone deeper, while this keeps the
+/// frame — so the walk holds a formatting frame a browser has already moved,
+/// and the balancer appends one redundant `</b>`-shaped closer. That closer is
+/// a no-op in a browser (AAA drops an end tag whose formatting element is not
+/// on the stack), a formatting element is never special and never terminates a
+/// scope, and the direction is the safe one: an extra frame appends a closer
+/// rather than losing one. `<div><b><div></b></div>` and
+/// `<div><b><div></b></div></div>` are both measured balanced in Chromium
+/// under this approximation.
+fn end_tag_effect(stack: &[Frame], name: &str) -> EndTagEffect {
+    let mut breakout = 0usize;
+    if stack.last().is_some_and(|f| f.own != ContentMode::Html) {
+        if name == "br" || name == "p" {
+            // "While the current node is not a MathML text integration point,
+            // an HTML integration point, or an element in the HTML namespace,
+            // pop" — which is precisely "while this frame's children are not
+            // read as HTML".
+            breakout = stack
+                .iter()
+                .rev()
+                .take_while(|f| f.child != ContentMode::Html)
+                .count();
+        } else {
+            // Foreign content's "any other end tag", in the spec's own step
+            // ORDER, which is load-bearing rather than pedantic: the name test
+            // applies to the current node and to each FOREIGN node below it,
+            // and the namespace test comes first on every step after the
+            // first. Testing the name at an HTML-namespace frame instead let
+            // `<svg><foreignObject><p></foreignObject></svg>…</div>` walk
+            // straight past the `foreignObject` — a scope terminator — and
+            // match the sync wrapper's own `<div>`, which is `contracts.md`
+            // §4a's break arriving through the repair meant to prevent it.
+            let mut i = stack.len() - 1;
+            loop {
+                if stack[i].name == name {
+                    return EndTagEffect {
+                        breakout: 0,
+                        close: stack.len() - i,
+                        delete: false,
+                    };
+                }
+                if i == 0 {
+                    // Ran off the bottom. In a mounted pane the next frame
+                    // down is the wrapper, an HTML element, so this lands in
+                    // the spec's step 7 exactly as the break below does.
+                    break;
+                }
+                i -= 1;
+                if stack[i].own == ContentMode::Html {
+                    // Step 7: hand the token to the HTML rules, on the whole
+                    // stack.
+                    break;
+                }
+            }
+        }
+    }
+    let live = &stack[..stack.len() - breakout];
+    let html_effect = html_end_tag_effect(live, name);
+    EndTagEffect {
+        breakout,
+        close: html_effect.close,
+        // A breakout already moved frames, so the bytes are structure whatever
+        // the HTML rules then made of the token.
+        delete: html_effect.delete && breakout == 0,
+    }
+}
+
+/// The "in body" half of [`end_tag_effect`].
+fn html_end_tag_effect(stack: &[Frame], name: &str) -> EndTagEffect {
+    let pop = |i: usize| EndTagEffect {
+        breakout: 0,
+        close: stack.len() - i,
+        delete: false,
+    };
+    let drop_it = EndTagEffect {
+        breakout: 0,
+        close: 0,
+        delete: true,
+    };
+    let keep = EndTagEffect {
+        breakout: 0,
+        close: 0,
+        delete: false,
+    };
+    let scoped = |names: &[&&str], scope: Scope| match in_scope(stack, names, scope) {
+        Search::Found(i) => pop(i),
+        Search::Blocked => keep,
+        Search::RanOut => drop_it,
+    };
+    match name {
+        // Out of button scope HTML inserts an empty `<p>` and closes it, so
+        // the token is content rather than a pop — and never reaches the
+        // wrapper, whichever way the search ended.
+        "p" => match in_scope(stack, &[&"p"], Scope::Button) {
+            Search::Found(i) => pop(i),
+            Search::Blocked | Search::RanOut => keep,
+        },
+        // `</br>` is a parse error a browser treats as a `<br>` START tag.
+        // Nothing is closed and nothing may be deleted.
+        "br" => keep,
+        "li" => scoped(&[&"li"], Scope::ListItem),
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            scoped(&[&"h1", &"h2", &"h3", &"h4", &"h5", &"h6"], Scope::Normal)
+        }
+        "table" | "caption" | "colgroup" | "tbody" | "tfoot" | "thead" | "tr" | "td" | "th" => {
+            scoped(&[&name], Scope::Table)
+        }
+        n if BLOCK_END_TAGS.contains(&n) => scoped(&[&name], Scope::Normal),
+        _ => {
+            for (i, f) in stack.iter().enumerate().rev() {
+                if f.own == ContentMode::Html && f.name == name {
+                    return pop(i);
+                }
+                if is_special(f) {
+                    // Blocked inside the fragment: a browser mounting the pane
+                    // stops at this same frame, so the bytes stay.
+                    return keep;
+                }
+            }
+            drop_it
+        }
+    }
+}
+
+/// How many frames a START tag closes implicitly, before it is inserted.
+///
+/// [`implicitly_closes`] stays the one table of NAMES; this is the one place
+/// that applies it, and applying it by scope rather than at the top of the
+/// stack is ti `da6bb5`'s second half. `<p><em><ul>` closes the paragraph in a
+/// browser — the `<ul>` start tag says "if the stack has a `p` element in
+/// BUTTON scope, close a p element", which reaches straight through the `<em>`
+/// — and this crate reached only the innermost frame, so the `p` survived with
+/// `em` on top of it.
+fn implied_start_tag_pops(stack: &[Frame], name: &str) -> usize {
+    let mut popped = 0usize;
+
+    // HTML's `li` / `dd` / `dt` start-tag loop, which is neither a scope
+    // search nor a top-of-stack test: it walks down and stops at the first
+    // special element that is not an `address`, a `div` or a `p`.
+    let loop_names: &[&str] = match name {
+        "li" => &["li"],
+        "dd" | "dt" => &["dd", "dt"],
+        _ => &[],
+    };
+    if !loop_names.is_empty() {
+        for (i, f) in stack.iter().enumerate().rev() {
+            if f.own == ContentMode::Html && loop_names.contains(&f.name.as_str()) {
+                popped = stack.len() - i;
+                break;
+            }
+            if is_special(f) && !matches!(f.name.as_str(), "address" | "div" | "p") {
+                break;
+            }
+        }
+    }
+
+    // The classic pairs HTML really does decide at the top of the stack: table
+    // rows and cells, select options, ruby annotations. Read out of
+    // `implicitly_closes` rather than restated, minus the two shapes the rest
+    // of this function owns.
+    while let Some(f) = stack[..stack.len() - popped].last() {
+        let closes_top = f.own == ContentMode::Html
+            && implicitly_closes(name)
+                .iter()
+                .any(|n| *n != "p" && !loop_names.contains(n) && *n == f.name);
+        if closes_top {
+            popped += 1;
+        } else {
+            break;
+        }
+    }
+
+    // "If the stack of open elements has a p element in button scope, then
+    // close a p element" — the rule every block-level start tag in
+    // `implicitly_closes`' `P` set carries.
+    if implicitly_closes(name).contains(&"p")
+        && let Search::Found(i) = in_scope(&stack[..stack.len() - popped], &[&"p"], Scope::Button)
+    {
+        popped = stack.len() - i;
+    }
+
+    popped
+}
+
 /// The result of the one stack walk over [`scan_tags`]' token stream.
 struct Walk {
     extents: Vec<ElementExtent>,
@@ -1533,103 +2177,77 @@ struct Walk {
 /// [`balance_fragment`] reads its repairs; there is exactly one of it, for
 /// the same reason there is exactly one Markdown parser — a second walk would
 /// be a second opinion about HTML structure, and the two would drift.
+///
+/// **Since DCR-0051 it holds no opinion at all.** It used to keep its own
+/// `open_stack` and its own `rposition` search, and to apply
+/// [`implicitly_closes`] where the scanner deliberately did not — two stacks,
+/// popping differently from each other and from a browser, which is the single
+/// root cause behind ti `9b4d66`, `307283`, `895fb7`, `da6bb5` and `bb961a`.
+/// [`scan_tags_with_state`] has to keep the real stack anyway (the content
+/// mode of the next byte depends on it), so every mutation is decided there
+/// and reported on the token, and this function REPLAYS it while recording
+/// what the scanner has no use for: extents, close spans and orphan spans.
+///
+/// The parallel stack below therefore carries no mode and does no searching —
+/// only the name and the extent index each frame belongs to.
 fn walk_elements(html: &str) -> Walk {
     let tokens = scan_tags_with_state(html);
     let mut extents: Vec<ElementExtent> = Vec::new();
-    // (name, index into `extents`, mode its CHILDREN are parsed in) for each
-    // element still open. The third field is a STACK property, and it is a
-    // [`ContentMode`] rather than the bool this walk carried until `e77173`:
-    // foreign content contains islands of HTML — `foreignObject`, `desc`, the
-    // MathML text integration points — so "am I foreign" is not answerable by
-    // inheriting a flag downward.
-    //
-    // The mode itself is not decided here. `scan_tags_with_state` decides it,
-    // because HTML's
-    // tokenizer needs the same answer one layer down — whether `<script>`
-    // opens a raw-text run depends on it (ti `2e2453`) — and two places
-    // deciding where foreign content begins is the defect shape ti `415cdb`
-    // and ti `e20490` both were. So this walk records what the scanner
-    // reports and adds only what the scanner has no use for: extents, implied
-    // closes, and orphan spans.
-    let mut open_stack: Vec<(String, usize, ContentMode)> = Vec::new();
+    let mut open_stack: Vec<(String, usize)> = Vec::new();
     let mut orphan_closes: Vec<(usize, usize)> = Vec::new();
 
     for tag in &tokens {
-        match &tag.token {
-            TagToken::Open { name, span, .. } => {
-                // Before the push, and for void elements too: `<hr>` closes a
-                // paragraph it never joins (R0002-0061). The scanner does not
-                // model this — see the note on its `mode_stack` for why the
-                // omission cannot move a content mode.
-                let implied = implicitly_closes(name);
-                while open_stack
-                    .last()
-                    .is_some_and(|(top, _, _)| implied.contains(&top.as_str()))
-                {
-                    let (_, idx, _) = open_stack.pop().expect("just inspected the top");
+        let (span, opened_name) = match &tag.token {
+            TagToken::Open { name, span, .. } => (*span, Some(name)),
+            TagToken::Close { span, .. } => (*span, None),
+            TagToken::Skip { span, .. } => (*span, None),
+        };
+
+        // Implied end tags and foreign-content breakouts, replayed. Each frame
+        // the scanner took off before processing the token was closed by it
+        // implicitly, so its content ends where the token begins — the same
+        // record an explicit closer's siblings get below.
+        for _ in 0..tag.pre_pops {
+            let (_, idx) = open_stack
+                .pop()
+                .expect("the scanner popped this frame from the same stack");
+            extents[idx].content_end = span.0;
+        }
+
+        match tag.effect {
+            StackEffect::Push => {
+                let name = opened_name.expect("only a start tag pushes a frame");
+                extents.push(ElementExtent {
+                    name: name.clone(),
+                    depth: open_stack.len(),
+                    open: span,
+                    close: None,
+                    content_end: html.len(),
+                });
+                open_stack.push((name.clone(), extents.len() - 1));
+            }
+            StackEffect::Close(n) => {
+                // Everything above the match is closed implicitly by this tag;
+                // the deepest of the `n` is the element it actually closed.
+                for _ in 1..n {
+                    let (_, idx) = open_stack.pop().expect("the scanner counted these frames");
                     extents[idx].content_end = span.0;
                 }
-
-                // A breakout tag tears the parser back out to HTML before it
-                // is processed: pop foreign elements until the thing we are
-                // landing in parses its children as HTML. An integration
-                // point already does, which is why this stops at one
-                // (`<svg><foreignObject><div>` nests; `<svg><g><div>` does
-                // not). The scanner already did this to its own stack — it
-                // had to, to tokenize the rest — so this mirrors the pop and
-                // records each popped element as implicitly closed, exactly
-                // as an implied close does it (`e77173`).
-                if tag.broke_out {
-                    while open_stack
-                        .last()
-                        .is_some_and(|(_, _, m)| *m != ContentMode::Html)
-                    {
-                        let (_, idx, _) = open_stack.pop().expect("just inspected the top");
-                        extents[idx].content_end = span.0;
-                    }
-                }
-
-                // Whether this tag opens an element at all — a void name and
-                // a self-closing tag in the two places HTML honours the flag
-                // do not — is the scanner's verdict, for the same reason the
-                // mode is: it had to reach that verdict to keep its own stack
-                // (ti `2e2453`). Reading it here rather than re-deriving it
-                // is what makes `<div/>y</div>` one `div` extent whose
-                // `close` is the author's own end tag; modelling the `/` the
-                // way XML means it cost exactly that end tag (ti 490d97 wave
-                // 1), and the fragment went on to consume the sync wrapper's.
-                if tag.opens_element {
-                    extents.push(ElementExtent {
-                        name: name.clone(),
-                        depth: open_stack.len(),
-                        open: *span,
-                        close: None,
-                        content_end: html.len(),
-                    });
-                    open_stack.push((name.clone(), extents.len() - 1, tag.child_mode));
-                }
+                let (_, idx) = open_stack.pop().expect("the scanner counted these frames");
+                extents[idx].close = Some(span);
+                extents[idx].content_end = span.0;
             }
-            TagToken::Close { name, span } => {
-                if let Some(pos) = open_stack.iter().rposition(|(t, _, _)| t == name) {
-                    // Everything above `pos` is closed implicitly by this tag.
-                    for (_, idx, _) in open_stack.drain(pos + 1..) {
-                        extents[idx].content_end = span.0;
-                    }
-                    let (_, idx, _) = open_stack.pop().expect("rposition found it");
-                    extents[idx].close = Some(*span);
-                    extents[idx].content_end = span.0;
-                } else {
-                    // Orphan close tag: dropping it is what keeps the sync
-                    // wrapper's own `</div>` safe (spec 2026-08-03 §3.4).
-                    orphan_closes.push(*span);
-                }
-            }
-            // Comments, CDATA and bogus comments are not structure.
-            TagToken::Skip { .. } => {}
+            // A skipped region, an ignored start tag, or an end tag a browser
+            // turns into content rather than into a pop. Not structure, and
+            // not the balancer's to delete either.
+            StackEffect::Inert => {}
+            // Dropping it is what keeps the sync wrapper's own `</div>` safe
+            // (spec 2026-08-03 §3.4).
+            StackEffect::Orphan => orphan_closes.push(span),
         }
     }
 
-    let unclosed = open_stack.into_iter().map(|(name, _, _)| name).collect();
+    let unclosed = open_stack.into_iter().map(|(name, _)| name).collect();
     Walk {
         extents,
         orphan_closes,
@@ -3035,15 +3653,31 @@ mod extent_tests {
         );
     }
 
-    /// `scan_tags` does not model HTML's optional end tags, so its stack can
-    /// hold frames `walk_elements` has already popped. That is sound only
-    /// while no implicitly-closed name CHANGES the content mode — an extra
-    /// frame of an ordinary HTML element reports the mode the one below it
-    /// would. The scanner's comment asserts it; this makes it falsifiable.
+    /// **What this pins changed at DCR-0051, and the name is kept on purpose**
+    /// so DCR-0042's reference to it keeps resolving.
     ///
-    /// The live direction is the one ti `2e2453` just walked: adding a name
-    /// to `is_svg_html_integration_point` (it added `title`) that is also an
-    /// optional-end-tag closer would break the assumption in silence.
+    /// It used to be the falsifier for a claim in `scan_tags_with_state`'s own
+    /// comment: that the scanner could skip HTML's optional end tags because an
+    /// extra frame of an ordinary HTML element "reports the mode the one below
+    /// it would". Every word of that was true and the conclusion was not — it
+    /// reasoned about the extra frame's own mode and never about `truncate`
+    /// popping the frames ABOVE it, which is ti `9b4d66`. There is one stack
+    /// now and it applies implied closes, so there is no stale frame for this
+    /// test to be a claim about. (The comment also cited the test under a name
+    /// it has never had, `implicitly_closed_names_never_change_the_content_mode`
+    /// — a pin that could not have gone red because it did not exist.)
+    ///
+    /// Two things it still pins, and both are worth keeping:
+    ///
+    /// * `KEYS` is closed under [`implicitly_closes`], so this list really does
+    ///   reach every name the table can pop and cannot silently stop covering
+    ///   it.
+    /// * No implicitly-closed name changes the content mode. The live
+    ///   direction is the one ti `2e2453` walked — adding a name to
+    ///   `is_svg_html_integration_point` (it added `title`) that is also an
+    ///   optional-end-tag closer — and it would now mean an implied pop moving
+    ///   the tokenizer's mode out from under it, which is a stranger thing than
+    ///   the stale frame it used to mean.
     #[test]
     fn no_implicitly_closed_name_changes_the_content_mode() {
         const KEYS: &[&str] = &[
@@ -4205,13 +4839,19 @@ mod balance_tests {
         // exactly what the explicit one would have.
         let explicit = "<p>a</p><p>b</p><ul><li>x</li><li>y</li></ul>";
         assert_eq!(balance_fragment(explicit), explicit);
-        // A close tag whose element was already closed implicitly is an
-        // orphan and goes the way of every orphan — dropped. A browser would
-        // have turned it into the same phantom `<p></p>` this fix removes.
-        assert_eq!(
-            balance_fragment("<p>a<div>b</div>c</p>"),
-            "<p>a<div>b</div>c"
-        );
+        // A close tag whose element was already closed implicitly used to be
+        // an orphan and to go the way of every orphan — dropped, on the
+        // grounds that a browser would turn it into "the same phantom `<p></p>`
+        // this fix removes". It does turn it into one, and measurement is what
+        // changed the verdict (DCR-0051): `<p>a<div>b</div>c</p>` renders
+        // `<p>a</p><div>b</div>c<p></p>` in Chromium, so that paragraph is the
+        // author's own bytes rendering, not structure the balancer invented.
+        // R0002-0061 was about the balancer APPENDING a second `</p>`; deleting
+        // one the author wrote is the different act of editing the pane. So
+        // `</p>` — and `</br>`, which mints a `<br>` the same way — is never an
+        // orphan now, and this fragment is a fixed point instead.
+        let author_wrote_it = "<p>a<div>b</div>c</p>";
+        assert_eq!(balance_fragment(author_wrote_it), author_wrote_it);
         // Nesting is unaffected: an inner list opens inside its item.
         assert_eq!(
             balance_fragment("<ul><li>a<ul><li>b"),
@@ -4600,5 +5240,330 @@ mod inventory_tests {
             vec!["div", "p", "/p"]
         );
         assert_eq!(tag_inventory("<p>a</p><div class=\"x"), vec!["p", "/p"]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tree construction: the five open-element-stack tickets, and their oracle
+// ---------------------------------------------------------------------------
+
+/// The regression set for ti `9b4d66`, `307283`, `895fb7`, `da6bb5`, `bb961a`
+/// and `a7e625` — the family whose one root cause was that this crate kept two
+/// open-element stacks and popped both of them differently from a browser.
+///
+/// **Every expected value in this module was MEASURED in headless Chromium
+/// before it was written**, through the same `innerHTML`-on-a-detached-`div`
+/// fragment parse the shipped shells mount a pane with, and the measurement is
+/// quoted beside each one. Asserting this crate's answer against this crate's
+/// answer is the blind spot ti `ec235f` exists to close (see
+/// `web/tests/html-oracle.spec.js`); these tests are the cheap in-crate half of
+/// that record, and the browser oracle is the half that can contradict it.
+#[cfg(test)]
+mod tree_construction_tests {
+    use super::*;
+
+    /// The pane mount, the shape `contracts.md` §4a is a claim about: the
+    /// block's balanced fragment inside its own sync wrapper.
+    fn pane(fragment: &str) -> String {
+        format!("<div data-sync-id=\"p-0001\">{fragment}</div>")
+    }
+
+    /// §4a's question: does the wrapper's own `</div>` still close the
+    /// wrapper, or did the fragment eat it? Asked of the crate's walk, which
+    /// is what the balancer acts on — the browser half is the oracle spec's.
+    fn wrapper_survives(fragment: &str) -> bool {
+        let pane = pane(fragment);
+        element_extents(&pane).iter().any(|e| {
+            e.name == "div"
+                && e.depth == 0
+                && e.close == Some((pane.len() - "</div>".len(), pane.len()))
+        })
+    }
+
+    /// The bytes a reader's browser is handed, in the order `render.rs` calls
+    /// them: `balance_fragment(&strip_reserved_sync_attrs(md))`.
+    fn chained(md: &str) -> String {
+        balance_fragment(&strip_reserved_sync_attrs(md))
+    }
+
+    // -- ti `9b4d66` --------------------------------------------------------
+
+    /// ti `9b4d66`. One CommonMark type-6 html block, reachable from untrusted
+    /// source Markdown, that used to put a live impostor `data-sync-id` in a
+    /// reader's DOM.
+    const IMPOSTOR: &str =
+        "<p><ul><svg></p><title><div data-sync-id=\"p-0002\">impostor</div></title></svg>";
+
+    /// `</p>` is a BREAKOUT end tag in foreign content — HTML groups it with
+    /// `</br>` and with the breakout START tags — so it pops the `<svg>` and
+    /// leaves `<title>` an ordinary HTML RCDATA element whose interior is
+    /// text. Chromium, measured on `IMPOSTOR`:
+    ///
+    /// ```text
+    /// <p></p><ul><svg></svg><p></p><title>&lt;div data-sync-id="p-0002"&gt;impostor&lt;/div&gt;</title></ul>
+    /// ```
+    ///
+    /// The walk agreed by accident and the SCANNER did not: its `open_elements`
+    /// carried a `p` frame the walk had already closed implicitly at `<ul>`,
+    /// so `</p>` found that stale frame, `truncate`d the `<svg>` away with it,
+    /// and read `<title>` as HTML RCDATA for the wrong reason. The balancer
+    /// then deleted the `</p>` as an orphan, and on the deleted bytes nothing
+    /// left foreign content at all: `<title>` became an SVG element, its
+    /// interior became markup, and the plant became a live anchor.
+    #[test]
+    fn a_breakout_end_tag_survives_the_balancer_and_keeps_the_impostor_text() {
+        let chained = chained(IMPOSTOR);
+        assert!(
+            chained.contains("</p>"),
+            "the `</p>` that leaves foreign content is structure, not an \
+             orphan — deleting it puts `<title>` back inside `<svg>`\n  \
+             chained = {chained:?}"
+        );
+        assert_eq!(
+            strip_reserved_sync_attrs(&chained).into_owned(),
+            chained,
+            "the pane chain minted a reserved sync attribute the strip had \
+             already cleared (P6 / OI-0035 route (c))"
+        );
+        assert!(wrapper_survives(&chained));
+    }
+
+    // -- ti `307283` --------------------------------------------------------
+
+    /// ti `307283` case 1. Chromium leaves the OUTER `div` open here — the
+    /// adoption agency algorithm reparents `<b>` into the inner `div`, so the
+    /// author's `</div>` closes the inner one. Measured: `openAtEnd` is
+    /// `["div"]`, and the balanced form below is `[]`.
+    ///
+    /// The fix is not the adoption agency algorithm (see the module's
+    /// residual note) but the guard that precedes it: in-body's "any other end
+    /// tag" walks down from the current node and **stops at the first special
+    /// element**, and the inner `div` is special, so `</b>` is ignored.
+    #[test]
+    fn a_misnested_formatting_end_tag_no_longer_closes_the_block_above_it() {
+        let out = balance_fragment("<div><b><div></b></div>");
+        assert_eq!(out, "<div><b><div></b></div></b></div>");
+        assert!(wrapper_survives(&out));
+        assert_eq!(balance_fragment(&out), out);
+    }
+
+    /// ti `307283` case 2, the more serious shape: the balancer CREATED the
+    /// §4a break by deleting a closer the author wrote and a browser needs.
+    /// Chromium: `<div><b><div></b></div></div>` ends with nothing open.
+    #[test]
+    fn the_balancer_no_longer_deletes_the_closer_a_browser_needs() {
+        let input = "<div><b><div></b></div></div>";
+        assert_eq!(balance_fragment(input), input);
+        assert!(wrapper_survives(input));
+    }
+
+    /// R0010-0039, folded into ti `307283`: in-body's `</div>` rule asks
+    /// whether a `div` is in SCOPE, and `table`, `td` and `th` all terminate a
+    /// scope search. Chromium ignores both `</div>`s below and leaves the
+    /// table open; the walk popped the table at the nearest name match, called
+    /// the fragment balanced, and let the pane's own `</div>` be ignored the
+    /// same way — so the next block's anchor was foster-parented INSIDE this
+    /// block's wrapper (measured `parent-div`).
+    ///
+    /// Both balanced forms below were measured as `openAtEnd == []`.
+    #[test]
+    fn a_div_end_tag_a_table_puts_out_of_scope_leaves_the_table_open() {
+        assert_eq!(
+            balance_fragment("<div><table>a</div>"),
+            "<div><table>a</div></table></div>"
+        );
+        assert_eq!(
+            balance_fragment("<div><table><tr><td>a</div>"),
+            "<div><table><tr><td>a</div></td></tr></table></div>"
+        );
+        for input in ["<div><table>a</div>", "<div><table><tr><td>a</div>"] {
+            let out = balance_fragment(input);
+            assert!(wrapper_survives(&out), "{out:?}");
+            assert_eq!(balance_fragment(&out), out);
+        }
+    }
+
+    // -- ti `895fb7` --------------------------------------------------------
+
+    /// ti `895fb7`. The first call used to append `</math>` and the second to
+    /// delete it, so the pane's bytes depended on how many times the repair
+    /// ran. One stack is what fixes it: the `<div ">` breakout pops the
+    /// `<math>` on the SAME stack the scanner tokenizes from, so there is no
+    /// closer to owe. Chromium on the input: `openAtEnd == ["ul","div"]`.
+    #[test]
+    fn balance_fragment_is_a_fixed_point_on_stale_frame_input() {
+        let input = "<p/><ul><math></p><div \">";
+        let once = balance_fragment(input);
+        assert_eq!(once, "<p/><ul><math></p><div \"></div></ul>");
+        assert_eq!(balance_fragment(&once), once);
+        assert!(wrapper_survives(&once));
+    }
+
+    // -- ti `bb961a` --------------------------------------------------------
+
+    /// ti `bb961a`. `<desc>` is an SVG HTML integration point, so the `<div>`
+    /// inside it is an HTML element — and in-body's "any other end tag" stops
+    /// at it, because `div` is special. Chromium therefore IGNORES the
+    /// `</desc>` and is still in HTML content, where `<![CDATA[` opens a bogus
+    /// comment ending at the first `>`:
+    ///
+    /// ```text
+    /// <svg><desc><div><!--[CDATA[x--></div></desc></svg>
+    /// ```
+    ///
+    /// The walk popped the nearest name match instead, landed back in foreign
+    /// content, and read one CDATA section to EOF — so everything after it was
+    /// text to the strip and markup to the browser, and a planted
+    /// `data-sync-id` reached a live DOM.
+    #[test]
+    fn an_ignored_desc_end_tag_keeps_the_fragment_in_html_content() {
+        // The `</desc>` STAYS: a browser ignores it, so deleting it would edit
+        // the reader's bytes for nothing, and the balanced form below parses to
+        // the same DOM Chromium gives the input above.
+        let out = balance_fragment("<svg><desc><div></desc><![CDATA[x");
+        assert_eq!(out, "<svg><desc><div></desc><![CDATA[x></div></desc></svg>");
+        assert!(wrapper_survives(&out));
+        assert_eq!(balance_fragment(&out), out);
+    }
+
+    /// The generated exemplar the oracle found `bb961a` on, whole. Its harm
+    /// was two at once: a live `data-sync-id` in the DOM (`reserved:dom-only`)
+    /// and a `parent-td` §4a break.
+    #[test]
+    fn the_generated_bb961a_exemplar_leaks_no_anchor_and_keeps_the_wrapper() {
+        let input = "<!doctype html><blockquote><div><span></blockquote><a href=\"x\">\
+                     <div>y</a><div>z</a><svg><desc><div></desc><![CDATA[y<p><table><tr>\
+                     <td>c<?pi<!doctype html><div/data-sync-id=\"p-1\"></>";
+        let chained = chained(input);
+        assert_eq!(
+            strip_reserved_sync_attrs(&chained).into_owned(),
+            chained,
+            "a reserved sync attribute survived into the pane chain"
+        );
+        assert!(wrapper_survives(&chained), "chained = {chained:?}");
+        assert_eq!(balance_fragment(&chained), chained);
+    }
+
+    // -- ti `da6bb5` --------------------------------------------------------
+
+    /// ti `da6bb5`, the over-open direction. In-body IGNORES a stray
+    /// `<td>`/`<th>`/`<tr>`/`<tbody>`/`<caption>`/`<col>`/`<colgroup>` start
+    /// tag outright, so pushing a frame for one made the balancer append a
+    /// closer HTML needs none for — inventing structure in a pane, which
+    /// `implicitly_closes`' own docstring says the walk must not do.
+    ///
+    /// Chromium on the oracle's exemplar: `openAtEnd == ["font","li"]`, DOM
+    /// `x<font><li>&amp;</li></font>` — no `td`, no `tr`.
+    #[test]
+    fn a_table_cell_start_tag_outside_a_table_opens_nothing() {
+        assert!(element_extents("<td>x</tr>").is_empty());
+        // `</tr>` goes — nothing on this stack stops that search, so in a
+        // mounted pane it would run on into the wrapper — while `</g>` stays,
+        // stopped at the special `<li>` a browser stops at too. Measured DOM,
+        // identical for input and output: `x<font><li>&amp;</li></font>`.
+        assert_eq!(
+            balance_fragment("<td>x</tr><font><li></g>&amp;<!doctype html>"),
+            "<td>x<font><li></g>&amp;<!doctype html></li></font>"
+        );
+        // …and inside a real table it still opens, because "in table" is a
+        // different insertion mode. Chromium: `["table","tbody","tr","td"]`.
+        assert_eq!(
+            balance_fragment("<table><td>a"),
+            "<table><td>a</td></table>"
+        );
+    }
+
+    /// ti `da6bb5`'s second sub-mechanism: HTML closes an open `<p>` by
+    /// BUTTON SCOPE, which reaches through the `<em>` sitting on top of it,
+    /// and this crate closed only the innermost frame. Chromium on the
+    /// oracle's exemplar ends with nothing open.
+    #[test]
+    fn an_implied_paragraph_close_reaches_through_the_formatting_element_above_it() {
+        // Chromium: `<p><em></em></p><ul><li><em>q</em></li></ul>` — the `<em>`
+        // is reconstructed inside the `<li>` rather than closed, which is the
+        // adoption-agency residual and costs nothing here. `</em>` stays
+        // (stopped at the special `<li>`); `</link>` and `</math>` go.
+        let out = balance_fragment("</link><p/><em><ul><li>q</em></li></ul></math>");
+        assert_eq!(out, "<p/><em><ul><li>q</em></li></ul>");
+        assert!(wrapper_survives(&out));
+        assert_eq!(balance_fragment(&out), out);
+    }
+
+    // -- ti `a7e625` --------------------------------------------------------
+
+    /// ti `a7e625`, CONFIRMED by measurement rather than accepted from the
+    /// spec trace. `mglyph` and `malignmark` are the two start tags HTML's
+    /// tree-construction dispatcher does NOT hand to the HTML rules inside a
+    /// MathML text integration point, so they stay MathML — and a `<script>`
+    /// under one is a foreign element, not a raw-text run. Chromium:
+    ///
+    /// ```text
+    /// <math><mi><mglyph><script></script></mglyph><div></div></mi></math>
+    /// ```
+    ///
+    /// with `openAtEnd == ["math","mi","div"]`; `malignmark` measures the
+    /// same. The crate read `<script>` as raw text, made `<div>` its text
+    /// content, and appended four closers a browser then ignores.
+    #[test]
+    fn mglyph_and_malignmark_keep_their_children_in_mathml() {
+        for name in ["mglyph", "malignmark"] {
+            let input = format!("<math><mi><{name}><script><div>");
+            assert_eq!(
+                balance_fragment(&input),
+                format!("{input}</div></mi></math>")
+            );
+        }
+    }
+
+    /// Found by the 400_000-input deep property run while DCR-0051 was being
+    /// written, and pinned because it is the one shape where getting HTML's
+    /// step ORDER wrong turns the repair into the break it exists to prevent.
+    ///
+    /// Foreign content's "any other end tag" name-tests the current node and
+    /// each FOREIGN node below it, and checks the namespace BEFORE the name on
+    /// every step after the first. Testing the name at an HTML-namespace frame
+    /// as well let this fragment's `</div>` walk past the `foreignObject` — a
+    /// scope terminator — and match the sync wrapper's own `<div>`.
+    ///
+    /// Chromium leaves `["svg","foreignobject","annotation-xml","p"]` open on
+    /// the input, `[]` on the balanced form, and mounts the following block's
+    /// anchor as a direct child of `<main>`; input and output parse to the
+    /// same DOM.
+    #[test]
+    fn a_foreign_end_tag_search_stops_at_the_first_html_frame_not_at_a_name() {
+        let input = "<![CDATA[y]]><![CDATA[<b>x</b>]]><svg><foreignObject><p></foreignObject></svg>\
+                     <! <div> >div<i><p>x</i></p></div><annotation-xml encoding=\"text&#47;html\"><p>";
+        let out = balance_fragment(input);
+        assert_eq!(
+            out,
+            "<![CDATA[y]]><![CDATA[<b>x]]><svg><foreignObject><p></foreignObject></svg>\
+             <! <div> >div<i><p>x</i></p></div><annotation-xml encoding=\"text&#47;html\">\
+             <p></p></annotation-xml></foreignobject></svg>"
+        );
+        assert!(wrapper_survives(&out), "out = {out:?}");
+        assert_eq!(balance_fragment(&out), out);
+        // The same terminator, asked directly: `foreignObject` is a scope
+        // terminator, so a `</div>` beneath it reaches nothing and is inert
+        // rather than orphaned. Chromium agrees — it leaves `svg`,
+        // `foreignObject` and `p` open and ignores the closer.
+        let inert = "<svg><foreignObject><p></foreignObject></svg></div>";
+        assert_eq!(
+            balance_fragment(inert),
+            format!("{inert}</p></foreignobject></svg>")
+        );
+    }
+
+    /// A nested `<svg>` inside `<math>` is a MathML element — foreign
+    /// content's "any other start tag" inserts in the namespace of the
+    /// adjusted current node — so `desc` under it is NOT an HTML integration
+    /// point and the `<div>` breaks all the way out. Chromium:
+    /// `<math><svg><desc></desc></svg></math><div></div>`, `openAtEnd ==
+    /// ["div"]`.
+    #[test]
+    fn a_nested_svg_inside_math_stays_in_mathml_content() {
+        assert_eq!(
+            balance_fragment("<math><svg><desc><div>"),
+            "<math><svg><desc><div></div>"
+        );
     }
 }

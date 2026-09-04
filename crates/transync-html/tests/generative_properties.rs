@@ -446,9 +446,21 @@ fn unclosed(html: &str, extents: &[ElementExtent]) -> Vec<String> {
         .collect()
 }
 
-/// Close-tag spans that closed nothing: `walk_elements`'s `orphan_closes`.
-/// Every non-orphan `Close` becomes exactly one extent's `close`, so the ones
-/// no extent claims are the orphans.
+/// Close-tag spans that closed nothing: every `Close` token no extent claims
+/// as its closer.
+///
+/// **This stopped being "the orphans" at DCR-0051**, and the difference is the
+/// point of that change rather than an accident of it. HTML has end tags that
+/// close nothing and are not orphans either: `</b>` stopped by the special
+/// `<div>` above it, `</div>` a `<table>` puts out of scope, `</p>` out of
+/// button scope, `</br>`. A browser does nothing structural with any of them,
+/// so `balance_fragment` no longer deletes them — deleting a token on an
+/// approximation of a browser's verdict is what let `<div><b><div></b></div>`
+/// come out shorter than a browser needs (ti `307283`).
+///
+/// What remains true, and is what the two weld helpers below want: this is the
+/// set of spans the PRE-OI-0046 orphan pass would have deleted, over-inclusive
+/// in the safe direction for a weld counterfactual.
 fn orphan_spans(html: &str) -> Vec<(usize, usize)> {
     let claimed: BTreeSet<(usize, usize)> = element_extents(html)
         .iter()
@@ -568,12 +580,13 @@ fn check(html: &str) -> Result<(), String> {
             "balanced output leaves {still_open:?} open\n  balanced = {once:?}"
         ));
     }
-    let orphans = orphan_spans(&once);
-    if !orphans.is_empty() {
-        return Err(format!(
-            "balanced output carries orphan closers at {orphans:?}\n  balanced = {once:?}"
-        ));
-    }
+    // The other half of P2 — "and it carries no closer for something never
+    // opened" — is carried by P1 above since DCR-0051, and deliberately not
+    // restated here. `balance_fragment` deletes exactly the closers whose
+    // search runs off the bottom of the fragment's own stack, so a balanced
+    // output that still held one would not be a fixed point. Re-deriving the
+    // set here instead would be a SECOND opinion about which closers those
+    // are, which is the defect class this whole family was.
 
     // P3 — the pane's own closer survives. contracts.md §4a.
     if !wrapper_survives(&once) {
@@ -1079,34 +1092,29 @@ const BROWSER_ORACLE_PER_SEED: usize = 2_500;
 
 /// Inputs on which this crate and Chromium are **known** to disagree today.
 ///
-/// They are not generated — they are the four routes the adversarial
-/// verification of ti `fdd989` found, and they are emitted FIRST and
-/// separately so `web/tests/html-oracle.spec.js` can hold each one to an exact
-/// recorded disagreement. Tickets `9b4d66`, `307283` and `895fb7` own the
-/// fixes; this file and that spec own only seeing them. It is expected and
-/// correct that Chromium contradicts this crate here — that is the evidence
-/// the oracle can go red at all, which an oracle that has never disagreed with
-/// anything cannot offer.
+/// They are not generated — they came from the adversarial verification of ti
+/// `fdd989` — and they are emitted FIRST and separately so
+/// `web/tests/html-oracle.spec.js` can hold each one to an exact recorded
+/// disagreement. It is expected and correct that Chromium contradicts this
+/// crate here: that is the evidence the oracle can go red at all, which an
+/// oracle that has never disagreed with anything cannot offer.
+///
+/// **Three of the original four are gone (DCR-0051).** ti `9b4d66`,
+/// `<div><b><div></b></div></div>` and ti `895fb7`'s
+/// `<p/><ul><math></p><div ">` all measure HEALTHY now — both columns agree and
+/// neither reports a harm — and the spec fails on a healthy entry on purpose,
+/// so they were deleted here and there together. Do not re-add them; the
+/// regression they leave behind lives in `tree_construction_tests` in
+/// `crates/transync-html/src/lib.rs`, which asserts the balanced BYTES rather
+/// than a disagreement.
 const KNOWN_DIVERGENT: &[&str] = &[
-    // ti 9b4d66 — the balancer deletes the orphan `</p>` that had taken the
-    // walk out of foreign content, which puts `<title>` back inside `<svg>`,
-    // turns its interior back into markup, and revives an impostor
-    // `data-sync-id` the strip had correctly read as text.
-    "<p><ul><svg></p><title><div data-sync-id=\"p-0002\">impostor</div></title></svg>",
-    // ti 307283 / 895fb7 — the adoption agency algorithm. HTML leaves a clone
-    // of `<b>` on the stack inside the inner `<div>`, so the author's `</div>`
-    // closes the INNER div and the outer one is still open at EOF; the walk
-    // closes the nearest matching frame and reports nothing open, so the
-    // balancer appends nothing and the pane's own `</div>` is consumed.
+    // The one that survives, and it survives for a different reason than it was
+    // filed for. ti `307283`'s §4a break is closed — the pane's own `</div>` is
+    // safe and Chromium and the crate agree the balanced form leaves nothing
+    // open — but the two still disagree about the INPUT: HTML's adoption agency
+    // algorithm removes `<b>` from the stack and this crate keeps it, which is
+    // the residual DCR-0051 scoped out and ti `525bef` owns.
     "<div><b><div></b></div>",
-    // The same shape with the closer the author actually wrote: a browser ends
-    // balanced, and the walk deletes that closer as an orphan.
-    "<div><b><div></b></div></div>",
-    // ti 895fb7 — foreign content left by a breakout END tag, with an
-    // unterminated tag behind it. This one also breaks P1 above, so the
-    // bounded run would catch it if the generator reached it; the browser
-    // oracle is what says WHICH of the two answers is HTML's.
-    "<p/><ul><math></p><div \">",
 ];
 
 /// JSON string escaping, `std` only — this crate has no `serde` and gains no

@@ -152,11 +152,18 @@ const SUITE_TIMEOUT_MS = 300_000;
 // The pins: what is wrong TODAY
 // ---------------------------------------------------------------------------
 
-// The four routes the ti `fdd989` verification found, each with the FULL
-// observed answer recorded — both columns, all four questions. They are not
-// this file's to fix (tickets `9b4d66`, `307283` and `895fb7` own them), and
-// they are why this file can be trusted at all: an oracle that has never
-// contradicted the code under test has not been shown able to.
+// The routes the ti `fdd989` verification found, each with the FULL observed
+// answer recorded — both columns, all four questions. They are not this file's
+// to fix, and they are why this file can be trusted at all: an oracle that has
+// never contradicted the code under test has not been shown able to.
+//
+// **There were four; there is one (DCR-0051, 2026-09-05.)** ti `9b4d66`,
+// `<div><b><div></b></div></div>` and ti `895fb7`'s `<p/><ul><math></p><div ">`
+// each went HEALTHY, which this file treats as a failure on purpose, and each
+// was deleted from BOTH halves of the ledger in the commit that fixed it — this
+// list and `KNOWN_DIVERGENT` in the Rust emitter. The regression they leave is
+// in `crates/transync-html/src/lib.rs`'s `tree_construction_tests`, which pins
+// the balanced BYTES with the Chromium measurement quoted beside each one.
 //
 // `crate*` fields come from the corpus the Rust emitter wrote; `dom*` fields
 // are what Chromium said when the pin was blessed. Both are asserted, so an
@@ -177,80 +184,23 @@ const SUITE_TIMEOUT_MS = 300_000;
 // Blessed 2026-09-05 against the Chromium `pnpm-lock.yaml` pins.
 const KNOWN_DIVERGENT = [
   {
-    ticket: "9b4d66",
-    verdict: "agreed-broken",
-    harm:
-      "the balancer deletes the orphan `</p>` that had taken the walk out of " +
-      "foreign content, which puts `<title>` back inside `<svg>`, turns its " +
-      "interior back into markup, and revives an impostor `data-sync-id` the " +
-      "strip had correctly read as text. The crate's P6 is red here and " +
-      "Chromium confirms a live element carries the plant.",
-    input: '<p><ul><svg></p><title><div data-sync-id="p-0002">impostor</div></title></svg>',
-    observed: {
-      crateOpenAtInput: ["ul"],
-      domOpenAtInput: ["ul"],
-      crateOpenAtBalanced: [],
-      domOpenAtBalanced: [],
-      crateNextIsDirectChild: true,
-      domNext: { ok: true, note: "ok" },
-      crateChainedCarriesReserved: true,
-      domChainedCarriesReserved: true,
-      signature: "",
-    },
-  },
-  {
-    ticket: "307283/895fb7",
+    ticket: "307283 / 525bef",
     verdict: "divergent",
     harm:
-      "the adoption agency algorithm. HTML leaves a clone of `<b>` on the " +
-      "stack inside the inner `<div>`, so the author's `</div>` closes the " +
-      "INNER div and the outer one is still open at EOF; the walk closes the " +
-      "nearest matching frame, reports nothing open, appends nothing, and the " +
-      "pane's own `</div>` is consumed — §4a's direct-child break.",
+      "the adoption agency algorithm, all that is left of the four routes " +
+      "this list was blessed with. DCR-0051's special-element guard closed " +
+      "the §4a break — `</b>` no longer closes the inner `<div>`, the " +
+      "balancer appends `</b></div>`, and Chromium leaves the balanced form " +
+      "with nothing open — but the two columns still disagree about the " +
+      "INPUT: HTML removes `<b>` from the stack of open elements and this " +
+      "crate keeps it. That direction appends a redundant closer rather " +
+      "than losing a needed one, which is why it is a residual and not a " +
+      "harm; ti `525bef` owns it, and the three census entries it still " +
+      "accounts for are named there.",
     input: "<div><b><div></b></div>",
     observed: {
-      crateOpenAtInput: [],
+      crateOpenAtInput: ["div", "b"],
       domOpenAtInput: ["div"],
-      crateOpenAtBalanced: [],
-      domOpenAtBalanced: ["div"],
-      crateNextIsDirectChild: true,
-      domNext: { ok: false, note: "parent-div" },
-      crateChainedCarriesReserved: false,
-      domChainedCarriesReserved: false,
-      signature: "open@input:dom-has-more open@balanced:dom-has-more sec4a:break-nested",
-    },
-  },
-  {
-    ticket: "307283/895fb7",
-    verdict: "divergent",
-    harm:
-      "the same shape with the closer the author actually wrote: a browser " +
-      "ends balanced, and the walk deletes that closer as an orphan.",
-    input: "<div><b><div></b></div></div>",
-    observed: {
-      crateOpenAtInput: [],
-      domOpenAtInput: [],
-      crateOpenAtBalanced: [],
-      domOpenAtBalanced: ["div"],
-      crateNextIsDirectChild: true,
-      domNext: { ok: false, note: "parent-div" },
-      crateChainedCarriesReserved: false,
-      domChainedCarriesReserved: false,
-      signature: "open@balanced:dom-has-more sec4a:break-nested",
-    },
-  },
-  {
-    ticket: "895fb7",
-    verdict: "divergent",
-    harm:
-      "foreign content left by a breakout END tag with an unterminated tag " +
-      "behind it — the one route of the four that also breaks P1 in the Rust " +
-      "properties. The browser oracle is what says WHICH of the two answers " +
-      "is HTML's.",
-    input: '<p/><ul><math></p><div ">',
-    observed: {
-      crateOpenAtInput: ["ul", "math", "div"],
-      domOpenAtInput: ["ul", "div"],
       crateOpenAtBalanced: [],
       domOpenAtBalanced: [],
       crateNextIsDirectChild: true,
@@ -280,6 +230,17 @@ const KNOWN_DIVERGENT = [
 // either direction is red, and the failure message says which direction and
 // what to do about it.
 //
+// **Re-blessed 2026-09-05 by DCR-0051, on the SAME alphabet, and that is what
+// makes the movement readable.** `ATOMS` and `PHRASES` are untouched, so this
+// is the same population the line below measured and the numbers compare
+// directly: agreement 7_697 -> 8_619, mechanisms 13 -> 9, and the two numbers
+// the change was about — `sec4a:break-nested` 1_358 -> 8 and `reserved:dom-only`
+// 1 -> 0, the latter being the only mechanism that ever put a live impostor
+// anchor in a real DOM. The abstention count barely moved (3_874 -> 3_863),
+// which is what says the agreement did not rise by making Chromium stop
+// answering. What remains is one mechanism in three spellings; see ti `525bef`
+// below.
+//
 // Blessed 2026-09-05. **Re-blessed the same day, on a larger alphabet**, and
 // the reason matters more than the numbers: ti `bebebe` (DCR-0050) fixed four
 // tokenizer divergences whose states `ATOMS` could not reach — there was no
@@ -294,55 +255,42 @@ const KNOWN_DIVERGENT = [
 // One entry is NEW rather than moved, and it was FILED before it was pinned,
 // per this file's own instruction: see ti `bb961a` on the last one.
 const DIVERGENCE_CENSUS = {
-  "open@input:dom-has-more open@balanced:dom-has-more sec4a:break-nested": 841,
-  //   e.g. "</1 ></foreignObject></i><br><svg><foreignObject><p></foreignObject></svg>"
-  //        input +foreignobject,+p,+svg; balanced +foreignobject,+p,+svg; sec4a dom=parent-foreignobject crate=ok
-  "open@balanced:dom-has-more sec4a:break-nested": 430,
-  //   e.g. "<! <div> ><math/><svg><desc><div></desc><script><annotation-xml encoding=\"text&#47;html\"><annotation-xml encoding=\"text/html\"><a href=https://example.com/><foo><pé→"
-  //        balanced +desc,+div,+svg; sec4a dom=parent-desc crate=ok
-  "open@balanced:dom-has-more": 371,
+  "open@input:crate-has-more": 971,
+  //   e.g. "data-sync-id=\"p-9\"><font color=\"r\"><p></font></p>\n\ndiv<annotation-xml><p><div></p>"
+  //        input -font
+  "open@input:dom-has-more open@balanced:dom-has-more": 218,
+  //   e.g. "<p><mtext><textarea/><meta></textarea><!-- c --><!doctype html><font color=\"r\"><div /<ul>"
+  //        input +font; balanced +font
+  "open@balanced:dom-has-more": 93,
   //   e.g. "a < b<ul><li><b></ul><iframe><!--<b><div></b></div>"
   //        balanced +b
-  "open@input:crate-has-more": 235,
-  //   e.g. "<p><mtext><textarea/><meta></textarea><!-- c --><!doctype html><font color=\"r\"><div /<ul>"
-  //        input -mtext,-p
-  "open@input:dom-has-more open@balanced:dom-has-more": 230,
-  //   e.g. "  <embed></font><![CDATA[y</font></script><annotation-xml encoding=\"text&#47;html\"></script><p><table><tr><td>c"
-  //        input +p,+tbody; balanced +annotation-xml,+p
-  "open@input:both-ways open@balanced:dom-has-more sec4a:break-nested": 78,
-  //   e.g. "</xmp><! <div> ><td>x</tr><image><keygen></1 ><math><mtext><b>q</mtext></math></script><span/>"
-  //        input +b,+math,+mtext,-td; balanced +b,+math,+mtext; sec4a dom=parent-b crate=ok
-  "open@input:dom-has-more": 57,
+  "open@input:dom-has-more": 39,
   //   e.g. "<div>data-sync-id=\"p-9\"><span/></g><p><table><tr><td>c<blockquote><div><span></blockquote><svg/>"
   //        input +p,+tbody
-  "open@input:both-ways open@balanced:dom-has-more": 22,
-  //   e.g. "<blockquote><div><span></blockquote><div/></mi><td>x</tr><div data-block-kind=\"paragraph\" class=\"k\">><hr><span><ul><li><b></ul>"
-  //        input +b,-td; balanced +b
-  "open@input:crate-has-more open@balanced:dom-has-more": 15,
-  //   e.g. "< div><i><p>x</i></p><foo><tr><td>a<td>b<br>data-sync-id=\"p-9\"></image><foreignObject></font>"
-  //        input -td,-tr; balanced +p
-  "sec4a:break-absent": 11,
-  //   e.g. "<svg><g><br></g></svg><embed><svg><desc><div></desc><script/><div</div><i>"
-  //        sec4a dom=absent crate=ok
-  "open@input:crate-has-more open@balanced:dom-has-more sec4a:break-nested": 8,
-  //   e.g. "/div><p/><b><div></b></div><div><p><span></div><td>x</tr><![CDATA[<b>x</b>]]><div=x><![CDATA[<b>x</b>]]>"
-  //        input -td; balanced +div; sec4a dom=parent-div crate=ok
-  "open@input:both-ways": 4,
-  //   e.g. "<p/><br/><annotation-xml><ul><p><table><tr><td>c<dl><dt>a<dd>b</dl><image>"
-  //        input -annotation-xml,+tbody
-  // ti `bb961a`, filed the moment this line was written and not before: the
-  // only mechanism here that carries `reserved:dom-only`, i.e. a LIVE impostor
-  // anchor in a real DOM that the strip believes it cleared. HTML ignores the
-  // `</desc>` (in-body's "any other end tag" stops at the special `div`) and
-  // stays in HTML content, where `<![CDATA[` is a bogus comment ending at the
-  // first `>`; the walk pops the nearest name match, lands back in foreign
-  // content, and reads one CDATA section to EOF — so everything after it is
-  // text to the strip and markup to the browser. Same family as ti `9b4d66` /
-  // `895fb7`, and it is pinned here rather than fixed because this file's
-  // ticket does not own the open-element stacks.
-  "open@input:dom-has-more open@balanced:dom-has-more sec4a:break-nested reserved:dom-only": 1,
+  "open@input:both-ways open@balanced:dom-has-more": 36,
+  //   e.g. "<!x<svg><g><br></g></svg><p><table><tr><td>c&amp;<![CDATA[<b>x</b>]]>  <b><td>x</tr></image>"
+  //        input +p,-table; balanced +p
+  "open@input:both-ways": 13,
   //   e.g. "<!doctype html><blockquote><div><span></blockquote><a href=\"x\"><div>y</a><div>z</a><svg><desc><div></desc><![CDATA[y<p><table><tr><td>c<?pi<!doctype html><div/data-sync-id=\"p-1\"></>"
-  //        input +desc,+div,+div,+div,+table,+tbody,+td,+tr; balanced +desc,+div,+div,+div,+svg,+table,+tbody,+td,+tr; sec4a dom=parent-td crate=ok
+  //        input -a,+tbody
+  // The three entries below are ONE mechanism and one ticket — ti `525bef`,
+  // filed the moment these lines were written and not after, per this file's
+  // own instruction. DCR-0051 gave the crate HTML's open-element stack but
+  // deliberately not the list of active formatting elements, so a browser's
+  // RECONSTRUCTED `<b>` is a frame the crate never has. `open@input:order` is
+  // new; the two `sec4a:break-nested` lines are what is left of the 1358 this
+  // census carried before DCR-0051, and the ticket carries the measurement
+  // that shows why an appended `</foreignobject>` cannot get past a
+  // reconstructed formatting element.
+  "open@input:dom-has-more open@balanced:dom-has-more sec4a:break-nested": 7,
+  //   e.g. "</scripty><math><mtext><b>q</mtext></math><ul><li><b></ul></b>"
+  //        input +b; balanced +b,+math,+mtext; sec4a dom=parent-b crate=ok
+  "open@input:order": 3,
+  //   e.g. "</foreignObject><font></image><img src=\"x\"><b><div></b></div><a href=https://example.com/><p<div><p><span></div><blockquote><div><span></blockquote><ul><li><b></ul>"
+  //        input order(font>a>p<div>b vs font>b>a>p<div)
+  "open@balanced:dom-has-more sec4a:break-nested": 1,
+  //   e.g. "<b><div></b></div><span><svg><foreignObject><p></foreignObject></svg><keygen/><ul><li><b></ul><div<svg><p>x</svg></p><p><ul><li>a<li>b</ul><rect/><title>"
+  //        balanced +foreignobject,+span,+svg; sec4a dom=parent-foreignobject crate=ok
 };
 
 // Bounds, so agreement cannot be reported vacuously. A change that made every
@@ -356,8 +304,12 @@ const DIVERGENCE_CENSUS = {
 // contains them declares more abstentions by construction. Agreement rose for
 // the same reason — a fragment whose tail is text has less structure for the
 // two parsers to disagree about.
-const AGREEING_CASES = 7_697;
-const ABSTENTIONS = 3_874;
+//
+// DCR-0051 then moved agreement to 8_619 while abstentions barely shifted
+// (3_874 -> 3_863), on an unchanged alphabet. That pairing is the claim: 922
+// more cases agree, and it is not because 922 more cases went unanswered.
+const AGREEING_CASES = 8_619;
+const ABSTENTIONS = 3_863;
 
 // ---------------------------------------------------------------------------
 // Falsification: cases where the CRATE COLUMN IS A LIE
@@ -689,7 +641,7 @@ test.describe("transync-html vs Chromium — the browser oracle", () => {
     await page.goto("about:blank");
   });
 
-  test("a — the four known-bad routes are still exactly as bad as recorded", async ({ page }) => {
+  test("a — the known-bad routes are still exactly as bad as recorded", async ({ page }) => {
     const corpus = readCorpus();
     expect(
       corpus.known_divergent.map((c) => c.input),
