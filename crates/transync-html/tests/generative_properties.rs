@@ -138,6 +138,20 @@ const ATOMS: &[&str] = &[
     "<script/>",
     "<textarea/>",
     "</scripty>",
+    // The four names R0010-0031 added to the set (DCR-0050). `iframe` is the
+    // one CommonMark hands over directly: `div` and `iframe` are both type-6
+    // start-condition names, so `<div><iframe></div></iframe>` is ONE html
+    // block. Without these the generator could not reach the state at all,
+    // which is why 10,000 browser-checked cases had nothing to say about it.
+    "<xmp>",
+    "</xmp>",
+    "<iframe>",
+    "</iframe>",
+    "<noembed>",
+    "<noframes>",
+    // PLAINTEXT (R0010-0032, DCR-0050): the one tokenizer state with no exit,
+    // so everything an input draws after this atom is text.
+    "<plaintext>",
     // Foreign roots and foreign content (DCR-0041 / 0042 / 0043).
     "<svg>",
     "</svg>",
@@ -162,6 +176,10 @@ const ATOMS: &[&str] = &[
     "<annotation-xml encoding=\"text/html\">",
     "<annotation-xml>",
     "<annotation-xml encoding=\"image/svg+xml\">",
+    // …and the same value spelled with a character reference (R0010-0034,
+    // DCR-0050). A browser decodes an attribute value before the
+    // integration-point test, so this IS `text/html`.
+    "<annotation-xml encoding=\"text&#47;html\">",
     // Breakout, and `font`'s attribute-conditional breakout.
     "<font>",
     "<font color=\"r\">",
@@ -203,6 +221,10 @@ const ATOMS: &[&str] = &[
     "<!-- c -->",
     "<!--",
     "<!-- <div> -->",
+    // HTML's other comment terminator (R0010-0049, DCR-0050): comment-end-bang
+    // closes on `>` too, so this is a COMPLETE comment and the markup after it
+    // is real.
+    "<!-- a --!>",
     "<![CDATA[y]]>",
     "<![CDATA[y",
     "<![CDATA[<b>x</b>]]>",
@@ -651,7 +673,9 @@ fn reached(html: &str, out: &mut BTreeSet<&'static str>) {
                 out.insert("close");
             }
             TagToken::Skip {
-                kind, terminated, ..
+                kind,
+                terminated,
+                span,
             } => {
                 out.insert(match (kind, terminated) {
                     (SkipKind::Comment, true) => "skip:comment:terminated",
@@ -663,7 +687,22 @@ fn reached(html: &str, out: &mut BTreeSet<&'static str>) {
                     // Terminated by construction impossible: a terminated tag
                     // is an Open or a Close.
                     (SkipKind::UnterminatedTag, _) => "skip:unterminated-tag",
+                    // Terminated by construction impossible for a second
+                    // reason (R0010-0032 / DCR-0050): HTML's PLAINTEXT state
+                    // has no exit, so the region always runs to EOF.
+                    (SkipKind::PlainText, _) => "skip:plaintext",
                 });
+                // R0010-0049: WHICH of HTML's two comment terminators closed
+                // this one. The token deliberately does not carry the form —
+                // nothing downstream needs it — so this reads the region's own
+                // last bytes, the same lexical reading the `PHRASES` sweep
+                // below uses and for the same reason.
+                if matches!(kind, SkipKind::Comment)
+                    && terminated
+                    && html[span.0..span.1].ends_with("--!>")
+                {
+                    out.insert("skip:comment:bang-terminated");
+                }
             }
         }
     }
@@ -703,6 +742,15 @@ fn reached(html: &str, out: &mut BTreeSet<&'static str>) {
             && is_raw_text(&e.name)
         {
             out.insert("raw-text-swallows-markup-in-html");
+            // R0010-0031 / DCR-0050: and it did so under one of the four names
+            // the set was short by, which is the state that did not exist
+            // before this commit. Named separately, because
+            // `raw-text-swallows-markup-in-html` above was already reached by
+            // `script`/`style`/`textarea`/`title` and would have gone on being
+            // reached with the new names absent.
+            if !matches!(e.name.as_str(), "script" | "style" | "textarea" | "title") {
+                out.insert("raw-text-beyond-the-original-four");
+            }
         }
         if [
             "foreignobject",
@@ -730,6 +778,14 @@ fn reached(html: &str, out: &mut BTreeSet<&'static str>) {
     }
     if is_a_weld_site(html) {
         out.insert("orphan-deletion-weld");
+    }
+    // R0010-0034 / DCR-0050: an integration-point `encoding` whose value only
+    // reads as one of HTML's two AFTER character-reference decoding. Read
+    // LEXICALLY for the same reason the phrase sweep below is — the state is a
+    // fact about the generated string, and asking `tag_attr_value` whether its
+    // own decode fired would be the self-reference this suite exists to avoid.
+    if html.contains("encoding=\"text&#47;html\"") {
+        out.insert("integration-point:decoded-encoding");
     }
 
     // The stale-frame classes (ti `ec235f`). Read LEXICALLY, by looking for the
@@ -764,8 +820,8 @@ fn the_generator_reaches_every_state_the_september_fixes_lived_in() {
         "open:flagged",
         "close",
         "literal-angle-bracket",
-        // The four unterminated-region kinds, and the three that can also be
-        // terminated (ti 95f55b, ti c1f9a8).
+        // The five unterminated-region kinds, and the three that can also be
+        // terminated (ti 95f55b, ti c1f9a8, ti bebebe).
         "skip:comment:terminated",
         "skip:comment:eof",
         "skip:cdata:terminated",
@@ -773,6 +829,16 @@ fn the_generator_reaches_every_state_the_september_fixes_lived_in() {
         "skip:bogus:terminated",
         "skip:bogus:eof",
         "skip:unterminated-tag",
+        "skip:plaintext",
+        // The four tokenizer divergences of ti `bebebe` (DCR-0050). None of
+        // these was reachable from the generator before that commit — `ATOMS`
+        // had no `plaintext`, no `xmp`/`iframe`/`noembed`/`noframes`, no
+        // `--!>` and no entity-spelled attribute value — so 10,000
+        // browser-checked cases had nothing to say about any of them, which is
+        // gap 1 of ti `ec235f` recurring one region further in.
+        "skip:comment:bang-terminated",
+        "raw-text-beyond-the-original-four",
+        "integration-point:decoded-encoding",
         // The content-mode model (DCR-0041 / 0042 / 0043).
         "foreign-child",
         "breakout-to-html",

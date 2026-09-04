@@ -280,51 +280,84 @@ const KNOWN_DIVERGENT = [
 // either direction is red, and the failure message says which direction and
 // what to do about it.
 //
-// Blessed 2026-09-05.
+// Blessed 2026-09-05. **Re-blessed the same day, on a larger alphabet**, and
+// the reason matters more than the numbers: ti `bebebe` (DCR-0050) fixed four
+// tokenizer divergences whose states `ATOMS` could not reach — there was no
+// `<plaintext>`, no `<xmp>`/`<iframe>`/`<noembed>`/`<noframes>`, no `--!>` and
+// no entity-spelled attribute value in the generator — so the first blessing
+// of this file measured a corpus that had nothing to say about any of them.
+// Proof that the fixes alone moved NOTHING here: a corpus emitted by the fixed
+// crate over the OLD alphabet is byte-identical to the one emitted at
+// `14d6eda`. The movement below is the nine new atoms drawing a different
+// deterministic prefix, not the crate changing its mind about an input.
+//
+// One entry is NEW rather than moved, and it was FILED before it was pinned,
+// per this file's own instruction: see ti `bb961a` on the last one.
 const DIVERGENCE_CENSUS = {
-  "open@input:dom-has-more open@balanced:dom-has-more sec4a:break-nested": 986,
-  //   e.g. "<keygen><ul><li><b></ul><?pi<img src=\"x\"><b><div></b></div>"
-  //        input +b; balanced +b,+div; sec4a dom=parent-b crate=ok
-  "open@balanced:dom-has-more sec4a:break-nested": 390,
-  //   e.g. "</1<li><svg><desc><div></desc></foreignObject><?pi><!--</div\"x></textarea>data-sync-id=\"p-9\"><div /"
+  "open@input:dom-has-more open@balanced:dom-has-more sec4a:break-nested": 841,
+  //   e.g. "</1 ></foreignObject></i><br><svg><foreignObject><p></foreignObject></svg>"
+  //        input +foreignobject,+p,+svg; balanced +foreignobject,+p,+svg; sec4a dom=parent-foreignobject crate=ok
+  "open@balanced:dom-has-more sec4a:break-nested": 430,
+  //   e.g. "<! <div> ><math/><svg><desc><div></desc><script><annotation-xml encoding=\"text&#47;html\"><annotation-xml encoding=\"text/html\"><a href=https://example.com/><foo><pé→"
   //        balanced +desc,+div,+svg; sec4a dom=parent-desc crate=ok
-  "open@balanced:dom-has-more": 331,
-  //   e.g. "<math><font color=\"r\"><p></font></p>-->"
-  //        balanced +p
-  "open@input:crate-has-more": 274,
-  //   e.g. "<td>x</tr><font><li></g>&amp;<!doctype html>"
-  //        input -td
-  "open@input:dom-has-more open@balanced:dom-has-more": 267,
-  //   e.g. "\n\n<circle><ul><li><b></ul><div a=\"x\"\">"
-  //        input +b; balanced +b
-  "open@input:both-ways open@balanced:dom-has-more sec4a:break-nested": 101,
-  //   e.g. "</b>é→<td>x</tr></mi></textarea></foreignObject><math><mtext><b>q</mtext></math>  \n\n"
+  "open@balanced:dom-has-more": 371,
+  //   e.g. "a < b<ul><li><b></ul><iframe><!--<b><div></b></div>"
+  //        balanced +b
+  "open@input:crate-has-more": 235,
+  //   e.g. "<p><mtext><textarea/><meta></textarea><!-- c --><!doctype html><font color=\"r\"><div /<ul>"
+  //        input -mtext,-p
+  "open@input:dom-has-more open@balanced:dom-has-more": 230,
+  //   e.g. "  <embed></font><![CDATA[y</font></script><annotation-xml encoding=\"text&#47;html\"></script><p><table><tr><td>c"
+  //        input +p,+tbody; balanced +annotation-xml,+p
+  "open@input:both-ways open@balanced:dom-has-more sec4a:break-nested": 78,
+  //   e.g. "</xmp><! <div> ><td>x</tr><image><keygen></1 ><math><mtext><b>q</mtext></math></script><span/>"
   //        input +b,+math,+mtext,-td; balanced +b,+math,+mtext; sec4a dom=parent-b crate=ok
-  "open@input:dom-has-more": 76,
-  //   e.g. "<li><a href=\"x\"><div>y</a><div>z</a><br/><circle></math><meta>>]]>"
-  //        input +div
-  "open@input:crate-has-more open@balanced:dom-has-more": 20,
-  //   e.g. "</link><p/><em><ul><li>q</em></li></ul></math>"
-  //        input -p; balanced +li,+ul
-  "open@input:both-ways open@balanced:dom-has-more": 18,
-  //   e.g. "<blockquote><div><span></blockquote><![CDATA[y]]>div<td>x</tr><meta></b>!-- z<mtext><ul><li><b></ul>"
+  "open@input:dom-has-more": 57,
+  //   e.g. "<div>data-sync-id=\"p-9\"><span/></g><p><table><tr><td>c<blockquote><div><span></blockquote><svg/>"
+  //        input +p,+tbody
+  "open@input:both-ways open@balanced:dom-has-more": 22,
+  //   e.g. "<blockquote><div><span></blockquote><div/></mi><td>x</tr><div data-block-kind=\"paragraph\" class=\"k\">><hr><span><ul><li><b></ul>"
   //        input +b,-td; balanced +b
-  "open@input:crate-has-more open@balanced:dom-has-more sec4a:break-nested": 13,
-  //   e.g. "<tr><td>a<td>b<b><div></b></div><font><table><tr><td></table><i></div\"x><svg>  <a href=https://example.com/><foo>"
-  //        input -td,-tr; balanced +div; sec4a dom=parent-div crate=ok
-  "sec4a:break-absent": 9,
-  //   e.g. "<a href=https://example.com/><tr><td>a<td>b<svg><desc><div></desc><rect/><style><div\"x><foo/></><div/data-sync-id=\"p-1\">"
+  "open@input:crate-has-more open@balanced:dom-has-more": 15,
+  //   e.g. "< div><i><p>x</i></p><foo><tr><td>a<td>b<br>data-sync-id=\"p-9\"></image><foreignObject></font>"
+  //        input -td,-tr; balanced +p
+  "sec4a:break-absent": 11,
+  //   e.g. "<svg><g><br></g></svg><embed><svg><desc><div></desc><script/><div</div><i>"
   //        sec4a dom=absent crate=ok
+  "open@input:crate-has-more open@balanced:dom-has-more sec4a:break-nested": 8,
+  //   e.g. "/div><p/><b><div></b></div><div><p><span></div><td>x</tr><![CDATA[<b>x</b>]]><div=x><![CDATA[<b>x</b>]]>"
+  //        input -td; balanced +div; sec4a dom=parent-div crate=ok
   "open@input:both-ways": 4,
-  //   e.g. "<i><!doctype html><b><svg><foreignObject><p></foreignObject></svg><foreignObject><p/><td>x</tr>"
-  //        input +svg,-td
+  //   e.g. "<p/><br/><annotation-xml><ul><p><table><tr><td>c<dl><dt>a<dd>b</dl><image>"
+  //        input -annotation-xml,+tbody
+  // ti `bb961a`, filed the moment this line was written and not before: the
+  // only mechanism here that carries `reserved:dom-only`, i.e. a LIVE impostor
+  // anchor in a real DOM that the strip believes it cleared. HTML ignores the
+  // `</desc>` (in-body's "any other end tag" stops at the special `div`) and
+  // stays in HTML content, where `<![CDATA[` is a bogus comment ending at the
+  // first `>`; the walk pops the nearest name match, lands back in foreign
+  // content, and reads one CDATA section to EOF — so everything after it is
+  // text to the strip and markup to the browser. Same family as ti `9b4d66` /
+  // `895fb7`, and it is pinned here rather than fixed because this file's
+  // ticket does not own the open-element stacks.
+  "open@input:dom-has-more open@balanced:dom-has-more sec4a:break-nested reserved:dom-only": 1,
+  //   e.g. "<!doctype html><blockquote><div><span></blockquote><a href=\"x\"><div>y</a><div>z</a><svg><desc><div></desc><![CDATA[y<p><table><tr><td>c<?pi<!doctype html><div/data-sync-id=\"p-1\"></>"
+  //        input +desc,+div,+div,+div,+table,+tbody,+td,+tr; balanced +desc,+div,+div,+div,+svg,+table,+tbody,+td,+tr; sec4a dom=parent-td crate=ok
 };
 
 // Bounds, so agreement cannot be reported vacuously. A change that made every
 // case abstain, or that compared nothing at all, would otherwise be the
 // greenest run this file has ever had. Blessed with the census above.
-const AGREEING_CASES = 7_511;
-const ABSTENTIONS = 2_941;
+//
+// Both rose with the alphabet (7_511 -> 7_697 agreeing, 2_941 -> 3_874
+// abstentions), and the abstention rise is the expected shape rather than a
+// worry: `<plaintext>` and the four raw-text names added by DCR-0050 are
+// precisely the constructs that swallow the sentinel, so a corpus that now
+// contains them declares more abstentions by construction. Agreement rose for
+// the same reason — a fragment whose tail is text has less structure for the
+// two parsers to disagree about.
+const AGREEING_CASES = 7_697;
+const ABSTENTIONS = 3_874;
 
 // ---------------------------------------------------------------------------
 // Falsification: cases where the CRATE COLUMN IS A LIE

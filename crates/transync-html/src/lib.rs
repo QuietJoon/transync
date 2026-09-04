@@ -85,15 +85,40 @@ const VOID_ELEMENTS: &[&str] = &[
 /// content**. HTML ignores the self-closing flag on them there:
 /// `<textarea/>` opens RCDATA and swallows every later sibling as text. The
 /// balancer therefore treats a self-closing start tag for these as OPEN so a
-/// close tag is appended, and [`scan_tags`] enters raw-text state for all
-/// four regardless of the flag (DCR-0016 Part D; R0002-0020 brought
+/// close tag is appended, and [`scan_tags`] enters raw-text state for all of
+/// them regardless of the flag (DCR-0016 Part D; R0002-0020 brought
 /// textarea/title into the tokenizer half, which had covered only script and
 /// style).
 ///
 /// Inside `<svg>`/`<math>` none of that applies — they are ordinary foreign
 /// elements whose contents are markup and whose `/` is honoured (ti
 /// `2e2453`, DCR-0042).
-const RAW_TEXT_ELEMENTS: &[&str] = &["script", "style", "textarea", "title"];
+///
+/// **Eight names since R0010-0031 (DCR-0050), not four.** The generic
+/// raw-text element parsing algorithm is reached from "in body" for `xmp`,
+/// `iframe` and `noembed`, and from "in head" for `noframes`, exactly as it
+/// is for `style`; leaving them out read their contents as markup. The harm
+/// is the pairing one, not a cosmetic one: `<div><iframe></div></iframe>` is
+/// ONE CommonMark type-6 html block (`div` and `iframe` are both type-6
+/// names), the walk popped `iframe` at `</div>` and deleted the author's
+/// `</iframe>` as an orphan, and the emitted `<div><iframe></div>` then let a
+/// browser's iframe raw text swallow the sync wrapper's own `</div>` and
+/// every following block to EOF — `contracts.md` §4a, reachable from
+/// untrusted source Markdown (invariant 7).
+///
+/// `xmp` is in [`implicitly_closes`]' paragraph-closing set as well, and both
+/// facts hold at once: it closes an open `<p>` *and* its contents are raw
+/// text. Being on this list does not remove it from that one.
+///
+/// **`noscript` is deliberately NOT here.** HTML makes it generic raw text
+/// only *when the scripting flag is enabled*, which is a property of the
+/// parsing context and not of the name — and this predicate answers the NAME
+/// question, leaving context to the caller, exactly as [`is_void`] does. The
+/// case is real (every pane this crate feeds is mounted by JavaScript, so the
+/// flag is set there) and is filed rather than decided here.
+const RAW_TEXT_ELEMENTS: &[&str] = &[
+    "script", "style", "textarea", "title", "xmp", "iframe", "noembed", "noframes",
+];
 
 /// Pinned memory ceiling for the rewriter (spec §3.2 "pinned Settings").
 /// Generous for real README blocks; the test hook lowers it to force the
@@ -139,16 +164,18 @@ pub fn is_void(tag: &str) -> bool {
 }
 
 /// Does `tag` hold raw text / RCDATA (`script`, `style`, `textarea`,
-/// `title`) **in HTML content**? A browser never tokenizes their content as
-/// markup there, and HTML ignores the self-closing flag on them (DCR-0016
-/// Part D).
+/// `title`, `xmp`, `iframe`, `noembed`, `noframes`) **in HTML content**? A
+/// browser never tokenizes their content as markup there, and HTML ignores
+/// the self-closing flag on them (DCR-0016 Part D; the last four since
+/// R0010-0031 / DCR-0050).
 ///
 /// The qualifier is load-bearing (ti `2e2453`). These states are entered by
-/// the tree construction stage from the "in body" insertion mode; foreign
-/// content has no such rule, so inside `<svg>`/`<math>` all four are ordinary
-/// foreign elements whose contents are markup and whose self-closing `/` is
-/// honoured. This predicate answers the NAME question only — the caller owns
-/// the context, and [`scan_tags`] is the one that pairs the two.
+/// the tree construction stage from the "in body" and "in head" insertion
+/// modes; foreign content has no such rule, so inside `<svg>`/`<math>` all
+/// eight are ordinary foreign elements whose contents are markup and whose
+/// self-closing `/` is honoured. This predicate answers the NAME question
+/// only — the caller owns the context, and [`scan_tags`] is the one that
+/// pairs the two.
 ///
 /// ASCII-case-insensitive for the same reason as [`is_void`]: `<SCRIPT>` is
 /// raw text, and answering otherwise would invite a caller to scan its
@@ -555,9 +582,11 @@ pub enum TagToken {
     /// and since ti `e20490` also `</` before a non-letter, which HTML's
     /// end-tag-open state sends to a bogus comment running to the first `>`
     /// (`</>` alone is discarded whole and mints nothing at all) —
-    /// or a tag left unterminated at EOF (ti 549b20 — a browser abandons a
+    /// a tag left unterminated at EOF (ti 549b20 — a browser abandons a
     /// tag cut off before its `>`, minting no element and no attributes, so
-    /// the bytes are a passed-over region, not markup).
+    /// the bytes are a passed-over region, not markup), or — since R0010-0032
+    /// / DCR-0050 — a `<plaintext>` start tag in HTML content and everything
+    /// after it, which HTML's one exitless tokenizer state makes text.
     /// It carries no name because it has none. What it carries is the byte
     /// range — the thing an intake needs in order to trim the anonymous runs
     /// between elements — plus, since ti `c1f9a8`, the two facts the scanner
@@ -599,26 +628,54 @@ pub enum SkipKind {
     /// A tag cut off before its `>`. Never terminated by construction — a
     /// terminated tag is an `Open` or a `Close`.
     UnterminatedTag,
+    /// A `<plaintext>` start tag in HTML content **and every byte after it**
+    /// (R0010-0032 / DCR-0050). Never terminated by construction, and unlike
+    /// the other three that is not an accident of where the fragment stopped:
+    /// HTML's PLAINTEXT state has **no exit** — no end tag, no character
+    /// sequence, nothing but EOF ends it — so the region runs to the end of
+    /// the fragment by definition and is always the last token.
+    ///
+    /// The span deliberately covers the start tag as well as the text. The
+    /// element is real in a browser, but keeping it and dropping only its
+    /// contents would leave the tag in the pane, still switching the
+    /// tokenizer, still swallowing the sync wrapper's own `</div>`; and
+    /// dropping only the tag would hand the bytes after it back to HTML's
+    /// tokenizer as markup, after [`strip_reserved_sync_attrs`] had already
+    /// passed over them as the text a browser makes of them — the
+    /// strip-then-balance bypass OI-0046 was, one region larger. One region,
+    /// one repair.
+    PlainText,
 }
 
 impl SkipKind {
     /// The bytes that would close this region, or `None` when closing it is
     /// not what a browser does.
     ///
-    /// `UnterminatedTag` answers `None` deliberately, and it is the one case
-    /// where "terminate it" would be the wrong repair twice over. A browser at
-    /// EOF-inside-a-tag **abandons** the tag — it mints no element and no
-    /// attributes — so appending `>` would invent structure rather than
-    /// recover it. And no single terminator even works: a tag cut inside a
-    /// quoted value (`<div class="x`) needs the quote closed first, and
-    /// guessing that is parsing. The faithful repair is to delete the span,
-    /// which is the act the balancer already performs on an orphan close tag.
+    /// Two kinds answer `None`, for two different reasons, and both land on
+    /// the same repair — deletion, the act the balancer already performs on an
+    /// orphan close tag:
+    ///
+    /// * `UnterminatedTag`, where "terminate it" would be the wrong repair
+    ///   twice over. A browser at EOF-inside-a-tag **abandons** the tag — it
+    ///   mints no element and no attributes — so appending `>` would invent
+    ///   structure rather than recover it. And no single terminator even
+    ///   works: a tag cut inside a quoted value (`<div class="x`) needs the
+    ///   quote closed first, and guessing that is parsing.
+    /// * `PlainText`, where there is no terminator to append at all. HTML's
+    ///   PLAINTEXT state is the one tokenizer state with no exit, so a browser
+    ///   does not *abandon* this region — it never leaves it. That is a third
+    ///   case for ti `c1f9a8`'s "terminated where a browser terminates it,
+    ///   deleted where a browser abandons it", and DCR-0050 records the
+    ///   decision rather than letting the code invent a rule: a region a
+    ///   browser will not leave cannot be embedded in a pane at all, so it is
+    ///   deleted, and the alternatives (escaping the tail, keeping the tag)
+    ///   are argued and rejected there.
     pub fn terminator(self) -> Option<&'static str> {
         match self {
             Self::Comment => Some("-->"),
             Self::CdataSection => Some("]]>"),
             Self::BogusComment => Some(">"),
-            Self::UnterminatedTag => None,
+            Self::UnterminatedTag | Self::PlainText => None,
         }
     }
 }
@@ -640,6 +697,49 @@ fn tag_name_end(bytes: &[u8], first_name_byte: usize, limit: usize) -> usize {
         j += 1;
     }
     j
+}
+
+/// Where the comment that opened at `open` (the `<` of its `<!--`) ends —
+/// one past its closing bytes — or `None` when the fragment runs out first.
+///
+/// ONE definition, for the same reason [`tag_name_end`] is one: "where does a
+/// comment end" is a question [`scan_tags`] answers and [`balance_fragment`]
+/// acts on, and a second reader of these bytes would be the defect shape ti
+/// `415cdb`, ti `e20490` and ti `2e2453` each were.
+///
+/// **Two closing forms, not one (R0010-0049 / DCR-0050).** HTML's comment-end
+/// state closes on `>` — the familiar `-->` — and on `!` it goes to
+/// comment-end-BANG, where a `>` also closes the comment (an
+/// incorrectly-closed-comment parse error; the token is still emitted). So
+/// `--!>` closes a comment in every browser, and reading only `-->` made
+/// `<!-- a --!>` + `<div>y` + `<!-- b -->` — ONE CommonMark type-2 html block
+/// — scan as a single terminated comment: the `<div>` was never seen, the
+/// balancer owed nothing, and the still-open `div` swallowed the sync
+/// wrapper's own `</div>` in the pane (`contracts.md` §4a, invariant 7).
+///
+/// The two searches start at different offsets, and the asymmetry is HTML's:
+///
+/// * `-->` is searched from the `<` itself, so the opener's own dashes can
+///   supply it. That is what models the ABRUPT-CLOSING rules without a state
+///   machine — comment-start and comment-start-dash both close on `>`, so
+///   `<!-->` and `<!--->` are complete empty comments, and searching from the
+///   `<` lands on exactly their last three bytes.
+/// * `--!>` is searched from after the opener, because comment-end-bang is
+///   reachable only THROUGH comment-end, and the opener's `--` never enters
+///   it. `<!--!>` is therefore not a closed comment (comment-start reconsumes
+///   the `!` as data), and a search from the `<` would have claimed it was.
+fn comment_end(html: &str, open: usize) -> Option<usize> {
+    const OPENER: usize = "<!--".len();
+    let dashes = html[open..].find("-->").map(|p| open + p);
+    let bang = html[open + OPENER..]
+        .find("--!>")
+        .map(|p| open + OPENER + p);
+    match (dashes, bang) {
+        (Some(d), Some(b)) if b < d => Some(b + "--!>".len()),
+        (Some(d), _) => Some(d + "-->".len()),
+        (None, Some(b)) => Some(b + "--!>".len()),
+        (None, None) => None,
+    }
 }
 
 /// One token from [`scan_tags_with_state`], together with the tree state the
@@ -754,8 +854,11 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             }
         }
         if html[i..].starts_with("<!--") {
-            let closer = html[i..].find("-->");
-            let end = closer.map(|p| i + p + 3).unwrap_or(html.len());
+            // Both of HTML's closing forms, decided in one place — see
+            // [`comment_end`] for why `--!>` is one of them and why the two
+            // searches begin at different offsets.
+            let closer = comment_end(html, i);
+            let end = closer.unwrap_or(html.len());
             tokens.push(ScannedTag::inert(
                 TagToken::Skip {
                     span: (i, end),
@@ -1056,6 +1159,43 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             // matches no open element either way.
             if parent_mode == ContentMode::Html && name == "image" {
                 name = "img".to_string();
+            }
+
+            // R0010-0032 / DCR-0050: HTML's PLAINTEXT state, the one state a
+            // tokenizer never leaves. "A start tag whose tag name is
+            // `plaintext`" (in body) inserts the element and switches the
+            // tokenizer to PLAINTEXT, and no end tag, character sequence or
+            // insertion mode brings it back — only EOF. So every byte from
+            // this tag onward is TEXT in a browser, and the scanner said
+            // markup: `<div><plaintext></div>` walked as div → plaintext →
+            // both closed at `</div>` and passed through unchanged, while a
+            // browser turned the sync wrapper's own `</div>` and every
+            // following block into text (`contracts.md` §4a, invariant 7).
+            //
+            // The whole rest of the fragment, this start tag included, is one
+            // `Skip` and the scan stops — see [`SkipKind::PlainText`] for why
+            // the tag is inside the span rather than emitted as an `Open`
+            // beside it, and DCR-0050 for why the balancer deletes the region
+            // instead of terminating it.
+            //
+            // An HTML-CONTENT rule, like voidness (ti `48f3c6`), raw text (ti
+            // `2e2453`) and the `image` rename (ti `e923ef`) above it: the
+            // switch is a tree-construction rule of the "in body" insertion
+            // mode, and foreign content has none, so `<svg><plaintext>` is an
+            // ordinary foreign element. `plaintext` is not a breakout tag, so
+            // nothing pulls it out of `<svg>` first.
+            if parent_mode == ContentMode::Html && name == "plaintext" {
+                tokens.push(ScannedTag::inert(
+                    TagToken::Skip {
+                        span: (start, bytes.len()),
+                        kind: SkipKind::PlainText,
+                        // Unterminated by construction: HTML has no bytes that
+                        // end this state.
+                        terminated: false,
+                    },
+                    parent_mode,
+                ));
+                break;
             }
 
             // A `/` on a raw-text/RCDATA start tag is ignored by real HTML
@@ -1788,13 +1928,44 @@ fn tag_has_any_attr(html: &str, span: (usize, usize), wanted: &[&str]) -> bool {
     found
 }
 
-/// The value of `wanted` on this start tag, if it has one. Used for
-/// `annotation-xml`, an HTML integration point only at two `encoding` values.
+/// The value of `wanted` on this start tag, if it has one, **decoded**. Used
+/// for `annotation-xml`, an HTML integration point only at two `encoding`
+/// values.
+///
+/// Decoding is not a nicety here, it is the comparison's premise (R0010-0034 /
+/// DCR-0050). A browser decodes character references in an attribute value
+/// before anything reads it, so `encoding="text&#47;html"` IS `text/html` and
+/// `<math><annotation-xml encoding="text&#47;html"><div/>x` is an HTML
+/// integration point in Chromium. Comparing the raw source slice made it
+/// MathML content here, which honoured the `<div/>`'s slash and appended only
+/// `</annotation-xml></math>` — while a browser had opened the `div` (the
+/// slash is a parse error it ignores in HTML content) and then ignored both
+/// appended end tags, because in-body's "any other end tag" stops at the
+/// special `div`. The fragment ends with three elements still open, so the
+/// sync wrapper's own `</div>` closes the `div` and every following block
+/// nests inside this one's wrapper — `contracts.md` §4a, reachable from
+/// untrusted source Markdown through a type-6 html block (invariant 7).
+///
+/// The decode lives HERE and not in [`walk_attrs`], and the split is the
+/// crate's usual one: `walk_attrs` reports byte SPANS, because
+/// `strip_reserved_sync_attrs` cuts bytes out of the source with them and a
+/// decoded string has no offsets to cut. This is the one accessor that hands
+/// a caller a value to *read*, so it is the one place the decode belongs.
+///
+/// `htmlize::unescape_attribute` rather than `unescape`: HTML's
+/// character-reference state has an attribute-value branch (the
+/// ambiguous-ampersand rule — a named reference with no semicolon followed by
+/// `=` or an alphanumeric stays literal), and that branch is the one a
+/// browser applies to the bytes this function reads. The crate already
+/// depends on the same table for text nodes in `scan_chunks`, so this is one
+/// decoder used in two contexts rather than a second opinion about entities.
 fn tag_attr_value(html: &str, span: (usize, usize), wanted: &str) -> Option<String> {
     let mut out = None;
     walk_attrs(html, span, |attr| {
         if out.is_none() && attr.name.eq_ignore_ascii_case(wanted) {
-            out = attr.value.map(|(a, b)| html[a..b].to_string());
+            out = attr
+                .value
+                .map(|(a, b)| htmlize::unescape_attribute(&html[a..b]).into_owned());
         }
     });
     out
@@ -1980,9 +2151,11 @@ pub fn balance_fragment(html: &str) -> String {
     // rest of this function cannot reach.
     //
     // The harm is bigger than "the trailing bytes look odd", and bigger than
-    // the ticket said. Only an unterminated COMMENT swallows everything after
-    // it. The other three kinds end at the first `>` — and in a mounted pane
-    // the next `>` is the sync wrapper's OWN `</div>`. So the wrapper closes
+    // the ticket said. An unterminated COMMENT swallows everything after it,
+    // and so does a `SkipKind::PlainText` region (R0010-0032 / DCR-0050),
+    // which is why that one is deleted rather than closed — there are no bytes
+    // that close it. The other three kinds end at the first `>` — and in a
+    // mounted pane the next `>` is the sync wrapper's OWN `</div>`. So the wrapper closes
     // inside the region, the wrapper stays open, and every following block
     // nests inside this block's wrapper: the `contracts.md` §4a direct-child
     // break that wave 1 (`<div/>`) and DCR-0041 (`<svg><div>`) were each fixed
@@ -2008,9 +2181,14 @@ pub fn balance_fragment(html: &str) -> String {
                 // comment left open at EOF, so terminating preserves the
                 // author's content rather than inventing any.
                 Some(t) => out.push_str(t),
-                // A browser ABANDONS a tag cut off at EOF — no element, no
-                // attributes — so the faithful repair is deletion, which is
-                // the act this function already performs on an orphan closer.
+                // Delete instead. Two kinds arrive here and
+                // `SkipKind::terminator` carries both reasons: a browser
+                // ABANDONS a tag cut off at EOF (no element, no attributes),
+                // and it never LEAVES a PLAINTEXT region at all, so neither
+                // has bytes that would close it. Deletion is the act this
+                // function already performs on an orphan closer, and for
+                // PLAINTEXT it is the decision DCR-0050 records rather than
+                // an invented third arm.
                 None => out.truncate(span.0 - shift),
             }
         }
@@ -2365,6 +2543,66 @@ mod token_tests {
         // The ledger is unaffected by construction: `tag_inventory` filters
         // `Skip` out, so the region never mints an inventory entry.
         assert_eq!(tag_inventory(html), vec!["p", "/p"]);
+    }
+
+    /// R0010-0049: HTML's comment-end-BANG state closes a comment at `--!>`
+    /// (an incorrectly-closed-comment parse error — the token is still
+    /// emitted), so a scanner that knows only `-->` reads the markup after one
+    /// as comment text.
+    ///
+    /// The boundary cases are what keep the second terminator from being a
+    /// blunt instrument, and they are why [`comment_end`] searches the two
+    /// forms from different offsets: comment-end-bang is reachable only
+    /// THROUGH comment-end, which the opener's own `--` never enters.
+    #[test]
+    fn a_comment_closes_at_the_bang_form_too() {
+        let html = "<!-- a --!><div>y<!-- b -->";
+        assert_eq!(skips(html), vec![(0, 11), (17, 27)]);
+        assert_eq!(&html[0..11], "<!-- a --!>");
+        assert_eq!(
+            tag_inventory(html),
+            vec!["div"],
+            "the div after the bang-closed comment is real markup"
+        );
+        // `<!--!>` is NOT closed: comment-start reconsumes the `!` as data, so
+        // comment-end-bang is never reached. Searching the bang form from the
+        // `<` would have claimed it was.
+        assert_eq!(skips("<!--!>x"), vec![(0, 7)]);
+        // With one more `--` in front of it, the state IS reached.
+        assert_eq!(skips("<!----!>x"), vec![(0, 8)]);
+        // The abrupt-closing forms are unmoved: comment-start and
+        // comment-start-dash both close on `>`, which is what searching `-->`
+        // from the `<` models.
+        assert_eq!(skips("<!-->x"), vec![(0, 5)]);
+        assert_eq!(skips("<!--->x"), vec![(0, 6)]);
+        // Whichever form comes FIRST ends the comment.
+        assert_eq!(skips("<!-- a --> b --!> c"), vec![(0, 10)]);
+    }
+
+    /// R0010-0032: HTML's PLAINTEXT state has no exit, so `<plaintext>` and
+    /// every byte after it is one passed-over region rather than markup — the
+    /// start tag included, because a `Skip` beside a live `Open` would be two
+    /// tokens over the same bytes and the balancer could repair only one of
+    /// them (see [`SkipKind::PlainText`]).
+    #[test]
+    fn plaintext_makes_the_rest_of_the_fragment_one_region() {
+        let html = "<div><plaintext></div><p>x</p>";
+        assert_eq!(skips(html), vec![(5, html.len())]);
+        assert_eq!(
+            tag_inventory(html),
+            vec!["div"],
+            "nothing after `<plaintext>` is markup, so nothing after it counts"
+        );
+        // An HTML-content rule: inside foreign content `plaintext` is an
+        // ordinary element and the state is never entered.
+        assert!(skips("<svg><plaintext></div>").is_empty());
+        assert_eq!(
+            tag_inventory("<svg><plaintext></div>"),
+            vec!["svg", "plaintext", "/div"]
+        );
+        // RCDATA wins where it already ran: a browser in `<title>` does not
+        // tokenize the tag at all.
+        assert!(skips("<title><plaintext></title>").is_empty());
     }
 
     /// The `Skip` spans of `html`, in document order.
@@ -4079,6 +4317,200 @@ mod balance_tests {
         // mint nothing and carrying them to the pane only risks the next `>`
         // being the wrapper's own.
         assert_eq!(balance_fragment("<p>a</p><div "), "<p>a</p>");
+    }
+
+    /// `contracts.md` §4a as one question, mirroring
+    /// `generative_properties.rs::wrapper_survives`: mount the balanced
+    /// fragment the way `render::html_pane` mounts it and ask whether the
+    /// wrapper's own `</div>` still closes the wrapper.
+    ///
+    /// The two copies exist because that one lives across the crate boundary
+    /// in an integration test, which cannot see a `#[cfg(test)]` item in here.
+    /// They ask the same question of the same public function, so there is one
+    /// answer and two callers, not two opinions.
+    const WRAPPER_OPEN: &str = "<div data-sync-id=\"p-0001\">";
+
+    fn wrapper_survives(balanced: &str) -> bool {
+        let pane = format!("{WRAPPER_OPEN}{balanced}</div>");
+        element_extents(&pane).first().is_some_and(|e| {
+            e.name == "div"
+                && e.depth == 0
+                && e.open == (0, WRAPPER_OPEN.len())
+                && e.close == Some((pane.len() - "</div>".len(), pane.len()))
+        })
+    }
+
+    /// R0010-0031 — the raw-text element set was short by four names, and
+    /// `iframe` is the one CommonMark hands to an attacker directly.
+    ///
+    /// `<div><iframe></div></iframe>` is ONE type-6 html block: `div` and
+    /// `iframe` are both type-6 start-condition names, so an ordinary source
+    /// Markdown file can carry it (invariant 7). A browser's iframe holds
+    /// generic RAW TEXT, so the `</div>` inside it is text and the author's
+    /// `</iframe>` is the real closer. The scanner read both as markup, the
+    /// walk popped `iframe` at `</div>`, and the balancer then DELETED
+    /// `</iframe>` as an orphan — emitting a fragment whose iframe is still
+    /// open, which in a pane swallows the sync wrapper's own `</div>` and
+    /// every following block to EOF.
+    #[test]
+    fn a_raw_text_element_beyond_the_original_four_keeps_its_own_closer() {
+        assert_eq!(
+            balance_fragment("<div><iframe></div></iframe>"),
+            "<div><iframe></div></iframe></div>",
+            "the `</div>` is iframe raw text, so the author's `</iframe>` is \
+             the closer and the outer div is what needs closing"
+        );
+        assert!(
+            wrapper_survives(&balance_fragment("<div><iframe></div></iframe>")),
+            "and the pane's own </div> closes the wrapper (contracts.md §4a)"
+        );
+        // The other three names of the finding, each on its own route.
+        assert_eq!(
+            balance_fragment("<xmp></p></xmp>"),
+            "<xmp></p></xmp>",
+            "an `</p>` inside xmp is text, not an orphan to delete"
+        );
+        assert_eq!(
+            balance_fragment("<noembed></div></noembed>"),
+            "<noembed></div></noembed>",
+            "and a `</div>` inside noembed is text, not an orphan to delete"
+        );
+        assert_eq!(
+            balance_fragment("<noframes></p></noframes>"),
+            "<noframes></p></noframes>"
+        );
+        // The qualifier the four new names inherit is real: inside foreign
+        // content they are ordinary elements whose contents ARE markup (ti
+        // `2e2453`, DCR-0042), so the `<g>` here is a real element that earns
+        // its own closer rather than iframe text.
+        assert_eq!(
+            balance_fragment("<svg><iframe><g>x"),
+            "<svg><iframe><g>x</g></iframe></svg>",
+            "inside <svg> an iframe is an ordinary foreign element"
+        );
+    }
+
+    /// R0010-0032 — HTML's PLAINTEXT state, the one a tokenizer never leaves.
+    ///
+    /// `<div><plaintext></div>` walked as div → plaintext → both closed at
+    /// `</div>` and passed through byte-identical, while a browser turns the
+    /// wrapper's own `</div>`, the next block's anchor and the rest of the
+    /// pane into text. There are no bytes that end the state, so the region is
+    /// DELETED rather than terminated — the decision DCR-0050 records, and the
+    /// reason the start tag is inside the deleted span: leaving it would leave
+    /// the switch, and deleting only it would hand the bytes after it back to
+    /// the tokenizer as markup after the strip had passed over them as text.
+    #[test]
+    fn a_plaintext_start_tag_no_longer_swallows_the_wrapper() {
+        assert_eq!(
+            balance_fragment("<div><plaintext></div>"),
+            "<div></div>",
+            "the region is deleted and the div earns a real closer"
+        );
+        assert!(
+            wrapper_survives(&balance_fragment("<div><plaintext></div>")),
+            "so the pane's own </div> closes the wrapper (contracts.md §4a)"
+        );
+        // The paragraph a browser closes implicitly at `<plaintext>` is closed
+        // here too, by the same appended closer the deletion leaves owing.
+        assert_eq!(balance_fragment("<p>a<plaintext>b"), "<p>a</p>");
+        // A whole fragment that is nothing but the state.
+        assert_eq!(balance_fragment("<plaintext>x</plaintext>"), "");
+        // An impostor anchor written INTO the region cannot reach the pane,
+        // which is what makes the strip's pass-over safe rather than a bypass
+        // (invariant 7 / OI-0035): the composition is what ships.
+        let planted = "<div><plaintext><div data-sync-id=\"p-0009\">y";
+        let chained = balance_fragment(&strip_reserved_sync_attrs(planted));
+        assert_eq!(chained, "<div></div>");
+        assert_eq!(
+            strip_reserved_sync_attrs(&chained).into_owned(),
+            chained,
+            "asked through the strip itself: nothing in the reserved namespace \
+             is left for it to cut"
+        );
+        // HTML content only, like voidness (ti `48f3c6`) and raw text (ti
+        // `2e2453`): the switch is an "in body" tree-construction rule, and
+        // `plaintext` is not a breakout tag, so inside <svg> it is an ordinary
+        // foreign element.
+        assert_eq!(
+            balance_fragment("<svg><plaintext>x"),
+            "<svg><plaintext>x</plaintext></svg>"
+        );
+    }
+
+    /// R0010-0034 — a browser decodes an attribute value before it reads it,
+    /// so `encoding="text&#47;html"` makes `annotation-xml` an HTML
+    /// integration point.
+    ///
+    /// Comparing the raw slice made it MathML content, which honoured the
+    /// `<div/>`'s slash and left the `div` unopened; the balancer then owed
+    /// only `</annotation-xml></math>`. A browser had opened the `div` (the
+    /// slash is a parse error it ignores in HTML content) and ignores both of
+    /// those end tags, because in-body's "any other end tag" stops at the
+    /// special `div` — so the fragment reached the pane with three elements
+    /// open, and `annotation-xml` is a SCOPE terminator, which makes the
+    /// wrapper's own `</div>` a token a browser ignores outright.
+    #[test]
+    fn an_encoded_integration_point_encoding_is_read_the_way_a_browser_reads_it() {
+        let html = "<math><annotation-xml encoding=\"text&#47;html\"><div/>x";
+        assert_eq!(
+            balance_fragment(html),
+            "<math><annotation-xml encoding=\"text&#47;html\"><div/>x\
+             </div></annotation-xml></math>",
+            "the div is HTML content, so it opens and is owed a closer"
+        );
+        assert!(wrapper_survives(&balance_fragment(html)));
+        // The plain spelling was always right and stays byte-identical.
+        assert_eq!(
+            balance_fragment("<math><annotation-xml encoding=\"text/html\"><div/>x"),
+            "<math><annotation-xml encoding=\"text/html\"><div/>x\
+             </div></annotation-xml></math>"
+        );
+        // Anti-vacuity: the decode did not simply make every `annotation-xml`
+        // an integration point. An encoding that is not one of HTML's two
+        // still leaves MathML content, where the self-closing `/` IS honoured
+        // — so `<rect/>` opens nothing and only the two foreign closers are
+        // owed. (`<rect/>` rather than `<div/>` here because `div` is a
+        // BREAKOUT tag: it pops both foreign frames and lands in HTML content
+        // either way, which is the same answer for both encodings and would
+        // have made this arm prove nothing.)
+        assert_eq!(
+            balance_fragment("<math><annotation-xml encoding=\"image&#47;svg+xml\"><rect/>x"),
+            "<math><annotation-xml encoding=\"image&#47;svg+xml\"><rect/>x\
+             </annotation-xml></math>"
+        );
+        assert_eq!(
+            balance_fragment("<math><annotation-xml encoding=\"text&#47;html\"><rect/>x"),
+            "<math><annotation-xml encoding=\"text&#47;html\"><rect/>x\
+             </rect></annotation-xml></math>",
+            "and at the decoded HTML encoding the same `/` is the parse error \
+             HTML ignores, so the element opens"
+        );
+    }
+
+    /// R0010-0049 — HTML closes a comment at `--!>` as well as at `-->`.
+    ///
+    /// `<!-- a --!>` + `<div>y` + `<!-- b -->` is ONE type-2 html block, so
+    /// this arrives from ordinary source Markdown (invariant 7). Reading only
+    /// `-->` made the whole block one terminated comment: the `<div>` was
+    /// never tokenized, the balancer owed nothing, and the still-open div
+    /// consumed the sync wrapper's own `</div>` in the pane.
+    #[test]
+    fn a_bang_terminated_comment_no_longer_hides_the_markup_after_it() {
+        let html = "<!-- a --!><div>y<!-- b -->";
+        assert_eq!(
+            balance_fragment(html),
+            "<!-- a --!><div>y<!-- b --></div>",
+            "the first comment ends at `--!>`, so the div is real and unclosed"
+        );
+        assert!(wrapper_survives(&balance_fragment(html)));
+        // The unterminated form still terminates with the canonical bytes, and
+        // they still close it: `--!` + `-->` walks comment-end-bang →
+        // comment-end-dash → comment-end → close.
+        assert_eq!(
+            balance_fragment("<div>x<!-- a --!"),
+            "<div>x<!-- a --!--></div>"
+        );
     }
 }
 

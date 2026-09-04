@@ -639,3 +639,83 @@ live append path, and a private temp file that is renamed or discarded whole has
 no such promise to make, so it was one `write(2)` per record defeating its own
 `BufWriter`. It now buffers, flushes once, and syncs — which is where the
 barrier above belongs anyway.
+
+## The append side stops writing after a failed write, and replay stops reading an unbounded line — 2026-09-05 (appended note)
+
+OI-0044's two remaining members (R0009-0080, R0009-0081, Review 0009), landing
+after the trim floor §4 already carries. Neither changes a contract this record
+states; both sit on ground it already owns — rule 3, "a cache can never fail or
+corrupt a run", and §2's degrade-to-re-translation recovery.
+
+**A failed write closes the log (R0009-0081).** §5 states the *successful*
+append path — flush per record, no `fsync` — and says nothing about a write that
+fails. The implementation had no answer for it either: `DiskState` held its
+`BufWriter<File>` unconditionally, so a write that returned `Err` left that
+writer installed and the next `put` / `evict` appended a whole record onto a
+half-written one. Verification bounded the damage tightly and the bound is worth
+keeping: a sub-capacity record self-heals, because `BufWriter::flush_buf` leaves
+the unwritten remainder queued and the next flush completes it, so damage needs
+a record at or above the 8 KiB buffer, where `write_all` bypasses the buffer
+into `File::write_all` and can write part of a record before failing. The result
+is **one welded line**, which §2's reader skips with a warning, and a truncated
+JSON object concatenated with a whole one cannot deserialize — so no wrong value
+is ever served. The cost is two lost entries where one was already lost.
+
+The fix is the cheaper of the two repairs the finding named. A last-good offset
+truncated to on error would need the file's length kept current across every
+buffered write — a syscall on the common path to serve a rare one, which is the
+same trade §5 already refuses for `fsync`. Closing buys the same property for
+nothing: with nothing appended after them, the partial bytes are the file's
+**last** bytes, and that is a torn tail, the one damage shape §2 already repairs
+— losing exactly the record that failed and never a neighbour. The buffered
+remainder is dropped rather than flushed, so the stop is clean and `Drop` adds
+nothing behind it.
+
+What a consumer sees: the first failure is reported as it always was, plus one
+warning naming the closure; every later write answers a `CacheError` naming the
+closed log; reads keep being served from the index this process already holds;
+and the next open replays every record that did land. The run is untouched,
+because a mid-run `CacheError` degrades through the pipeline's cache helpers and
+can never abort a translation. That is the same posture the R0009-0082 fix
+followed by clamping rather than refusing: an accelerator must not kill a run,
+and it must not quietly widen its own damage either.
+
+**Replay reads no more than one capped line (R0009-0080).** The 2026-08-12 note
+above replaced replay's single `std::fs::read` with a `BufReader` and recorded
+that "the peak is the live index it is building". True of a log; false of a
+*foreign file*. The header decision is taken **after** a line is read, so a file
+with no newline anywhere — the shape that is not this format at all — was
+materialized whole and only then rejected, which is precisely the allocation
+that note exists to have removed. Each read is now bounded by
+`MAX_RECORD_LINE_BYTES`, and a line that runs past it is treated as the
+unreadable line it has to be: skipped, counted, its bytes still charged to the
+file so a later truncation cuts at the right offset, with the reader resynced to
+the next newline — without buffering it, since refusing to hold an over-long
+line and then holding it to skip it would be no refusal at all — so the record
+after it still replays.
+
+The cap is not a new number. It is the log's own default byte budget: a
+compacted log at budget holds the header, the document-scoped records **and**
+every entry, so one line that alone exceeds it would already be the whole cache,
+and the budget is the only byte quantity this design states about this file. In
+the header position the cap decides sooner — a first line that long is a foreign
+file, and saying so in two lines rather than after a byte-for-byte copy is the
+whole point.
+
+**What this is not.** ADR-0022 places a local writer to the cache path outside
+the threat model and disposes of R0004-0024 — this same memory concern — by
+number, so the cap is recorded here as doc accuracy plus insurance against
+*accidental* corruption (a truncated write, a half-copied file), not as a
+security boundary. A legitimately large record still has to be materialized,
+because it lands in the index. Nothing in this record's threat posture moves.
+
+Three tests land with the two fixes, each observed red against the unfixed code
+first: the oversize but *valid* record replayed as a fourth entry
+(`left: 3, right: 2`); the headerless newline-free file was read to its end
+before the header verdict was taken; and the second write after a failed one was
+accepted rather than refused — the weld itself. The write test drives the real
+`put` path through a `File` over a non-blocking socket, which accepts what fits,
+answers `WouldBlock` partway through the record, and starts accepting again once
+its peer drains. That last property is what a read-only handle cannot give and
+what the finding needed: without it there is no way to show what a *second*
+write would have done.

@@ -601,6 +601,20 @@ waves still landing in that crate rather than racing them.
 
 ### disk-cache-log-edges (OI-0044)
 
+> **RESOLVED 2026-09-05.** All three members fixed — the non-converging trim on
+> 2026-09-03 (ti `0a3fca`), the poisonable write and the unbounded read on
+> 2026-09-05 — each with a test observed red against pre-fix code. Two
+> corrections to this entry. The write fix takes the *second* arm ("a poisoned
+> writer") rather than a last-good offset, and closes the log instead of
+> reopening it: an append-mode reopen positions at the same EOF the partial
+> bytes end at, so it would weld exactly as before, while closing leaves those
+> bytes as the file's last ones — a torn tail replay already repairs. And the
+> read fix is deliberately smaller than "cap it": the cap is `Read::take` at the
+> log's own default byte budget plus a resync, recorded as doc accuracy and
+> insurance against accidental corruption, **not** as a threat-model change —
+> ADR-0022 already disposes of R0004-0024, and a legitimately large record still
+> has to be materialized because it lands in the index.
+
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0080, R0009-0081,
   R0009-0082), gate-accepted, user-routed track

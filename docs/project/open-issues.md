@@ -785,8 +785,8 @@ work — re-cutting `pipeline.rs`'s orchestration, which is already cut.
 - **Source:** R0009-0080, R0009-0081, R0009-0082 (Review 0009)
 - **Date:** 2026-08-26
 - **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** OPEN — **R0009-0082 RESOLVED 2026-09-03** (ti `0a3fca`); R0009-0080 and R0009-0081 remain
-- **Resolution:** partial. **R0009-0082 — the non-converging trim — is fixed.**
+- **Status:** RESOLVED 2026-09-05 — all three members (R0009-0082 2026-09-03, ti `0a3fca`; R0009-0080 and R0009-0081 2026-09-05)
+- **Resolution:** complete, in two passes. **R0009-0082 — the non-converging trim — was fixed first (2026-09-03).**
   `trim_to_budget` now recognizes a `max_bytes` at or below the bytes eviction
   cannot reclaim (header + the document-scoped records), logs the arithmetic
   once — requested value, floor, and the floor's two components — and applies
@@ -799,8 +799,63 @@ work — re-cutting `pipeline.rs`'s orchestration, which is already cut.
   Pinned by two tests that were **observed red against the unfixed code**:
   `a_byte_budget_below_the_unreclaimable_floor_keeps_the_entries` (which failed
   `left: 0, right: 4` — every entry discarded, the defect itself) and
-  `the_ignored_byte_budget_names_the_requested_value_and_the_floor`. The entry
-  stays OPEN for R0009-0080 and R0009-0081, which are untouched.
+  `the_ignored_byte_budget_names_the_requested_value_and_the_floor`.
+
+  **R0009-0081 — the poisonable write — is fixed (2026-09-05).** `DiskState`'s
+  writer is now retired on the first failed write: the buffered remainder is
+  dropped rather than flushed, every later write answers a `CacheError` naming
+  the closed log, and reads keep being served from the index the process already
+  holds. Closing rather than truncating to a last-good offset is the deliberate
+  choice — keeping that offset current would put a syscall on every buffered
+  write to serve a rare failure, the same trade DCR-0028 §5 already refuses for
+  `fsync`, and it buys nothing closing does not: with nothing appended after
+  them the partial bytes are the file's **last** bytes, which makes them a torn
+  tail, the one damage shape replay already repairs without touching a
+  neighbour. Same "an accelerator must not kill a run" posture the trim fix
+  followed. The finding's realest part was the **missing test**, and it exists
+  now: `a_failed_write_closes_the_log_instead_of_writing_past_the_damage` drives
+  the real `put` path through a `File` over a non-blocking socket — which
+  accepts what fits, answers `WouldBlock` partway through a 4 MiB record, and
+  starts accepting again once its peer drains, the one property a read-only
+  handle cannot give and the only way to show what a *second* write does.
+  Observed red against the unfixed code on "the log is closed, so the second
+  record is refused rather than welded on": the second `put` was accepted, which
+  is the weld itself.
+
+  **R0009-0080 — the unbounded read — is fixed (2026-09-05), and deliberately
+  smaller than the finding asked.** `scan_log` reads each physical line through
+  `Read::take`, capped at `MAX_RECORD_LINE_BYTES`, and a line past the cap is
+  treated as the unreadable line it has to be — skipped, counted, its bytes
+  still charged to the file so a later truncation cuts at the right offset —
+  with the reader resynced to the next newline *without buffering it*, so the
+  record after it still replays. The cap is not a new number: it is the log's
+  own default byte budget, since a compacted log at budget holds the header, the
+  document-scoped records and every entry, so one line that alone exceeds it
+  would already be the whole cache. **It is not a security fix and is not
+  recorded as one** — ADR-0022 disposes of R0004-0024, this same memory concern,
+  by number, and a legitimately large record still has to be materialized
+  because it lands in the index. What it buys is the function's own peak-memory
+  claim made true for a foreign file (the header decision is taken *after* the
+  read, so a file with no newline anywhere was materialized whole and only then
+  rejected) plus a bounded read and a resync for an accidentally corrupt one.
+  Two tests, both observed red: `a_line_past_the_replay_cap_is_skipped_and_its_neighbours_replay`
+  failed `left: 3, right: 2` — the oversize but *valid* record replayed as a
+  fourth entry, the cap's absence itself — and
+  `the_header_decision_does_not_materialize_a_headerless_file` failed on "a
+  first line past the cap is not a format-1 header", the whole 64 KiB having
+  been read in before the verdict.
+
+  Records updated: DCR-0028 carries an appended dated note (2026-09-05) for both
+  members, `DiskCache`'s own docs state the closure and the cap on the two
+  paragraphs that already describe recovery and durability, and CHANGELOG's
+  `[Unreleased]` `### Fixed` carries both. `contracts.md` needed no correction:
+  §1's `DiskCache` bullets state the *successful* append path and the three
+  recovery shapes, none of which these changes contradict — a closed log
+  produces a torn tail, which §1 already names. Whether that bullet should also
+  *state* the closure (a `put` answering `CacheError` for the rest of a process
+  is consumer-visible) is a small addition, deliberately left untaken here: the
+  file was held by concurrent work on §4 at the time, and nothing in it is
+  wrong meanwhile.
 
 ### Problem
 
@@ -873,19 +928,27 @@ comment, but not on the public knob the operator actually sets.
    2026-09-03** (ti `0a3fca`) — see Resolution above. Whether meta records
    should instead become evictable remains a separate open question and was
    deliberately not answered by the floor.
-2. **R0009-0081:** record a last-good offset before each record and truncate
+2. ~~**R0009-0081:** record a last-good offset before each record and truncate
    to it on a write error, or drop the writer so the next call reopens.
-   Either way, add the failing-writer test that does not exist.
-3. **R0009-0080:** cap the physical line with `Read::take` before the header
+   Either way, add the failing-writer test that does not exist.~~ **DONE
+   2026-09-05** — the second arm, and *closed* rather than reopened: reopening
+   in append mode positions at the same EOF the partial bytes end at, so it
+   would weld exactly as before. See Resolution above.
+3. ~~**R0009-0080:** cap the physical line with `Read::take` before the header
    decision, or amend the doc claim to match the code. Note ADR-0022's
    posture in whichever is chosen — this is tidiness and doc accuracy, not a
-   threat-model gap.
+   threat-model gap.~~ **DONE 2026-09-05** — both arms: the cap plus a resync,
+   and the doc claim corrected to say what the cap makes true, with ADR-0022's
+   posture named on the constant. See Resolution above.
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+- [x] Code change applied
+- [x] Tests pass (if applicable) — `cargo test -p transync-core` 535/0,
+      `cargo test --workspace` and `cargo test -p transync-cli
+      --features test-stub-provider` both green, `cargo clippy --all-targets
+      --all-features -- -D warnings` clean (2026-09-05)
+- [x] No regressions observed
 
 ### Related
 
@@ -1333,6 +1396,100 @@ bytes the pane does not hold (R0009-0078).
 
 ***
 
+## OI-0049: Review 0010's non-blocking survivors — sixteen verified findings, explicitly deferred past v0.5.0
+
+- **Source:** Review 0010 (2026-09-04), triaged and adversarially verified 2026-09-05
+- **Date:** 2026-09-05
+- **Decision:** ACCEPT (real) — **DEFERRED past v0.5.0, with a re-trigger**
+- **Status:** DEFERRED 2026-09-05
+
+### Why this entry exists
+
+The v0.5.0 release condition is the union of the TicGit queue and this
+register, **less explicitly deferred items**. These sixteen findings are real
+and verified, and none of them blocks. Leaving them unregistered would fail the
+condition by omission; filing them as OPEN would fail it by arithmetic. So they
+are recorded here, once, as a deferral with a stated reason — the same route
+OI-0039, OI-0040, OI-0044 and OI-0048 took for their own residuals.
+
+### How they were established
+
+Review 0010's 93 findings were triaged against the recorded decisions, and then
+audited in **both** directions — every ACCEPT faced an adversarial refutation
+pass instructed to default to refuted, and every REJECT was challenged for
+false negatives. Of 27 ACCEPTs, 19 survived; of 44 rejections, 39 stood and 5
+were overturned. The sixteen below are the survivors that do not block.
+
+The audit mattered: three of the five overturned rejections DID block, and each
+had been rejected by citing a real record that ruled on an adjacent question.
+That is the failure mode a "check the register first" method introduces, and it
+is why the rejections were audited rather than trusted.
+
+### The deferred set
+
+| Finding | Severity | Title |
+|---|---|---|
+| R0010-0015 | LOW | Invalid output parents are discovered after translation |
+| R0010-0016 | MEDIUM | Dangling out-directory symlinks bypass early existence checks |
+| R0010-0037 | LOW | A new heading does not close an open heading |
+| R0010-0044 | MEDIUM | Head mode is not implicitly closed by ordinary body content |
+| R0010-0045 | LOW | Later head tags can re-enter suppression mode |
+| R0010-0054 | LOW | HTML-document sniffing does not recognize lone-CR blank preambles |
+| R0010-0057 | MEDIUM | An XML declaration prevents XHTML detection |
+| R0010-0061 | LOW | Spaced known placeholders evade warnings but are not substituted |
+| R0010-0072 | LOW | WASM demo startup has no terminal catch |
+| R0010-0079 | LOW | Kana coverage omits supplementary and halfwidth ranges |
+| R0010-0080 | LOW | Arabic coverage omits extended and presentation-form letters |
+| R0010-0087 | LOW | HTML crate and package descriptions still call HTML intake future work |
+| R0010-0088 | LOW | Trimming HTML runs can become quadratic in skip count |
+| R0010-0089 | LOW | Naked-character detection rescans all tag spans per character |
+| R0010-0014 | LOW | A plain `--output <dir>/out.md` destination gets no staging-temp sweep |
+| R0010-0062 | LOW | An unclosed `{{` folds with the next placeholder, so later typos go unwarned |
+
+### Why none of them blocks
+
+None breaches invariant 1 (block ID is the only sync currency) or invariant 7
+(source Markdown is untrusted) from untrusted input. The set is operator
+filesystem state (0015, 0016, 0014), diagnostics that under-report (0061,
+0062), detection-coverage gaps in `transync-lang` for scripts the shipped
+corpus does not measure (0079, 0080), HTML-document sniffing edges behind an
+explicit `--input-format` (0054, 0057), head/suppression-mode edges in the HTML
+intake (0037, 0044, 0045), a browser-demo startup path (0072), documentation
+drift (0087), and two performance shapes with no measurement attached (0088,
+0089).
+
+### The re-trigger — objective and self-firing
+
+Any ONE of these reopens the set as blocking work:
+
+1. **A `sec4a` or anchor-loss route is measured** for any of them by the ti
+   `ec235f` Chromium oracle. Three of the four HTML-intake entries (0037, 0044,
+   0045) are in the family the oracle keeps finding routes in, and it has
+   already produced two live impostor-anchor routes nobody hypothesised.
+2. **`transync-lang` gains a measured non-Hangul target.** 0079 and 0080 are
+   coverage gaps in Kana and Arabic; today `benchmark/lang-detect/RESULTS.md`
+   measures Korean only, so they are unmeasurable rather than acceptable. A
+   second measured target makes them ordinary correctness bugs — and ti
+   `15acc0` already showed this crate can return `AlreadyTarget` wrongly, which
+   cancels a run rather than degrading one.
+3. **0088 or 0089 is measured over a real document** and shows a cost of the
+   order OI-0042's did (26 ms / 245 ms / 1.9 s at 5,000 / 20,000 / 50,000
+   blocks). Both are called quadratic by inspection and neither has a number;
+   OI-0042 is the precedent for taking that seriously once measured, and
+   OI-0016 is the precedent for closing it when measurement shows no overrun.
+
+### Related
+
+- Fixed rather than deferred: R0010-0031/0032/0034/0049 (ti `bebebe`,
+  DCR-0050) and R0010-0066 (ti `15acc0`).
+- Still blocking, ticketed: R0010-0033 (ti `a7e625`, spec-traced and awaiting
+  oracle measurement); R0010-0039 and R0010-0043 folded into ti `307283`.
+- 0061 and 0062 are the same function in `profile.rs`; one fix covers both.
+- 0015 and 0016 are the same preflight-vs-publish seam in
+  `crates/transync-cli/src/output/`.
+
+---
+
 ## Open Issues Summary
 
 | Issue ID | Title                                                  | Status   | Severity |
@@ -1346,8 +1503,9 @@ bytes the pane does not hold (R0009-0078).
 | OI-0041  | Pre-network setup recomputes derived values              | RESOLVED (2026-09-04) — partial; rest declined/deferred | Low |
 | OI-0042  | Two worse-than-linear scans in the degraded regen cascade | RESOLVED (2026-09-04) — all three sites, twin included | Low |
 | OI-0043  | Four modules called oversized; one is a real concern bundle | RESOLVED (2026-09-04) — output.rs split, proven pure | Low |
-| OI-0044  | Disk cache log: unbounded read, poisonable write, ~~non-converging trim~~ | OPEN (2026-08-26) — trim member RESOLVED 2026-09-03 | Low |
+| OI-0044  | Disk cache log: unbounded read, poisonable write, non-converging trim | RESOLVED (2026-09-05) — trim member 2026-09-03; read and write members 2026-09-05 | Low |
 | OI-0045  | `serve` under-delivers a truncated body, over-advertises authorities | RESOLVED (2026-09-04) | Low |
 | OI-0046  | Three holes in the checking apparatus itself             | RESOLVED (2026-09-04) — all three; (3) found a live defect | Low |
 | OI-0047  | Sync engine freezes past its last anchor; silent drift on reflow | RESOLVED (2026-09-04) | Low |
 | OI-0048  | Four boundary checks weaker than the inferred contract   | RESOLVED (2026-09-04) — R0009-0052 deferred | Low |
+| OI-0049  | Review 0010's non-blocking survivors (16 findings)       | DEFERRED (2026-09-05) — re-trigger recorded | Low |

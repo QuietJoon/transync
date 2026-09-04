@@ -18,7 +18,7 @@ use super::{
 use crate::llm::UnitResult;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -42,6 +42,28 @@ const COMPACT_TEMP_INFIX: &str = ".compact-";
 /// Large enough that no single-document workflow meets it, small enough that an
 /// unattended long-lived cache has a ceiling instead of a growth curve.
 const DEFAULT_MAX_LOG_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Ceiling on one *physical line* during replay, newline included
+/// (OI-0044 / R0009-0080).
+///
+/// The whole-log default budget, reused rather than a number invented here.
+/// A compacted log at budget holds the header, the document-scoped records
+/// **and** every entry, so one line that alone exceeds it would already be the
+/// entire cache — nothing this build writes can legitimately be that long, and
+/// the log budget is the only byte quantity this design already states about
+/// this file.
+///
+/// **This is not a security boundary and must not be presented as one.** A
+/// cache file large enough to matter needs a local writer to the cache path,
+/// and ADR-0022 places that outside the threat model by name (it disposes of
+/// R0004-0024, this same memory concern). What the cap buys is narrower and
+/// still worth having: [`scan_log`]'s peak-memory claim becomes true for a
+/// *foreign* file — one with no newline anywhere used to be materialized whole
+/// and only then rejected, because the header decision happens after the read
+/// — and an accidentally corrupt log (a truncated write, a half-copied file)
+/// gets a bounded read plus a resync instead of one allocation the size of the
+/// damage. Both are inside DCR-0028's "degrading to re-translation" envelope.
+const MAX_RECORD_LINE_BYTES: u64 = DEFAULT_MAX_LOG_BYTES;
 
 /// Capacity policy for a [`DiskCache`] (DCR-0028 §4).
 ///
@@ -154,7 +176,62 @@ struct DiskState {
     entries: HashMap<CacheKey, Arc<UnitResult>>,
     meta: HashMap<DocumentMetaKey, DocumentMeta>,
     glossary: HashMap<GlossaryExtractionKey, GlossaryExtraction>,
-    writer: BufWriter<File>,
+    /// The append writer, or `None` once a write has failed and the log was
+    /// closed — see [`DiskState::append`] (OI-0044 / R0009-0081).
+    writer: Option<BufWriter<File>>,
+}
+
+impl DiskState {
+    /// Append one record through the log's writer, **closing the log** if the
+    /// write fails.
+    ///
+    /// A record at or above the `BufWriter`'s capacity bypasses the buffer
+    /// into `File::write_all`, which can write part of the record and then
+    /// fail. The writer used to stay installed after that, so the next `put`
+    /// appended a whole record onto the half-written one: two lines welded
+    /// into one that cannot deserialize, costing the *following* entry as well
+    /// as the failed one. (Never a wrong value — a truncated JSON object
+    /// concatenated with a whole one does not parse, and `scan_log` skips it
+    /// with a warning — but two lost entries where one was already lost.)
+    ///
+    /// Closing is the cheaper half of the two repairs OI-0044 named. The
+    /// alternative, a last-good offset truncated to on error, would put a
+    /// `metadata()` call on every `put` to keep the offset current, and it
+    /// buys nothing this does not: with nothing appended after them, the
+    /// partial bytes are the file's last bytes, which makes them a **torn
+    /// tail** — the one damage shape replay already repairs, losing exactly
+    /// the record that failed and never a neighbour. The buffered remainder is
+    /// dropped rather than flushed ([`BufWriter::into_parts`]), so the stop is
+    /// clean: nothing more reaches the file, including from `Drop`.
+    ///
+    /// The run is unaffected either way. A `CacheError` degrades through the
+    /// pipeline's cache helpers and can never abort a translation (DCR-0028's
+    /// "an accelerator must not kill a run"), reads keep being served from the
+    /// index this process already holds, and the next open replays every
+    /// record that did land.
+    fn append(&mut self, record: &Record, dir: &Path) -> Result<(), CacheError> {
+        let Some(writer) = self.writer.as_mut() else {
+            return Err(CacheError::Io(format!(
+                "cache log {} is closed after an earlier write failure; this process appends \
+                 nothing further to it",
+                dir.join(LOG_FILE_NAME).display()
+            )));
+        };
+        let outcome = write_record(writer, record);
+        if let Err(e) = &outcome {
+            if let Some(retired) = self.writer.take() {
+                let _ = retired.into_parts();
+            }
+            tracing::warn!(
+                target: "transync::cache",
+                "cache log {} could not be appended to ({e}); it is closed for the rest of this \
+                 process, so a partly-written record stays the file's last bytes and the next \
+                 open repairs it as a torn tail. Entries from here on are not cached.",
+                dir.join(LOG_FILE_NAME).display()
+            );
+        }
+        outcome
+    }
 }
 
 /// Disk-backed [`Cache`]: an in-memory index over an append-only log
@@ -203,7 +280,9 @@ struct DiskState {
 /// - **Unreadable line elsewhere, or an unknown `"t"`** — the line is skipped,
 ///   with one warning per open. Unknown record types are how format 1 stays
 ///   forward-tolerant to additive record kinds; incompatible changes bump
-///   `format` instead.
+///   `format` instead. A line longer than replay's per-line cap rides the same
+///   channel: it is skipped without ever being materialized, and the reader
+///   resyncs to the next newline so its neighbours still replay (OI-0044).
 /// - **Missing or unreadable header, or an unknown `format`** — the file is
 ///   rotated aside to `transync-cache.jsonl.unreadable-<unix-ts>` (preserved,
 ///   never deleted) and the cache starts empty. Never a hard error, never a
@@ -250,6 +329,14 @@ struct DiskState {
 /// the tail, which the torn-tail recovery makes a re-translation, and a cache
 /// that made every unit a synchronous disk barrier would tax the common case to
 /// harden the rare one.
+///
+/// A write that **fails** closes the log for the rest of the process: nothing
+/// is appended after it, every later write answers a `CacheError`, and reads
+/// keep being served from the index already in memory. That is what keeps a
+/// partly-written record the file's last bytes, so the next open repairs it as
+/// an ordinary torn tail instead of finding a whole record welded onto half of
+/// one (OI-0044 / R0009-0081). The run is unaffected: a `CacheError` degrades
+/// it and can never abort it.
 ///
 /// **One writer per cache directory.** Concurrent processes sharing one
 /// directory are unsupported — no lock file, no new dependency. The violation
@@ -350,7 +437,7 @@ impl DiskCache {
                     .collect(),
                 meta: replayed.meta,
                 glossary: replayed.glossary,
-                writer,
+                writer: Some(writer),
             }),
         })
     }
@@ -1029,7 +1116,7 @@ fn replay_log(path: &Path) -> Result<Replayed, CacheError> {
             )));
         }
     };
-    let scan = scan_log(file, path)?;
+    let scan = scan_log(file, path, MAX_RECORD_LINE_BYTES)?;
 
     // Torn tail: a crash mid-append leaves bytes with no terminating newline.
     // They are discarded — every line is self-contained, so nothing before the
@@ -1133,7 +1220,8 @@ enum Header {
     Missing,
 }
 
-/// One streaming pass over the log file.
+/// One streaming pass over the log file, reading no more than
+/// `max_line_bytes` at a time.
 ///
 /// The file is read **a line at a time** through a `BufReader` rather than
 /// slurped into one `Vec`, so replay's peak memory is the index it is building
@@ -1144,9 +1232,22 @@ enum Header {
 /// largest allocation in the process (R0004-0024). Reading it once at open is
 /// unchanged (DCR-0028 §2) — this is how the read is performed, not how often.
 ///
+/// "**Plus one record**" was false in one direction until OI-0044 / R0009-0080,
+/// and the cap is what makes it true. The header decision is taken *after* a
+/// line is read, so a foreign file — one with no newline anywhere — was
+/// materialized whole and only then rejected: the very shape the sentence above
+/// promises never happens. Each read is now bounded, and a line that runs past
+/// the bound is treated as the unreadable line it has to be (skipped, counted,
+/// its bytes still charged to the file) with the reader **resynced** to the next
+/// newline, so the record after it replays. A legitimately large record is
+/// unaffected — see [`MAX_RECORD_LINE_BYTES`] for where the bound comes from and
+/// for why this is tidiness plus corruption insurance rather than a security
+/// boundary. The cap is a parameter so the behaviour is testable against a small
+/// file rather than only against one the size of the budget.
+///
 /// The handle is consumed and dropped here, so the caller can truncate or
 /// rename the file without a reader still open on it.
-fn scan_log(file: File, path: &Path) -> Result<Scan, CacheError> {
+fn scan_log(file: File, path: &Path, max_line_bytes: u64) -> Result<Scan, CacheError> {
     let mut reader = BufReader::new(file);
     let mut line: Vec<u8> = Vec::new();
 
@@ -1166,21 +1267,51 @@ fn scan_log(file: File, path: &Path) -> Result<Scan, CacheError> {
     loop {
         line.clear();
         let read = reader
+            .by_ref()
+            .take(max_line_bytes)
             .read_until(b'\n', &mut line)
-            .map_err(|e| CacheError::Io(format!("read cache log {}: {e}", path.display())))?;
+            .map_err(|e| CacheError::Io(format!("read cache log {}: {e}", path.display())))?
+            as u64;
         if read == 0 {
             break;
         }
         if line.last() != Some(&b'\n') {
-            // Bytes with no terminating newline, which can only be the last of
-            // the file: the torn tail.
-            torn_bytes = read as u64;
-            break;
+            // No terminating newline. Two different files reach here, and the
+            // cap is what tells them apart: a line that stopped because the
+            // *file* ended is the torn tail, and one that stopped because the
+            // cap did is a line too long to be a record (R0009-0080).
+            if read < max_line_bytes {
+                torn_bytes = read;
+                break;
+            }
+            if matches!(header, Header::Missing) {
+                // The header line is a couple of dozen bytes. Anything this
+                // long in that position is a foreign file, and deciding so
+                // here — rather than after reading it in — is the whole point
+                // of the cap.
+                header = Header::Unusable;
+                break;
+            }
+            let (rest, terminated) = skip_to_newline(&mut reader, path)?;
+            if !terminated {
+                // The over-long region ran to EOF, so it is the torn tail
+                // after all — just a torn tail nobody had to hold in memory.
+                torn_bytes = read + rest;
+                break;
+            }
+            // A complete line the file really carries: its bytes stay in the
+            // count, or a later truncation would cut at the wrong offset. It
+            // is dead weight this build cannot use, which is exactly how an
+            // unparseable line is already treated.
+            complete_bytes += read + rest;
+            total_records += 1;
+            skipped += 1;
+            continue;
         }
-        complete_bytes += read as u64;
+        complete_bytes += read;
         // The record's own footprint in the file, newline included.
-        let bytes = read as u64;
-        let record = &line[..read - 1];
+        let bytes = read;
+        let record = &line[..line.len() - 1];
         if record.is_empty() {
             continue;
         }
@@ -1239,6 +1370,36 @@ fn scan_log(file: File, path: &Path) -> Result<Scan, CacheError> {
         complete_bytes,
         torn_bytes,
     })
+}
+
+/// Discard bytes up to and including the next newline, returning how many
+/// were consumed and whether a newline was actually found.
+///
+/// The resync half of [`scan_log`]'s bounded read (OI-0044 / R0009-0080).
+/// Nothing is buffered — the bytes are counted through the reader's own buffer
+/// and dropped — because the point of refusing to hold an over-long line is
+/// lost if skipping past it holds it instead.
+fn skip_to_newline(reader: &mut BufReader<File>, path: &Path) -> Result<(u64, bool), CacheError> {
+    let mut skipped = 0u64;
+    loop {
+        let (used, terminated) = {
+            let available = reader
+                .fill_buf()
+                .map_err(|e| CacheError::Io(format!("read cache log {}: {e}", path.display())))?;
+            if available.is_empty() {
+                return Ok((skipped, false));
+            }
+            match available.iter().position(|b| *b == b'\n') {
+                Some(at) => (at + 1, true),
+                None => (available.len(), false),
+            }
+        };
+        reader.consume(used);
+        skipped += used as u64;
+        if terminated {
+            return Ok((skipped, true));
+        }
+    }
 }
 
 /// What one pass over the file read, before any repair decision is taken.
@@ -1314,12 +1475,12 @@ impl Cache for DiskCache {
     fn put(&self, key: CacheKey, value: UnitResult) -> Result<(), CacheError> {
         let shared = Arc::new(value);
         let mut state = self.locked();
-        write_record(
-            &mut state.writer,
+        state.append(
             &Record::Entry {
                 k: key.clone(),
                 v: (*shared).clone(),
             },
+            &self.dir,
         )?;
         state.entries.insert(key, shared);
         Ok(())
@@ -1337,7 +1498,7 @@ impl Cache for DiskCache {
     fn evict(&self, key: &CacheKey) -> Result<(), CacheError> {
         let mut state = self.locked();
         state.entries.remove(key);
-        write_record(&mut state.writer, &Record::Evict { k: key.clone() })
+        state.append(&Record::Evict { k: key.clone() }, &self.dir)
     }
 
     fn get_document_meta(&self, key: &DocumentMetaKey) -> Result<Option<DocumentMeta>, CacheError> {
@@ -1353,12 +1514,12 @@ impl Cache for DiskCache {
         meta: DocumentMeta,
     ) -> Result<(), CacheError> {
         let mut state = self.locked();
-        write_record(
-            &mut state.writer,
+        state.append(
             &Record::DocMeta {
                 k: key.clone(),
                 v: meta.clone(),
             },
+            &self.dir,
         )?;
         state.meta.insert(key, meta);
         Ok(())
@@ -1381,12 +1542,12 @@ impl Cache for DiskCache {
         value: GlossaryExtraction,
     ) -> Result<(), CacheError> {
         let mut state = self.locked();
-        write_record(
-            &mut state.writer,
+        state.append(
             &Record::Glossary {
                 k: key.clone(),
                 v: value.clone(),
             },
+            &self.dir,
         )?;
         state.glossary.insert(key, value);
         Ok(())
@@ -1867,6 +2028,182 @@ mod tests {
             "a never-written log is not a corrupt one"
         );
         assert_eq!(DiskCache::open(&zero).expect("reopens").len(), 1);
+    }
+
+    /// OI-0044 / R0009-0080: a physical line past the replay cap is treated as
+    /// the unreadable line it has to be — skipped, counted, and its bytes
+    /// still charged to the file — and the reader **resyncs**, so the record
+    /// after it replays. The oversize record here is deliberately *valid*: an
+    /// unparseable one would be skipped by the parser either way and would
+    /// prove nothing about the cap.
+    #[test]
+    fn a_line_past_the_replay_cap_is_skipped_and_its_neighbours_replay() {
+        const CAP: u64 = 4096;
+
+        let dir = scratch("transync-diskcache-line-cap");
+        let path = log_path(&dir);
+        let line = |record: &Record| serde_json::to_string(record).expect("records encode");
+
+        let mut text = String::new();
+        text.push_str(&line(&Record::Header {
+            format: CACHE_DISK_FORMAT_VERSION,
+        }));
+        text.push('\n');
+        text.push_str(&line(&Record::Entry {
+            k: key(1),
+            v: result("one"),
+        }));
+        text.push('\n');
+        let oversize = line(&Record::Entry {
+            k: key(2),
+            v: result(&"x".repeat(2 * CAP as usize)),
+        });
+        assert!(
+            oversize.len() as u64 > CAP,
+            "the fixture must exceed the cap"
+        );
+        text.push_str(&oversize);
+        text.push('\n');
+        text.push_str(&line(&Record::Entry {
+            k: key(3),
+            v: result("three"),
+        }));
+        text.push('\n');
+        std::fs::write(&path, &text).unwrap();
+
+        let scan = scan_log(File::open(&path).unwrap(), &path, CAP).expect("a scan never errors");
+        assert!(matches!(scan.header, Header::Ok));
+        assert_eq!(scan.entries.len(), 2, "the oversize record is not replayed");
+        assert!(scan.entries.contains_key(&key(1)), "the record before it");
+        assert!(
+            scan.entries.contains_key(&key(3)),
+            "and the record after it — the reader resynced to the next newline"
+        );
+        assert_eq!(
+            scan.skipped, 1,
+            "counted exactly once, on the same channel as any other line this build cannot use"
+        );
+        assert_eq!(
+            scan.complete_bytes,
+            text.len() as u64,
+            "its bytes still belong to the file, or a later truncation would cut in the wrong place"
+        );
+        assert_eq!(scan.torn_bytes, 0, "nothing here is a torn tail");
+    }
+
+    /// OI-0044 / R0009-0080, the finding's own shape: the header decision is
+    /// taken *after* the read, so a foreign file with no newline anywhere used
+    /// to be materialized whole and only then rejected. The read is bounded
+    /// first, and a first line past the cap cannot be this format's header —
+    /// which is a two-line decision, not a byte-for-byte copy of the file.
+    #[test]
+    fn the_header_decision_does_not_materialize_a_headerless_file() {
+        const CAP: u64 = 512;
+
+        let dir = scratch("transync-diskcache-headerless-cap");
+        let path = log_path(&dir);
+        std::fs::write(&path, "x".repeat(64 * 1024)).unwrap();
+
+        let scan = scan_log(File::open(&path).unwrap(), &path, CAP).expect("a scan never errors");
+        assert!(
+            matches!(scan.header, Header::Unusable),
+            "a first line past the cap is not a format-1 header"
+        );
+        assert_eq!(
+            scan.torn_bytes, 0,
+            "the scan stopped at the cap rather than reading the whole file in to decide"
+        );
+        assert_eq!(scan.complete_bytes, 0, "and it charged the file nothing");
+    }
+
+    /// OI-0044 / R0009-0081: a record at or above the `BufWriter` capacity
+    /// bypasses the buffer into `File::write_all`, which can write part of the
+    /// record and then fail. The writer used to stay installed, so the next
+    /// `put` appended a whole record onto the half-written one and welded two
+    /// lines into one unparseable line — two lost entries where one was
+    /// already lost. The log is **closed** on the first failure instead: the
+    /// partial bytes stay the file's last bytes, which makes them a torn tail,
+    /// the one damage shape replay already repairs without touching a
+    /// neighbour.
+    ///
+    /// A `File` over a non-blocking socket is the failing writer the finding
+    /// needs and no test had: it accepts what fits, answers `WouldBlock`, and
+    /// — unlike a read-only handle — starts accepting again once the peer
+    /// drains, which is the only way to show what a *second* write would do.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_write_closes_the_log_instead_of_writing_past_the_damage() {
+        use crate::test_fixtures::{EventLog, record_events};
+        use std::io::Read;
+        use std::os::fd::OwnedFd;
+        use std::os::unix::net::UnixStream;
+
+        /// Everything the peer end currently holds. Non-blocking, so it
+        /// returns when the socket is empty rather than waiting for a writer
+        /// that will never come.
+        fn drain(socket: &mut UnixStream) -> Vec<u8> {
+            let mut all = Vec::new();
+            let mut chunk = [0u8; 64 * 1024];
+            loop {
+                match socket.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(n) => all.extend_from_slice(&chunk[..n]),
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(e) => panic!("draining the pair's read end: {e}"),
+                }
+            }
+            all
+        }
+
+        let dir = scratch("transync-diskcache-write-failure");
+        let (mut peer, sink) = UnixStream::pair().expect("a socket pair");
+        peer.set_nonblocking(true).expect("non-blocking read end");
+        sink.set_nonblocking(true).expect("non-blocking write end");
+
+        let log = Arc::new(EventLog::default());
+        let said = {
+            let _guard = record_events(Arc::clone(&log));
+            let cache = DiskCache {
+                dir: dir.to_path_buf(),
+                state: Mutex::new(DiskState {
+                    entries: HashMap::new(),
+                    meta: HashMap::new(),
+                    glossary: HashMap::new(),
+                    writer: Some(BufWriter::new(File::from(OwnedFd::from(sink)))),
+                }),
+            };
+
+            let huge = result(&"x".repeat(4 * 1024 * 1024));
+            assert!(
+                cache.put(key(1), huge).is_err(),
+                "the sink stops accepting partway through the record"
+            );
+            assert!(
+                cache.get(&key(1)).unwrap().is_none(),
+                "a record that did not land is not indexed"
+            );
+            assert!(
+                !drain(&mut peer).is_empty(),
+                "the failed write really did land bytes — the partial write this finding is about"
+            );
+
+            assert!(
+                cache.put(key(2), result("small")).is_err(),
+                "the log is closed, so the second record is refused rather than welded on"
+            );
+            assert!(
+                drain(&mut peer).is_empty(),
+                "and nothing at all follows the partial record"
+            );
+            drop(cache);
+            log.messages_on("transync::cache")
+        };
+        assert_eq!(
+            said.iter().filter(|m| m.contains("closed")).count(),
+            1,
+            "the closure is announced once, not once per refused write: {said:?}"
+        );
     }
 
     /// Every `tracing` message a closure emits on this thread, in order.
