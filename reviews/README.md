@@ -15,7 +15,9 @@ false "mis-cited id" report before it was noticed.
 1. **A bare `R0001-NNNN` means `reviews/reviewed/0001.md`** — the round that is on
    disk. Nothing else may be spelled bare.
 2. **A citation of the retired 2026-05-02 round names its file**, the shape
-   `crates/transync-core/src/llm.rs` and commit `beb8481` already use:
+   `crates/transync-core/src/unit/context.rs`,
+   `crates/transync-core/src/validate/full_reparse.rs` and
+   `crates/transync-core/src/pipeline/report.rs` already use:
 
    > `R0001-0026` in the removed `reviews/reviewed/0001.md`
 
@@ -50,7 +52,7 @@ false "mis-cited id" report before it was noticed.
    |---|---|---|
    | `R0002-0087` … `0092` | 2026-05 | the 2026-08 round has 86 findings |
    | `R0003-0087` … `0090` | 2026-08 | the 2026-05 round has 86 |
-   | `R0004-0001` | **2026-05** | the 2026-05 round has exactly one finding, and 28 `TRACE: R0004-0001` comments in `transync-core`/`-syntax` plus archived DCR-0002 and DCR-0004 all mean that external consumer report |
+   | `R0004-0001` | **2026-05** | the 2026-05 round has exactly one finding, and 12 `TRACE: R0004-0001` comments in `transync-core`/`-syntax` plus archived DCR-0002 and DCR-0004 all mean that external consumer report |
    | `R0004-0002` … `0100` | 2026-08 | the 2026-05 round stops at `0001` |
 
    So `R0004` needs **no marker at all** — every id in it is decided by its

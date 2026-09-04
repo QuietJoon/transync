@@ -54,7 +54,7 @@ terms as the JS sync engine, and it is not a supported package.
 
 ## MVP scenarios
 
-`SCN-01` through `SCN-14`. See `scenario-matrix.md` for the canonical contract (Trigger / Input / Expected Output / Verification). `SCN-15` is in the same matrix but is **post-MVP** coverage for the HTML-content translation wave below, not an MVP gate.
+`SCN-01` through `SCN-14`. See `scenario-matrix.md` for the canonical contract (Trigger / Input / Expected Output / Verification). `SCN-15` and `SCN-16` are in the same matrix but are **post-MVP** coverage — SCN-15 for the HTML-content translation wave below, SCN-16 for HTML→HTML document translation (ADR-0025, ti `490d97`) — not MVP gates.
 
 ## Post-MVP feature waves
 

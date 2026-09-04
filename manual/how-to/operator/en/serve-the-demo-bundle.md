@@ -113,12 +113,12 @@ Three checks, cheapest first:
 - **Console.** For a map this engine's version matches, `web/js/sync.js` prints
   `transync: alignment map loaded (schema_version=<the map's own version>)` via
   `console.debug` — some browsers hide `debug` lines behind a "Verbose" level
-  toggle. `1.2.0` is the current wire version
+  toggle. `1.3.0` is the current wire version
   (`ALIGNMENT_SCHEMA_VERSION` in `crates/transync-syntax/src/align.rs`); see
   [the alignment-map schema reference](../../../reference/developer/en/alignment-map-schema.md).
   Read this line carefully rather than as a pass/fail: a same-major map *newer*
-  than 1.2.0 replaces the debug line with a `console.warn` (`… is newer than
-  this engine (1.2.0); proceeding, but sync may be incomplete`) and still
+  than 1.3.0 replaces the debug line with a `console.warn` (`… is newer than
+  this engine (1.3.0); proceeding, but sync may be incomplete`) and still
   syncs, so neither the absence of a debug line nor the presence of a warning
   is by itself a failure.
 
@@ -188,7 +188,7 @@ Worth knowing before pointing `--rendered` at anything other than a bundle:
 | `transync: DOMPurify missing — refusing to mount unsanitized HTML` in the left pane | `purify.min.js` did not load | Almost always the wrong directory — see the `--out-dir`/`html/` distinction above |
 | The page hangs, then `transync: timed out loading <path> after 20000 ms` in the left pane | A server accepted the request and stalled (a hung proxy in front, or a wedged process) | `fetchOk` bounds every artifact at 20 s; restart the server, and check nothing else is bound to that port |
 | Console warns `the … pane is not the offsetParent of its blocks` | The pane lost its non-static `position` — restyled CSS | Fix the CSS. This is the one warning that means sync will be **misaligned** rather than absent |
-| Console warns that a map row's ids disagree, and nothing syncs | Anchors pair by *identical* `data-sync-id`. In an in-band map (same major, not newer than 1.2.0) a row whose `target_block_id` differs from its `source_block_id` is corruption, and the whole map is refused | Regenerate the map, or fix the third-party generator to write the source id into both fields. Only a *forward-minor* map gets the lenient treatment — a warning, then pairing by the source id |
+| Console warns that a map row's ids disagree, and nothing syncs | Anchors pair by *identical* `data-sync-id`. In an in-band map (same major, not newer than 1.3.0) a row whose `target_block_id` differs from its `source_block_id` is corruption, and the whole map is refused | Regenerate the map, or fix the third-party generator to write the source id into both fields. Only a *forward-minor* map gets the lenient treatment — a warning, then pairing by the source id |
 
 The repeating warning families — duplicate `data-sync-id`, map rows with no DOM
 anchor, unknown `sync_role`, non-identity `target_block_id` — cap at five

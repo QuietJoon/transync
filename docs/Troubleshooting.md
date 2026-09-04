@@ -275,7 +275,7 @@ spelling:
 | `rejected_by`         | Likely cause                                                          |
 |-----------------------|-----------------------------------------------------------------------|
 | `"schema"`            | Model returned the wrong unit-id set (most often a refusal).           |
-| `"per_kind_shape"`    | Model changed table column count, list depth, code-fence info, or heading level. |
+| `"per_kind_shape"`    | Model changed table column count, list depth, code-fence info, or heading level — or returned a payload that renders no visible text where the source had some (DCR-0048; the `rejection_reason` string says which). |
 | `"fragment_reparse"`  | Model emitted text that doesn't reparse as the same kind (rare on Structured-Outputs models). |
 
 The other values the field can hold are `"inline"` (a link/image

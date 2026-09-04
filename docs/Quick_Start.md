@@ -43,7 +43,7 @@ reqwest/rustls).
 cargo test --workspace
 ```
 
-13 scenario tests must pass. They drive the full pipeline through an
+14 scenario tests must pass. They drive the full pipeline through an
 in-process `MockTranslator`; no network access is required.
 
 ## 3. First end-to-end run, no API key
@@ -226,5 +226,5 @@ checklist is at `web/SMOKE.md`.
 - **Use transync as a library or extend it:** `docs/Developer_Guide.md`.
 - **Architecture overview:** `docs/architecture/README.md`.
 - **Why each design decision was made:** `docs/decisions/` (ADRs).
-- **The locked design baseline:** `docs/project/design-baseline.md`.
+- **The active design baseline + document authority order:** `docs/project/design-baseline-2026-07.md` (`BL-2026-07-B`); the superseded `BL-2026-05-01-A` record is preserved in `docs/project/design-baseline.md`.
 - **Full CLI argument contract:** `docs/architecture/contracts.md` §6.

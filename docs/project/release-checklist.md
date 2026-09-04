@@ -252,17 +252,21 @@ Run all of them on the exact commit from step 1, and keep the output.
    --workspace`, the standing wasm gate (`cargo check -p transync-syntax -p
    transync-wasm --target wasm32-unknown-unknown`), `cargo test --workspace
    -- --test-threads=4`, the CLI stub suite, the rustdoc gate
-   (`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` over `transync-syntax`,
-   `transync-core`, `transync`, `transync-openai`, and `transync-wasm` —
-   every member with a library target; bin-only `transync-cli` is out),
+   (`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` over `transync-lang`,
+   `transync-html`, `transync-syntax`, `transync-core`, `transync`,
+   `transync-openai`, `transync-anthropic` and `transync-wasm` — every member
+   with a library target, the list owned by `scripts/lib/rustdoc-gate.sh`;
+   bin-only `transync-cli` is out),
    `scripts/build-wasm.sh` with its size budget, and a CLI dry run
    whose eight output files must all be non-empty. Host prerequisites — the
    `wasm32-unknown-unknown` rustup target, `wasm-pack`, and binaryen ≥ 121 —
    fail loudly rather than skipping, by design.
 
-6. **`./scripts/test-browser.sh`** — the headless Playwright suite: SCN-13
-   dual-pane sync plus the Track C wasm demo, including the CLI-vs-browser
-   render parity pin. It regenerates its own CLI fixture and runs
+6. **`./scripts/test-browser.sh`** — the headless Playwright suite. The runner
+   is the authority on coverage: it runs every spec under `web/tests/` —
+   SCN-13 dual-pane sync, the SCN-16 HTML-run bundle through the shipped shell,
+   `sync.js`'s mount contract driven directly, and the Track C wasm demo
+   including the CLI-vs-browser render parity pin. It regenerates its own CLI fixture and runs
    `build-wasm.sh`, so it inherits smoke's prerequisites plus Chromium.
 
 7. **`cargo fmt --all -- --check`** and **`cargo clippy --all-targets
@@ -404,7 +408,7 @@ Run all of them on the exact commit from step 1, and keep the output.
 ## E. Version bump
 
 17. **Bump the version — and the five requirements that shadow it.** `version`
-    under `[workspace.package]` in the root `Cargo.toml`. All eight members
+    under `[workspace.package]` in the root `Cargo.toml`. All nine members
     inherit it through `version.workspace = true`; there is no per-crate
     version to edit. (`crates/transync-wasm` additionally carries `publish =
     false`.)
@@ -448,13 +452,14 @@ Run all of them on the exact commit from step 1, and keep the output.
 
     | # | Member | Publishes | Why |
     |---|--------|-----------|-----|
-    | 1 | `transync-html` | yes | the HTML mechanics layer, under the base crate (DCR-0032) |
-    | 2 | `transync-syntax` | yes | the dependency-free base crate |
-    | 3 | `transync-core` | yes | the pipeline |
-    | 4 | `transync` | yes | the facade — the crate downstreams are meant to name |
-    | 5 | `transync-openai` | yes | the default provider |
-    | 6 | `transync-anthropic` | yes | the second provider (DCR-0029); depends on `transync` only, so it may publish any time after #4 |
-    | 7 | `transync-cli` | yes | the reference binary (`cargo install transync-cli` installs `transync`) |
+    | 1 | `transync-lang` | yes | the source-language gate; depends on no workspace member, so it may publish first (ADR-0028 / DCR-0045) |
+    | 2 | `transync-html` | yes | the HTML mechanics layer, under the base crate (DCR-0032) |
+    | 3 | `transync-syntax` | yes | the base crate; sits on `transync-html` |
+    | 4 | `transync-core` | yes | the pipeline |
+    | 5 | `transync` | yes | the facade — the crate downstreams are meant to name |
+    | 6 | `transync-openai` | yes | the default provider |
+    | 7 | `transync-anthropic` | yes | the second provider (DCR-0029); depends on `transync` only, so it may publish any time after #5 |
+    | 8 | `transync-cli` | yes | the reference binary (`cargo install transync-cli` installs `transync`) |
     | — | `transync-wasm` | **no** (`publish = false`) | a build target for the browser demo, not a library anyone depends on (ADR-0019) |
 
     That set is the reason the root `[workspace.dependencies]` table carries
@@ -610,18 +615,21 @@ Run all of them on the exact commit from step 1, and keep the output.
     and compare against the new tag. v0.4.0's stand-in — the release-prep
     commit URL from step 15 — is spent; both entries name the tag now.
 
-28. **Push, then publish.** Since 2026-08-19 this clone has one remote, named
+28. **Push, then publish.** This clone now has **two** remotes.
     **`backup`** — `/Volumes/Common/git-backup/transync.git`, a bare mirror on
-    the same machine, with `master` tracking `backup/master`. `git push backup
-    master` after the release-prep commit, and after the tag when there is one
-    (`git push backup vX.Y.Z`). That push is not publication; it is the
-    redundancy whose absence made the 2026-08-17 loss unrecoverable
-    (`docs/project/git-history-loss-2026-08-17.md`), and it is the reason the
-    2026-08-19 recurrence cost nothing.
+    the same machine — is the redundancy whose absence made the 2026-08-17 loss
+    unrecoverable (`docs/project/git-history-loss-2026-08-17.md`) and the reason
+    the 2026-08-19 recurrence cost nothing: `git push backup master` after the
+    release-prep commit, and after the tag when there is one
+    (`git push backup vX.Y.Z`). **`origin`** — `github:QuietJoon/transync.git` —
+    is the one the CHANGELOG's compare URLs name, and `master` tracks
+    `origin/main`. Neither push is publication in the crates.io sense; see
+    below.
 
     **Publication is still unwired.** The CHANGELOG's compare URLs name
     `github.com/QuietJoon/transync`, the `repository` field of the root
-    manifest, and no remote points there. Those links resolve only once the
+    manifest, and `origin` now points there — so the remaining gap is the push
+    itself, not the remote. Those links resolve only once the
     commit — and the tag, when there is one — reach it. v0.4.0 has both: the
     release-prep commit and, since 2026-08-20, the `v0.4.0` tag, whose
     `releases/tag/` URL is what starts resolving if that remote is ever wired

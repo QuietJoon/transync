@@ -59,6 +59,14 @@ Translate from {{source_language}} to {{target_language}}.
 …
 """
 
+# Optional — compiled INSTEAD of `prompt` on an `--input-format html` run.
+prompt_html = """
+…
+Each unit's payload is a JSON array of text segments extracted from one
+HTML block; the markup never appears in the payload.
+…
+"""
+
 # Optional
 [constraints]
 preserve_code_identifiers = true
@@ -114,6 +122,7 @@ continues with the value the warning names.
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `prompt` | string | yes | The system prompt template. Participates in cache identity via the compiled prompt hash. |
+| `prompt_html` | string | no | The system prompt an **HTML-document run** compiles instead of `prompt` (DCR-0037). Selected at the cohort-compile door by the run's source format; a profile without it falls back to `prompt` verbatim plus one advisory warning, never a synthesized merge. Participates in cache identity on the same terms. |
 
 Template variables substituted at compile time: `{{source_language}}`,
 `{{target_language}}`. Any other unnamespaced `{{name}}` is reported as a

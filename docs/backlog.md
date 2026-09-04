@@ -1098,7 +1098,7 @@ The precedent for the 1.0.0 → 1.1.0 bump (DCR-0026) was exactly 'a new row sha
 
 #### Background
 
-The registry's rule 4 says verbatim that each number was used once, so `R0002-…` through `R0008-…` are unambiguous bare and need no marker. That is what makes a bare citation resolvable. With three numbers reused, a bare `R0002-0047` has two possible referents and a reader has no way to tell which. The collision is live right now: `reviews/0002.md` exists again today as a fresh `STATUS: CLAIMED` stub. Type 2 and tagged owner-decision because the repair is a choice between renumbering the newer rounds, qualifying every affected citation, or amending the rule and accepting ambiguity — each with a different cost across 508 citations.
+The registry's rule 4 says verbatim that each number was used once, so `R0002-…` through `R0008-…` are unambiguous bare and need no marker. That is what makes a bare citation resolvable. With three numbers reused, a bare `R0002-0047` has two possible referents and a reader has no way to tell which. The collision was observed live on 2026-08-24, when `reviews/0002.md` existed again as a fresh `STATUS: CLAIMED` stub; that transient file is gone today, but the reused numbers and the citations that depend on them are not. Type 2 and tagged owner-decision because the repair is a choice between renumbering the newer rounds, qualifying every affected citation, or amending the rule and accepting ambiguity — each with a different cost across 508 citations.
 
 ### wrapper-ruling-leaves-named-default-stop-elements-exposed
 
@@ -1124,11 +1124,11 @@ The ruling fixed a measured defect: a block whose outermost element is unknown t
 
 #### Description
 
-The HTML→HTML feature: a second intake producing the same block IR, delivered as eight waves. **In flight** — waves 0 and 1 are closed, wave 2 is at seven of eight tasks.
+The HTML→HTML feature: a second intake producing the same block IR, delivered as eight waves. **COMPLETE 2026-09-04** — all eight waves (0–7) landed, recorded in DCR-0032 through DCR-0039.
 
 #### Background
 
-This is the umbrella the current work runs under, and it is recorded here because a backlog that omits the largest open item in the tree is not a census. Waves 0 and 1 landed and are recorded in DCR-0032 and DCR-0033. Wave 2 is the sanctioned breaking window carrying the workspace to `0.5.0-dev`; the remaining order is 2 → 3 → 4 → 5 → 6 → 7, corrected from the spec's original graph by wave 4's deviation 1. It stays type 2 rather than type 1 because it is an epic, not a task: each wave needs its own plan reviewed before it starts, and `ticgit:e77173bb` is a precondition that must be discharged between wave 2 and wave 3. Nothing about it is blocked; it is simply larger than a pick-up-and-start item.
+This was the umbrella the HTML work ran under, recorded here because a backlog that omits the largest open item in the tree is not a census. **All eight waves landed** — DCR-0032 (wave 0) through DCR-0039 (wave 7, 2026-09-04) — and the executed order was 0 → 2 → 3 → 4 → 5 → 6 → 7, corrected from the spec's original graph by wave 4's deviation 1. Retained for the record; it is no longer open work and does not count against the v0.5.0 gate. What the feature deliberately left open has its own entries: `phasing-custom-element-mid-sentence-review` (the owner's §14.1 re-confirmation, `ticgit:84bf37`), `markdown-island-reclassification`, `html-oversize-leaf-block-split` and `parser-intake-markdown-rename`.
 
 ### git-history-lost-twice-standing-record
 
@@ -1292,7 +1292,7 @@ home decided, given there is no CI and the hook is the only automatic gate.
 R0009-0015 alone is settled and cheap. Verification narrowed it twice: the
 smoke/hook split is **documented and deliberate** (`rustdoc-gate.sh` says "What
 keeps it total is the completeness check in `scripts/smoke.sh`") and there is no
-live gap today, since all seven members with a `src/lib.rs` are in
+live gap today, since all eight members with a `src/lib.rs` are in
 `RUSTDOC_GATE_CRATES` — but the check is a pure bash glob with no cargo cost, so
 moving it into the shared library closes the window for free. The fuzz item has
 the strongest expected value in the entry, and it is not speculative: this file

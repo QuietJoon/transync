@@ -35,7 +35,7 @@ at it.
   model-driven dispatch to the OpenAI Chat Completions and Responses
   APIs with strict Structured Outputs; sibling crates can target
   Anthropic, OpenRouter, local llama, or any LLM endpoint.
-- **Layered validation.** Every batch result is checked at six
+- **Layered validation.** Every batch result is checked at seven
   layers: schema, ID-set equality, per-kind shape (table column count,
   list topology, code-fence info, heading level, blockquote children),
   fragment reparse, visible-text presence (a translation that erases every
@@ -130,7 +130,7 @@ The mechanism:
   Book) and you can drop in more via additional
   `body[data-theme="…"] .pane …` rules. Choice persists in
   `localStorage["transync.theme"]`.
-- **Schema-versioned alignment map** (`schema_version: "1.2.0"`).
+- **Schema-versioned alignment map** (`schema_version: "1.3.0"`).
   Consumers MUST reject unknown majors; minor/patch additions are
   backward-compatible.
 
@@ -140,7 +140,7 @@ pipeline and just want the dual-pane sync — your inputs are:
 1. The annotated HTML pane fragments (`source.html`, `target.html`)
    with `data-sync-id` on every sync-relevant block (non-sync rows such
    as thematic breaks omit it — see DCR-0007 / contracts §4).
-2. An alignment map JSON conforming to `schema_version 1.2.0`.
+2. An alignment map JSON conforming to `schema_version 1.3.0`.
 
 Then `mountSync(sourcePane, targetPane, alignmentMap)` from
 `web/js/sync.js`. It returns a controller, or **`null`** when it refuses
@@ -157,12 +157,12 @@ contracts are in `docs/architecture/contracts.md` §3 and §4.
                                                                     ▼
                                                           per-batch result
                                                                     │
-                              regenerated MD  ◀── regen ◀── validate (6 layers)
+                              regenerated MD  ◀── regen ◀── validate (7 layers)
                                        │
                           ┌────────────┴────────────┐
                           ▼                         ▼
                     AlignmentMap                 source.html
-                    (schema 1.2.0)               target.html
+                    (schema 1.3.0)               target.html
                           │                         │
                           └─────────┬───────────────┘
                                     ▼
@@ -181,6 +181,7 @@ map; the scroll-sync feature is everything to the right.
 ```
 transync/
 ├── crates/
+│   ├── transync-lang/        source-language gate — "should a translation run start at all?"; depends on no workspace member, carries no serialization (ADR-0028 / DCR-0045)
 │   ├── transync-html/        HTML mechanics: tag scan, element extents, segment extract/splice, fragment balancing; lol_html + htmlize only (DCR-0032)
 │   ├── transync-syntax/      syntax layer (parser, id, regen, render, align, outcome, walk); compiles for wasm32 under a standing gate
 │   ├── transync-core/        pipeline on top (unit, batch, llm, validate, cache, profile, pipeline); no HTTP, no LLM dep
@@ -249,8 +250,8 @@ the value is already `scripts/hooks`, re-running is a one-line no-op.
 
 **The rustdoc gate** (DCR-0018, widened to `transync-openai` on
 2026-08-07) keeps `cargo doc` warning-free for **every workspace member
-that has a library target** — `transync-html`, `transync-syntax`, `transync-core`,
-`transync`, `transync-openai`, `transync-anthropic`, `transync-wasm`. `transync-cli` is the one
+that has a library target** — `transync-lang`, `transync-html`, `transync-syntax`,
+`transync-core`, `transync`, `transync-openai`, `transync-anthropic`, `transync-wasm`. `transync-cli` is the one
 member outside it, and deliberately: it is bin-only, with no public API
 to document. Its usual failure is an intra-doc link from a public item to
 a private sibling: either widen the linked item or de-link the prose to
@@ -375,7 +376,7 @@ Key types you'll touch:
 | `TranslationOutput`                | Returns translated MD, the alignment map, source + target annotated HTML, validation report, and detected language. |
 | `Translator` (trait)               | The LLM boundary. Either bring your own or use `transync-openai`. |
 | `Cache` (trait) + `InMemoryCache`  | Skip the cache to use the default one inside `translate()`, or call `translate_with_cache()` to share a cache across calls. |
-| `AlignmentMap`                     | The serializable output the JS sync engine consumes (`schema_version: "1.2.0"`). |
+| `AlignmentMap`                     | The serializable output the JS sync engine consumes (`schema_version: "1.3.0"`). |
 | `BlockId`, `BlockKind`             | Stable per-block identifier and the block-kind enum. |
 
 Reusing a cache across calls (partial-resume across runs):
@@ -1369,7 +1370,7 @@ the alignment map JSON directly:
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "document_id": "a91f2c0d2e1bbb40",
   "source_language": "en",
   "target_language": "ko",

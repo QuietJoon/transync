@@ -35,7 +35,7 @@ Owners are named by their **owning crate and module**. Since 2026-08-04 (DCR-001
 | Concern                                  | Owner                                        | Why it can't move |
 |------------------------------------------|----------------------------------------------|-------------------|
 | Translated Markdown serialization        | `transync-syntax::regen`                            | Fence regeneration, table reserialization, AST splice all live here. |
-| `AlignmentMap` JSON shape (`schema_version` `1.2.0`) | `transync-syntax::align`                  | Renderer + JS sync engine + post-render consumers all read this; one writer. The wire types themselves are curated API — name them at the `transync` crate root. |
+| `AlignmentMap` JSON shape (`schema_version` `1.3.0`) | `transync-syntax::align`                  | Renderer + JS sync engine + post-render consumers all read this; one writer. The wire types themselves are curated API — name them at the `transync` crate root. |
 | Annotated HTML attribute set             | `transync-syntax::render`                           | `data-sync-id`, `data-block-kind`, `data-order`, `data-fallback` are the whole emitted set, plus `data-skipped` on the `<pre>` placeholders. `data-parent-id` is **RESERVED and never emitted** — the parser is leaf-block, so no rendered block carries one (`contracts.md` §4, authoritative). |
 | HTML sanitization in the browser         | Demo shells via vendored DOMPurify 3.2.6 (`web/vendor/purify.min.js`; CLI bundle ships a byte-identical copy) | Both shells sanitize fetched fragments before `innerHTML` and fail closed when DOMPurify is absent (OI-0001 [archived], resolved 2026-07-10). External consumers mounting fragments still own their own sanitization. |
 

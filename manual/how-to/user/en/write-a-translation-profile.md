@@ -203,12 +203,13 @@ what you have.
 
 ## Other recipes, and the full key list
 
-This page covers one of the Profile Cookbook's five recipes. The other four — literary
-prose, marketing copy, code-heavy tutorials, and strict-preserve/minimum-touch — follow
-the same drop-in-and-`--profile`-it workflow; see
+This page covers one of the Profile Cookbook's six recipes. The other five — literary
+prose, marketing copy, code-heavy tutorials, strict-preserve/minimum-touch, and a
+section-scoped glossary for one term with two meanings — follow the same
+drop-in-and-`--profile`-it workflow; see
 [`docs/Profile_Cookbook.md`](../../../../docs/Profile_Cookbook.md) for their prompts and
-when to reach for each one. All five predate section scope, so none of them shows a
-`sections` list.
+when to reach for each one. Recipes 1–5 predate section scope and show no `sections`
+list; recipe 6 is the one written for it.
 
 For every key the profile TOML accepts, its constraints, and how a CLI flag overlays a
 profile value, see the

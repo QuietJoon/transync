@@ -214,13 +214,13 @@ wrong file:
 
 - **`schema mismatch: wasm <x> vs demo <y>`** compares the *module's*
   `schema_version()` against the demo JS's own compiled-in constant
-  (`KNOWN_SCHEMA = "1.2.0"` in `web/js/wasm-demo.js`). **The fetched alignment
+  (`KNOWN_SCHEMA = "1.3.0"` in `web/js/wasm-demo.js`). **The fetched alignment
   map is not involved in this check at all**, so regenerating the map cannot
   fix it. The remedy is rebuilding the module (step 1) against the current
   tree, or updating `web/js/wasm-demo.js` — whichever of the two is behind.
 - The **fetched map** is judged separately, by a different gate with different
   outcomes: a `schema_version` that is not major 1 is fatal (`… is not major 1
-  (demo speaks 1.2.0) — refusing to mount`), while a same-major *newer* version
+  (demo speaks 1.3.0) — refusing to mount`), while a same-major *newer* version
   is only a `console.warn` (`proceeding, but rendering may be incomplete`) and
   the demo continues.
 
@@ -282,9 +282,10 @@ recovery; the strip clears on the next clean rebuild.
 
 `scripts/test-browser.sh` runs `scripts/build-wasm.sh` as part of its own run,
 assembles this demo leg on top of a generated CLI bundle inside its scratch
-fixture directory, and drives it headless. The suite is 30 tests across three
-spec files — `web/tests/scn13.spec.js` (12), `web/tests/engine.spec.js` (9) and
-`web/tests/wasm.spec.js` (9). Playwright serves the fixture on loopback
+fixture directory, and drives it headless. The runner is the authority on coverage — it runs
+every spec under `web/tests/`: `web/tests/scn13.spec.js`,
+`web/tests/engine.spec.js`, `web/tests/wasm.spec.js` and
+`web/tests/scn16.spec.js`. Playwright serves the fixture on loopback
 `127.0.0.1:4319` with `transync serve` when the script hands it a binary via
 `TRANSYNC_SERVE_BIN`, and with a small Node stand-in otherwise.
 

@@ -119,7 +119,7 @@ Everything is written and fsynced into a staged sibling directory
 `.<name>.staging.<pid>.<token>` — the token random per run, the directory
 created rather than adopted, so every sibling the publish deletes is one it
 made (R0002-0001) — then renamed into place. The published directory
-always contains `out.md`, `alignment.json`, `validation-report.json`, an
+always contains the run's translated document (`out.md` for a Markdown run, `out.html` for an `--input-format html` run — one of the two, never both), `alignment.json`, `validation-report.json`, an
 `html/` subdir holding the six-file bundle, and a `.transync-out-dir`
 **ownership marker** (ti `66339b`, OI-0036) staged with the rest, so the tree
 carries it from the instant it exists.

@@ -8,8 +8,8 @@ Document authority is governed by the hierarchy in `../project/design-baseline-2
 
 ## What this is
 
-A Rust library that translates GFM-compatible Markdown documents using a consumer-supplied LLM, then emits:
-1. **Regenerated translated Markdown** that reparses cleanly under the same dialect.
+A Rust library that translates GFM-compatible Markdown documents — and, since ADR-0025 (ti `490d97`), whole HTML documents through the same pipeline and the same block IR — using a consumer-supplied LLM, then emits:
+1. **A regenerated translated document** that reparses cleanly under the same dialect (`out.md` for a Markdown run, `out.html` for an `--input-format html` run).
 2. **An alignment map** linking source blocks to target blocks by stable ID.
 3. **Annotated HTML** for both panes, ready for browser-side block-level scroll sync.
 
@@ -27,7 +27,7 @@ The application — not the LLM — owns block IDs, table shape, list topology, 
 | Batch manager            | `crates/transync-core` (`batch` mod + `unit::section`) | Section-coherent packing: the unit list is partitioned at every heading (`unit::section`), then each section is packed by the sequential token-budget packer (consumer-driven via `TranslateOptions`). No batch straddles a section boundary; an oversize section splits inside itself (DCR-0027) |
 | Translator trait         | `crates/transync-core` (`llm` mod)     | HTTP-free contract: `translate_batch(batch, cancel) -> result` + `fingerprint()` for cache namespacing; the `cancel` token is the run's (DCR-0024, contracts.md §5b) |
 | Translation cache        | `crates/transync-core` (`cache` mod)   | `Cache` trait v2 (`get`/`put`/`evict`, fallible); `CacheKey` identity; provisional results, hits re-validated (ADR-0015) |
-| Validator                | `crates/transync-core` (`validate` mod)| Layered: schema → IDs → per-kind → fragment reparse → inline protection → full reparse |
+| Validator                | `crates/transync-core` (`validate` mod)| Layered: schema → IDs → per-kind → fragment reparse → visible-text presence → inline protection → full reparse |
 | Regenerator              | `crates/transync-syntax` (`regen` mod) | Splice translated fragments + reserialize tables / fences |
 | Alignment map generator  | `crates/transync-syntax` (`align` mod) | Source-target block map with fallback status |
 | Renderer                 | `crates/transync-syntax` (`render` mod) | GFM AST → annotated HTML with sync attributes, one whole-document parse per pane (DCR-0017); raw-HTML blocks render live (auto-balanced) or as the escaped failure placeholder |
@@ -73,6 +73,7 @@ source.md
                                         │     │ schema / ID-set               │
                                         │     │  → per-kind shape             │
                                         │     │  → fragment reparse           │
+                                        │     │  → visible-text presence      │
                                         │     │  → inline protection          │
                                         │     └───────┬──────────────┬────────┘
                                         │      reject │              │ pass
@@ -139,7 +140,7 @@ These are the rules every implementation slice must respect. (Earlier phrasings 
 2. **LLM owns content; application owns structure.**
 3. **Tables translate as whole blocks**, never cell-by-cell. Since DCR-0026 a table whose estimated response exceeds the run's output ceiling is split at *packing* time into header-carrying row windows — each window is itself a complete GFM table — and merged back into one block before regeneration, so no window id ever reaches the alignment map or the DOM. `[constraints].default_table_strategy` selects it (`"row-window-first"`, the shipped default profile's value, vs `"whole-block"`, which every unset or unrecognized value resolves to); the CLI exposes it as `--table-strategy`. Isolated cell translation stays rejected, not deferred.
 4. **Code blocks are full fenced-block units;** Rust validates and safely re-wraps the fence.
-5. **Layered validation** — schema → ID set → per-kind shape → fragment reparse → inline protection → full-document reparse — with retry then fallback to source. Unit validity is two-tier: per-unit acceptance is *provisional* (and cached); only survival of the post-regeneration full-document reparse is *final* (contracts §5a).
+5. **Layered validation** — schema → ID set → per-kind shape → fragment reparse → visible-text presence → inline protection → full-document reparse — with retry then fallback to source. Unit validity is two-tier: per-unit acceptance is *provisional* (and cached); only survival of the post-regeneration full-document reparse is *final* (contracts §5a).
 6. **Source content is data, not instructions.**
 7. **Static-document assumption.** ID survival across edits is a non-goal.
 8. **Browser must not parse Markdown independently.** Use Rust-generated annotated HTML or Rust WASM. Parser divergence breaks anchor stability. Since 2026-08-04 (DCR-0017) the WASM half of that sentence has a compile path: the whole syntax layer lives in `crates/transync-syntax`. **Since 2026-08-05 (ADR-0019 / DCR-0020) it is an executed path too**: `crates/transync-wasm` ships wasm-bindgen entry points and `web/demo-wasm.html` renders both panes in the browser with the same Rust renderer — byte-identically to the CLI's fragments, pinned as a standing Playwright gate. The gate line is now `cargo check -p transync-syntax -p transync-wasm --target wasm32-unknown-unknown` in the tracked pre-commit hook — `scripts/hooks/pre-commit`, the only copy, which `scripts/install-hooks.sh` points `core.hooksPath` at while deleting a legacy `.git/hooks` shadow only when it is byte-identical to the tracked hook — a differing file is kept and reported, never deleted (R0001-0038) — and in `scripts/smoke.sh`. What remains deliberately undone is **CLI bundle integration**: the module is ~41× the entire JS payload and a bundle already ships the rendered HTML that its view mode reproduces.

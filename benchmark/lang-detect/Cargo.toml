@@ -1,6 +1,6 @@
 # Standalone on purpose: the `[workspace]` table below detaches this crate from
 # the root workspace, so `cargo test --workspace` never builds it and the
-# publication roster stays at seven. See ../README.md.
+# publication roster is unaffected (it is eight members). See ../README.md.
 [workspace]
 
 [package]

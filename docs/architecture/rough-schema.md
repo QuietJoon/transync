@@ -122,7 +122,7 @@ Block {
 > `None` — the walker is leaf-block and never recurses). The `Section` type
 > survives, shape-frozen and with no producer, as the projection target for a
 > future hierarchical-alignment revision. **The wire is unaffected:**
-> `AlignmentBlock.parent_id` below stays in schema `1.2.0` as a reserved,
+> `AlignmentBlock.parent_id` below stays in schema `1.3.0` as a reserved,
 > always-`null` field. The same edit corrected two older drifts in this
 > sketch: the `Document` IR holds no owning `ast` handle (the arena is local
 > to each parse), and it does carry the DCR-0013 `ref_defs` pool.
@@ -326,13 +326,13 @@ ProfileRender {
 }
 ```
 
-## 11. `AlignmentMap` (durable JSON — schema_version 1.2.0)
+## 11. `AlignmentMap` (durable JSON — schema_version 1.3.0)
 
 The on-disk JSON shape. The full schema is in `contracts.md` §3.
 
 ```
 AlignmentMap {
-  schema_version: "1.2.0",
+  schema_version: "1.3.0",
   document_id: String,             // hex SipHash13 of full source
   source_language: String,
   target_language: String,

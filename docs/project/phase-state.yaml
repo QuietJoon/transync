@@ -421,7 +421,9 @@ project:
     never green. The v0.5.0 cut is a separate owner decision via the release
     checklist.
     sync_js_drift green at zero edits to either test file. WAVE 7 - the
-    browser gate and closure - IS THE LAST and remains unstarted. NOTHING IS RELEASED FROM AN OPEN WINDOW - the
+    browser gate and closure - IS THE LAST, and was unstarted as of this wave-6
+    entry; it LANDED 2026-09-04 and is recorded in the wave-7 paragraph above.
+    NOTHING IS RELEASED FROM AN OPEN WINDOW - the
     most recent release is still v0.4.0, and the owner's condition for closing
     this one (stated 2026-08-24) is that 0.5.0 proper ships only after every
     REGISTERED TASK and every OPEN ISSUE is resolved, excluding those
@@ -1007,6 +1009,10 @@ design:
     - DCR-0042-raw-text-is-an-html-content-state
     - DCR-0043-voidness-is-an-html-content-rule
     - DCR-0044-the-row-decides-the-anchor
+    - DCR-0045-transync-lang-source-language-gate
+    - DCR-0046-offline-runs-from-a-warm-cache
+    - DCR-0047-the-balancer-repairs-an-unterminated-trailing-region
+    - DCR-0048-visible-text-presence-is-a-validation-layer
   rewind_required_to_phase: null
   status: handoff_complete
 

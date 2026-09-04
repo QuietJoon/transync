@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **The sanctioned v0.5.0 breaking window is OPEN.** It was opened by wave 2 of
 the HTML→HTML feature (ti `490d97`, ADR-0025, DCR-0034), which splits semantic
-kind from source spelling in the block IR. **Five** breaking-by-policy changes
+kind from source spelling in the block IR. **Six** breaking-by-policy changes
 ride the window. Wave 2 contributes four, batched, and none of the four is
 user-visible: the corpus regenerates, renders and aligns byte-identically with
 zero fixture edits. The fifth is not wave 2's — `transync-openai`'s unreachable
 `ProviderError::RateLimited` was removed under this window by the review-0009
-fix pass (`8d4efda`, DCR-0040 §3). Additive changes land here as they come;
+fix pass (`8d4efda`, DCR-0040 §3) — and neither is the sixth:
+`transync_html::TagToken::Skip` gained `kind` and `terminated` under it
+(ti `c1f9a8`, DCR-0047), listed first below. Additive changes land here as they come;
 further breaking changes may ride this window until it is closed by the v0.5.0
 release.
 
@@ -29,7 +31,7 @@ release.
 
 - **`TranslatorError` gains `NoProviderAvailable(String)`**, stable code `provider_unavailable`, exiting **6** (ti `30a744`). Additive on a `#[non_exhaustive]` enum, so a consumer's `match` is unaffected. It is its own variant rather than a message inside `Unsupported` because that variant's exit code (5) deliberately means "the CLI cannot tell a configuration fault from a document one", and an offline run that missed is unambiguously the caller's configuration with the caller's remediation. The `stable_code()` vocabulary is append-only, so this is a new code and not a reinterpretation of `provider_unsupported`.
 - **The HTML→HTML feature's closure paperwork** (ti `490d97` wave 7, DCR-0039): the browser-suite weld pins four spec files (`SPEC_FILES`, the mention list and the panic message's advice moving in one commit with all three documents that must name them — ticket `729ec8`'s rule); `scenario-matrix.md` gains SCN-16's row, the `title` and HTML-document block-kind rows, and one out-of-scope bullet recording what ADR-0025 leaves out; the **serve fidelity door** is documented (`transync serve` over an HTML run's out-dir is how you see the real page — the panes are a sync surface, never a fidelity preview); and `README.md` / `docs/Quick_Start.md` stop describing a Markdown-only library. **All eight waves have landed — the feature is complete.** Cutting v0.5.0 remains a separate owner decision via `docs/project/release-checklist.md`.
-- **The HTML mechanics moved to their own workspace member, `transync-html`** (ti `490d97` wave 0, DCR-0032). `transync-syntax::htmlseg` is gone with no re-export alias; `transync-syntax` and `transync-core` depend on the new crate, and `transync-syntax` no longer depends on `lol_html` or `htmlize`. Nothing on the `transync` facade's surface moves — the mechanics were always tier (c) engine internals. The publication roster is seven members.
+- **The HTML mechanics moved to their own workspace member, `transync-html`** (ti `490d97` wave 0, DCR-0032). `transync-syntax::htmlseg` is gone with no re-export alias; `transync-syntax` and `transync-core` depend on the new crate, and `transync-syntax` no longer depends on `lol_html` or `htmlize`. Nothing on the `transync` facade's surface moves — the mechanics were always tier (c) engine internals. That wave took the publication roster to seven members; `transync-lang` later made it eight — see the `transync-lang` entry below.
 - `transync_html::splice` takes a `BlankLinePolicy` instead of a CommonMark block-type `u8`; `BlankLinePolicy::from_commonmark_html_block_type` is the one surviving home of the `6 | 7` rule.
 - Every html dispatch site is re-keyed onto the axis it meant — `Spelling::Html` for IR questions, `InputMode::HtmlSegments` for unit questions, `constraints.html` for the layer-3 splice. Behaviour-preserving today, by three-way set identity; the point is what it will mean once an HTML document's `<p>` is a `Paragraph` that ships a segment array.
 - The GFM row-window table splitter now excludes html-segments units **explicitly**, with a test. `inspect_table` would have refused one anyway; an accident is not a guard.

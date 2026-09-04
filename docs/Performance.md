@@ -263,7 +263,7 @@ there the layer labels are `ValidationLayer` variants
 |---|---|
 | Every `per_unit[*].attempts` holds one row, `attempt_number: 1` | Healthy run; latency is provider-bound. |
 | Many units hold several rows with `rejected_by: "per_kind_shape"` | Model is mangling tables/lists. Switch to a Structured-Outputs-strict model. |
-| Units hold a row with `attempt_number: 0` | A cache hit, not a round-trip. From the CLI this only ever means a hit *within* this run (a block whose source and context match one already translated) — each process starts with an empty cache. |
+| Units hold a row with `attempt_number: 0` | A cache hit, not a round-trip. Without `--cache-dir` it can only be a hit *within* this run (a block whose source and context match one already translated), since that process starts with an empty cache; with `--cache-dir` it may also be a hit replayed from a previous run's disk cache. |
 | `total_retries` high, `total_fallbacks` low | Validation pass rate is low but recovery works. Can be acceptable; tune the prompt for higher first-pass yield. |
 | `total_fallbacks` high | The model genuinely cannot translate. Different prompt or different model. |
 | `provider_retries` above zero | Transient transport failures (network, 429) the pipeline absorbed. Each one cost a backoff sleep, so they show up as wall-clock with nothing to blame in the attempt rows. |
@@ -280,13 +280,16 @@ consulted per unit, and cached units are dropped from the dispatch
 set (a fully cached batch dispatches nothing). What that is worth
 depends entirely on who owns the cache:
 
-- **The CLI owns none.** `translate()` constructs a fresh
-  `InMemoryCache` per call and drops it when the call returns, so every
-  `transync translate` process starts cold and re-running the same
-  document re-translates every unit. The only hits a CLI run can take
-  are within one run — two blocks whose source bytes and context agree
-  reuse one entry, and the second appears as an `attempt_number: 0`
-  row.
+- **The CLI owns one only if you ask for it.** `translate()` constructs a
+  fresh `InMemoryCache` per call and drops it when the call returns, so a
+  `transync translate` run *without* `--cache-dir` starts cold and
+  re-translates every unit; its only hits are within the one run — two
+  blocks whose source bytes and context agree reuse one entry, and the
+  second appears as an `attempt_number: 0` row. **With `--cache-dir` the
+  run opens a disk-backed cache** (`DiskCache`, DCR-0028 / ADR-0021) that
+  outlives the process, so a re-run of the same document against the same
+  configuration can be served entirely from it — which is what
+  `--offline` (DCR-0046) depends on.
 - **A caller that keeps one hits it.** Hand your own cache to
   `translate_with_cache(source, &opts, &translator, &cache)` — the
   facade exports both the `Cache` trait and `InMemoryCache` — and a

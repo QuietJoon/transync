@@ -214,12 +214,12 @@ is a complete GFM table and is translated exactly like a whole one.
 
 ## 3. Map provider failures onto `TranslatorError`
 
-`TranslatorError` is `#[non_exhaustive]` and has **thirteen** variants at
+`TranslatorError` is `#[non_exhaustive]` and has **fourteen** variants at
 HEAD — `Network`, `Authentication`, `RateLimited { retry_after }`,
 `MalformedResponse`, `Unsupported`, `ContentFiltered`,
 `OutputCeilingExhausted`, `ContextWindowExceeded`, `ModelRefused`,
-`ResponseTooLarge`, `ProviderRejected { status, message }`, `Cancelled`,
-`Other`. Match it with a wildcard arm; the full table, with each variant's
+`ResponseTooLarge`, `ProviderRejected { status, message }`,
+`NoProviderAvailable`, `Cancelled`, `Other`. Match it with a wildcard arm; the full table, with each variant's
 stable code, is in the
 [reference](../../../reference/developer/en/translator-trait.md).
 

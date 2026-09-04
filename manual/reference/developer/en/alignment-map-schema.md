@@ -57,12 +57,13 @@ are the same either way. Flags and exit codes are in
 
 | Key | JSON type | Value |
 |---|---|---|
-| `schema_version` | string | `"1.2.0"` at HEAD. See below. |
+| `schema_version` | string | `"1.3.0"` at HEAD. See below. |
 | `document_id` | string | 16 lowercase hex digits — SipHash-1-3 (keys `0, 0`) over the parsed source text. |
 | `source_language` | string | `TranslateOptions::source_language` verbatim, including the literal `"auto"`. Nothing parses, validates or case-folds the label. |
 | `target_language` | string | `TranslateOptions::target_language` verbatim, on the same terms. |
 | `detected_source_language` | string or `null` | The language a provider envelope reported for this run, or — for a run that dispatched **zero** provider batches, every unit served from cache — the value replayed from the document-metadata store. `null` when neither applies. |
-| `generator` | object | `{ "name": "transync", "version": "<crate version>" }`. The version is `transync-syntax`'s own package version, which is the workspace version (`0.3.0` at HEAD). |
+| `input_format` | string | Which intake produced the document — `"markdown"` or `"html"` (schema 1.3.0). A run's *intake*, not a block's spelling. |
+| `generator` | object | `{ "name": "transync", "version": "<crate version>" }`. The version is `transync-syntax`'s own package version, which is the workspace version (`0.5.0-dev` at HEAD). |
 | `blocks` | array | One row per top-level source block, in source order. See [Block rows](#block-rows). |
 | `validation_summary` | object | Run-level tallies. See [validation_summary](#validation_summary). |
 
@@ -73,13 +74,16 @@ older minor read a newer map.
 
 ## `schema_version`
 
-The current wire version is **`1.2.0`**. Its single Rust source of truth is
+The current wire version is **`1.3.0`**. Its single Rust source of truth is
 `ALIGNMENT_SCHEMA_VERSION` in `crates/transync-syntax/src/align.rs`, which is
 also on the public surface as `transync::ALIGNMENT_SCHEMA_VERSION` and is what
 the wasm module's `schema_version()` export returns.
 
 Version history, all additive: `1.1.0` added the `"skipped"` `block_kind`
-value (DCR-0013), `1.2.0` added the `"html"` value (ADR-0018 / DCR-0016).
+value (DCR-0013), `1.2.0` added the `"html"` value (ADR-0018 / DCR-0016),
+`1.3.0` added the per-row `source_format`, the map-level `input_format`, and
+the `"title"` value riding the `non-sync` role shipped since 1.0
+(ADR-0025 / DCR-0038).
 
 **Policy.** The field is semver. A major bump is breaking. A minor or patch
 bump may add fields and may add enumerated values. Consumers must reject an
@@ -95,8 +99,8 @@ overlong component cannot become `Infinity` and read as forward drift forever.
 
 | Consumer | Its constant | Same version, or older same-major | Same major, newer | Unknown major, or malformed |
 |---|---|---|---|---|
-| `web/js/sync.js` — `loadAlignment` | `KNOWN_SCHEMA = { major: 1, minor: 2, patch: 0 }` | `console.debug`: `transync: alignment map loaded (schema_version=<v>)`; mounts | `console.warn`: `…is newer than this engine (1.2.0); proceeding, but sync may be incomplete`; mounts, and two row rules relax (below) | `console.warn`: `rejecting alignment map with unknown major schema_version=<v>`; `mountSync` returns `null` and the panes stay unwired |
-| `web/js/wasm-demo.js` — `alignmentSchemaVerdict` | `KNOWN_SCHEMA = "1.2.0"` | mounts | `console.warn`: `…is newer than this demo (1.2.0); proceeding, but rendering may be incomplete` | fatal panel: `alignment map schema_version=<v> is not major 1 (demo speaks 1.2.0) — refusing to mount` |
+| `web/js/sync.js` — `loadAlignment` | `KNOWN_SCHEMA = { major: 1, minor: 3, patch: 0 }` | `console.debug`: `transync: alignment map loaded (schema_version=<v>)`; mounts | `console.warn`: `…is newer than this engine (1.3.0); proceeding, but sync may be incomplete`; mounts, and two row rules relax (below) | `console.warn`: `rejecting alignment map with unknown major schema_version=<v>`; `mountSync` returns `null` and the panes stay unwired |
+| `web/js/wasm-demo.js` — `alignmentSchemaVerdict` | `KNOWN_SCHEMA = "1.3.0"` | mounts | `console.warn`: `…is newer than this demo (1.3.0); proceeding, but rendering may be incomplete` | fatal panel: `alignment map schema_version=<v> is not major 1 (demo speaks 1.3.0) — refusing to mount` |
 
 The wasm demo runs a second, unrelated check earlier in its boot: it compares
 the module's `schema_version()` against its own `KNOWN_SCHEMA` constant and
@@ -107,7 +111,7 @@ in that comparison.
 warning: an unrecognized `sync_role` is treated as a scroll anchor, and a
 non-identity `target_block_id` is paired by the source id. Each warning prints
 for the first five occurrences and then once more with a suppressed tally.
-Either value in an in-band map (same major, not newer than `1.2.0`) is
+Either value in an in-band map (same major, not newer than `1.3.0`) is
 corruption and the map is refused.
 
 The three JS mirrors of the version are welded to the Rust constant by
@@ -132,6 +136,7 @@ addressed.
 | `source_block_id` | string | The block's stable id. |
 | `target_block_id` | string | Equal to `source_block_id` in every row this project emits — normative for schema 1.x. |
 | `block_kind` | string | Kebab-case wire form of the block kind. |
+| `source_format` | string or absent | How the source *wrote* this block — `"markdown"` or `"html"` (schema 1.3.0). A reader seeing it absent resolves it as `block_kind == "html" ? "html" : "markdown"`, never as a bare markdown default. |
 | `source_order` | number (u32) | The block's 0-based index in source order. |
 | `target_order` | number (u32) | Equal to `source_order` in every row this project emits. |
 | `source_range` | object | `{ "start": <byte>, "end": <byte> }` into the source document. |
@@ -148,7 +153,7 @@ render path reads `target_order`.
 ### `source_block_id`, `target_block_id`, and the pairing rule
 
 Ids have the form `<kind-code>-<NNNN>`: a kind prefix — `h1`…`h6`, `p`, `t`,
-`c`, `li`, `q`, `hr`, `img`, `html`, `x` — then a document-wide 1-based
+`c`, `li`, `q`, `hr`, `img`, `html`, `title`, `x` — then a document-wide 1-based
 counter, zero-padded to four digits and wider past 9999. The counter runs
 across all kinds, so `h1-0001` is followed by `p-0002`. The same string is the
 `data-sync-id` attribute on the block's rendered wrapper in both panes.
@@ -201,10 +206,10 @@ values it does not recognize, which is what makes an added kind a minor bump.
 
 | Value | Emitted for | Meaning |
 |---|---|---|
-| `anchor` | every kind except thematic break and block quote — headings, paragraphs, tables, code blocks, list items, images, html blocks, and `skipped` placeholders | the row anchors scroll in both panes |
+| `anchor` | every kind except thematic break, block quote and an HTML document's `<title>` — headings, paragraphs, tables, code blocks, list items, images, html blocks, and `skipped` placeholders | the row anchors scroll in both panes |
 | `container` | block quotes | anchors scroll; the wrapper holds other content |
 | `child-only` | never | RESERVED for a future nested-anchor scheme (DCR-0007 left the parser leaf-block) |
-| `non-sync` | thematic breaks | no DOM anchor exists; the block renders as a bare `<hr>` |
+| `non-sync` | thematic breaks, and an HTML document's `<title>` (schema 1.3.0) | no DOM anchor exists — a thematic break renders as a bare `<hr>`, and a `title` is translated and aligned but rendered by the browser chrome rather than either pane |
 
 `sync.js` acts on `non-sync` alone — every other known role means "this row
 anchors scroll". A role outside the four is refused in an in-band map and
@@ -351,12 +356,12 @@ Illustration only — two rows of a real map:
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "document_id": "a91f2c0d2e1bbb40",
   "source_language": "en",
   "target_language": "ko",
   "detected_source_language": "en",
-  "generator": { "name": "transync", "version": "0.3.0" },
+  "generator": { "name": "transync", "version": "0.5.0-dev" },
   "blocks": [
     {
       "source_block_id": "h1-0001",

@@ -1,7 +1,7 @@
 ---
 type: Explanation
 title: Why layered validation and bounded retry/fallback
-description: Why the pipeline checks a translation through six independent layers instead of trusting the schema, why the one layer that reads content twice had to be widened before it was right, why retries resubmit verbatim instead of coaching the model, which seams are allowed to refuse rather than degrade, and where the fallback paper trail is thinner than it looks.
+description: Why the pipeline checks a translation through seven independent layers instead of trusting the schema, why the one layer that reads content twice had to be widened before it was right, why retries resubmit verbatim instead of coaching the model, which seams are allowed to refuse rather than degrade, and where the fallback paper trail is thinner than it looks.
 tags: [architecture, validation, ADR-0009, ADR-0017, ADR-0018, DCR-0025, DCR-0026, DCR-0048]
 audience: developer
 language: en
@@ -53,7 +53,9 @@ the pipeline checks the ID set (nothing missing, nothing extra, no
 duplicates), then per-block-kind shape (table columns, list depth,
 blockquote children, code-fence metadata, heading level, raw-HTML segment
 count), then re-parses the translated fragment under GFM to confirm it's
-still the same *kind* of block, then checks inline protection (link and
+still the same *kind* of block, then checks that visible text survived at
+all (a translation that renders nothing where the source had words is an
+erasure, not a translation), then checks inline protection (link and
 image destinations, raw inline-HTML tag identity, code-span identity where
 policy asks for it). Each layer catches a failure mode the ones before it
 cannot see.

@@ -173,7 +173,7 @@ part of the contract:
   would resolve into "proceeded on the static glossary" and the whole
   document would still be dispatched.
 
-## `TranslatorError` — `#[non_exhaustive]`, thirteen variants
+## `TranslatorError` — `#[non_exhaustive]`, fourteen variants
 
 Each variant names **why the provider stopped**, never what the caller
 should do about it. Retryability is a policy over the taxonomy, not part
@@ -193,6 +193,7 @@ application's user-facing policy is its own.
 | `ModelRefused(String)` | The model declined and said so; carries the provider's refusal text, length-capped by the adapter, or a fixed stand-in when the refusal arrived carrying none. | No — aborts the run. | `provider_model_refused` |
 | `ResponseTooLarge(String)` | The answer body exceeded the adapter's size cap and was not read. | No — aborts the run. | `provider_response_too_large` |
 | `ProviderRejected { status: Option<u16>, message: String }` | The provider rejected the *request* rather than failing to answer it. `status` is the HTTP status where the provider speaks HTTP, `None` for one that has no such code. | No — aborts the run. | `provider_rejected` |
+| `NoProviderAvailable(String)` | This `Translator` has no provider to call, so the work it was handed cannot be done by it at all — raised by an `--offline` run when a unit misses the cache (ti `30a744`, DCR-0046). | No — aborts the run; the remediation is the caller's configuration. | `provider_unavailable` |
 | `Cancelled` | The call stopped because it was cancelled: the run's token fired, or the implementation holds a cancellation source of its own. Carries no message on purpose. | No — never re-dispatched; a verbatim resubmission is exactly the work the caller asked to stop. | `provider_cancelled` |
 | `Other(String)` | The standing catch-all for a provider failure this taxonomy does not name. | No — aborts the run. | `provider_error` |
 
@@ -249,7 +250,8 @@ arm**, so a new variant cannot land without being assigned a code.
 `TransyncError::stable_code()` shares the same namespace and answers for
 every failure the library can produce. Its `Translator` arm **delegates**
 to `TranslatorError::stable_code()` rather than flattening the whole
-provider family to one string. The complete set is twenty codes.
+provider family to one string. The complete set is twenty-one codes
+(7 engine-side + 14 provider-side).
 
 Engine-side, from `TransyncError`'s own variants:
 
@@ -263,7 +265,7 @@ Engine-side, from `TransyncError`'s own variants:
 | `cancelled` | `Cancelled` |
 | `internal` | `Internal` |
 
-Provider-side: the thirteen `TranslatorError` codes in the variant table
+Provider-side: the fourteen `TranslatorError` codes in the variant table
 above, returned both by `TranslatorError::stable_code()` and, through the
 `Translator` variant, by `TransyncError::stable_code()`.
 

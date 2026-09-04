@@ -85,6 +85,9 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     │   ├── per_kind.rs                 # table column count, list topology, fence info, ...
     │   ├── inline.rs                   # destination / code-span / raw-tag protection
     │   ├── fragment_reparse.rs         # parse the translated payload as the same kind
+    │   ├── text_presence.rs            # visible-text presence: a payload that carried visible
+    │   │                               #   text may not come back rendering nothing (DCR-0048);
+    │   │                               #   reported under ValidationLayer::PerKindShape
     │   ├── full_reparse.rs             # parse the regenerated full doc; anchor count, label
     │   │                               #   sequence, per-list item count (DCR-0017 Guard 1)
     │   └── full_rescan_html.rs         # the HTML layer-6 twin: ordered tag ledger, fresh
@@ -134,6 +137,23 @@ crates/transync-openai/                 # default Translator impl
     │   ├── classify.rs                 # HTTP status / reqwest → ProviderError; Retry-After
     │   └── endpoint.rs                 # base-URL normalization
     ├── tokenizer.rs                    # tokenizer_hint_for_model (no HTTP)
+    └── error.rs                        # ProviderError → TranslatorError mapping
+
+crates/transync-anthropic/              # second Translator impl — in tree, on NO run path:
+│                                       #   transync-cli depends only on transync +
+│                                       #   transync-openai (ADR-0002 / DCR-0029)
+├── Cargo.toml
+└── src/
+    ├── lib.rs                          # public surface (TransyncAnthropic); reads
+    │                                   #   ANTHROPIC_API_KEY / TRANSYNC_ANTHROPIC_MODEL /
+    │                                   #   TRANSYNC_ANTHROPIC_BASE_URL in from_env, nowhere else
+    ├── client.rs                       # flow only, mirroring transync-openai's split
+    ├── client/
+    │   ├── messages.rs                 # Anthropic Messages API DTOs + output extraction
+    │   ├── schema.rs                   # the structured-output tool schema
+    │   ├── transport.rs                # post_json: send + size cap + accumulate
+    │   ├── classify.rs                 # HTTP status / reqwest → ProviderError; Retry-After
+    │   └── endpoint.rs                 # base-URL normalization
     └── error.rs                        # ProviderError → TranslatorError mapping
 
 crates/transync-cli/                    # binary; no profiles/ dir — the default profile
@@ -215,17 +235,19 @@ scripts/
 │                                       #   (web/tests/scn13.spec.js + engine.spec.js
 │                                       #    + wasm.spec.js + scn16.spec.js — every spec
 │                                       #    under web/tests/)
-└── hooks/pre-commit                    # fmt, clippy, the two-crate wasm gate
+└── hooks/pre-commit                    # fmt, clippy --all-features, the two-package wasm
+                                        #   gate, the rustdoc gate; plus a JS leg that SKIPS
+                                        #   (loudly) when web/ declares no linter
 ```
 
 ## Scenario → component coverage
 
 Module names in the "Crates / modules touched" column are **engine** modules —
 `transync-syntax` owns `parser` (+`options`/`classify`/`emit`/`sections`/
-`ranges`/`refdefs`/`depth`), `id`, `regen`, `render` (+`attrs`), `align`,
-`outcome`, `walk`; `transync-core` owns `unit`
+`ranges`/`refdefs`/`depth`), `intake` (+`html`), `id`, `regen`,
+`render` (+`attrs`/`html_pane`), `align`, `outcome`, `walk`; `transync-core` owns `unit`
 (+`payload`/`budget`/`context`/`split`/`section`), `structure` (+`labels`),
-`batch`, `llm` (+`prompt`), `validate` (+ its six layers), `pipeline`
+`batch`, `llm` (+`prompt`), `validate` (+ its seven layers), `pipeline`
 (+`policy`/`dispatch`/`finalize`/`report`/`retry`/`merge`), `cache` (+`disk`),
 `profile`. Since DCR-0018 they are **not**
 reachable through the `transync` facade (only `cache`, `llm`, and `profile`
@@ -376,10 +398,13 @@ pub trait Cache: Send + Sync {
     fn put(&self, key: CacheKey, value: UnitResult) -> Result<(), CacheError>;
     /// Remove one entry. Absent keys are a successful no-op.
     fn evict(&self, key: &CacheKey) -> Result<(), CacheError>;
-    // Plus get_document_meta / put_document_meta (DocumentMetaKey ->
-    // DocumentMeta, DCR-0028 §3). Both are DEFAULTED — get answers Ok(None),
-    // put discards — so a backend that ignores metadata is pre-v0.4.0
-    // behaviour: degraded, never wrong. The three above are the required ones.
+    // Plus FOUR defaulted methods: get_document_meta / put_document_meta
+    // (DocumentMetaKey -> DocumentMeta, DCR-0028 §3) and
+    // get_glossary_extraction / put_glossary_extraction
+    // (GlossaryExtractionKey -> GlossaryExtraction, ti dca5bf). Each get
+    // answers Ok(None) and each put discards, so a backend that ignores both
+    // record kinds is pre-v0.4.0 behaviour: degraded, never wrong. The three
+    // above are the required ones.
 }
 pub struct InMemoryCache { /* Mutex<HashMap> */ }
 
