@@ -28,7 +28,7 @@ members  = [
 # this set looks the way it does, live in docs/project/release-checklist.md.
 
 [workspace.package]
-version      = "0.5.0-dev"
+version      = "0.5.0"
 edition      = "2024"
 # The floor the library members can actually be built on, which is not the
 # edition's floor. Edition 2024 alone would say 1.85, and 1.85 is what this key
@@ -72,11 +72,11 @@ repository   = "https://github.com/QuietJoon/transync"
 # needs is a `version` on the edges it *has* (`transync`, and the two dev-only
 # ones), which it takes from this table via `workspace = true`. The day a
 # member depends on it, the entry lands in the same edit as that dependency.
-transync-html   = { version = "0.5.0-dev", path = "crates/transync-html" }
-transync-syntax = { version = "0.5.0-dev", path = "crates/transync-syntax" }
-transync-core   = { version = "0.5.0-dev", path = "crates/transync-core" }
-transync        = { version = "0.5.0-dev", path = "crates/transync" }
-transync-openai = { version = "0.5.0-dev", path = "crates/transync-openai" }
+transync-html   = { version = "0.5.0", path = "crates/transync-html" }
+transync-syntax = { version = "0.5.0", path = "crates/transync-syntax" }
+transync-core   = { version = "0.5.0", path = "crates/transync-core" }
+transync        = { version = "0.5.0", path = "crates/transync" }
+transync-openai = { version = "0.5.0", path = "crates/transync-openai" }
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
 thiserror   = "1"

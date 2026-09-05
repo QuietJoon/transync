@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-05-v050-release-condition-met
+  last_updated: 2026-09-05-v0.5.0-released
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -62,6 +62,73 @@ project:
     owner decision. Post-0.3.0 roadmap: six commissioned tickets in recorded
     order fc0304, 43cfb4, d3acc3, b791d6, bda471, f12b8b (docs/backlog.md
     Type 1).
+
+    V0.5.0 RELEASED 2026-09-05, TAGGED (annotated tag v0.5.0 on the
+    release-prep commit, created at cut time rather than after, so it makes an
+    ordinary ancestry claim - unlike v0.4.0's). THE SANCTIONED V0.5.0 BREAKING
+    WINDOW IS USED AND CLOSED - SEVEN breaking-by-policy changes rode it. Four
+    are ti 490d97 wave 2's, batched and none of them user-visible (Block.spelling
+    added, Document.format added, BlockKind::Html narrowed to a unit variant,
+    BlockKind::Title added - the corpus regenerates, renders and aligns
+    byte-identically with ZERO fixture edits). The fifth is the review-0009 fix
+    pass's: transync_openai::error::ProviderError::RateLimited removed, dead and
+    pub in a published crate with no #[non_exhaustive] (8d4efda, DCR-0040 3).
+    The sixth is TagToken::Skip gaining kind and terminated (5d5c7a2, ti c1f9a8,
+    DCR-0047). The seventh is the SkipKind::PlainText variant DCR-0050 added to
+    that same enum two days later (55e2745, 2026-09-05, ti bebebe) - counted rather than
+    left implicit, on DCR-0047's own Semver criterion applied consistently: a
+    pub, exhaustive-by-policy type in a published crate whose change needs the
+    window's permission rides the window, whether what breaks is a variant, a
+    field set or a variant list. The count in the wave-2 paragraph below reads
+    FIVE and was correct on 2026-09-01, before the sixth and seventh landed; it
+    is dated there rather than rewritten. A further breaking change needs a NEW
+    window and the owner decision that opens one.
+    Schema constants: alignment schema MOVED 1.2.0 -> 1.3.0 (ti 490d97 wave 6,
+    DCR-0038 - three additive changes, forward-minor by design).
+    VALIDATION_SCHEMA_VERSION stays 2 (the wave-5 checks are validator
+    tightening, the bump rules' explicit do-NOT-bump case),
+    VALIDATION_REPORT_SCHEMA_VERSION stays 1.1.0, CacheKey gains no axis (the
+    input format is not one - contracts 5a carries the verdict, since both
+    prompt routes are already axes), and both sync.js copies moved together in
+    every commit that touched either.
+    THE DCR-0015 PART C LIVE GATE IS TRIGGERED AND WAS NOT RUN at the cut -
+    git diff --stat v0.4.0..HEAD over the trigger paths shows transync-openai
+    (163 lines), transync-core/src/unit (1,000+) and
+    transync-core/src/llm/prompt.rs (140, the run-level HTML-document
+    instruction clause). It needs a live API key and network, which were not
+    available at cut time. THIRD CONSECUTIVE RELEASE TO BE CUT in that position
+    after v0.3.0 and v0.4.0 - said OF THE CUT, because v0.4.0's gate ran and
+    PASSED later the same day and ended the v0.3.0 + v0.4.0 run. The anthropic
+    leg remains never-executed in this repository.
+    TALLIES AT THE CUT, each captured bare-to-file with an exit marker appended
+    after the native status and each re-run AFTER the version bump: workspace
+    1343/0/8 over 47 test binaries (CARGO_EXIT=0), CLI stub 222/0/0
+    (CARGO_EXIT=0) - 1565/0/8 together, which is smoke.sh's figure across its
+    SEVEN steps (seven, not the eight an earlier record said; that count
+    borrowed "eight" from "eight members"). Five docs-drift suites 17/0
+    (CARGO_EXIT=0). clippy --all-targets --all-features -D warnings zero
+    warnings (CLIPPY_EXIT=0). cargo fmt --all a no-op. Browser suite 45/0
+    (BROWSER_EXIT=0, from the pre-bump run - it has no Rust-version input).
+    Wasm demo artifact raw 1,671,041 B / gzip 686,513 B, inside build-wasm.sh's
+    budget, measured on a gitignored artifact that predates the bump and is not
+    in the tag. Full detail in status.md's v0.5.0 action bullet and in the
+    CHANGELOG [0.5.0] preamble.
+    STEP 19 - cargo publish --dry-run --workspace: PUBLISH_EXIT=0 on
+    2026-09-05, the FIRST release to run and record it. All eight publishing
+    members packaged and verify-built in their own sandboxes against the
+    temporary local registry; transync-wasm skipped by itself on publish =
+    false. Caveat recorded rather than buried: run with --allow-dirty, because
+    the release-prep edits were still in the working tree, so it establishes
+    that the CONTENT packages and verify-builds at 0.5.0. Step 19's clean-tree
+    position - after step 24, before step 25 - is now written into the
+    checklist rather than left to be inferred.
+    SIBLING CONSUMERS (release-checklist step 8) were NOT compiled against this
+    tree, and the reason is a change in their manifests rather than an omission:
+    both resp-translator and dynwebserver now depend on transync by the GitHub
+    tag v0.4.0 rather than by path, so a cargo check there would have exercised
+    the published v0.4.0 tree and said nothing about this one. Neither is
+    affected until it bumps; the migration items are recorded in status.md and
+    step 8's premise was corrected in the same session per step 29.
     TI 490d97 WAVE 0 LANDED 2026-08-20 TO 2026-08-22 (DCR-0032; Task 1 1d6f19d on
     the 20th, Task 8 and the close 1299280 on the 22nd - the single 2026-08-20
     was the plan's writing date, corrected 2026-08-24): the HTML mechanics left
@@ -103,7 +170,11 @@ project:
     it describes, so it is dated rather than deleted).
     THE SANCTIONED V0.5.0 BREAKING WINDOW IS OPEN since 2026-08-24 (ff788f7;
     the root Cargo.toml's [workspace.package].version is 0.5.0-dev and is the
-    one canonical record). It was opened by ti 490d97 wave 2, the IR split,
+    one canonical record) (past-tensed 2026-09-05: the window was USED AND
+    CLOSED by the v0.5.0 release, and the version it names moved to 0.5.0 in
+    the release-prep commit; the sentence was true about the moment it
+    describes, so it is dated rather than deleted). It was opened by ti 490d97
+    wave 2, the IR split,
     whose breaking IR commits landed the same day: 20b78b7 + 258ba01 (Spelling
     on every block and SourceFormat as Document.format on every document -
     two axes, not one), 954711a (BlockKind::Html drops the CommonMark type),
@@ -132,6 +203,13 @@ project:
     window's total is FIVE, not four - the fifth is not this wave's: the
     review-0009 fix pass removed transync-openai's unreachable
     ProviderError::RateLimited under the same window (8d4efda, DCR-0040).
+    (Dated 2026-09-05: FIVE was the running count on 2026-09-01, when this
+    paragraph was written. Two more rode the window afterwards -
+    TagToken::Skip gaining kind and terminated on 2026-09-03 and the
+    SkipKind::PlainText variant on 2026-09-05 - so the window's FINAL total is
+    SEVEN, recorded in the V0.5.0 RELEASED paragraph above. The count here was
+    true of its moment and is dated rather than rewritten; the workspace
+    version it names moved to 0.5.0 in the release-prep commit.)
     Acceptance: workspace and CLI suites green with ZERO fixture edits,
     two-package wasm gate exit 0, string unchanged. Waves 3-7 unblocked; wave
     4's layer-6 twin is a hard precondition for any HTML translation run.
@@ -429,7 +507,13 @@ project:
     REGISTERED TASK and every OPEN ISSUE is resolved, excluding those
     explicitly deferred: the UNION of the TicGit queue and the open-issue
     register, censused in docs/backlog.md and consulted at
-    release-checklist step 2a.
+    release-checklist step 2a. (Past-tensed 2026-09-05: the condition was MET
+    that evening - the open-issue register held no counting entry and the
+    TicGit queue held two, both explicitly deferred with self-firing
+    re-triggers and both tagged deferred-v050 - and v0.5.0 was released the
+    same day, so the most recent release is v0.5.0 and the window it closed is
+    used. The rule stated here is unchanged and governs the next such number;
+    only its subject has moved.)
     REVIEW-0009 DECISION GATE RAN 2026-08-25 TO 2026-08-29. Twenty-six findings
     fixed across three commits - 88964df (eleven: five stale documentation
     claims and six gates that could not fail), 8d4efda (six, one BREAKING) and

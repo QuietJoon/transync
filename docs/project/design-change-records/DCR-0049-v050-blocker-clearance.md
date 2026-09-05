@@ -185,3 +185,37 @@ The wider point this record was making — that a manual suite with no CI can be
 red without anyone noticing — is unaffected in kind and weaker in degree: the
 gap was four commits, not an era. OI-0047's Verification checkboxes were never
 ticked, which is the actual reason the regression shipped.
+
+## Amendment — 2026-09-05, later the same day (appended note)
+
+*The record above stands as written. This note dates its state, which was
+superseded within hours by the work it was the launch point for.*
+
+The title's "the arc does not reach a tag" and the closing state — OI-0044 still
+open, five tickets open, Review 0010's 93 findings untriaged — describe the
+moment this record was written, and a reader arriving from the index title would
+otherwise take them for the current position. Every one of them moved:
+
+- **OI-0044 is RESOLVED** on all three members (`55e2745`): the trim member was
+  already fixed here, and the poisonable write and the unbounded read followed —
+  the log now closes on a failed write and drops its buffered remainder, and
+  `scan_log` reads each line through a bounded `take` with a resync. The
+  open-issue register holds no counting entry after it.
+- **The five open tickets are two.** `9b4d66`, `307283`, `895fb7`, `da6bb5`,
+  `bb961a` and `a7e625` were all resolved by **DCR-0051**, which carried out the
+  owner ruling rather than deferring it: the crate's two open-element stacks
+  became one. `8cd7ba` was resolved by **DCR-0052**, which also corrected this
+  record's headline claim (see the Correction above). What remains is `525bef`
+  (adoption agency, filed by DCR-0051 before pinning it) and `16721e`
+  (`noscript`), **both explicitly deferred** with recorded, self-firing
+  re-triggers and both tagged `deferred-v050`.
+- **Review 0010's non-blocking survivors are registered and deferred** as
+  OI-0049, with a three-way re-trigger; its blocking members were fixed in this
+  arc.
+- **The arc reached a tag.** With the register empty of counting entries and the
+  queue holding only explicit deferrals, release-checklist step 2a's condition
+  was met, and **v0.5.0 was released and tagged on 2026-09-05**, closing the
+  sanctioned breaking window this arc rode.
+
+Nothing above changes what this record decided or measured; it changes only what
+a reader should assume is still outstanding, which is nothing.

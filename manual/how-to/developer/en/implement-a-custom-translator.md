@@ -487,10 +487,10 @@ stored string is simultaneously the wire value and a `fingerprint()` axis.
 
 ## What is already done for you, and the one thing that is not
 
-The workspace is at `0.3.0`, with a breaking window staged under
-`## [Unreleased]` in `CHANGELOG.md` that `contracts.md` calls the v0.4.0
-break. Starting fresh today, these are simply the shape of the contracts and
-cost you no migration:
+The workspace is at `0.5.0`. The v0.4.0 and v0.5.0 breaking windows are both
+used and closed, so everything below is shipped rather than staged. Starting
+fresh today, these are simply the shape of the contracts and cost you no
+migration:
 
 - `fingerprint()`, `tokenizer_hint()` and `extract_glossary()` are all
   **defaulted** methods. You write an override only where step 4 applies.
@@ -511,9 +511,9 @@ cost you no migration:
 
 The one thing that is **not** free: `translate_batch` and
 `extract_glossary` gained the `cancel: &CancellationToken` parameter in the
-unreleased v0.4 window (DCR-0024). That is a signature change to a required
-method, so no default can absorb it — an implementation written against
-0.3.0 does not compile until the parameter is added.
+v0.4.0 window (DCR-0024), released 2026-08-20. That is a signature change to a
+required method, so no default can absorb it — an implementation written
+against 0.3.0 does not compile until the parameter is added.
 
 ## Reference: the full trait and error set
 

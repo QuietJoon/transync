@@ -31,8 +31,12 @@ sentence are load-bearing and none of them is optional:
   condition fires**. A substring search for the word `owner-deferred` is not a substitute
   for reading the entry; the 2026-08-25 audit reversed twelve findings that had been
   reported on exactly that basis.
-- **The window is not the gate.** `0.5.0-dev` is the open breaking window (`ff788f7`,
-  2026-08-24); this condition is what closes it. Nothing is released from an open window.
+- **The window is not the gate.** `0.5.0-dev` **was** the open breaking window (`ff788f7`,
+  2026-08-24); this condition is what closed it. Nothing is released from an open window,
+  and nothing was: the condition was met on 2026-09-05 and **v0.5.0 released the same day**
+  (annotated tag `v0.5.0`), which closes the window. A further breaking change needs a new
+  window and the owner decision that opens one. The rule stated here is unchanged and
+  governs the next such number; only its subject has moved.
 
 **Why the rule lives here.** The 0.4.0 window was declared used-and-closed while six
 wave-0/1 finding tickets sat unindexed — including `ticgit:e77173bb`, a *live*
@@ -52,6 +56,23 @@ figures on each sweep rather than trusting them — an entry counts unless it ca
 resolution or a dated deferral line. The release-side half of this rule is
 `docs/project/release-checklist.md` step 2a, which is where a release actually consults
 the census.
+
+**Census (2026-09-05) — the v0.5.0 cut.** Re-derived against `ti list --all` and
+`docs/project/open-issues.md` rather than read off the line above, as step 2a requires:
+**zero** entries count against the gate. The **open-issue register is empty of counting
+entries** — OI-0044 was resolved on all three of its members on 2026-09-05, and OI-0049
+registers Review 0010's sixteen non-blocking survivors as *explicitly deferred* with a
+three-way re-trigger. The **TicGit queue holds two open tickets and both are explicitly
+deferred** with recorded reasons and objective, self-firing re-triggers, both tagged
+`deferred-v050`: ti `525bef` (no active-formatting-element list and no adoption agency —
+residual measured at `sec4a:break-nested` 8 per 10,000 generated inputs and
+`reserved:dom-only` **0**; re-triggers on the census rising above 8 on an unchanged
+`ATOMS` alphabet, on any `reserved:dom-only` case at all, or on a route in this family
+being found by hand rather than by the oracle) and ti `16721e` (`noscript` read as markup;
+re-triggers on the oracle measuring a §4a break or anchor loss on a `noscript` route).
+That is the answer step 2a asks for, and it is what let v0.5.0 be cut. The 2026-08-26
+figures above are left as written — they are that sweep's measurement, and this line is
+the next one, not a correction of it.
 
 **Note (2026-08-17):** the `git log` half of that source set no longer exists. This
 repository's object store was restarted for the second time on 2026-08-17

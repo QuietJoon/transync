@@ -7,7 +7,7 @@ A Rust library that does two things:
 
 Use it as a library behind your own LLM provider, or through the bundled `transync` CLI: `transync translate` runs the pipeline end to end and publishes the whole output set — the translated document (`out.md`, or `out.html` for an `--input-format html` run), alignment map, validation report and a ready-to-open side-by-side HTML bundle — into one directory, and `transync serve` hands that bundle to a browser on `127.0.0.1`.
 
-**Status:** last release **v0.4.0** — tagged 2026-08-20; depend on the annotated `v0.4.0` tag for a stable surface. `master` is `0.5.0-dev` with the sanctioned v0.5.0 breaking window **open**, and some capabilities described below (HTML→HTML document translation, the language gate, `--offline`) ship only on `master` until that window closes. Release history is in [`CHANGELOG.md`](CHANGELOG.md).
+**Status:** last release **v0.5.0** — tagged 2026-09-05; depend on the annotated `v0.5.0` tag for a stable surface. The sanctioned v0.5.0 breaking window is **used and closed**, and the capabilities described below that had been `master`-only ship in it: HTML→HTML document translation, the language gate (`transync-lang`) and `--offline`. A further breaking change needs a new window. Release history is in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Feature 1 — Translation pipeline
 

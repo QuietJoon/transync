@@ -63,7 +63,7 @@ are the same either way. Flags and exit codes are in
 | `target_language` | string | `TranslateOptions::target_language` verbatim, on the same terms. |
 | `detected_source_language` | string or `null` | The language a provider envelope reported for this run, or — for a run that dispatched **zero** provider batches, every unit served from cache — the value replayed from the document-metadata store. `null` when neither applies. |
 | `input_format` | string | Which intake produced the document — `"markdown"` or `"html"` (schema 1.3.0). A run's *intake*, not a block's spelling. |
-| `generator` | object | `{ "name": "transync", "version": "<crate version>" }`. The version is `transync-syntax`'s own package version, which is the workspace version (`0.5.0-dev` at HEAD). |
+| `generator` | object | `{ "name": "transync", "version": "<crate version>" }`. The version is `transync-syntax`'s own package version, which is the workspace version — `0.5.0` at the v0.5.0 tag. |
 | `blocks` | array | One row per top-level source block, in source order. See [Block rows](#block-rows). |
 | `validation_summary` | object | Run-level tallies. See [validation_summary](#validation_summary). |
 
@@ -361,7 +361,7 @@ Illustration only — two rows of a real map:
   "source_language": "en",
   "target_language": "ko",
   "detected_source_language": "en",
-  "generator": { "name": "transync", "version": "0.5.0-dev" },
+  "generator": { "name": "transync", "version": "0.5.0" },
   "blocks": [
     {
       "source_block_id": "h1-0001",

@@ -166,12 +166,22 @@ free where it belonged.
 
 2. **Pick the version number under the stability rules, not by feel.**
    `contracts.md` §0/§1 decide what counts as breaking; a break needs a
-   sanctioned window. The 0.3.0 and 0.4.0 windows are both **used and
-   closed**; the **v0.5.0 window is open** (`ff788f7`, 2026-08-24 — recorded
-   in `phase-state.yaml` and in `status.md`'s workspace-version bullet), and
-   it is closed by the v0.5.0 release itself. Additions protected by
-   `#[non_exhaustive]`, new defaulted trait methods, and new modules are
-   additive and need no window.
+   sanctioned window. The 0.3.0, 0.4.0 and 0.5.0 windows are **all used and
+   closed** — v0.5.0's was opened by `ff788f7` (2026-08-24) and closed by the
+   v0.5.0 release itself on 2026-09-05, with **seven** breaking-by-policy
+   changes on it. **The next break needs a new window and the owner decision
+   that opens one.** Additions protected by `#[non_exhaustive]`, new defaulted
+   trait methods, and new modules are additive and need no window.
+
+   **What counts as "riding the window" is decided at commit time, not at the
+   release boundary** (DCR-0047's Semver paragraph is the worked example, and
+   v0.5.0 applied it consistently to reach seven). A change to a `pub`,
+   exhaustive-by-policy type in a **published** member that would otherwise
+   have to wait for the next window rides this one — whether what breaks is a
+   variant, a field set or a variant list — even when the type itself was
+   introduced inside the same window and no released version ever carried it.
+   Counting only against the previous tag would have answered five for v0.5.0
+   and silently excluded two real breaks.
 
 **2a. Confirm the version's window-closing condition is met — and know which
 condition it is.** A release number is not only a semver claim. Some numbers in
@@ -274,24 +284,52 @@ Run all of them on the exact commit from step 1, and keep the output.
    plus the wasm gate and the rustdoc gate on the release-prep commit, so
    running them here is an early check, not a substitute — and the hook is
    never bypassed with `--no-verify`. Confirm the hook is live:
-   `git config core.hooksPath` must read `scripts/hooks`
+   `git config core.hooksPath` must **resolve to** `scripts/hooks` — the
+   installer writes an absolute path, so the literal it prints is
+   `<repo>/scripts/hooks` and not the relative spelling this step used to
+   name; the installer compares resolved paths, so both are the same value
+   and only the check's wording was wrong (corrected 2026-09-05).
    (`scripts/install-hooks.sh` sets it; an unset value silently
    ran a stale `.git/hooks` copy until DCR-0018 caught it). If the
    installer exits non-zero refusing to touch a *different* `core.hooksPath`,
    that is by design — resolve it as the script's output says before
    releasing, never with `--no-verify`.
 
-8. **Sibling consumers.** Every checkout below depends on `crates/transync`
-   and `crates/transync-openai` by **path**, so it compiles against this
-   working tree rather than a published version, and gets none of the warning
-   a version bump gives:
+8. **Sibling consumers.** Two checkouts consume this workspace, and **the
+   edges they consume it through decide what this step can even ask for**:
 
-   - `/Volumes/Common/QJoon/resp-translator`
-   - `/Volumes/Common/QJoon/dynwebserver`
+   - `/Volumes/Common/QJoon/resp-translator` — `transync`, `transync-openai`
+   - `/Volumes/Common/QJoon/dynwebserver` — `transync`, `transync-openai`,
+     **`transync-syntax`** (a third edge, because `transync::BlockId` *is*
+     `transync_syntax::id::BlockId` and the provider unifies the types)
 
-   For **each** of them: run `cargo check --workspace` there against the
-   commit to be tagged, and record whether a migration was needed and any
-   behavioral delta. v0.2.0's was an empty profile `target_language` now
+   **Verified 2026-09-05, and the step's original premise is spent.** It read
+   "every checkout below depends on `crates/transync` and `crates/transync-openai`
+   by **path**, so it compiles against this working tree". That is no longer
+   true of either: both now depend on the **GitHub tag** — `{ git =
+   "https://github.com/QuietJoon/transync.git", tag = "v0.4.0" }` — and neither
+   carries a `[patch]` override or a path dependency. So `cargo check
+   --workspace` in those checkouts compiles the **published v0.4.0 tree** and
+   says nothing whatever about the commit being tagged; running it and
+   recording a green would be evidence about the wrong tree. Check first,
+   then choose:
+
+   - **Path or `[patch]`ed to this tree** — run `cargo check --workspace`
+     there against the commit to be tagged, per consumer, and record whether a
+     migration was needed and any behavioral delta.
+   - **Pinned to a published ref (today's case)** — the check is *not
+     applicable*, and saying so is the result. Record, per consumer: the ref
+     each one pins, that it is therefore unaffected until it bumps, and the
+     **migration items** it will meet when it does. Optionally exercise it
+     early behind a temporary
+     `[patch.'https://github.com/QuietJoon/transync.git']` path override — but
+     that is a local experiment, never an edit to the consumer's committed
+     manifest.
+
+   A per-consumer record is owed either way; "not applicable, and here is why"
+   is a result, silence is not.
+
+   For reference, the shape a real run produces: v0.2.0's was an empty profile `target_language` now
    failing fast with `stable_code "internal"` — exactly the class of change a
    consumer that parses a profile at startup has to hear about. (That same
    check moved to `stable_code "invalid_options"` in the v0.5.0 window,
@@ -305,9 +343,13 @@ Run all of them on the exact commit from step 1, and keep the output.
    *reported* to that consumer, never patched by editing it from this side.
    Their own thread caps (dynweb pins `--test-threads=4` for an external
    target dir) do not apply — `cargo check --workspace` is what this step
-   asks for. Add a checkout to this list the day it grows a path dependency
-   on this workspace, and drop one the day it stops; the release ritual can
-   otherwise complete green while a consumer nobody listed is broken.
+   asks for. Add a checkout to this list the day it grows **any** dependency
+   edge on this workspace, and drop one the day it stops; re-read the edges
+   each release rather than trusting this list's shape, because it is how
+   they depend and not merely whether that decides which branch above applies.
+   The release ritual can otherwise complete green while a consumer nobody
+   listed is broken — or, as in v0.5.0, complete green against a tree that is
+   not the one being tagged.
 
 9. **Write the tallies down.** Suite counts (`N passed / N failed / N
    ignored`), CLI stub count, browser-suite count. `status.md`'s wave entries
@@ -444,8 +486,12 @@ Run all of them on the exact commit from step 1, and keep the output.
     `env!("CARGO_PKG_VERSION")` and `crates/transync/tests/public_surface.rs`
     pins the two together (DCR-0017 M6), so the bump has to stay green, not
     merely compile. `Cargo.lock` **is** committed (owner decision 2026-08-06,
-    `6cf4164`, reversing OI-0020's deferral), so the bump rewrites the six
-    workspace entries in it and that diff belongs in the release-prep commit.
+    `6cf4164`, reversing OI-0020's deferral), so the bump rewrites the **nine**
+    workspace entries in it — one per member, and `grep -c '^name = "transync'
+    Cargo.lock` is how you check the number rather than remembering it; it read
+    six when this line was written and grew with `transync-html`,
+    `transync-lang` and `transync-wasm` — and that diff belongs in the
+    release-prep commit.
     The exact `wasm-bindgen = "=0.2.126"` pin in the root manifest is the
     control that does not depend on anyone honoring the lockfile, and must not
     be loosened as part of a release.
@@ -534,6 +580,19 @@ Run all of them on the exact commit from step 1, and keep the output.
       running it earlier takes `--allow-dirty`, which is a local convenience
       and never how the gate gets recorded.
 
+    **When to run it: after step 24, before step 25.** The bullet above is a
+    sequencing constraint and was being read as a caveat. The release-prep
+    commit does not exist during section A — that is step 24's output — so a
+    dry run performed while the section-E edits are still in the working tree
+    is either refused or `--allow-dirty`, and `--allow-dirty` verifies a tree
+    no tag will ever point at. Run it on the release-prep commit, before the
+    annotated tag, and record the result where step 20 records the tallies. It
+    is the one gate in this document whose position is *between* two numbered
+    steps rather than at its own number, because renumbering is forbidden;
+    read it here and run it there. **v0.5.0 is why this paragraph exists**: the
+    dry run had never been run or recorded for that release, and nothing in
+    the plan scheduled it.
+
 ## F. Records
 
 20. **`docs/project/status.md`** — the workspace-version line gains the
@@ -549,6 +608,37 @@ Run all of them on the exact commit from step 1, and keep the output.
     now names the tag and the commit it points at, and says the tag was created
     after the release and makes no claim about ancestry — `git log v0.4.0`
     reaches one synthetic root, not the development that produced the release.
+
+**20a. `README.md`'s Status line names the new release and the new tag.** It is
+the first thing GitHub renders and it ships **inside the tagged tree**, so a
+stale line is not merely out of date — it is a false claim frozen into the
+release. The line carries four facts and every one of them moves at a release:
+which version is the last release, when it was tagged, which ref a consumer
+should depend on, and whether a breaking window is open. Drop any "ships only on
+`master` until that window closes" clause for capabilities the release now
+contains.
+
+Why this is a step: **two releases in a row missed it.** At the v0.4.0
+release-prep commit `6fa4e88` the README still said `v0.3.0 (released
+2026-08-07)`, and it did not learn about v0.4.0 until `51f0d93` on 2026-09-04 —
+fifteen days later. At v0.5.0's cut it still named v0.4.0 as the last release
+and `master` as `0.5.0-dev` with the window open. No step owned it either time.
+
+**20b. `docs/backlog.md`'s census and window sentence.** Step 2a names this file
+as "where the answer lives" and requires the counts to be **re-derived** against
+`ti list --all` and `open-issues.md`. Whatever that re-derivation produced is
+then written down here, as a **new dated census line** beneath the previous one —
+never by editing the previous one, which is that sweep's measurement. The header
+bullet that names the open breaking window moves in the same edit: at the cut it
+is the release that closes the window, so the sentence goes past tense and names
+the release that did it. Also a tracked, shipped-in-the-tag file; v0.5.0 found it
+still asserting in the present tense that `0.5.0-dev` was the open window and
+that nothing is released from one.
+
+**On the numbers `20a` and `20b`.** *When it applies* forbids renumbering,
+because these step numbers are cited from outside this file, and there is no free
+integer between 20 and 21. Both take a letter, the same rule steps 0 and 2a
+followed. A future insertion should do the same rather than shift anything.
 
 21. **`docs/project/phase-state.yaml`** — `last_updated` becomes the release
     marker (`YYYY-MM-DD-vX.Y.Z-released`) and the notes block records what
@@ -585,12 +675,14 @@ Run all of them on the exact commit from step 1, and keep the output.
     and says in the tag message why it is late, because a tag whose date
     trails its release is a question someone will ask.
 
-    **One tag survives**: `git tag -l` prints `v0.4.0` and nothing else. The
-    v0.1.0, v0.2.0 and v0.3.0 tag objects went with the history restarted on
-    2026-08-10 and were deliberately not recreated, because the commits they
-    pointed at are gone too (`docs/project/git-history-loss-2026-08-10.md`
-    holds their archived hashes); v0.4.0's was created on 2026-08-20 by the
-    reversal above. The rule they were evidence for is unchanged
+    **Two tags survive**: `git tag -l` prints `v0.4.0` and `v0.5.0` and
+    nothing else. The v0.1.0, v0.2.0 and v0.3.0 tag objects went with the
+    history restarted on 2026-08-10 and were deliberately not recreated,
+    because the commits they pointed at are gone too
+    (`docs/project/git-history-loss-2026-08-10.md` holds their archived
+    hashes); v0.4.0's was created on 2026-08-20 by the reversal above, and
+    v0.5.0's on 2026-09-05 at cut time. The rule they were evidence for is
+    unchanged
     for every tag this repository creates from now on: annotated, never
     lightweight. A lightweight tag is just a moving pointer: no tagger, no
     date, no message, and nothing that records what the release was.
@@ -608,8 +700,9 @@ Run all of them on the exact commit from step 1, and keep the output.
     check ran backwards — the first command had to print *nothing*, confirming
     both that step 25 was skipped on purpose and that no tag had been
     resurrected by accident. It was run in that form and passed. Since the
-    2026-08-20 reversal the normal form applies: `v0.4.0 tag 2026-08-20` is
-    what it prints, and `%(objecttype)` reading `tag` is what it proves.
+    2026-08-20 reversal the normal form applies: `v0.4.0 tag 2026-08-20` and
+    `v0.5.0 tag 2026-09-05` are what it prints, and `%(objecttype)` reading
+    `tag` on **both** lines is what it proves.
 
 ## H. After the tag
 
