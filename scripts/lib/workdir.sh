@@ -54,9 +54,10 @@ TRANSYNC_WORKDIR_POLICY="${TRANSYNC_WORKDIR_POLICY:-refuse}"
 
 # transync_pick_workdir <override-var-name> <preferred-path>
 #
-# Echoes the chosen path. Exits 1 (policy `refuse`) or warns and falls back to
+# Echoes the chosen path. Returns 1 (policy `refuse`) or warns and falls back to
 # ${TMPDIR:-/tmp} (policy `warn`) when the preferred root is absent and no
-# override is set.
+# override is set. A TRANSYNC_WORKDIR_POLICY that is neither is itself a
+# refusal, named as such (R0011-0061).
 transync_pick_workdir() {
   local var_name="$1"
   local preferred="$2"
@@ -77,7 +78,22 @@ transync_pick_workdir() {
     return 0
   fi
 
-  # (3) Neither. Say which root is missing and which variable fixes it.
+  # (3) Neither. Before acting on the policy, check that it IS one: `refuse` is
+  # the default and every unrecognized spelling used to take the refuse path
+  # too, so `TRANSYNC_WORKDIR_POLICY=fallback` (or `warm`, or `Warn`) produced
+  # a refusal that looked deliberate and named the wrong thing — the missing
+  # root, not the typo that disabled the escape hatch (R0011-0061). Fail closed
+  # either way; the difference is that the message now names the knob.
+  case "$TRANSYNC_WORKDIR_POLICY" in
+    refuse | warn) ;;
+    *)
+      printf 'error: TRANSYNC_WORKDIR_POLICY=%s is not a policy (expected refuse or warn)\n' \
+        "$TRANSYNC_WORKDIR_POLICY" >&2
+      return 1
+      ;;
+  esac
+
+  # Say which root is missing and which variable fixes it.
   # Strip trailing slashes: macOS exports TMPDIR with one, and `$TMPDIR/x`
   # would otherwise read as `//x` in every message and every fallback path.
   local tmp="${TMPDIR:-/tmp}"

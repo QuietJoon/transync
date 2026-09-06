@@ -512,16 +512,20 @@ that process exits, `SIGKILL` included, so ending it unblocks this run.
 ## `cargo fmt --all -- --check` blocks the commit
 
 The pre-commit hook enforces `cargo fmt`. Run `cargo fmt --all` and
-re-stage. Formatting is one of four Rust gates in the tracked
-`scripts/hooks/pre-commit`, and any of them failing blocks the commit:
+re-stage. Formatting is one of five Rust gates in the tracked
+`scripts/hooks/pre-commit` — rustdoc is two of them, since 2026-09-06 —
+and any of them failing blocks the commit:
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo check -p transync-syntax -p transync-wasm \
   --target wasm32-unknown-unknown
-. scripts/lib/rustdoc-gate.sh   # the gate's crate list has one home
+. scripts/lib/rustdoc-gate.sh   # the gate's crate lists have one home
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps "${RUSTDOC_GATE_ARGS[@]}"
+# and the bin-only leg, which needs its own run: --document-private-items
+# suppresses the private_intra_doc_links lint the leg above depends on
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps "${RUSTDOC_GATE_BIN_ARGS[@]}"
 ```
 
 The hook echoes each command as a `[pre-commit] …` line before running

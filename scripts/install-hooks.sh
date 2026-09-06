@@ -7,8 +7,11 @@
 # The installer never silently discards a hooks configuration it did not
 # write (R0001-0038). A core.hooksPath naming some other directory —
 # including one inherited from global or system config — makes it refuse
-# and print the ways forward; only an explicit --force takes over, and it
-# says whether it replaced a local value or shadowed an inherited one.
+# and print the ways forward; only an explicit --force takes over, and then
+# in the scope that WINS — it says whether it replaced a local or worktree
+# value or shadowed an inherited one, and it refuses on a command-scope value,
+# which belongs to the invocation and outranks anything it could write
+# (R0011-0014).
 # The same rule covers hook *files*: a .git/hooks entry is removed only
 # when it is byte-identical to the tracked hook it shadows, never on the
 # strength of its name.
@@ -29,11 +32,15 @@ Points git's core.hooksPath at scripts/hooks so the tracked hooks run.
 Without --force the script refuses, and changes nothing, when
 core.hooksPath already names a different directory.
 
-  --force     Take over anyway. A local value is overwritten (the old one
-              is saved to the local config key transync.replacedHooksPath);
-              an inherited global/system value is left where it is and
-              shadowed by a local one. The restore command is printed
-              either way.
+  --force     Take over anyway, in the scope that actually wins. A local or
+              worktree value is overwritten in its OWN scope (the old one is
+              saved to transync.replacedHooksPath there); an inherited
+              global/system value is left where it is and shadowed by a
+              local one. The restore command is printed in each case.
+              A command-scope value (git -c core.hooksPath=..., or the
+              GIT_CONFIG_* environment) belongs to the invocation rather
+              than to any file, so no write this script can make would win:
+              --force refuses instead of claiming an override.
   -h, --help  Show this text.
 USAGE
 }
@@ -95,6 +102,10 @@ if [[ -z "$current_raw" ]]; then
 elif [[ "$(resolve_hooks_path "$current_raw")" == "$want_abs" ]]; then
   : # already ours — the run is a no-op apart from the housekeeping below
 elif ((force == 0)); then
+  # Every path printed as part of a copy-paste COMMAND goes through printf
+  # '%q'; a bare '…' wrapper produces a line that does not parse the moment a
+  # checkout path contains an apostrophe (R0011-0060). Paths printed as prose
+  # (the current/resolved/wanted fields) stay unquoted — they are read, not run.
   {
     echo "[install-hooks] REFUSING: core.hooksPath already points somewhere else."
     echo "[install-hooks]   current : $current_raw${current_scope:+  (${current_scope} config)}"
@@ -102,21 +113,41 @@ elif ((force == 0)); then
     echo "[install-hooks]   wanted  : $want -> $want_abs"
     echo "[install-hooks] Nothing was changed; your hooks still run. Pick one:"
     echo "[install-hooks]   1. Chain both — have $(resolve_hooks_path "$current_raw")/pre-commit exec"
-    echo "[install-hooks]      '$repo_root/scripts/hooks/pre-commit' (likewise for any other hook)."
+    echo "[install-hooks]      $(printf '%q' "$repo_root/scripts/hooks/pre-commit") (likewise for any other hook)."
     echo "[install-hooks]   2. Take over — scripts/install-hooks.sh --force"
     echo "[install-hooks]      (it prints the command that puts your value back)."
     echo "[install-hooks]   3. Clear it — git config${scope_flag} --unset core.hooksPath"
     echo "[install-hooks]      then re-run this script."
   } >&2
   exit 1
-elif [[ "$current_scope" == "local" ]]; then
-  git config --local transync.replacedHooksPath "$current_raw"
-  git config --local core.hooksPath "$want"
+elif [[ "$current_scope" == "local" || "$current_scope" == "worktree" ]]; then
+  # Write in the scope that WINS, not always --local. With
+  # extensions.worktreeConfig on, .git/config.worktree outranks .git/config,
+  # so a local write under a worktree-scoped value announces an override git
+  # never honours — the promised hook stays inactive (R0011-0014).
+  git config "--$current_scope" transync.replacedHooksPath "$current_raw"
+  git config "--$current_scope" core.hooksPath "$want"
   changed=1
-  echo "[install-hooks] --force: replaced the local core.hooksPath"
-  echo "[install-hooks]   was    : $current_raw (saved as transync.replacedHooksPath)"
+  echo "[install-hooks] --force: replaced the $current_scope core.hooksPath"
+  echo "[install-hooks]   was    : $current_raw (saved as transync.replacedHooksPath in the $current_scope config)"
   echo "[install-hooks]   now    : $want"
-  echo "[install-hooks]   restore: git config --local core.hooksPath '$current_raw'"
+  echo "[install-hooks]   restore: git config --$current_scope core.hooksPath $(printf '%q' "$current_raw")"
+elif [[ "$current_scope" == "command" ]]; then
+  # Command scope is `git -c core.hooksPath=…` or the GIT_CONFIG_COUNT/
+  # GIT_CONFIG_KEY_n environment: the value belongs to this invocation, not to
+  # a file, and it outranks every scope this script could write. Forcing here
+  # would write config git then ignores and report an override that did not
+  # happen (R0011-0014), so refuse and name where the value comes from.
+  {
+    echo "[install-hooks] REFUSING: core.hooksPath is set for this command, not in any config file."
+    echo "[install-hooks]   current : $current_raw  (command scope)"
+    echo "[install-hooks]   resolved: $(resolve_hooks_path "$current_raw")"
+    echo "[install-hooks]   wanted  : $want -> $want_abs"
+    echo "[install-hooks] --force cannot win: command scope outranks every config file this script may write,"
+    echo "[install-hooks] so nothing was changed. Drop the 'git -c core.hooksPath=…' (or unset the GIT_CONFIG_*"
+    echo "[install-hooks] variables) and re-run:  scripts/install-hooks.sh"
+  } >&2
+  exit 1
 else
   git config --local core.hooksPath "$want"
   changed=1
@@ -127,6 +158,21 @@ else
 fi
 
 chmod +x scripts/hooks/* 2>/dev/null || true
+
+# The chmod's own failure is swallowed on purpose (a read-only checkout, a
+# foreign owner, a filesystem with no exec bit), so the bit is VERIFIED rather
+# than assumed: git silently skips a hook that is not executable, and printing
+# the success line over one is an installer that reports a gate it did not
+# install (R0011-0015).
+for hook in scripts/hooks/*; do
+  [[ -f "$hook" ]] || continue
+  [[ -x "$hook" ]] && continue
+  {
+    echo "[install-hooks] FAIL: $hook is not executable — git will skip it, so the hook is NOT installed."
+    echo "[install-hooks]   fix: chmod +x $(printf '%q' "$repo_root/$hook")"
+  } >&2
+  exit 1
+done
 
 # A legacy copy in .git/hooks is DEAD once core.hooksPath is set, but it
 # silently goes stale and misleads anyone inspecting .git/hooks. Remove
@@ -152,7 +198,7 @@ for hook in scripts/hooks/*; do
       echo "[install-hooks] KEPT: $legacy is not a copy of $hook."
       echo "[install-hooks]   It is inert — core.hooksPath -> $want governs which hooks run — but it"
       echo "[install-hooks]   differs from the tracked hook, so it may be yours. Nothing was deleted."
-      echo "[install-hooks]   If it is stale and you want it gone:  rm '$repo_root/$legacy'"
+      echo "[install-hooks]   If it is stale and you want it gone:  rm $(printf '%q' "$repo_root/$legacy")"
     } >&2
   fi
 done

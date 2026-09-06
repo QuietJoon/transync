@@ -74,7 +74,44 @@ echo "[test-browser] building the stub CLI"
 BUILD_LOG="$WORKDIR/cargo-build.jsonl"
 cargo build -p transync-cli --features test-stub-provider \
   --message-format=json-render-diagnostics > "$BUILD_LOG"
-TRANSYNC_BIN="$(sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' "$BUILD_LOG" | tail -n 1)"
+
+# Cargo's stream is one JSON object per line and the path inside one is a JSON
+# *string*, so a backslash or a quote in it arrives escaped: a regex over the
+# raw bytes hands back a path that does not exist, or one that resolves
+# somewhere else entirely (R0011-0012). It is PARSED instead — node is already
+# a hard prerequisite here (pnpm is checked above, Playwright runs on it
+# below), with `pnpm node` covering a pnpm that manages its own runtime.
+#
+# The filter is target-specific. Build scripts, and any second binary added to
+# the package later, carry an `executable` too, so "the last line with a path"
+# is not "the transync CLI" (R0011-0013). The bin target named `transync` is,
+# and anything other than exactly one match fails here rather than running a
+# guess.
+if command -v node >/dev/null 2>&1; then
+  json_node=(node)
+else
+  json_node=(pnpm node)
+fi
+TRANSYNC_BIN="$("${json_node[@]}" -e '
+  const fs = require("fs");
+  const found = [];
+  for (const line of fs.readFileSync(process.argv[1], "utf8").split("\n")) {
+    if (!line.startsWith("{")) continue;
+    let msg;
+    try { msg = JSON.parse(line); } catch (e) { continue; }
+    if (msg.reason !== "compiler-artifact" || !msg.executable) continue;
+    const target = msg.target || {};
+    if (target.name !== "transync") continue;
+    if (!Array.isArray(target.kind) || target.kind.join(",") !== "bin") continue;
+    if (!found.includes(msg.executable)) found.push(msg.executable);
+  }
+  if (found.length !== 1) {
+    console.error("[test-browser] expected exactly one transync bin artifact, found " +
+      found.length + (found.length ? ": " + found.join(" ") : ""));
+    process.exit(1);
+  }
+  process.stdout.write(found[0]);
+' "$BUILD_LOG")" || TRANSYNC_BIN=""
 if [[ -z "$TRANSYNC_BIN" || ! -x "$TRANSYNC_BIN" ]]; then
   echo "[test-browser] FAIL: could not resolve the transync binary from $BUILD_LOG" >&2
   exit 1

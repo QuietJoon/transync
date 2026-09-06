@@ -56,6 +56,8 @@ if [ -f Cargo.toml ]; then
   # smaller one.
   RUSTDOC_GATE_ARGS=()
   RUSTDOC_GATE_UNGATED=()
+  RUSTDOC_GATE_BIN_ARGS=()
+  RUSTDOC_GATE_UNGATED_BIN=()
   rustdoc_gate_lib="scripts/lib/rustdoc-gate.sh"
   # shellcheck source-path=SCRIPTDIR/.. source=lib/rustdoc-gate.sh
   [ -f "$rustdoc_gate_lib" ] && . "$rustdoc_gate_lib"
@@ -77,6 +79,25 @@ if [ -f Cargo.toml ]; then
     echo "[pre-commit]   add them to RUSTDOC_GATE_CRATES in $rustdoc_gate_lib" >&2
     echo "[pre-commit]   (and to the gate command in docs/Developer_Guide.md and" >&2
     echo "[pre-commit]   the release checklist)." >&2
+    fail=1
+  fi
+  # The bin-only leg. A SECOND `cargo doc`, not more -p entries on the first:
+  # --document-private-items documents the private items and so stops
+  # `rustdoc::private_intra_doc_links` from firing, which is the failure the
+  # library leg exists to catch (DCR-0018). Nine broken links were measured in
+  # transync-cli on 2026-09-04 during OI-0043's output.rs split — four of them
+  # in a file the split never opened — with nothing in this repository able to
+  # report them.
+  if ((${#RUSTDOC_GATE_BIN_ARGS[@]})); then
+    echo "[pre-commit] RUSTDOCFLAGS=\"-D warnings\" cargo doc --no-deps ${RUSTDOC_GATE_BIN_ARGS[*]}"
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps "${RUSTDOC_GATE_BIN_ARGS[@]}" || fail=1
+  else
+    echo "[pre-commit] FAIL: $rustdoc_gate_lib did not define the rustdoc gate's bin-only list" >&2
+    fail=1
+  fi
+  if ((${#RUSTDOC_GATE_UNGATED_BIN[@]})); then
+    echo "[pre-commit] FAIL: bin-only member(s) outside the rustdoc gate: ${RUSTDOC_GATE_UNGATED_BIN[*]}" >&2
+    echo "[pre-commit]   add them to RUSTDOC_GATE_BIN_CRATES in $rustdoc_gate_lib" >&2
     fail=1
   fi
 fi
@@ -178,6 +199,10 @@ if [ -n "$js_dir" ]; then
   # its config (the root biome.jsonc) and the relative paths it is handed
   # against the cwd. Only the binary's location is $js_dir's business.
   run_js_tool() {
+    # Scoped so a later helper cannot inherit a clobbered probe (R0011-0062);
+    # the accumulators below (js_ran/js_broken/js_skipped, fail) stay global on
+    # purpose — the end-of-run summary reads them.
+    local tool js_bin
     tool="$1"
     shift
     js_bin="$js_dir/node_modules/.bin/$tool"

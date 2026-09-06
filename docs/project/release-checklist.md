@@ -265,8 +265,11 @@ Run all of them on the exact commit from step 1, and keep the output.
    (`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` over `transync-lang`,
    `transync-html`, `transync-syntax`, `transync-core`, `transync`,
    `transync-openai`, `transync-anthropic` and `transync-wasm` — every member
-   with a library target, the list owned by `scripts/lib/rustdoc-gate.sh`;
-   bin-only `transync-cli` is out),
+   with a library target, the list owned by `scripts/lib/rustdoc-gate.sh`),
+   plus a second leg over bin-only `transync-cli` with
+   `--document-private-items` (`RUSTDOC_GATE_BIN_CRATES`, added 2026-09-06;
+   it is a separate invocation because that flag suppresses the
+   `private_intra_doc_links` lint the library leg exists to catch),
    `scripts/build-wasm.sh` with its size budget, and a CLI dry run
    whose eight output files must all be non-empty. Host prerequisites — the
    `wasm32-unknown-unknown` rustup target, `wasm-pack`, and binaryen ≥ 121 —

@@ -223,14 +223,15 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
 ```
 
 The pre-commit hook runs `cargo fmt --check`, `cargo clippy
--D warnings`, and both standing gates above — wasm and rustdoc; any of
-them failing blocks the commit. Run `cargo fmt --all` before staging if
+-D warnings`, and both standing gates above — wasm, and rustdoc in its
+**two** legs (the library one and, since 2026-09-06, the bin-only one);
+any of them failing blocks the commit. Run `cargo fmt --all` before staging if
 rustfmt complains. The hook that actually runs is the tracked
 `scripts/hooks/pre-commit`, wired in by `scripts/install-hooks.sh` setting
 `core.hooksPath=scripts/hooks` — run that script once per clone.
 
 **It is never bypassed.** `git commit --no-verify` is not an option here:
-there is no CI behind the hook, so the four gates above run nowhere else
+there is no CI behind the hook, so the five gates above run nowhere else
 by themselves and a skipped hook is an unchecked commit until someone
 runs `scripts/smoke.sh`. `docs/project/release-checklist.md` says the
 same for the release-prep commit, `docs/Troubleshooting.md` says what to
@@ -251,11 +252,24 @@ the value is already `scripts/hooks`, re-running is a one-line no-op.
 **The rustdoc gate** (DCR-0018, widened to `transync-openai` on
 2026-08-07) keeps `cargo doc` warning-free for **every workspace member
 that has a library target** — `transync-lang`, `transync-html`, `transync-syntax`,
-`transync-core`, `transync`, `transync-openai`, `transync-anthropic`, `transync-wasm`. `transync-cli` is the one
-member outside it, and deliberately: it is bin-only, with no public API
-to document. Its usual failure is an intra-doc link from a public item to
-a private sibling: either widen the linked item or de-link the prose to
-plain backticks, whichever the curation calls for.
+`transync-core`, `transync`, `transync-openai`, `transync-anthropic`, `transync-wasm`. Its usual
+failure is an intra-doc link from a public item to a private sibling:
+either widen the linked item or de-link the prose to plain backticks,
+whichever the curation calls for.
+
+**`transync-cli` is inside it too, since 2026-09-06, on its own leg.** It
+was excluded on the ground that it is bin-only with no public API to
+document — true, and beside the point: `--document-private-items` is how a
+developer reads this crate, and that reader is who the links are for. With
+nothing checking them, nine broke silently, four of them in
+`crates/transync-cli/src/output/lock.rs` — a file OI-0043's `output.rs`
+split never opened, whose `super::X` references simply became sibling
+references when the concerns moved out — plus a tenth latent behind
+`#[cfg(not(unix))]`. It is a **second** `cargo doc` invocation rather than
+two more `-p` entries on the first, because `--document-private-items`
+documents the private items and so stops `rustdoc::private_intra_doc_links`
+from firing, which is exactly the failure the library leg exists to catch.
+Its list is `RUSTDOC_GATE_BIN_CRATES`, beside the other one.
 
 Two things run it, and neither owns the crate list. The list lives in
 `scripts/lib/rustdoc-gate.sh`, sourced by `scripts/smoke.sh` — which runs
@@ -646,7 +660,7 @@ Content-Security-Policy `<meta>` into the bundle's `index.html`:
 
 ```
 default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline';
-style-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'
+style-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'
 ```
 
 Everything the bundle needs stays legal — its own inline style block and

@@ -35,6 +35,7 @@ export TRANSYNC_LIVE_BIND=0.0.0.0
 # Optional knobs (uncomment to override defaults):
 # export TRANSYNC_OPENAI_MODEL=gpt-4o-2024-11-20
 # export TRANSYNC_LIVE_TARGET_LANG=ko
-# export TRANSYNC_LIVE_PORT=7470
+# export TRANSYNC_LIVE_PORT=7472   # default 7471; 7470 is smoke-live.sh's, and
+#                                  # the two ports exist so both can run at once
 
 exec "$(dirname "$0")/smoke-live-long.sh"

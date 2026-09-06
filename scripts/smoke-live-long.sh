@@ -30,10 +30,14 @@ export TRANSYNC_LIVE_INPUT="${TRANSYNC_LIVE_INPUT:-${REPO_ROOT}/samples/demo-lon
 
 # Use a separate workdir + port so concurrent runs of smoke-live.sh and
 # smoke-live-long.sh don't clobber each other's output bundles or race
-# for the same demo-server port. R0008-0054: mirror smoke-live.sh's
-# portable fallback so a contributor without /Volumes/Temp/claude gets a
-# working default instead of a permission/path failure.
-DEFAULT_LONG_WORKDIR="$(transync_pick_workdir TRANSYNC_LIVE_WORKDIR /Volumes/Temp/claude/transync-live-long)"export TRANSYNC_LIVE_WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_LONG_WORKDIR}"
+# for the same demo-server port. The default is
+# /Volumes/Temp/claude/transync-live-long; when that root is absent the run
+# REFUSES and names TRANSYNC_LIVE_WORKDIR (ti `13a73b`) rather than relocating
+# to $TMPDIR — R0008-0054's portable answer is still there, but you ask for it
+# with TRANSYNC_WORKDIR_POLICY=warn or by naming the path. (R0011-0053: this
+# comment claimed the silent fallback the helper deliberately stopped doing.)
+DEFAULT_LONG_WORKDIR="$(transync_pick_workdir TRANSYNC_LIVE_WORKDIR /Volumes/Temp/claude/transync-live-long)"
+export TRANSYNC_LIVE_WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_LONG_WORKDIR}"
 export TRANSYNC_LIVE_PORT="${TRANSYNC_LIVE_PORT:-7471}"
 
 exec "$(dirname "$0")/smoke-live.sh"

@@ -72,8 +72,24 @@ if ((${#RUSTDOC_GATE_UNGATED[@]})); then
   exit 1
 fi
 
+# The same completeness question for the OTHER kind of member. A bin-only
+# crate has no library target, so it can never appear in RUSTDOC_GATE_UNGATED
+# above; the library fills RUSTDOC_GATE_UNGATED_BIN for it instead.
+if ((${#RUSTDOC_GATE_UNGATED_BIN[@]})); then
+  echo "[smoke] FAIL: bin-only member(s) outside the rustdoc gate: ${RUSTDOC_GATE_UNGATED_BIN[*]}" >&2
+  echo "[smoke]   add them to RUSTDOC_GATE_BIN_CRATES in scripts/lib/rustdoc-gate.sh" >&2
+  exit 1
+fi
+
 echo "[smoke] RUSTDOCFLAGS=\"-D warnings\" cargo doc --no-deps ${RUSTDOC_GATE_ARGS[*]}"
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps "${RUSTDOC_GATE_ARGS[@]}"
+
+# A SECOND invocation, not more -p entries on the first: --document-private-items
+# documents the private items, which stops `rustdoc::private_intra_doc_links`
+# from firing — and that lint is the failure DCR-0018 built the library leg to
+# catch. The two legs therefore need different flags and cannot share a run.
+echo "[smoke] RUSTDOCFLAGS=\"-D warnings\" cargo doc --no-deps ${RUSTDOC_GATE_BIN_ARGS[*]}"
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps "${RUSTDOC_GATE_BIN_ARGS[@]}"
 
 # Builds the Track C demo module into web/wasm/ and enforces its size
 # budget. Its prereqs (wasm-pack, binaryen >= 121) fail loudly rather than

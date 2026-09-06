@@ -15,8 +15,8 @@
 #
 # Usage: scripts/smoke-live-gate.sh [chat|responses|anthropic|all]   (default: all)
 #
-# Required — per leg, checked up front so a missing key is an immediate
-# refusal rather than a skipped test that reads like a pass:
+# Required — per leg, checked up front so a missing or unusable key is an
+# immediate refusal rather than a skipped test that reads like a pass:
 #   OPENAI_API_KEY                          — for chat / responses / all
 #   ANTHROPIC_API_KEY                       — for anthropic / all
 #
@@ -55,17 +55,76 @@ case "$SURFACE" in
     ;;
 esac
 
-if [[ $NEEDS_OPENAI -eq 1 && -z "${OPENAI_API_KEY:-}" ]]; then
-  echo "[smoke-live-gate] OPENAI_API_KEY is not set (needed for surface '${SURFACE}')." >&2
-  echo "                  export it and re-run, or pick a surface that does not need it." >&2
-  exit 1
+# R0011-0011 — `-z` alone was not the check this gate advertises. A key that is
+# present but whitespace-only, or that carries the trailing newline a
+# `$(cat ~/.key)` picks up, satisfies `-z` and then fails at the endpoint as an
+# authentication error — after a full test-target compile, and reading like the
+# provider's fault rather than the shell's. A control character cannot go into
+# an HTTP header at all, so it is refused for a different reason and said so.
+require_key() {
+  local var_name="$1"
+  local value="${!var_name:-}"
+  if [[ -z "$value" ]]; then
+    echo "[smoke-live-gate] $var_name is not set (needed for surface '${SURFACE}')." >&2
+    echo "                  export it and re-run, or pick a surface that does not need it." >&2
+    exit 1
+  fi
+  if [[ -z "${value//[[:space:]]/}" ]]; then
+    echo "[smoke-live-gate] $var_name is whitespace only — it cannot authenticate." >&2
+    exit 1
+  fi
+  if [[ "$value" == *[[:cntrl:]]* ]]; then
+    echo "[smoke-live-gate] $var_name contains a control character (a trailing newline from" >&2
+    echo "                  \`\$(cat …)\` is the usual one) — it cannot go in an HTTP header." >&2
+    exit 1
+  fi
+}
+
+# R0011-0057 — an override the endpoint cannot resolve costs a compile and a
+# real request to discover. The model-name rule itself stays with the provider
+# (the tests pass the value through as-is); this refuses only the padding a
+# shell copy-paste adds, which is invisible in the failure message that follows.
+# An empty value is left alone: both live_smoke suites read it as "unset" and
+# use their own cheap default.
+require_unpadded() {
+  local var_name="$1"
+  local value="${!var_name:-}"
+  [[ -n "$value" ]] || return 0
+  local trimmed="${value#"${value%%[![:space:]]*}"}"
+  trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+  if [[ "$value" != "$trimmed" ]]; then
+    echo "[smoke-live-gate] $var_name has leading or trailing whitespace: '$value'" >&2
+    exit 1
+  fi
+}
+
+# R0011-0058 — same trade for the endpoint overrides. `Url::parse` in the tests
+# stays authoritative; this is the shape that makes the compile worth starting.
+require_http_url() {
+  local var_name="$1"
+  local value="${!var_name:-}"
+  [[ -n "$value" ]] || return 0
+  if ! [[ "$value" =~ ^https?://[^[:space:]]+$ ]]; then
+    echo "[smoke-live-gate] $var_name must be an absolute http(s) URL: '$value'" >&2
+    exit 1
+  fi
+}
+
+if [[ $NEEDS_OPENAI -eq 1 ]]; then
+  require_key OPENAI_API_KEY
 fi
 
-if [[ $NEEDS_ANTHROPIC -eq 1 && -z "${ANTHROPIC_API_KEY:-}" ]]; then
-  echo "[smoke-live-gate] ANTHROPIC_API_KEY is not set (needed for surface '${SURFACE}')." >&2
-  echo "                  export it and re-run, or pick a surface that does not need it." >&2
-  exit 1
+if [[ $NEEDS_ANTHROPIC -eq 1 ]]; then
+  require_key ANTHROPIC_API_KEY
 fi
+
+# Checked for every surface, not per leg: these are the knobs an operator edits
+# once and forgets, and naming a bad one now is free whichever leg reads it.
+require_unpadded TRANSYNC_LIVE_SMOKE_CHAT_MODEL
+require_unpadded TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL
+require_unpadded TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL
+require_http_url TRANSYNC_OPENAI_BASE_URL
+require_http_url TRANSYNC_ANTHROPIC_BASE_URL
 
 echo "[smoke-live-gate] running gated live smoke (${SURFACE}) — this spends real API tokens"
 
