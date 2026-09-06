@@ -51,6 +51,27 @@ impl Reporter {
 /// recognizes them; anything else becomes `\u{XX}`. Nothing is dropped — the
 /// escaped form carries the same information, inert, and an operator can still
 /// see exactly what the provider sent.
+///
+/// **And the bidi controls, which are not C0/C1 at all (R0010-0068).**
+/// `char::is_control` is category Cc, so the nine explicit bidirectional
+/// formatting characters fell straight through it while doing the one thing
+/// this function exists to stop: reordering what a terminal *shows* away from
+/// what the bytes *say*. An `RLO` inside a provider-authored `rejection_reason`
+/// renders the rest of the line right-to-left, so a diagnostic can be made to
+/// display a path, a model name, or a verdict it does not contain — the
+/// Trojan-Source shape (CVE-2021-42574), reached here through the same
+/// untrusted channel invariant 7 names. contracts.md §6's "no terminal
+/// controls" promise was never broken by them (a bidi mark is neither a line
+/// break nor a control sequence), which is exactly why they survived the first
+/// pass: the escape set was written against the promise rather than against
+/// the reordering.
+///
+/// The set is the nine bidi characters and no more — the marks (`U+200E`,
+/// `U+200F`, `U+061C`), the embeddings and overrides (`U+202A`–`U+202E`), and
+/// the isolates (`U+2066`–`U+2069`). It is deliberately *not* all of category
+/// Cf: `ZWJ`/`ZWNJ` are ordinary letters' business in Persian and Indic text
+/// and carry no reordering power, so escaping them would mangle a legitimate
+/// glossary term to no purpose.
 pub(crate) fn diagnostic_line(msg: &str) -> String {
     const PREFIX: &str = "transync: ";
     let mut out = String::with_capacity(PREFIX.len() + msg.len());
@@ -60,11 +81,25 @@ pub(crate) fn diagnostic_line(msg: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if c.is_control() => out.push_str(&format!("\\u{{{:02x}}}", c as u32)),
+            c if c.is_control() || is_bidi_control(c) => {
+                out.push_str(&format!("\\u{{{:02x}}}", c as u32))
+            }
             c => out.push(c),
         }
     }
     out
+}
+
+/// The nine explicit bidirectional formatting characters (R0010-0068).
+///
+/// Named individually rather than tested by Unicode category, because the
+/// property that matters here is "can reorder the rendered line", and category
+/// Cf holds several characters that cannot.
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200e}' | '\u{200f}' | '\u{061c}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
 }
 
 /// The stderr lines a completed pipeline run produces, in emission order.
@@ -243,6 +278,46 @@ mod tests {
             diagnostic_line("tabbed\there"),
             "transync: tabbed\\there",
             "a tab is a control character with a familiar spelling"
+        );
+    }
+
+    /// R0010-0068. The bidi controls are category Cf, so `is_control` — the
+    /// only test this function used to apply — says `false` for every one of
+    /// them. Observed red before the fix: each of the nine reached the output
+    /// verbatim.
+    #[test]
+    fn a_diagnostic_cannot_reorder_what_a_terminal_shows() {
+        // The Trojan-Source shape: an override makes the tail render
+        // right-to-left, so a reader sees a path the message does not name.
+        let forged = "translation failed: \u{202e}dm.live/ptmorp\u{202c} not written";
+        let line = diagnostic_line(forged);
+        assert!(
+            !line.contains('\u{202e}') && !line.contains('\u{202c}'),
+            "no bidi control may reach the terminal: {line:?}"
+        );
+        assert!(
+            line.contains("\\u{202e}dm.live/ptmorp\\u{202c}"),
+            "escaped, not dropped — the operator still sees what was sent: {line}"
+        );
+
+        for c in [
+            '\u{200e}', '\u{200f}', '\u{061c}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}',
+            '\u{202e}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+        ] {
+            let out = diagnostic_line(&format!("x{c}y"));
+            assert_eq!(
+                out,
+                format!("transync: x\\u{{{:02x}}}y", c as u32),
+                "every explicit bidi formatting character is escaped"
+            );
+        }
+
+        // Not all of Cf: a joiner is a letter's business, not a reordering
+        // control, and a glossary term may legitimately carry one.
+        assert_eq!(
+            diagnostic_line("note: \u{200d} joined"),
+            "transync: note: \u{200d} joined",
+            "ZWJ carries no reordering power and stays as text"
         );
     }
 

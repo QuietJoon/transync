@@ -70,7 +70,7 @@ pub fn write_fileset_atomic(
     let mut staged: Vec<(std::path::PathBuf, &std::path::PathBuf)> =
         Vec::with_capacity(files.len());
     for (path, bytes) in files {
-        match stage_one_file(path, bytes) {
+        match stage_one_file(path, bytes, notify) {
             Ok(tmp) => staged.push((tmp, path)),
             Err(e) => {
                 cleanup_temps(&staged, notify);
@@ -137,7 +137,7 @@ fn create_destination_parents(dirs: &[PathBuf], created_dirs: &mut Vec<PathBuf>)
 /// Anything else means residue this run meant to remove and could not, and the
 /// operator hears about it once (R0003-0022) — as a note beside the run's real
 /// error, never in place of it.
-fn rollback_created_dirs(created_dirs: &[PathBuf], notify: Notify<'_>) {
+pub(super) fn rollback_created_dirs(created_dirs: &[PathBuf], notify: Notify<'_>) {
     let mut left_behind: Vec<(PathBuf, io::Error)> = Vec::new();
     for dir in created_dirs.iter().rev() {
         match remove_own_lock_marker_if_sole(dir) {
@@ -233,7 +233,7 @@ fn remove_own_lock_marker_if_sole(dir: &Path) -> LevelDecision {
 /// Stage one payload as `<path>.tmp.<pid>`, fsynced. The destination
 /// directory already exists — [`create_destination_parents`] made it before
 /// the publish lock was taken.
-fn stage_one_file(path: &Path, bytes: &[u8]) -> io::Result<std::path::PathBuf> {
+fn stage_one_file(path: &Path, bytes: &[u8], notify: Notify<'_>) -> io::Result<std::path::PathBuf> {
     // Append to the FULL file name (`out.md.tmp.<pid>`) rather than replacing
     // the extension — `with_extension` would collide same-stem siblings
     // (`out.md` and `out.json` both staging as `out.tmp.<pid>`) in one fileset.
@@ -253,7 +253,24 @@ fn stage_one_file(path: &Path, bytes: &[u8]) -> io::Result<std::path::PathBuf> {
             )
         })?;
     if let Err(e) = f.write_all(bytes).and_then(|()| f.sync_all()) {
-        let _ = fs::remove_file(&tmp);
+        // R0011-0017: the write's own error is what this returns — the bytes
+        // are what failed, and nothing here changes that. But the temp this
+        // call created a moment ago and now cannot take back is residue only
+        // this call can see, and it is the same residue (and the same
+        // sentence) [`cleanup_temps`] owes for the temps of a failed rename
+        // pass: silence would make it indistinguishable from a temp that was
+        // never there. `NotFound` means somebody got there first and stays
+        // quiet, exactly as it does over there.
+        if let Err(rm) = fs::remove_file(&tmp)
+            && rm.kind() != io::ErrorKind::NotFound
+        {
+            note_cleanup_residue(
+                "staged temp file(s)",
+                AFTER_A_FAILED_PUBLICATION,
+                &[(tmp, rm)],
+                notify,
+            );
+        }
         return Err(e);
     }
     Ok(tmp)

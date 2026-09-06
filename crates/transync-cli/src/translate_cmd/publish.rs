@@ -18,6 +18,8 @@ use crate::output::{
     html_bundle_files, html_bundle_paths, preflight_destination_set, preflight_html_out,
     preflight_out_dir, publish_out_dir, write_fileset_atomic,
 };
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use transync::TranslationOutput;
 
@@ -81,6 +83,13 @@ enum Commit<'a> {
 /// the strength of this pass, and this pass says nothing on stderr: the
 /// authoritative pass is the one that reports queued publications and
 /// preserved foreign staging temps, and one run should not print those twice.
+///
+/// The read-side half (R0010-0003 / R0010-0004) is asked **only** here, and it
+/// is the one guard in this function that is not repeated under the lock: it
+/// compares argv against argv, so a second answer would differ from this one
+/// only if the operator moved the run's own input files mid-run — and paying
+/// for that with a discarded translation buys nothing the refusal below has not
+/// already bought before the provider was called.
 pub(crate) fn preflight_destinations(
     target: &OutputTarget,
     args: &TranslateArgs,
@@ -88,7 +97,8 @@ pub(crate) fn preflight_destinations(
     let quiet = |_: &str| {};
     match target {
         OutputTarget::Dir { dir } => {
-            preflight_out_dir(dir, args.force, &quiet).map_err(PublishError::Commit)
+            preflight_out_dir(dir, args.force, &quiet).map_err(PublishError::Commit)?;
+            refuse_read_side_under(dir, args)
         }
         OutputTarget::Files {
             output: out_path,
@@ -105,9 +115,116 @@ pub(crate) fn preflight_destinations(
                 })?;
                 destinations.extend(html_bundle_paths(dir));
             }
-            preflight_destination_set(&destinations).map_err(PublishError::Commit)
+            preflight_destination_set(&destinations).map_err(PublishError::Commit)?;
+            refuse_read_side_aliases(&destinations, args)
         }
     }
+}
+
+/// The files a run **reads**, each with the flag that named it and its
+/// canonical identity — the third element absent for a path that resolves to
+/// nothing, which is a run that is about to fail its own read anyway.
+///
+/// A read-side path is canonicalized **whole**, final component included,
+/// because the run reads *through* every symlink on it: what must survive is
+/// the file at the end of the chain, not the entry that pointed at it.
+fn read_side_identities(args: &TranslateArgs) -> Vec<(&'static str, &Path, PathBuf)> {
+    [
+        Some(("--input", args.input.as_path())),
+        args.profile.as_deref().map(|p| ("--profile", p)),
+        args.system_prompt_file
+            .as_deref()
+            .map(|p| ("--system-prompt-file", p)),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|(flag, path)| Some((flag, path, fs::canonicalize(path).ok()?)))
+    .collect()
+}
+
+/// What a destination would land on: its parent resolved, its final component
+/// kept. Deliberately `crate::output::destination`'s rule rather than a whole
+/// canonicalization, and for that module's reason — publication renames over
+/// the final entry rather than through it, so an `alias.md` that symlinks the
+/// input is a different file from the input and refusing the pair would be a
+/// false alarm.
+///
+/// `None` for a destination with no final component, or whose parent does not
+/// exist: neither can name a file that already exists, and a read-side path
+/// that resolved is a file that does.
+fn written_identity(destination: &Path) -> Option<PathBuf> {
+    let name = destination.file_name()?;
+    let parent = match destination.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    Some(fs::canonicalize(parent).ok()?.join(name))
+}
+
+/// Refuse a destination that names a file this run reads (R0010-0003,
+/// R0010-0004).
+///
+/// `vet_destinations` asks whether the output set names one file twice;
+/// `--output <the --input>` names one file twice across the read/write divide,
+/// and the outcome is worse than a mangled fileset. The publication renames the
+/// staged translation over the document the run was translating, or over the
+/// `--profile` / `--system-prompt-file` that governed it, and nothing reports
+/// it: the source is already in memory and the write is a legitimate
+/// publication of a successful run.
+///
+/// **`--force` does not waive this.** That flag says an existing *output* may
+/// be replaced — a foreign `--html-out` file, an `--out-dir` target that is not
+/// a prior out-dir — and no argv spelling asks for a run to destroy its own
+/// inputs.
+fn refuse_read_side_aliases(
+    destinations: &[PathBuf],
+    args: &TranslateArgs,
+) -> Result<(), PublishError> {
+    let reads = read_side_identities(args);
+    for destination in destinations {
+        let Some(written) = written_identity(destination) else {
+            continue;
+        };
+        for (flag, path, read) in &reads {
+            if *read == written {
+                return Err(read_side_refusal(format!(
+                    "output destination {} is the {flag} file {} this run reads: publishing it \
+                     would overwrite the run's own input",
+                    destination.display(),
+                    path.display(),
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// [`refuse_read_side_aliases`] for `--out-dir`, whose destination is the whole
+/// target: a publication replaces the directory, so an input *inside* it is
+/// destroyed without any destination naming that input.
+fn refuse_read_side_under(dir: &Path, args: &TranslateArgs) -> Result<(), PublishError> {
+    let Ok(published) = fs::canonicalize(dir) else {
+        return Ok(());
+    };
+    for (flag, path, read) in read_side_identities(args) {
+        // Component-wise, so `/a/bc` is not inside `/a/b`.
+        if read.starts_with(&published) {
+            return Err(read_side_refusal(format!(
+                "--out-dir {} holds the {flag} file {} this run reads, and publishing replaces \
+                 the whole target directory",
+                dir.display(),
+                path.display(),
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// The same channel every other destination refusal takes, so an operator
+/// cannot tell the read-side guard apart from the duplicate-destination one by
+/// its exit code (`contracts.md` §6).
+fn read_side_refusal(message: String) -> PublishError {
+    PublishError::Commit(io::Error::new(io::ErrorKind::InvalidInput, message))
 }
 
 /// Serialize, preflight, assemble, and commit the whole output set.
@@ -241,11 +358,17 @@ pub(crate) fn publish_outputs(
             // on. A security flag that silently does nothing is worse than a
             // noisy one, so a run that emits no bundle says so rather than
             // leaving the operator believing the outputs are hardened.
-            if args.strict_csp {
-                notify(
-                    "note: --strict-csp has no effect without --html-out or --out-dir (this run \
-                     emits no HTML bundle)",
-                );
+            //
+            // R0010-0059: `--title` and `--target-direction` are bundle-only in
+            // exactly the same way — neither reaches out.md, the alignment map
+            // or the provider — so they take the same sentence rather than a
+            // second mechanism. A note and not an argument error, because the
+            // combination is inert rather than contradictory.
+            for flag in bundle_only_flags_given(args) {
+                notify(&format!(
+                    "note: {flag} has no effect without --html-out or --out-dir (this run emits \
+                     no HTML bundle)"
+                ));
             }
             Vec::new()
         }
@@ -265,6 +388,23 @@ pub(crate) fn publish_outputs(
         Commit::Files => write_fileset_atomic(&files, &notify),
     }
     .map_err(PublishError::Commit)
+}
+
+/// The bundle-only flags this run passed, in the order the advisory names
+/// them. Each is consumed by bundle assembly and nowhere else, so a run that
+/// emits no bundle consumed none of them (R0010-0059).
+fn bundle_only_flags_given(args: &TranslateArgs) -> Vec<&'static str> {
+    let mut given = Vec::new();
+    if args.strict_csp {
+        given.push("--strict-csp");
+    }
+    if args.title.is_some() {
+        given.push("--title");
+    }
+    if args.target_direction.is_some() {
+        given.push("--target-direction");
+    }
+    given
 }
 
 /// The language label to stamp on the generated bundle's source pane
@@ -296,6 +436,149 @@ fn pane_source_language<'a>(requested: &'a str, detected: &'a Option<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::testing::scratch_dir;
+    use clap::Parser;
+
+    /// Constructing `TranslateArgs` through clap keeps these tests robust to
+    /// future field additions (defaults fill in) — the same harness rule
+    /// `args`'s tests follow.
+    #[derive(Parser)]
+    struct Harness {
+        #[command(flatten)]
+        args: TranslateArgs,
+    }
+
+    fn parse_args(extra: &[&str]) -> TranslateArgs {
+        let mut argv = vec!["transync", "--target-language", "ko"];
+        argv.extend_from_slice(extra);
+        Harness::try_parse_from(argv)
+            .expect("args should parse")
+            .args
+    }
+
+    fn refusal(e: PublishError) -> String {
+        match e {
+            PublishError::Commit(e) => e.to_string(),
+            _ => panic!("a destination refusal arrives as PublishError::Commit"),
+        }
+    }
+
+    /// R0010-0003 / R0010-0004: a destination that names a file this run READS
+    /// is refused before the provider is called, `--force` included — that flag
+    /// governs replaceable outputs, never the run's own inputs. The alias is
+    /// spelled through a `.` component so the refusal is identity-based rather
+    /// than textual, the way the output-set duplicate check already is.
+    #[test]
+    fn a_destination_that_names_a_read_side_file_is_refused() {
+        let root = scratch_dir("read-side-alias");
+        let input = root.join("in.md");
+        fs::write(&input, "# hi\n").expect("fixture input");
+        let profile = root.join("profile.toml");
+        fs::write(&profile, "").expect("fixture profile");
+
+        let aliased_input = root.join(".").join("in.md");
+        let args = parse_args(&[
+            "--input",
+            input.to_str().expect("scratch paths are UTF-8"),
+            "--profile",
+            profile.to_str().expect("scratch paths are UTF-8"),
+            "--force",
+        ]);
+        let onto_input = OutputTarget::Files {
+            output: aliased_input,
+            map: root.join("alignment.json"),
+        };
+        let message = refusal(
+            preflight_destinations(&onto_input, &args)
+                .expect_err("--output naming --input must be refused"),
+        );
+        assert!(
+            message.contains("--input") && message.contains("in.md"),
+            "the refusal must name the read-side flag and its file: {message}"
+        );
+
+        // The profile and the system prompt file are read the same way, so the
+        // same alias through --map is the same refusal.
+        let onto_profile = OutputTarget::Files {
+            output: root.join("out.md"),
+            map: root.join("profile.toml"),
+        };
+        let message = refusal(
+            preflight_destinations(&onto_profile, &args)
+                .expect_err("--map naming --profile must be refused"),
+        );
+        assert!(
+            message.contains("--profile"),
+            "the refusal must name the read-side flag: {message}"
+        );
+
+        // And a set that aliases nothing still publishes.
+        let clean = OutputTarget::Files {
+            output: root.join("out.md"),
+            map: root.join("alignment.json"),
+        };
+        assert!(
+            preflight_destinations(&clean, &args).is_ok(),
+            "a destination set that names no read-side file must pass"
+        );
+    }
+
+    /// R0010-0003: `--out-dir` needs no destination to name the input — the
+    /// publication replaces the whole target, so an input *inside* it is
+    /// destroyed by a set that names only `out.md` and `alignment.json`.
+    #[test]
+    fn an_out_dir_holding_a_read_side_file_is_refused() {
+        let root = scratch_dir("read-side-out-dir");
+        let published = root.join("published");
+        fs::create_dir(&published).expect("an existing --out-dir target");
+        let input = published.join("in.md");
+        fs::write(&input, "# hi\n").expect("fixture input");
+
+        let args = parse_args(&[
+            "--input",
+            input.to_str().expect("scratch paths are UTF-8"),
+            "--force",
+        ]);
+        let message = refusal(
+            preflight_destinations(&OutputTarget::Dir { dir: published }, &args)
+                .expect_err("an --out-dir holding the input must be refused"),
+        );
+        assert!(
+            message.contains("--input"),
+            "the refusal must name the read-side flag: {message}"
+        );
+
+        // A sibling directory holds nothing this run reads. `publishedX` also
+        // pins that the containment test is component-wise.
+        let sibling = root.join("publishedX");
+        fs::create_dir(&sibling).expect("a sibling target");
+        assert!(
+            preflight_destinations(&OutputTarget::Dir { dir: sibling }, &args).is_ok(),
+            "a target that holds no read-side file must pass"
+        );
+    }
+
+    /// R0010-0059 / OI-0018: every bundle-only flag earns the same no-bundle
+    /// sentence, not just the one that had it.
+    #[test]
+    fn bundle_only_flags_are_reported_when_no_bundle_is_emitted() {
+        let none = parse_args(&["--input", "in.md"]);
+        assert!(bundle_only_flags_given(&none).is_empty());
+
+        let all = parse_args(&[
+            "--input",
+            "in.md",
+            "--strict-csp",
+            "--title",
+            "Doc",
+            "--target-direction",
+            "rtl",
+        ]);
+        assert_eq!(
+            bundle_only_flags_given(&all),
+            ["--strict-csp", "--title", "--target-direction"]
+        );
+    }
 
     /// The sentinel hands the pane over to the model's detection, and an
     /// absent detection leaves the label empty (no `lang` attribute).

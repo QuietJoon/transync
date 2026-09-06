@@ -11,7 +11,9 @@
 //! TRACE: DCR-0021
 
 use super::destination::destination_file_name;
-use super::fileset::{claim_anchor, fsync_created_levels, missing_ancestors};
+use super::fileset::{
+    claim_anchor, fsync_created_levels, missing_ancestors, rollback_created_dirs,
+};
 use super::lock::PublishLock;
 use super::preflight::ensure_out_dir_replaceable;
 use super::{
@@ -138,6 +140,56 @@ pub fn publish_out_dir(
     let anchor = claim_anchor(&parent);
     let created_dirs = missing_ancestors(&parent);
     fs::create_dir_all(&parent)?;
+
+    // R0011-0019: a publication that fails from here on published NOTHING, so
+    // the levels it had to create to reach its parent are residue — the same
+    // obligation [`super::fileset::write_fileset_atomic`] carries, and the
+    // reason the levels were recorded before the create. One rollback rather
+    // than one per failure path: [`publish_into_parent`] has eight, and the
+    // ninth somebody adds later would silently be the one without it.
+    //
+    // Two orderings make it safe, and both are why the rollback lives out
+    // here rather than in there. The publish lock is gone by the time this
+    // runs — it is a local of the call that just returned — which is what lets
+    // [`rollback_created_dirs`] unlink its own marker at all (R0003-0001); and
+    // the removal is empty-only (R0002-0002), so a swap that failed with the
+    // previous output preserved under `backup` keeps the level that holds it.
+    if let Err(e) = publish_into_parent(target, &parent, anchor, files, force, notify) {
+        rollback_created_dirs(&created_dirs, notify);
+        return Err(e);
+    }
+
+    // Durability: fsync the parent so the publish rename itself survives a
+    // crash, and every level this call had to create to reach it so the
+    // entries naming *those* survive too (R0003-0020).
+    if let Some(parent) = target.parent() {
+        fsync_dir(
+            if parent.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                parent
+            },
+            notify,
+        );
+    }
+    fsync_created_levels(&created_dirs, notify);
+    Ok(())
+}
+
+/// The locked half of [`publish_out_dir`]: take the publication lock, stage
+/// the tree, and swap it in — every failure path returning to a caller that
+/// owns one obligation this cannot see, the rollback of the parent levels it
+/// created (R0011-0019). Split out for that reason alone: the lock is a local
+/// here, so returning is what releases it, and the caller's rollback is
+/// therefore always on the far side of the release.
+fn publish_into_parent(
+    target: &Path,
+    parent: &Path,
+    anchor: PathBuf,
+    files: &[(PathBuf, &[u8])],
+    force: bool,
+    notify: Notify<'_>,
+) -> io::Result<()> {
     // The parent (and, when it had to be created, the level holding it) is the
     // flat-case lock. The directories INSIDE the target are the nested case
     // (ti `40e2a5`): a files-mode run publishing into this target locks them,
@@ -145,7 +197,7 @@ pub fn publish_out_dir(
     // the same exclusion rather than a neighbouring one. What is inside the
     // target is re-read once the locks are held, because until then it is a
     // snapshot (see [`lock_publication_tree`]).
-    let _lock = lock_publication_tree(anchor, &parent, target, notify)?;
+    let _lock = lock_publication_tree(anchor, parent, target, notify)?;
 
     // Under the lock, and before anything is staged: a target this run may not
     // replace costs no translation output being written. It is asked once more
@@ -156,7 +208,7 @@ pub fn publish_out_dir(
     let name = out_dir_name(target)?;
     // Under the lock, before this run picks its own name: reclaim the staging
     // trees of a crashed predecessor whose pid the OS handed back to us.
-    reclaim_own_staging(&parent, name, notify);
+    reclaim_own_staging(parent, name, notify);
 
     let token = publish_token();
     let staging = out_dir_sibling(target, "staging", &token);
@@ -268,20 +320,6 @@ pub fn publish_out_dir(
         }
     }
 
-    // Durability: fsync the parent so the publish rename itself survives a
-    // crash, and every level this call had to create to reach it so the
-    // entries naming *those* survive too (R0003-0020).
-    if let Some(parent) = target.parent() {
-        fsync_dir(
-            if parent.as_os_str().is_empty() {
-                Path::new(".")
-            } else {
-                parent
-            },
-            notify,
-        );
-    }
-    fsync_created_levels(&created_dirs, notify);
     Ok(())
 }
 
@@ -378,7 +416,24 @@ fn reclaim_own_staging(parent: &Path, name: &str, notify: Notify<'_>) {
         }
     };
     let mut left_behind: Vec<(PathBuf, io::Error)> = Vec::new();
-    for entry in entries.flatten() {
+    for entry in entries {
+        // R0010-0017: `.flatten()` used to drop a mid-iteration `DirEntry`
+        // error, which is the same class of silence the `read_dir` open
+        // failure above already refuses to keep — and the more misleading half
+        // of it, because the sweep then reports success while never having
+        // seen the entry it was looking for. Said and skipped, not fatal: this
+        // is a best-effort reclaim of *this run's own* leftovers, so one
+        // unreadable entry must not stop the rest from being cleaned.
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                notify(&format!(
+                    "note: could not read an entry of {} while looking for staging trees left                      by a crashed earlier run with this process's pid ({e}); any that are                      there stay where they are, inert, and the next run will try again",
+                    parent.display(),
+                ));
+                continue;
+            }
+        };
         let file_name = entry.file_name();
         let Some(rest) = file_name.to_str().and_then(|n| n.strip_prefix(&prefix)) else {
             continue;
@@ -674,6 +729,28 @@ mod tests {
             "nothing may be written outside the target"
         );
         assert!(!target.exists(), "a refused publish leaves no target");
+    }
+
+    /// R0011-0019: and a publication that never happened owes the directory
+    /// levels it had to create on the way in, the same way the fileset commit
+    /// does (`a_failed_stage_removes_the_directories_it_created`). The vehicle
+    /// is the refusal above, which lands after the parents — and their lock
+    /// markers — are already on disk.
+    #[test]
+    fn a_failed_out_dir_publish_removes_the_directories_it_created() {
+        let root = scratch_dir("out-dir-rollback");
+        let target = root.join("made").join("here").join("published");
+        let files: Vec<(PathBuf, &[u8])> = vec![
+            (PathBuf::from("out.md"), b"ok".as_slice()),
+            (PathBuf::from("../OUTSIDE.md"), b"escaped".as_slice()),
+        ];
+
+        publish_out_dir(&target, &files, false, &silent)
+            .expect_err("an entry outside the staged tree must be refused");
+        assert!(
+            !root.join("made").exists(),
+            "a publication that published nothing leaves no directory levels behind"
+        );
     }
 
     /// R0002-0023: `--force` aimed at a target that is a regular file publishes

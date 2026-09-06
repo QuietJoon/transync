@@ -5,10 +5,48 @@
 
 #[cfg(not(feature = "test-stub-provider"))]
 use secrecy::SecretString;
-#[cfg(not(feature = "test-stub-provider"))]
 use transync_openai::ModelId;
-#[cfg(not(feature = "test-stub-provider"))]
 use url::Url;
+
+/// The provider configuration both builds resolve, before either one picks a
+/// transport (R0010-0029).
+///
+/// The `test-stub-provider` feature exists so the smoke suites can drive **this
+/// CLI**; a stub arm that answers before the arguments are parsed tests a CLI
+/// with a different preflight from the shipped one. A `--base-url` that is not
+/// a URL, or a `--model` [`ModelId::parse`] refuses, used to reach the echo
+/// translator and exit 0 under the feature while the live build refused the
+/// same argv at exit 1. So everything that depends on the *arguments* rather
+/// than on the transport is answered here, where both arms run it — the stub
+/// discards the product, the live build passes it on.
+///
+/// ti `30a744`: the base URL is resolved BEFORE the credential is demanded,
+/// because an offline run needs the former and must not be asked for the
+/// latter. The order is the whole fix — it used to be reversed, so a run that
+/// was going to make no provider call still could not start.
+///
+/// What stays with the live arm is what needs a live adapter to answer:
+/// `TransyncOpenAI::{try_new, offline}` re-run [`ModelId::parse`] (idempotent)
+/// and additionally validate the URL's scheme, host and userinfo through a
+/// rule this crate cannot reach.
+fn provider_config(model: &str, base_url: Option<&str>) -> Result<(ModelId, Option<Url>), String> {
+    let base_url = match base_url {
+        Some(raw) => Some(Url::parse(raw).map_err(|e| format!("invalid --base-url: {e}"))?),
+        None => match std::env::var("TRANSYNC_OPENAI_BASE_URL")
+            .ok()
+            .filter(|s| !s.is_empty())
+        {
+            Some(raw) => Some(
+                Url::parse(&raw).map_err(|e| format!("invalid TRANSYNC_OPENAI_BASE_URL: {e}"))?,
+            ),
+            None => None,
+        },
+    };
+    // R0002-0037 / R0003-0009: one rule for "this identifier names a model",
+    // stated on `ModelId` and reused rather than restated.
+    let model = ModelId::parse(model).map_err(|e| e.to_string())?;
+    Ok((model, base_url))
+}
 
 /// Pick the right `Translator` for the current build configuration.
 ///
@@ -29,6 +67,11 @@ pub(crate) fn translator_for_run(
     // both builds.
     _offline: bool,
 ) -> Result<Box<dyn transync::Translator + Send + Sync>, String> {
+    // R0010-0029: the argument-side half of provider construction runs here
+    // too, and its product is discarded — the stub configures no transport,
+    // but a `--model` or `--base-url` the shipped binary refuses must not go
+    // green under the feature that exists to test the shipped binary.
+    provider_config(model, base_url)?;
     // OI-0023 item 2: with no live provider to inspect, record the model +
     // base-url this stub provider was handed — the same pair the live build
     // forwards to `TransyncOpenAI::try_new` — to the path in
@@ -152,22 +195,10 @@ pub(crate) fn translator_for_run(
     base_url: Option<&str>,
     offline: bool,
 ) -> Result<Box<dyn transync::Translator + Send + Sync>, String> {
-    // ti `30a744`: the base URL is resolved BEFORE the credential is demanded,
-    // because an offline run needs the former and must not be asked for the
-    // latter. The order is the whole fix — it used to be reversed, so a run
-    // that was going to make no provider call still could not start.
-    let base_url = match base_url {
-        Some(raw) => Some(Url::parse(raw).map_err(|e| format!("invalid --base-url: {e}"))?),
-        None => match std::env::var("TRANSYNC_OPENAI_BASE_URL")
-            .ok()
-            .filter(|s| !s.is_empty())
-        {
-            Some(raw) => Some(
-                Url::parse(&raw).map_err(|e| format!("invalid TRANSYNC_OPENAI_BASE_URL: {e}"))?,
-            ),
-            None => None,
-        },
-    };
+    // R0010-0029: the base URL and the model id are parsed by the function
+    // both builds share, which is also where ti `30a744`'s "base URL before
+    // credential" ordering now lives.
+    let (model, base_url) = provider_config(model, base_url)?;
     // The two instances differ in exactly one field, and deliberately not in
     // any field `fingerprint()` reads: an offline run has to look in the
     // namespace the warming run wrote, or it misses everything and reads as a
@@ -175,19 +206,41 @@ pub(crate) fn translator_for_run(
     // `an_offline_instance_fingerprints_identically_to_a_credentialed_one`
     // pins it, so this seam cannot re-derive the composition and drift.
     let openai = if offline {
-        transync_openai::TransyncOpenAI::offline(ModelId::new(model), base_url)
+        transync_openai::TransyncOpenAI::offline(model, base_url)
     } else {
         let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
             "OPENAI_API_KEY not set; set it, pass --offline to run from cache alone, \
              or build --features test-stub-provider"
                 .to_string()
         })?;
-        transync_openai::TransyncOpenAI::try_new(
-            SecretString::new(key.into()),
-            ModelId::new(model),
-            base_url,
-        )
+        transync_openai::TransyncOpenAI::try_new(SecretString::new(key.into()), model, base_url)
     }
     .map_err(|e| e.to_string())?;
     Ok(Box::new(openai) as Box<dyn transync::Translator + Send + Sync>)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// R0010-0029: the argument-side refusals are the same refusals in both
+    /// builds — this module's cfg split picks a transport, and must not be able
+    /// to change the answer to a question about argv. Every case here passes an
+    /// explicit `--base-url`, so nothing reads the ambient environment.
+    #[test]
+    fn the_argument_side_configuration_is_validated_in_both_builds() {
+        assert!(provider_config("gpt-5", Some("https://api.example/v1")).is_ok());
+        assert!(
+            provider_config("gpt-5", Some("not a url")).is_err(),
+            "a --base-url that is not a URL is refused before a transport is chosen"
+        );
+        assert!(
+            provider_config("", Some("https://api.example/v1")).is_err(),
+            "R0002-0037: an identifier that names no model is the configuration's fault"
+        );
+        assert!(
+            provider_config(" gpt-5 ", Some("https://api.example/v1")).is_err(),
+            "R0003-0009: a padded identifier is two cache namespaces for one model"
+        );
+    }
 }

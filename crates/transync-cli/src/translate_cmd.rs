@@ -469,6 +469,46 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
         InputFormatArg::Markdown => {}
     }
 
+    // R0011-0076 / R0011-0077 / R0011-0078 / R0011-0079: everything from here
+    // to the destination preflight is answered by **argv and the environment
+    // alone** — a blank label, a mode combination that can never run, a
+    // `--base-url` that is not a URL, an absent credential. Each used to be
+    // discovered after the input and the profile had been read and decoded, so
+    // a run with two faults reported the parse failure and left the spelling
+    // mistake for the next attempt. This is the reasoning
+    // `resolve_output_target` and `resolve_title_flag` above already follow,
+    // applied to the rest of the argument surface.
+    //
+    // R0008-0039: validate all three identifiers consistently before they
+    // travel into the pipeline / cache key / provider request.
+    // R0001-0021: the same call normalizes the two labels, and `languages` is
+    // what every consumer below reads — nothing downstream goes back to
+    // `args.source_language` / `args.target_language`, so the padding cannot
+    // reach the prompt through one path while another has already dropped it.
+    let languages = resolve_language_and_model_args(args)
+        .map_err(|msg| CliFailure::new(ExitCode::ArgumentError, msg))?;
+
+    // ti `30a744`: `--offline` is only coherent against a cache that outlives
+    // the process. A fresh in-memory cache misses its first lookup by
+    // construction, so the flag would have exactly one possible outcome —
+    // refuse here, where the message can say which flag to add, rather than
+    // after a parse and a batch-packing pass.
+    if args.offline && args.cache_dir.is_none() {
+        return Err(CliFailure::new(
+            ExitCode::ArgumentError,
+            "--offline needs --cache-dir: without a cache that outlives the run \
+             every unit misses, and an offline run that misses cannot proceed"
+                .to_string(),
+        ));
+    }
+
+    let model = resolve_model(args.model.as_deref());
+
+    // Configuration only: the adapter is built and its arguments validated, and
+    // no request is issued until the pipeline runs it far below.
+    let translator = translator_for_run(&model, args.base_url.as_deref(), args.offline)
+        .map_err(|msg| CliFailure::new(ExitCode::ArgumentError, msg))?;
+
     // R0002-0029: the destination guards need no translated content, so they
     // run before the provider does. A foreign --html-out directory or an
     // --out-dir target that is not a prior out-dir is a refusal the filesystem
@@ -561,23 +601,12 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
     // advisory at the batching door (ti 5f6664). Echoing the field here would
     // print those a second time.
 
-    // R0008-0039: validate all three identifiers consistently before they
-    // travel into the pipeline / cache key / provider request.
-    // R0001-0021: the same call normalizes the two labels, and `languages` is
-    // what every consumer below reads — nothing downstream goes back to
-    // `args.source_language` / `args.target_language`, so the padding cannot
-    // reach the prompt through one path while another has already dropped it.
-    let languages = resolve_language_and_model_args(args)
-        .map_err(|msg| CliFailure::new(ExitCode::ArgumentError, msg))?;
-
     // D1: overlay the CLI batching flags onto the resolved profile
     // (flag > profile > built-in default) so there is exactly one downstream
     // resolution mechanism. Same spot the `--system-prompt` mutation already
     // uses (inside resolve_profile just above). Must run before `args`
     // fields are moved into `opts`.
     apply_batching_overrides(&mut profile, args);
-
-    let model = resolve_model(args.model.as_deref());
 
     // OI-0032: the profile moves into `opts` below, so capture the
     // presentation-only direction hint (consumed at bundle-assembly time,
@@ -604,23 +633,6 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
     // can override a profile that enables it).
     opts.auto_glossary = resolve_auto_glossary_flag(args);
     opts.input_format = args.input_format.to_source_format();
-
-    // ti `30a744`: `--offline` is only coherent against a cache that outlives
-    // the process. A fresh in-memory cache misses its first lookup by
-    // construction, so the flag would have exactly one possible outcome —
-    // refuse here, where the message can say which flag to add, rather than
-    // after a parse and a batch-packing pass.
-    if args.offline && args.cache_dir.is_none() {
-        return Err(CliFailure::new(
-            ExitCode::ArgumentError,
-            "--offline needs --cache-dir: without a cache that outlives the run \
-             every unit misses, and an offline run that misses cannot proceed"
-                .to_string(),
-        ));
-    }
-
-    let translator = translator_for_run(&model, args.base_url.as_deref(), args.offline)
-        .map_err(|msg| CliFailure::new(ExitCode::ArgumentError, msg))?;
 
     // DCR-0028 §6: `--cache-dir` is the whole difference between a throwaway
     // per-run cache and one that outlives the process. Resolved here, right
