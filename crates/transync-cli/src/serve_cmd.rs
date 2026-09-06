@@ -48,7 +48,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinSet};
 
 /// How many connections may be in flight before the accept loop waits for one
 /// to finish. A demo server has no business holding thousands of tasks, and an
@@ -195,7 +195,11 @@ async fn accept_loop(listener: TcpListener, site: Arc<Site>) {
         // Hold the in-flight count under the cap, reaping finished tasks.
         while connections.len() >= MAX_IN_FLIGHT {
             tokio::select! {
-                _ = connections.join_next() => {}
+                joined = connections.join_next() => {
+                    if let Some(joined) = joined {
+                        report_connection_exit(joined);
+                    }
+                }
                 _ = &mut shutdown => { stopping = true; break; }
             }
         }
@@ -217,7 +221,9 @@ async fn accept_loop(listener: TcpListener, site: Arc<Site>) {
                     tokio::time::sleep(ACCEPT_BACKOFF).await;
                 }
             },
-            Some(_) = connections.join_next(), if !connections.is_empty() => {}
+            Some(joined) = connections.join_next(), if !connections.is_empty() => {
+                report_connection_exit(joined);
+            }
             _ = &mut shutdown => { stopping = true; }
         }
     }
@@ -225,8 +231,23 @@ async fn accept_loop(listener: TcpListener, site: Arc<Site>) {
     eprintln!("transync serve: shutting down.");
     // Stop accepting first, so nothing new arrives during the grace period.
     drop(listener);
+    drain_connections(&mut connections).await;
+}
+
+/// Give the in-flight connections [`SHUTDOWN_GRACE`] to finish, then close
+/// anyway.
+///
+/// Lifted out of [`accept_loop`] because it is the one of the three join sites
+/// a test can drive: it needs the `JoinSet` and nothing else, so a task that
+/// panics can go through the real drain rather than through a re-implementation
+/// of it. The other two need a bound listener and a live peer, and there is no
+/// panic site in non-test `serve_cmd/` to reach them with — which is what made
+/// OI-0050 a tracked gap rather than a live defect.
+async fn drain_connections(connections: &mut JoinSet<()>) {
     let drained = tokio::time::timeout(SHUTDOWN_GRACE, async {
-        while connections.join_next().await.is_some() {}
+        while let Some(joined) = connections.join_next().await {
+            report_connection_exit(joined);
+        }
     })
     .await;
     if drained.is_err() {
@@ -236,6 +257,46 @@ async fn accept_loop(listener: TcpListener, site: Arc<Site>) {
             SHUTDOWN_GRACE.as_secs(),
         );
         connections.abort_all();
+    }
+}
+
+/// What a joined connection task has to say for itself, or `None` when it
+/// finished on its own terms.
+///
+/// A `JoinError` is never the peer's failure: an ordinary per-connection I/O
+/// error is discarded one level down, deliberately — "a dead socket is the
+/// peer's business", the record R0010-0076 was dropped on — so a peer reset, a
+/// response timeout and OI-0045's `UnexpectedEof` never reach a join at all.
+/// Only two things do, and the notice says which: a panic somewhere in the
+/// connection path, or a task this server cancelled. Neither is fatal — the
+/// accept loop keeps going, and OI-0050 asks only that the death stop being
+/// indistinguishable from a normal return.
+///
+/// Split from the printing so the wording can be asserted without capturing
+/// stderr.
+///
+/// TRACE: OI-0050 / R0010-0077
+fn connection_exit_notice(joined: Result<(), JoinError>) -> Option<String> {
+    let err = joined.err()?;
+    // `JoinError`'s own `Display` carries the task id and, for a panic, the
+    // payload string — the only part that names the bug. What it does not
+    // carry is that this one is transync's and not the peer's, which is the
+    // whole distinction the notice exists to draw.
+    Some(if err.is_panic() {
+        format!(
+            "a connection task panicked; the server keeps accepting, but this is a bug in \
+             transync rather than a peer failure: {err}"
+        )
+    } else {
+        format!("a connection task was cancelled before it finished: {err}")
+    })
+}
+
+/// Print [`connection_exit_notice`]. The one report path the join sites share,
+/// so the three of them cannot drift apart.
+fn report_connection_exit(joined: Result<(), JoinError>) {
+    if let Some(notice) = connection_exit_notice(joined) {
+        eprintln!("transync serve: {notice}");
     }
 }
 
@@ -262,5 +323,102 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     {
         let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// The report OI-0050 asks for. There is no panic site in non-test
+    /// `serve_cmd/`, so the panic is injected here and joined the way the
+    /// server joins — a real task, a real `JoinSet`, a real `JoinError`.
+    #[tokio::test]
+    async fn a_connection_task_that_panicked_is_reported_as_a_panic_and_carries_its_message() {
+        let mut connections = JoinSet::new();
+        connections.spawn(async {
+            panic!("a slicing bug in header handling");
+        });
+        let joined = connections
+            .join_next()
+            .await
+            .expect("the one spawned task joins");
+
+        let notice = connection_exit_notice(joined).expect("a panic is not a normal return");
+        assert!(notice.contains("panicked"), "{notice}");
+        assert!(
+            notice.contains("a slicing bug in header handling"),
+            "the payload is the only part that names the bug: {notice}",
+        );
+        assert!(
+            !notice.contains("cancelled"),
+            "a panic and a cancellation are the two things a JoinError can be, and the \
+             operator is told which: {notice}",
+        );
+    }
+
+    /// The other half of "say which".
+    #[tokio::test]
+    async fn a_cancelled_connection_task_is_reported_as_a_cancellation_rather_than_a_panic() {
+        let mut connections = JoinSet::new();
+        connections.spawn(std::future::pending::<()>());
+        connections.abort_all();
+        let joined = connections
+            .join_next()
+            .await
+            .expect("the aborted task still joins");
+
+        let notice =
+            connection_exit_notice(joined).expect("a cancellation is not a normal return either");
+        assert!(notice.contains("cancelled"), "{notice}");
+        assert!(!notice.contains("panicked"), "{notice}");
+    }
+
+    /// The policy this fix must not touch: an ordinary connection stays silent.
+    /// `accept_loop` discards `conn::serve`'s own errors before the join can
+    /// see them — "a dead socket is the peer's business" — so a task that
+    /// returned, however its I/O went, has nothing to report.
+    #[tokio::test]
+    async fn a_connection_that_finished_on_its_own_terms_reports_nothing() {
+        let mut connections = JoinSet::new();
+        connections.spawn(async {
+            // The shape `accept_loop` spawns: the connection's own error is
+            // discarded inside the task, so the join sees a normal return.
+            let _ = Err::<(), std::io::Error>(std::io::ErrorKind::ConnectionReset.into());
+        });
+        let joined = connections
+            .join_next()
+            .await
+            .expect("the one spawned task joins");
+
+        assert!(connection_exit_notice(joined).is_none());
+    }
+
+    /// The panic goes through the real join site, not a re-implementation of
+    /// one: `drain_connections` reports it and keeps draining, because a
+    /// panicking connection must not become fatal to the server. The wording is
+    /// asserted above; what is asserted here is that the drain reached the
+    /// report and then finished its work.
+    #[tokio::test]
+    async fn the_drain_survives_a_panicking_task_and_still_joins_the_rest() {
+        let finished = Arc::new(AtomicBool::new(false));
+        let mut connections = JoinSet::new();
+        connections.spawn(async {
+            panic!("an expect added under time pressure");
+        });
+        let flag = Arc::clone(&finished);
+        connections.spawn(async move {
+            tokio::task::yield_now().await;
+            flag.store(true, Ordering::SeqCst);
+        });
+
+        drain_connections(&mut connections).await;
+
+        assert!(
+            finished.load(Ordering::SeqCst),
+            "a sibling's panic does not end the drain",
+        );
+        assert!(connections.is_empty(), "every task was joined");
     }
 }
