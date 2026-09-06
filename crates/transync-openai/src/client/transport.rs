@@ -106,11 +106,28 @@ pub(super) async fn post_json<T: Serialize + ?Sized>(
         Some(len) if len <= cap => Vec::with_capacity(len as usize),
         _ => Vec::new(),
     };
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| map_provider_error(ProviderError::Transport(e.to_string())))?
-    {
+    loop {
+        // R0011-0026: a body read that dies mid-stream under a non-success
+        // status is still that status. Both the status and its `Retry-After`
+        // were read before the body started, so handing back a bare
+        // `Transport` string here would demote a paced 429 to an unpaced
+        // `Network` — strictly less than the headers already permit, and the
+        // pipeline paces from that hint. Under a *success* status there is
+        // nothing to inherit: the transfer itself is the failure.
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) if !status.is_success() => {
+                return Err(map_provider_error(classify::provider_error_for_status(
+                    status,
+                    retry_after,
+                    &bytes,
+                )));
+            }
+            Err(e) => {
+                return Err(map_provider_error(ProviderError::Transport(e.to_string())));
+            }
+        };
         if bytes.len() as u64 + chunk.len() as u64 > cap {
             if !status.is_success() {
                 // Fill the diagnostic ceiling and stop reading; dropping the
@@ -349,6 +366,42 @@ mod tests {
         assert!(
             !matches!(&err, TranslatorError::Network(_)),
             "the retryable class is for transient causes only, got {err:?}"
+        );
+    }
+
+    /// R0011-0026: the status and its `Retry-After` are read before the body
+    /// starts, so a body that dies mid-stream must not throw them away. A 429
+    /// whose connection goes down after the header block is still a 429 with
+    /// a pacing hint; the bare `Transport` string this used to return arrives
+    /// as an unpaced `Network`, which re-dispatches on the pipeline's own
+    /// backoff instead of the one the provider asked for.
+    #[tokio::test]
+    async fn a_body_read_failure_keeps_the_status_and_its_hint() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("bound address").to_string();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut scratch = [0u8; 8192];
+            let _ = stream.read(&mut scratch);
+            // 1 KiB declared, 16 bytes delivered, then the socket goes away:
+            // the status and headers are already in hand when `chunk()` fails.
+            let _ = stream.write_all(
+                b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 42\r\n\
+                  Content-Length: 1024\r\n\r\nxxxxxxxxxxxxxxxx",
+            );
+            let _ = stream.flush();
+        });
+
+        let err = post_to(&addr)
+            .await
+            .expect_err("a half-delivered body is not an answer");
+
+        assert!(
+            matches!(&err, TranslatorError::RateLimited { retry_after: Some(d) }
+                if *d == std::time::Duration::from_secs(42)),
+            "a truncated error body must keep the status-derived class and its hint, got {err:?}"
         );
     }
 

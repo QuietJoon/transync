@@ -8,14 +8,24 @@
 //! TRACE: DCR-0029
 //! TRACE: SCN-12
 
+use std::sync::LazyLock;
+
 use transync::llm::TranslatorError;
 use url::Url;
 
 use crate::DEFAULT_BASE_URL;
-use crate::error::{ProviderError, map_provider_error};
 
 /// The only endpoint path this crate posts to.
 pub(super) const MESSAGES_PATH: &str = "/v1/messages";
+
+/// R0011-0073: [`DEFAULT_BASE_URL`] is a compile-time constant, so its parse
+/// is process-lifetime work, not per-request work — every batch used to
+/// re-derive the same answer. Parsing it once here also retires the
+/// unreachable `malformed default base_url` arm: a constant that failed to
+/// parse is a defect this crate's own tests hit before a caller ever could,
+/// not a runtime error to hand back to someone who configured nothing.
+static DEFAULT_URL: LazyLock<Url> =
+    LazyLock::new(|| Url::parse(DEFAULT_BASE_URL).expect("the default base URL is a constant"));
 
 /// Join [`MESSAGES_PATH`] onto the configured base URL (or the provider
 /// default).
@@ -25,11 +35,7 @@ pub(super) fn build_endpoint(base_url: Option<&Url>) -> Result<Url, TranslatorEr
     // swallow the endpoint path into the query string.
     let mut url = match base_url {
         Some(u) => u.clone(),
-        None => Url::parse(DEFAULT_BASE_URL).map_err(|e| {
-            map_provider_error(ProviderError::Other(format!(
-                "malformed default base_url: {e}"
-            )))
-        })?,
+        None => DEFAULT_URL.clone(),
     };
     url.set_query(None);
     url.set_fragment(None);
