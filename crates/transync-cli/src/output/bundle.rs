@@ -56,6 +56,11 @@ const PURIFY_JS: &str = include_str!("../../web/purify.min.js");
 /// * `object-src 'none'` / `base-uri 'none'` — the bundle has no plugin
 ///   content and no `<base>`; both would otherwise be reachable through
 ///   rendered content.
+/// * `form-action 'none'` — the bundle has no form of its own, and a form
+///   the sanitizer kept from untrusted source content would otherwise be a
+///   live submit target: `default-src` does not cover this directive
+///   (R0011-0033), so without it a strict-CSP bundle can still navigate a
+///   reader's typed input off-origin.
 ///
 /// `frame-ancestors`, `sandbox` and `report-uri` are deliberately absent: a
 /// `<meta>`-delivered policy ignores them, so naming them would only add a
@@ -71,7 +76,8 @@ const CSP_META: &str = concat!(
     "style-src 'self' 'unsafe-inline'; ",
     "connect-src 'self'; ",
     "object-src 'none'; ",
-    "base-uri 'none'",
+    "base-uri 'none'; ",
+    "form-action 'none'",
     "\">",
 );
 
@@ -332,6 +338,7 @@ mod tests {
             "connect-src 'self'",
             "object-src 'none'",
             "base-uri 'none'",
+            "form-action 'none'",
         ] {
             assert!(
                 strict.contains(directive),

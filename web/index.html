@@ -30,6 +30,14 @@
            legend swatches so the two cannot drift. */
         --transync-tint-fallback: rgba(255, 220, 0, 0.18);
         --transync-tint-partial: rgba(56, 132, 255, 0.16);
+        /* R0011-0088: the non-colour half of the same two states. A tint is
+           the only carrier of translation status today, and it reaches
+           neither a forced-colour mode (which replaces every background) nor
+           a reader who cannot separate the warm one from the cool one. The
+           dash PATTERN survives both, and is shared with the legend swatches
+           for the same anti-drift reason as the tints above. */
+        --transync-cue-fallback: #a8820c;
+        --transync-cue-partial: #2f6fd0;
         --transync-skipped-bg: rgba(120, 120, 120, 0.10);
         --transync-skipped-border: #9a9a9a;
         --transync-skipped-fg: #555;
@@ -38,6 +46,15 @@
       body {
         display: grid;
         grid-template-columns: 1fr 1fr;
+        /* R0011-0085/0086: the theme picker and the tint legend are chrome
+           ROWS of this grid, not viewport-fixed overlays. A fixed overlay
+           sits on top of whatever pane content happens to scroll under it,
+           and no pane inset can reserve space for that at every scroll
+           position; a row overlaps nothing by construction. The panes take
+           the middle row, which makes THEM the scroll containers — the one
+           arrangement in which DCR-0013's always-visible legend is both
+           always visible and never on top of a block. */
+        grid-template-rows: auto minmax(0, 1fr) auto;
         gap: var(--transync-gap);
         padding: var(--transync-gap);
         box-sizing: border-box;
@@ -48,20 +65,63 @@
       /* position: relative makes the pane the offsetParent of its
          rendered blocks, so sync.js can read each block's pane-
          relative position via offsetTop/offsetHeight without paying
-         for a per-frame getBoundingClientRect. */
-      .pane { position: relative; overflow: auto; border: 1px solid #ddd; padding: 12px; }
+         for a per-frame getBoundingClientRect.
+
+         `contain: paint` (R0011-0032) makes the pane the containing block and
+         the stacking context for its descendants as well. DOMPurify's default
+         profile keeps the `style` attribute, so untrusted source markup
+         reaching a pane through a type-6 html block can carry
+         `position: fixed` and a stacking order, and would otherwise paint over
+         the opposite pane or over the shell's own chrome. Paint containment
+         clips it to the pane it was rendered into, which is what the pane's
+         own `overflow: auto` already implies for in-flow content: nothing the
+         renderer emits looks different, only what can escape changes. */
+      .pane { position: relative; contain: paint; overflow: auto; border: 1px solid #ddd; padding: 12px; }
       /* Untranslated source carried over verbatim (fallback). */
       [data-fallback="fallback_source"] { background: var(--transync-tint-fallback); }
       /* Partially translated — distinct cool tint vs the warm fallback tint. */
       [data-fallback="partially_translated"] { background: var(--transync-tint-partial); }
       /* data-fallback="preserved" (code / thematic-break / image / skipped) is
          normal non-translatable content and is intentionally left un-tinted. */
+      /* R0011-0088: the same two states again, carried by something other than
+         colour. The rule's dash pattern reaches forced colours and
+         colour-vision differences; the clipped ::before label reaches
+         assistive technology, which reads neither the tint nor the pattern.
+         `preserved` blocks set no `content`, so they generate no
+         pseudo-element at all. */
+      [data-fallback="fallback_source"] { border-inline-start: 3px dashed var(--transync-cue-fallback); }
+      [data-fallback="partially_translated"] { border-inline-start: 3px dotted var(--transync-cue-partial); }
+      [data-fallback="fallback_source"]::before { content: "untranslated: "; }
+      [data-fallback="partially_translated"]::before { content: "partially translated: "; }
+      [data-fallback]::before {
+        position: absolute; width: 1px; height: 1px; overflow: hidden;
+        clip-path: inset(50%); white-space: nowrap;
+      }
 
+      /* The chrome row: the boot status takes what it needs, the theme picker
+         keeps its top-right place — in flow, where it covers nothing. */
+      .transync-chrome {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      /* R0011-0090: where every fatal boot message and the R0011-0031 mount
+         refusal are announced. Empty on purpose — an alert region announces
+         the text that LANDS in it, so it has to exist before the failure — and
+         `:empty` keeps it out of the chrome row until then. */
+      .transync-status {
+        flex: 1 1 auto;
+        font: 13px/1.4 system-ui, sans-serif;
+        color: #7a2d00;
+        background: #fff4e5;
+        border: 1px solid #e0b088;
+        border-radius: 4px;
+        padding: 5px 9px;
+      }
+      .transync-status:empty { display: none; }
       .transync-themer {
-        position: fixed;
-        top: 10px;
-        right: 14px;
-        z-index: 50;
+        margin-inline-start: auto;
         font: 12px/1.2 system-ui, sans-serif;
         background: rgba(255, 255, 255, 0.92);
         border: 1px solid #ccc;
@@ -112,20 +172,18 @@
         white-space: pre-wrap;
       }
 
-      /* Always-visible tint legend — fixed, unobtrusive, matches the themer chrome. */
+      /* Always-visible tint legend — the grid's last row (R0011-0085), so it
+         is on screen at every scroll position without ever being on top of a
+         block. Unobtrusive, and matching the themer chrome. */
       .transync-legend {
-        position: fixed;
+        grid-column: 1 / -1;
         /* Purely informational: must never intercept clicks or wheel
-           events aimed at the pane beneath it. */
+           events aimed at a pane. */
         pointer-events: none;
-        left: 14px;
-        bottom: 12px;
-        z-index: 50;
         display: flex;
         flex-wrap: wrap;
         align-items: center;
         gap: 4px 12px;
-        max-width: calc(50vw - 28px);
         font: 11px/1.3 system-ui, sans-serif;
         color: #555;
         background: rgba(255, 255, 255, 0.92);
@@ -145,20 +203,40 @@
         box-sizing: border-box;
       }
       .transync-swatch--translated { background: #fff; }
-      .transync-swatch--fallback { background: var(--transync-tint-fallback); }
-      .transync-swatch--partial { background: var(--transync-tint-partial); }
+      /* R0011-0088: the swatches carry the blocks' non-colour cue too — a
+         legend that explains only the tint explains half the marking. */
+      .transync-swatch--fallback { background: var(--transync-tint-fallback); border-inline-start: 3px dashed var(--transync-cue-fallback); }
+      .transync-swatch--partial { background: var(--transync-tint-partial); border-inline-start: 3px dotted var(--transync-cue-partial); }
       .transync-swatch--skipped { background: var(--transync-skipped-bg); border: 1px dashed var(--transync-skipped-border); }
+      /* Forced colours replace every background with a system colour, which
+         erases the one thing a swatch is. The dash patterns survive on their
+         own; the fills need the opt-out (R0011-0088). */
+      @media (forced-colors: active) {
+        .transync-swatch { forced-color-adjust: none; }
+      }
     </style>
   </head>
   <body data-theme="default">
-    <div class="transync-themer">
-      <label for="transync-theme">style</label>
-      <select id="transync-theme">
-        <option value="default">Default</option>
-        <option value="document">Document</option>
-        <option value="book">Book</option>
-      </select>
+    <div class="transync-chrome">
+      <!-- R0011-0090: empty on purpose. A live region announces the text that
+           arrives in it, so it has to be in the document before the failure
+           it reports; the boot writes every fatal message here. -->
+      <div id="transync-status" class="transync-status" role="alert"></div>
+      <div class="transync-themer">
+        <label for="transync-theme">style</label>
+        <select id="transync-theme">
+          <option value="default">Default</option>
+          <option value="document">Document</option>
+          <option value="book">Book</option>
+        </select>
+      </div>
     </div>
+    <!-- R0011-0091: the panes state that they are working. Three artifacts
+         have to arrive before either has content, and a slow serve otherwise
+         presents two blank columns that look like an empty document. The boot
+         clears `aria-busy` on every exit it has. -->
+    <div id="source" class="pane" role="region" tabindex="0" aria-label="source" aria-busy="true">Loading…</div>
+    <div id="target" class="pane" role="region" tabindex="0" aria-label="target" aria-busy="true">Loading…</div>
     <div class="transync-legend" role="note" aria-label="block tint legend">
       <span class="transync-legend-title">tints</span>
       <span class="transync-legend-item"><span class="transync-swatch transync-swatch--translated"></span>translated</span>
@@ -166,8 +244,6 @@
       <span class="transync-legend-item"><span class="transync-swatch transync-swatch--partial"></span>partially translated</span>
       <span class="transync-legend-item"><span class="transync-swatch transync-swatch--skipped"></span>skipped placeholder</span>
     </div>
-    <div id="source" class="pane" role="region" tabindex="0" aria-label="source"></div>
-    <div id="target" class="pane" role="region" tabindex="0" aria-label="target"></div>
     <!-- OI-0001: DOMPurify (vendored, UMD -> window.DOMPurify) must load
          before the module script; mounting fails closed without it. -->
     <script src="vendor/purify.min.js"></script>
@@ -177,12 +253,37 @@
       const THEME_KEY = "transync.theme";
       const themeSelect = document.getElementById("transync-theme");
       const stored = safeStorage.get(THEME_KEY);
-      if (stored) { document.body.dataset.theme = stored; themeSelect.value = stored; }
+      // R0011-0089: storage is per-origin and editable, so a stored string is
+      // a theme only when the selector offers it. Anything else would leave
+      // `data-theme` naming a sheet no rule matches AND the picker showing
+      // nothing, with no way back except clearing storage by hand.
+      if (stored && Array.from(themeSelect.options).some((o) => o.value === stored)) {
+        document.body.dataset.theme = stored;
+        themeSelect.value = stored;
+      }
       themeSelect.addEventListener("change", () => {
         const v = themeSelect.value;
         document.body.dataset.theme = v;
         safeStorage.set(THEME_KEY, v);
       });
+
+      const sourcePane = document.getElementById("source");
+      const targetPane = document.getElementById("target");
+      const statusRegion = document.getElementById("transync-status");
+      // R0011-0090: the pane copy stays the visible message, but a pane is not
+      // a live region — the empty `role="alert"` above is what makes a failure
+      // announce itself instead of only appearing.
+      const fail = (msg) => {
+        statusRegion.textContent = msg;
+        console.error(msg);
+      };
+      // R0011-0091: every exit from this boot — mounted, refused, failed —
+      // has to retire the loading state on BOTH panes, or a screen reader is
+      // left waiting on a pane that has already settled.
+      const settled = () => {
+        sourcePane.removeAttribute("aria-busy");
+        targetPane.removeAttribute("aria-busy");
+      };
 
       let src, tgt, align;
       let loaded = false;
@@ -203,9 +304,10 @@
       } catch (err) {
         artifacts.abort();
         const msg = `transync: ${err.message}`;
-        document.getElementById("source").textContent = msg;
-        document.getElementById("target").textContent = "";
-        console.error(msg);
+        sourcePane.textContent = msg;
+        targetPane.textContent = "";
+        settled();
+        fail(msg);
       }
       if (loaded) {
         // OI-0001: sanitize before mount, failing closed when DOMPurify
@@ -214,12 +316,24 @@
         // task-list <input type="checkbox"> elements.
         if (!window.DOMPurify) {
           const msg = "transync: DOMPurify missing — refusing to mount unsanitized HTML";
-          document.getElementById("source").textContent = msg;
-          console.error(msg);
+          sourcePane.textContent = msg;
+          targetPane.textContent = "";
+          settled();
+          fail(msg);
         } else {
-          document.getElementById("source").innerHTML = window.DOMPurify.sanitize(src);
-          document.getElementById("target").innerHTML = window.DOMPurify.sanitize(tgt);
-          mountSync(document.getElementById("source"), document.getElementById("target"), align);
+          sourcePane.innerHTML = window.DOMPurify.sanitize(src);
+          targetPane.innerHTML = window.DOMPurify.sanitize(tgt);
+          settled();
+          // R0011-0031: `mountSync` returns null when it refuses the map
+          // (schema drift, a row it will not validate) and says why on the
+          // console — which nobody reading the document has open. The two
+          // panes still hold correctly rendered documents, so they stay; what
+          // must not stay is the impression that they scroll together.
+          if (!mountSync(sourcePane, targetPane, align)) {
+            fail(
+              "transync: the alignment map was refused — the documents are rendered, but the panes are NOT synchronized (the console carries the reason)",
+            );
+          }
         }
       }
     </script>

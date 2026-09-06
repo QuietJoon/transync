@@ -1619,7 +1619,7 @@ fn cli_profile_render_direction_applies_and_flag_beats_it() {
 const CSP_META: &str = "\n    <meta http-equiv=\"Content-Security-Policy\" content=\"default-src \
                         'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; \
                         style-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; \
-                        base-uri 'none'\">";
+                        base-uri 'none'; form-action 'none'\">";
 
 /// OI-0018: `--strict-csp` puts the policy in the emitted bundle, and without
 /// it the bundle is byte-identical to what pre-flag transync wrote. Both halves
