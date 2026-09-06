@@ -25,13 +25,40 @@
 //! (an extraction *error* degrades, a *cancellation* aborts) and the two
 //! cancellation codes' distinctness.
 //!
-//! Timing assertions here are one-sided and generous (an event that must
-//! happen in well under a second, against a stall of tens of seconds), so they
-//! measure the mechanism rather than the machine.
+//! **Nothing here is timed, as of 2026-09-06.** This is ti `d41782`'s **option
+//! 2**, which that ticket named as the strongest outcome, declined to take at
+//! the time, and left explicitly available: "assert the property with an
+//! instrumented drop counter … it remains the strongest outcome and is still
+//! available".
+//!
+//! The two cancellation races below used to end in a wall-clock bound. Those
+//! bounds tripped three times on trees containing no async, timing or
+//! cancellation code at all — 8.46 s, 5.04 s and 5.55 s against a 5 s bound —
+//! and `d41782` answered on 2026-09-01 with its option 1: derive each bound
+//! from the signature it names, giving `CAPPED_BACKOFF / 2` (15 s) and
+//! `IGNORED_SLEEP / 10` (60 s). That removed the recurring cost at a fraction
+//! of the change and was the right call then. It did not change the
+//! instrument, which is a stopwatch measuring a host: this suite runs at
+//! `--test-threads=4` on a machine that parks a fresh test binary at zero CPU
+//! for minutes, so seconds of scheduler noise land inside a millisecond of
+//! work — and one of the two stalls being ruled out is only 30 s, so widening
+//! has a ceiling.
+//!
+//! The property both bounds were reaching for is **abandonment**, not speed.
+//! It is now pinned by two observations that hold whatever the host is doing:
+//! a scheduler-turn budget (yielding does not move the clock, so a run sitting
+//! out a `tokio::time::sleep` is still pending on every turn of it) and a
+//! counter the ten-minute provider increments only on the far side of its
+//! sleep. Both regression signatures are unchanged — still a 120 s
+//! `retry_after` capped to 30 s, still a 600 s sleep — and both tests still
+//! fail decisively against them.
 
+use std::future::{Future, poll_fn};
+use std::pin::pin;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::task::Poll;
+use std::time::Duration;
 
 use transync::llm::{
     GlossaryEntry, GlossaryExtractionRequest, OutputKind, TranslationBatch, TranslationBatchResult,
@@ -72,6 +99,45 @@ fn echo(batch: &TranslationBatch) -> TranslationBatchResult {
             })
             .collect(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// The instrument that replaced the stopwatch
+// ---------------------------------------------------------------------------
+
+/// How many scheduler turns a cancelled run may spend before this file calls it
+/// stuck. Generous by three orders of magnitude — the runs below finish in a
+/// couple of turns, since nothing on a cancelled path awaits a timer, and no
+/// number of turns finishes a run that is waiting one out.
+const MAX_TURNS: u32 = 10_000;
+
+/// Drives `run` on the current task, one poll per scheduler turn, calling
+/// `between` after every poll that leaves it pending — the hook is where a test
+/// fires its token, so a cancellation that "arrives mid-flight" is *sequenced*
+/// against the run's own progress instead of raced with a timer.
+///
+/// This is a budget of **turns**, not of time, and that is the whole point: a
+/// `tokio::task::yield_now` does not move the clock, so a run that is sitting
+/// out a `tokio::time::sleep` of tens of seconds is pending on every turn here
+/// however fast or slow the host is, while a run that raced that sleep against
+/// its token needs no timer at all and finishes immediately. A contended
+/// machine makes this loop take longer in seconds; it cannot make it take more
+/// turns. (ti `d41782` — see the module doc for the wall-clock bounds this
+/// replaced and the false failures they produced.)
+async fn drive_to_completion<F: Future>(
+    run: F,
+    mut between: impl FnMut(),
+    stuck: &str,
+) -> F::Output {
+    let mut run = pin!(run);
+    for _ in 0..MAX_TURNS {
+        if let Poll::Ready(out) = poll_fn(|cx| Poll::Ready(run.as_mut().poll(cx))).await {
+            return out;
+        }
+        between();
+        tokio::task::yield_now().await;
+    }
+    panic!("the run was still pending after {MAX_TURNS} scheduler turns: {stuck}");
 }
 
 // ---------------------------------------------------------------------------
@@ -126,25 +192,34 @@ impl Translator for CountingEcho {
     }
 }
 
-/// Ignores its `cancel` argument entirely and never returns. The only way a
-/// run using it can stop is the pipeline dropping the future.
+/// Ignores its `cancel` argument entirely and sleeps for ten minutes. The only
+/// way a run using it can stop is the pipeline dropping the future.
 #[derive(Default)]
 struct IndifferentAndSlow {
     started: AtomicU32,
+    /// Incremented **only on the far side of the sleep**, which is what makes
+    /// "the future was abandoned" observable rather than inferred from a clock:
+    /// a dropped future never reaches this line, and a run that waits the sleep
+    /// out reaches it on any machine at any speed.
+    reached_far_side: AtomicU32,
 }
 
 #[async_trait::async_trait]
 impl Translator for IndifferentAndSlow {
     async fn translate_batch(
         &self,
-        _batch: TranslationBatch,
+        batch: TranslationBatch,
         _cancel: &CancellationToken,
     ) -> Result<TranslationBatchResult, TranslatorError> {
         self.started.fetch_add(1, Ordering::SeqCst);
         // Far longer than the test's patience, and deliberately not raced
         // against the token: dropping this future is the whole assertion.
         tokio::time::sleep(Duration::from_secs(600)).await;
-        unreachable!("the pipeline must drop this future long before it resolves");
+        // Answering normally rather than `unreachable!()`: a run that sat the
+        // sleep out is a failure the counter names, not a panic raised from
+        // inside a provider call the test is no longer even watching.
+        self.reached_far_side.fetch_add(1, Ordering::SeqCst);
+        Ok(echo(&batch))
     }
 }
 
@@ -253,7 +328,8 @@ async fn the_same_run_without_a_token_completes() {
 
 /// A cancelled run does not sit out the transport backoff. The provider
 /// answers `RateLimited { retry_after: 120s }` — capped by policy to a 30 s
-/// sleep — after cancelling; the run must return in a fraction of that.
+/// sleep — after cancelling; the run must abandon that sleep rather than serve
+/// it out.
 ///
 /// This is the term the filing consumer measured as worst case: a stall
 /// multiplied by batches and by retries, for a job nobody wants any more.
@@ -263,30 +339,35 @@ async fn cancellation_interrupts_the_transport_backoff() {
     let mut o = opts();
     o.cancel = Some(CancellationToken::new());
 
-    let started = Instant::now();
-    let err = transync::translate(SOURCE, &o, &translator)
-        .await
-        .expect_err("a cancelled run cannot succeed");
-    let elapsed = started.elapsed();
+    // The abandonment is observed as *turns*, not seconds. The provider cancels
+    // before answering `RateLimited`, so the pipeline reaches its backoff select
+    // holding an already-cancelled token: racing it there returns with no timer
+    // in play, which is a couple of turns. Sitting the 30 s sleep out instead
+    // leaves the run pending through every turn of the budget — a `yield_now`
+    // does not move the clock — so this fails the regression on a machine of
+    // any speed, and cannot fail because the machine was slow.
+    let err = drive_to_completion(
+        transync::translate(SOURCE, &o, &translator),
+        || {},
+        "the provider cancelled the run before answering `RateLimited`, so the \
+         only thing that keeps the run pending here is the policy's 30 s capped \
+         backoff being slept rather than raced against the token",
+    )
+    .await
+    .expect_err("a cancelled run cannot succeed");
 
     assert!(
         matches!(err, TransyncError::Cancelled),
         "expected Cancelled, got {err:?}"
     );
-    // The bound comes from the signature it protects against, not from a round
-    // number, so the relationship is visible here instead of implicit. Half the
-    // cap still fails decisively if the sleep stops being raced, while leaving
-    // room for scheduler noise: this assertion has tripped three times on trees
-    // containing no async, timing or cancellation code, at 8.46 s, 5.04 s and
-    // 5.55 s — every one of them far below the regression it names. The old
-    // bound was a flat 5 s, a 6x margin the scheduler alone can eat (ti
-    // `d41782`).
-    const CAPPED_BACKOFF: Duration = Duration::from_secs(30);
-    assert!(
-        elapsed < CAPPED_BACKOFF / 2,
-        "the run waited {elapsed:?}; the policy's capped backoff is \
-         {CAPPED_BACKOFF:?}, so anything near it means the sleep was not raced \
-         against the token"
+    // Non-vacuity: the run really did dispatch and really did get the transient
+    // error that schedules the backoff. Without this the test would also pass
+    // for a run that answered `Cancelled` before ever calling the provider.
+    assert_eq!(
+        translator.calls.load(Ordering::SeqCst),
+        1,
+        "the backoff path must have been reached: exactly one dispatch, \
+         answered with the rate limit that schedules the sleep"
     );
 }
 
@@ -428,35 +509,39 @@ async fn a_translator_that_ignores_the_token_is_cancelled_by_being_dropped() {
     let mut o = opts();
     o.cancel = Some(token.clone());
 
-    let canceller = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        token.cancel();
-    });
-
-    let started = Instant::now();
-    let err = transync::translate(SOURCE, &o, &translator)
-        .await
-        .expect_err("a cancelled run cannot succeed");
-    let elapsed = started.elapsed();
-    canceller.await.expect("the canceller task");
+    // Cancellation still arrives from *outside* the provider, mid-flight — the
+    // consumer's shape — but it arrives on the first turn where the provider is
+    // known to be in flight rather than after a 50 ms timer. The token stays the
+    // caller's: contracts.md §5b forbids an implementor cancelling the token it
+    // was handed, so the fixture must not fire it from inside `translate_batch`.
+    let err = drive_to_completion(
+        transync::translate(SOURCE, &o, &translator),
+        || {
+            if translator.started.load(Ordering::SeqCst) == 1 {
+                token.cancel();
+            }
+        },
+        "the provider ignores its token and sleeps ten minutes, so a run still \
+         pending here is one that is awaiting that sleep instead of dropping \
+         the losing future",
+    )
+    .await
+    .expect_err("a cancelled run cannot succeed");
 
     assert!(
         matches!(err, TransyncError::Cancelled),
         "expected Cancelled, got {err:?}"
     );
-    // Same rule as `cancellation_interrupts_the_transport_backoff`, and this is
-    // the tighter of the two offenders: a flat 5 s against a 600 s signature is
-    // a 120x margin. A tenth of the provider's sleep stays an order of
-    // magnitude clear of the regression and well above the ~9 s of scheduler
-    // noise measured on a contended machine (ti `d41782`). A generous bound
-    // costs nothing when the test passes — a dropped future returns in
-    // milliseconds; only a genuinely undropped one approaches the sleep.
-    const IGNORED_SLEEP: Duration = Duration::from_secs(600);
-    assert!(
-        elapsed < IGNORED_SLEEP / 10,
-        "the run took {elapsed:?}; the provider sleeps {IGNORED_SLEEP:?} and \
-         ignores the token, so anything near that means the future was not \
-         dropped"
+    // The real assertion, and the one that reads the mechanism rather than the
+    // machine: the provider's sleep was ABANDONED, never completed. A dropped
+    // future cannot reach its far side; a run that waited the 600 s out reaches
+    // it on any host. The turn budget above is the same statement made early
+    // enough to fail in milliseconds instead of ten minutes.
+    assert_eq!(
+        translator.reached_far_side.load(Ordering::SeqCst),
+        0,
+        "the pipeline must have dropped the losing future — reaching the far \
+         side of the provider's sleep means it waited the call out instead"
     );
     assert_eq!(
         translator.started.load(Ordering::SeqCst),
