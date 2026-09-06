@@ -8,7 +8,9 @@
 // the user's progress *within* that block, and stores the corresponding
 // scrollTop value the partner pane should reach. A separate per-pane
 // animation loop (also RAF) lerps the partner's scrollTop toward that
-// target so the partner glides instead of snapping.
+// target so the partner glides instead of snapping — by elapsed time
+// rather than by frame count, and not at all under
+// `prefers-reduced-motion: reduce`, where the partner is placed.
 //
 // Per-pane programmatic-scroll locks absorb the cascade scroll event
 // that fires on a pane when *we* programmatically set its scrollTop —
@@ -40,11 +42,26 @@ const PROGRAMMATIC_SCROLL_LOCK_MS = 90;
 // or below this line is considered "currently being read".
 const REFERENCE_OFFSET_PX = 4;
 
-// Fraction of the remaining gap to close per animation frame. 0.2 ≈
-// 20 % per frame at 60 fps; the partner reaches ~95 % of the target in
-// ~250 ms after the user stops scrolling. Lower = softer trail; higher
-// = snappier follow.
+// Fraction of the remaining gap to close per NOMINAL_FRAME_MS of elapsed
+// time. 0.2 ≈ 20 % per frame at 60 fps; the partner reaches ~95 % of the
+// target in ~250 ms after the user stops scrolling. Lower = softer trail;
+// higher = snappier follow.
 const SMOOTHING_FACTOR = 0.2;
+
+// The frame duration SMOOTHING_FACTOR is quoted against, and the ceiling on
+// the elapsed time a single frame may claim.
+//
+// R0011-0094: the lerp is applied per elapsed millisecond — the exponent
+// `elapsed / NOMINAL_FRAME_MS` — rather than once per callback, so the same
+// gesture settles in the same wall-clock time on a 120 Hz display as on a
+// 60 Hz one. Per callback it settled twice as fast on the faster display,
+// which is the refresh rate deciding a product behavior.
+//
+// The ceiling stops a long gap — a backgrounded tab, a stalled main thread —
+// from spending its whole arrears in one jump. There is no floor because a
+// non-advancing timestamp takes the nominal step instead (see the loop).
+const NOMINAL_FRAME_MS = 1000 / 60;
+const MAX_FRAME_STEP_MS = 100;
 
 // When |target - current| drops below this many pixels, snap to the
 // target exactly and end the animation loop.
@@ -194,6 +211,10 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
     // until the first drive, when the panes are still both at the top and
     // a reflow has nothing to correct.
     lastDriver: null,
+    // R0011-0093: whether the reader has asked the platform for reduced
+    // motion. Maintained by `wireReducedMotion` below; the smooth loop reads
+    // it per frame and closes the whole gap at once when it is set.
+    reduceMotion: false,
   };
 
   // OI-0035: the anchor set comes from the validated rows, never from whatever
@@ -286,6 +307,10 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
     driftLatch,
   });
 
+  // Wired after the last refusal above, so a mount that returns null leaves no
+  // subscription behind.
+  const reducedMotion = wireReducedMotion(state);
+
   // Spec 2026-08-03 §5 (decision 9): mirror <details> toggle state across
   // panes so anchor geometry stays congruent and in-block progress mapping
   // keeps meaning. Interaction ownership, not structure. The toggle event
@@ -333,6 +358,7 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
   const controller = {
     destroy() {
       reflow.destroy();
+      reducedMotion.destroy();
       sourceController.destroy();
       targetController.destroy();
       sourcePane.removeEventListener("toggle", sourceToggle, true);
@@ -487,6 +513,45 @@ function wireReflowRecompute({
         cancelAnimationFrame(rafId);
         rafId = null;
       }
+    },
+  };
+}
+
+/**
+ * Track `prefers-reduced-motion: reduce` for the smooth loop (R0011-0093).
+ *
+ * The follower's lerp is the engine's only animation, and a reader who has
+ * asked the platform for reduced motion should have the partner pane *placed*
+ * rather than glided there. Nothing else about the sync changes: the same
+ * destination, the same lock, the same read-back.
+ *
+ * Subscribed once per mount rather than queried per frame — `matchMedia()`
+ * allocates a MediaQueryList on every call, and a preference read once at
+ * mount would ignore an OS-level change made mid-session, which is exactly
+ * when a reader reaches for it.
+ *
+ * Both guards are load-bearing rather than habit: `matchMedia` is absent in a
+ * non-browser host, and a MediaQueryList in a pre-14 Safari carries only the
+ * deprecated `addListener`, where subscribing throws. Neither case is a reason
+ * to lose the initial reading, so the query still answers there.
+ */
+function wireReducedMotion(state) {
+  const noop = { destroy() {} };
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return noop;
+  }
+  const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+  state.reduceMotion = query.matches;
+  if (typeof query.addEventListener !== "function") {
+    return noop;
+  }
+  const onChange = (event) => {
+    state.reduceMotion = event.matches;
+  };
+  query.addEventListener("change", onChange);
+  return {
+    destroy() {
+      query.removeEventListener("change", onChange);
     },
   };
 }
@@ -1188,7 +1253,17 @@ function handleScroll(ctx) {
  * suppressed, because the per-frame lock arming also silences
  * `handleScroll`.
  *
+ * **Time-based, and skippable** (R0011-0094 / R0011-0093): the fraction closed
+ * on a frame is derived from that frame's elapsed milliseconds, so the display's
+ * refresh rate stops deciding how fast a gesture settles; and under
+ * `prefers-reduced-motion: reduce` the fraction is 1, which places the partner
+ * in the first moving frame instead of easing it there. Both change only the
+ * fraction — every line of the lock, read-back and abandon bookkeeping around
+ * it is untouched, because each of those answers a question the eased path and
+ * the placed path ask alike.
+ *
  * TRACE: SCN-13
+ * TRACE: DCR-0008
  */
 function ensureSmoothLoop(pane, label, state) {
   if (state.smoothLoopActive[label]) return;
@@ -1200,7 +1275,11 @@ function ensureSmoothLoop(pane, label, state) {
   state.lastAssigned[label] = null;
   state.lastAssignedHeight[label] = null;
 
-  const step = () => {
+  // The previous frame's rAF timestamp, per loop. Null on the first frame,
+  // which therefore takes the nominal step — the pre-R0011-0094 behavior.
+  let prevTs = null;
+
+  const step = (ts) => {
     state.smoothLoopRafId[label] = null;
     const target = state.targets[label];
     if (target == null) {
@@ -1249,7 +1328,20 @@ function ensureSmoothLoop(pane, label, state) {
       return;
     }
     state.lockUntil[label] = performance.now() + PROGRAMMATIC_SCROLL_LOCK_MS;
-    pane.scrollTop = current + delta * SMOOTHING_FACTOR;
+    // A timestamp that has not advanced — the same value twice, a backwards
+    // clock, a callback invoked without one — takes the nominal step rather
+    // than a zero one, because a zero elapsed time yields factor 0 and the
+    // sub-pixel guard below would read that unmoved assignment as a quantizing
+    // browser and snap.
+    const elapsed =
+      prevTs == null || !(ts > prevTs)
+        ? NOMINAL_FRAME_MS
+        : Math.min(ts - prevTs, MAX_FRAME_STEP_MS);
+    prevTs = ts;
+    const factor = state.reduceMotion
+      ? 1
+      : 1 - Math.pow(1 - SMOOTHING_FACTOR, elapsed / NOMINAL_FRAME_MS);
+    pane.scrollTop = current + delta * factor;
     if (pane.scrollTop === current) {
       // Integer-quantizing browsers can swallow sub-pixel lerp steps;
       // snap to the clamped target and end rather than spin.
