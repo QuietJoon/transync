@@ -8,7 +8,7 @@
 //! cannot catch it and dies with it. So the depth has to be refused, and it
 //! has to be refused before a tree that deep exists.
 //!
-//! [`check_nesting_depth`] is that refusal. [`crate::parser::parse`] runs it
+//! [`check_nesting_depth`] is that refusal. [`crate::intake::markdown::parse`] runs it
 //! on the caller's bytes before Comrak — or `normalize_source`, or anything
 //! else — touches them, and returns
 //! [`ParseError::TooDeeplyNested`](crate::error::ParseError::TooDeeplyNested)
@@ -47,12 +47,12 @@
 //! runs its walks on — a quarter of the 1 MiB a wasm module gets, and the
 //! smallest stack anything here has been measured against — both
 //! `transync-syntax` entry points survive an inline AST **2,097,153** levels
-//! deep: [`crate::parser::parse`], and `render::render_source` driven through
+//! deep: [`crate::intake::markdown::parse`], and `render::render_source` driven through
 //! it. Nothing on the path recurses. Comrak 0.27 keeps its inline delimiters
 //! on a heap stack, both of its formatters (`html.rs`, `cm.rs`) walk an
 //! explicit `Vec`, its `descendants()` iterator is edge-driven, and the four
 //! genuinely recursive walks it does own — `collect_text` and the three
-//! footnote passes — are unreachable under `parser::comrak_options` (no
+//! footnote passes — are unreachable under `markdown::comrak_options` (no
 //! `header_ids`, no heading adapter, no footnote extension). So unlike the
 //! block ceiling, inline nesting has no *shallowest measured abort* to sit an
 //! order of magnitude below: it has no measured abort at all.
@@ -102,7 +102,7 @@
 
 use crate::error::ParseError;
 
-/// Deepest block-container nesting [`crate::parser::parse`] accepts.
+/// Deepest block-container nesting [`crate::intake::markdown::parse`] accepts.
 ///
 /// Counted the way a writer counts it: one per blockquote level, one per
 /// list level. Comrak spends two AST nodes on a list level (the `List` and
@@ -132,7 +132,7 @@ const MIN_LIST_COLUMNS: usize = 2;
 /// [`MAX_BLOCK_NESTING_DEPTH`].
 ///
 /// Cheap — one linear pass over the bytes, no allocation, no parse — so
-/// [`crate::parser::parse`] can afford to run it unconditionally, first.
+/// [`crate::intake::markdown::parse`] can afford to run it unconditionally, first.
 /// Exposed rather than kept private so any other entry point that hands raw
 /// Markdown to Comrak applies the same number instead of growing a second
 /// opinion about it.
@@ -588,7 +588,7 @@ mod tests {
     /// overflows.
     fn inline_depth(md: &str) -> usize {
         let arena = comrak::Arena::new();
-        let root = comrak::parse_document(&arena, md, &crate::parser::comrak_options());
+        let root = comrak::parse_document(&arena, md, &crate::intake::markdown::comrak_options());
         let mut deepest = 0usize;
         let mut stack = vec![(root, 0usize)];
         while let Some((node, depth)) = stack.pop() {
@@ -640,7 +640,7 @@ mod tests {
                      record it here rather than lowering the floor.",
                 );
 
-                let mut doc = crate::parser::parse(&md).expect("the probe parses");
+                let mut doc = crate::intake::markdown::parse(&md).expect("the probe parses");
                 crate::id::assign_block_ids(&mut doc);
                 let map = crate::align::build_alignment_map(
                     &doc,

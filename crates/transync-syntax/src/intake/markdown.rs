@@ -16,7 +16,7 @@
 //! [`ParseError::TooDeeplyNested`], before Comrak is called. Untrusted source
 //! can nest a container per byte, and a walker that runs out of stack aborts
 //! the host process rather than returning an error, so the depth is declined
-//! rather than survived. `parser::depth` holds the bound, the pre-scan, and
+//! rather than survived. `markdown::depth` holds the bound, the pre-scan, and
 //! the measurements the number was chosen from.
 //!
 //! Ownership note: the Comrak `Arena` lives only inside [`parse`]. The
@@ -46,12 +46,12 @@ use ranges::{ByteRange, LineOffsets};
 use sections::SectionStack;
 use std::borrow::Cow;
 
-/// The canonical GFM Comrak configuration. Re-exported from `parser::options`
-/// so `parser::comrak_options` — the path regen, render, and every
+/// The canonical GFM Comrak configuration. Re-exported from `markdown::options`
+/// so `markdown::comrak_options` — the path regen, render, and every
 /// `transync-core` reparse call — keeps resolving.
 pub use options::comrak_options;
 
-/// THE block-nesting ceiling and its pre-scan, from `parser::depth`.
+/// THE block-nesting ceiling and its pre-scan, from `markdown::depth`.
 /// [`parse`] applies them before Comrak sees the source.
 pub use depth::{MAX_BLOCK_NESTING_DEPTH, check_nesting_depth};
 
@@ -149,7 +149,7 @@ pub struct AstPath(pub Vec<usize>);
 /// **No producer today.** The eagerly-built `Document::hierarchy` this
 /// type populated had no pipeline consumer and cost an extra pass plus a
 /// `HashMap` on every parse, so it was deleted; `Block::section_path` —
-/// stamped by the ONE heading-scope stack (`parser::sections`) — is the
+/// stamped by the ONE heading-scope stack (`markdown::sections`) — is the
 /// section model the pipeline actually reads. The shape survives so a future
 /// hierarchical-alignment revision (OI-0005) can project it from that
 /// same stack instead of re-deriving the scope rule a second time.
@@ -259,7 +259,7 @@ pub fn guarded_parse<'a>(
 ///
 /// Refuses a source nested deeper than [`MAX_BLOCK_NESTING_DEPTH`] with
 /// [`ParseError::TooDeeplyNested`], before anything is allocated or parsed;
-/// see `parser::depth` for why the ceiling exists and how its value was
+/// see `markdown::depth` for why the ceiling exists and how its value was
 /// chosen.
 ///
 /// TRACE: SCN-01..SCN-14
@@ -628,7 +628,7 @@ mod spelling_stamp_tests {
 
 // The block-nesting ceiling, at the level that matters: `parse` refusing a
 // document rather than a downstream walker aborting the process. The bound
-// itself, and the pre-scan's own behavior, are pinned in `parser::depth`.
+// itself, and the pre-scan's own behavior, are pinned in `markdown::depth`.
 #[cfg(test)]
 mod nesting_depth_tests {
     use super::*;
@@ -749,7 +749,7 @@ mod nesting_depth_tests {
 // one, so `ranges::LineOffsets` must too. Before the fix every block after
 // the first lone CR resolved to an out-of-range line and collapsed to an
 // empty range at EOF. This is the parse-level pin for that; the scope pins
-// for the empty-range guard live beside the guard in `parser::emit`.
+// for the empty-range guard live beside the guard in `markdown::emit`.
 #[cfg(test)]
 mod lone_cr_tests {
     use super::*;

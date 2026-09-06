@@ -31,11 +31,11 @@ pub fn reparse_fragment(
     }
 
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
+    let opts = crate::markdown::comrak_options();
     // Guarded because this is provider bytes; `validate_unit` refuses past
     // the ceiling before we get here, so this is the belt to that braces —
     // it keeps a future caller of this function from reopening the abort.
-    let root = crate::parser::guarded_parse(&arena, &result.translated_payload, &opts)
+    let root = crate::markdown::guarded_parse(&arena, &result.translated_payload, &opts)
         .map_err(|too_deep| too_deep.to_string())?;
 
     let mut found_kinds: Vec<&'static str> = Vec::new();

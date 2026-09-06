@@ -143,7 +143,7 @@ async fn assert_round_trip(api_key: SecretString, model: &str) {
         summary.total_units, LIVE_SOURCE_UNITS,
         "live run must translate the fixture's {LIVE_SOURCE_UNITS} units"
     );
-    let source_blocks = transync_syntax::parser::parse(LIVE_SOURCE)
+    let source_blocks = transync_syntax::intake::markdown::parse(LIVE_SOURCE)
         .expect("fixture parses")
         .blocks
         .len();
@@ -233,7 +233,7 @@ fn gate_requires_both_opt_in_and_api_key() {
 /// paid endpoint.
 #[test]
 fn live_source_fixture_has_the_expected_shape() {
-    let doc = transync_syntax::parser::parse(LIVE_SOURCE).expect("fixture parses");
+    let doc = transync_syntax::intake::markdown::parse(LIVE_SOURCE).expect("fixture parses");
     let mut opts = TranslateOptions::default();
     opts.target_language = "ko".to_string();
     // ti 0ed6eb: batching enforces the translate boundary's profile gate, so

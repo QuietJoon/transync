@@ -9,7 +9,7 @@
 //! TRACE: DCR-0017
 
 use crate::id::{BlockId, BlockKind, Spelling};
-use crate::parser::{Block, Document};
+use crate::intake::markdown::{Block, Document};
 use std::collections::HashMap;
 
 /// Per-block extraction outcome for **HTML-spelled** blocks (spec §3.2).

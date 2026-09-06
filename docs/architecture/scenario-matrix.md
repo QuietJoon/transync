@@ -81,7 +81,7 @@ Verification key:
 > `scn_04_code_block.rs` now pin both at the integration level, and a fallback
 > guard alongside them asserts the indented spelling comes back byte-verbatim
 > when the unit does fail. The **tab** spelling is pinned one layer down, in
-> `transync-syntax`'s `parser::indented_code_tests`, because what it exercises
+> `transync-syntax`'s `intake::markdown::indented_code_tests`, because what it exercises
 > is the range snap itself — the snap walks back over the block-structure
 > indent (the run of spaces and tabs, bounded by the start of the line), never
 > "start minus four bytes", which is the only form that is right for a tab, for

@@ -34,8 +34,8 @@ pub use html_pane::{render_source_html, render_target_html};
 
 use crate::align::{AlignmentBlock, AlignmentMap, FallbackStatus};
 use crate::id::{BlockId, BlockKind};
-use crate::parser::ranges::ByteRange;
-use crate::parser::{self, Block, Document};
+use crate::intake::markdown::ranges::ByteRange;
+use crate::intake::markdown::{self, Block, Document};
 use crate::walk::{self, NormalizedEntry};
 use comrak::nodes::{AstNode, ListType, NodeValue};
 use std::collections::HashMap;
@@ -94,8 +94,8 @@ pub enum RenderError {
         /// document order, bounded.
         ids: String,
     },
-    /// The pane's Markdown was refused by [`parser::intake`] — the same
-    /// guard [`parser::parse`] applies to a source document.
+    /// The pane's Markdown was refused by [`markdown::intake`] — the same
+    /// guard [`markdown::parse`] applies to a source document.
     #[error("pane Markdown refused at parser intake: {0}")]
     Intake(#[from] crate::error::ParseError),
 }
@@ -148,7 +148,7 @@ pub fn render_source(doc: &Document, alignment: &AlignmentMap) -> Result<String,
 
 /// Render the target pane fragment from the regenerated translated MD.
 /// Same block set, same refusals as [`render_source`], plus the
-/// [`parser::intake`] guard on `translated_md` itself (R0002-0059).
+/// [`markdown::intake`] guard on `translated_md` itself (R0002-0059).
 ///
 /// TRACE: SCN-12
 /// TRACE: ADR-0006
@@ -269,7 +269,7 @@ fn render_fragment<'p>(
     let ctx = PaneCtx::new(doc, alignment, pane)?;
 
     // R0002-0059: the pane's Markdown meets the SAME intake the source
-    // document met — `parser::intake`, hence the same nesting ceiling and
+    // document met — `markdown::intake`, hence the same nesting ceiling and
     // the same NUL rule — instead of going to Comrak unguarded. Only the
     // parse consumes the normalized string: `ctx.md` stays the caller's own
     // bytes, because the byte ranges the bypass and degrade arms slice
@@ -277,7 +277,7 @@ fn render_fragment<'p>(
     // Substituting NUL for the parse changes no AST — Comrak performs the
     // same substitution internally, before it records a position — so the
     // guard is the part that was missing, not the normalization.
-    let md_for_parse = parser::intake(ctx.md)?;
+    let md_for_parse = markdown::intake(ctx.md)?;
 
     let arena = comrak::Arena::new();
     let root = comrak::parse_document(&arena, &md_for_parse, &ctx.opts);
@@ -418,7 +418,7 @@ impl<'p> PaneCtx<'p> {
             rows,
             md,
             pane,
-            opts: parser::comrak_options(),
+            opts: markdown::comrak_options(),
         })
     }
 
@@ -783,7 +783,7 @@ fn needs_cr<'a>(node: &'a AstNode<'a>) -> bool {
 ///
 /// Options guard: comrak applies the same grandparent-`List` test to
 /// `DescriptionTerm` paragraphs, which this mirror would mis-handle. The
-/// description-list extension is off in [`crate::parser::comrak_options`], so
+/// description-list extension is off in [`crate::intake::markdown::comrak_options`], so
 /// such nodes cannot occur today — revisit if that extension is enabled.
 fn paragraph_is_tight<'a>(node: &'a AstNode<'a>) -> bool {
     node.parent()
@@ -894,7 +894,7 @@ mod map_integrity_tests {
     /// Parse `src`, assign ids, and build the map every shipped producer
     /// would build for it — one row per block, in document order.
     fn doc_and_map(src: &str) -> (Document, AlignmentMap) {
-        let mut doc = parser::parse(src).expect("parses");
+        let mut doc = markdown::parse(src).expect("parses");
         id::assign_block_ids(&mut doc);
         let map = build_alignment_map(
             &doc,
@@ -915,7 +915,7 @@ mod map_integrity_tests {
     /// `BlockOffsets` cannot express a corrupt range: it makes every
     /// `target_range` `0..0`.
     fn doc_map_and_target(src: &str) -> (Document, AlignmentMap, String) {
-        let mut doc = parser::parse(src).expect("parses");
+        let mut doc = markdown::parse(src).expect("parses");
         id::assign_block_ids(&mut doc);
         let (translated, offsets) = crate::regen::regenerate(&doc, &HashMap::new());
         let map = build_alignment_map(
@@ -996,18 +996,18 @@ mod map_integrity_tests {
     }
 
     /// R0002-0059: the target pane's Markdown never went through
-    /// [`parser::parse`], so it used to reach Comrak with neither the NUL
+    /// [`markdown::parse`], so it used to reach Comrak with neither the NUL
     /// normalization nor the nesting ceiling `parse` applies — a document
     /// the library refuses as a source was rendered as a target. Both entry
-    /// points now share [`parser::intake`], so they answer alike.
+    /// points now share [`markdown::intake`], so they answer alike.
     #[test]
     fn target_markdown_meets_the_same_intake_guard_as_a_source_document() {
         let (doc, map) = doc_and_map("shallow\n");
-        let deep = "> ".repeat(crate::parser::MAX_BLOCK_NESTING_DEPTH + 1) + "too deep\n";
+        let deep = "> ".repeat(crate::intake::markdown::MAX_BLOCK_NESTING_DEPTH + 1) + "too deep\n";
 
         // The control: this is exactly what the source-side entry point says.
         assert!(matches!(
-            parser::parse(&deep),
+            markdown::parse(&deep),
             Err(crate::error::ParseError::TooDeeplyNested { .. })
         ));
 
@@ -1173,7 +1173,7 @@ mod list_grouping_tests {
     use crate::id;
 
     pub(super) fn render(src: &str) -> String {
-        let mut doc = parser::parse(src).expect("parses");
+        let mut doc = markdown::parse(src).expect("parses");
         id::assign_block_ids(&mut doc);
         let map = build_alignment_map(
             &doc,
@@ -1244,7 +1244,7 @@ mod list_grouping_tests {
     /// markers kept ⇒ both panes agree on `<ol start="3">`.
     #[test]
     fn ordered_start_reaches_the_target_pane_too() {
-        let mut doc = parser::parse("3. a\n4. b\n").expect("parses");
+        let mut doc = markdown::parse("3. a\n4. b\n").expect("parses");
         id::assign_block_ids(&mut doc);
         // A faithful translation translates the text and leaves the marker
         // alone; slicing the source keeps this test agnostic about how the
@@ -1377,7 +1377,7 @@ mod list_grouping_tests {
     /// test above: real `regen` → `render_target`, translated payloads.
     #[test]
     fn task_classes_reach_the_target_pane_too() {
-        let mut doc = parser::parse("- [x] a\n- [ ] b\n").expect("parses");
+        let mut doc = markdown::parse("- [x] a\n- [ ] b\n").expect("parses");
         id::assign_block_ids(&mut doc);
         let accepted: HashMap<BlockId, String> = doc
             .blocks
@@ -1447,7 +1447,7 @@ mod list_grouping_tests {
 mod html_render_tests {
     use super::*;
     use crate::align::build_alignment_map;
-    use crate::{id, parser};
+    use crate::{id, intake::markdown};
 
     /// Render the source pane for `src` with every html block's alignment row
     /// forced to `status` by a synthetic status-map entry.
@@ -1460,7 +1460,7 @@ mod html_render_tests {
     /// accepted payload is irrelevant here — the source pane renders the
     /// document's own bytes.
     fn render_with_status(src: &str, status: FallbackStatus) -> String {
-        let mut doc = parser::parse(src).expect("parses");
+        let mut doc = markdown::parse(src).expect("parses");
         id::assign_block_ids(&mut doc);
         let statuses: HashMap<BlockId, FallbackStatus> = doc
             .blocks
@@ -1670,15 +1670,15 @@ mod skipped_render_tests {
     use super::*;
     use crate::align::build_alignment_map;
     use crate::id::BlockId;
-    use crate::parser::ranges::ByteRange;
-    use crate::parser::{AstPath, Block};
-    use crate::{id, parser};
+    use crate::intake::markdown::ranges::ByteRange;
+    use crate::intake::markdown::{AstPath, Block};
+    use crate::{id, intake::markdown};
 
     /// Render a document that is one synthetic `Skipped` block (whose source
     /// range covers `payload` inside `src`) followed by the parsed blocks of
     /// `src`. Returns the source-pane fragment.
     fn render_with_synthetic_skipped(src: &str, payload: &str) -> String {
-        let mut doc = parser::parse(src).expect("parses");
+        let mut doc = markdown::parse(src).expect("parses");
         let start = src.find(payload).expect("payload present in source");
         doc.blocks.insert(
             0,
@@ -1777,7 +1777,7 @@ mod refmap_render_tests {
     #[test]
     fn reference_link_renders_as_anchor_in_both_panes() {
         let src = "See [docs][ref].\n\n[ref]: https://example.com/r\n";
-        let mut doc = parser::parse(src).expect("parses");
+        let mut doc = markdown::parse(src).expect("parses");
         id::assign_block_ids(&mut doc);
         assert!(
             doc.ref_defs.contains("[ref]: https://example.com/r"),
@@ -1910,7 +1910,7 @@ mod ast_direct_tests {
     /// same blank-line separation the source pane did.
     #[test]
     fn loose_source_list_renders_loose_in_the_target_pane_too() {
-        let mut doc = parser::parse("- a\n\n- b\n").expect("parses");
+        let mut doc = markdown::parse("- a\n\n- b\n").expect("parses");
         id::assign_block_ids(&mut doc);
         let (translated_md, offsets) = crate::regen::regenerate(&doc, &HashMap::new());
         assert!(
@@ -1999,13 +1999,13 @@ mod ast_direct_tests {
         // mismatch is forced the way the brief's adapt note prescribes:
         // render the target pane from MD that reparses to a different kind
         // sequence than the document's rows claim.
-        let mut doc = parser::parse("plain paragraph\n").expect("parses");
+        let mut doc = markdown::parse("plain paragraph\n").expect("parses");
         id::assign_block_ids(&mut doc);
         let pane_md = "# not a paragraph\n";
         let mut offsets = crate::regen::BlockOffsets::default();
         offsets.0.insert(
             doc.blocks[0].block_id.clone(),
-            crate::parser::ranges::ByteRange {
+            crate::intake::markdown::ranges::ByteRange {
                 start: 0,
                 end: pane_md.len(),
             },
@@ -2038,9 +2038,9 @@ mod non_sync_anchor_tests {
     use super::*;
     use crate::align::{SyncRole, build_alignment_map};
     use crate::id::BlockId;
-    use crate::parser::ranges::ByteRange;
-    use crate::parser::{AstPath, Block};
-    use crate::{id, parser};
+    use crate::intake::markdown::ranges::ByteRange;
+    use crate::intake::markdown::{AstPath, Block};
+    use crate::{id, intake::markdown};
 
     /// A `Title` block through the real renderer, with its real alignment
     /// row, asserting both halves in ONE test so they cannot pass separately
@@ -2057,7 +2057,7 @@ mod non_sync_anchor_tests {
     #[test]
     fn a_title_block_renders_without_the_dom_anchor_its_row_denies() {
         let src = "para\n";
-        let mut doc = parser::parse(src).expect("parses");
+        let mut doc = markdown::parse(src).expect("parses");
         doc.blocks.insert(
             0,
             Block {
@@ -2131,7 +2131,7 @@ mod non_sync_anchor_tests {
     /// only moved WHERE the decision is taken.
     #[test]
     fn the_thematic_break_arm_still_emits_exactly_its_styling_hook() {
-        let mut doc = parser::parse("a\n\n---\n\nb\n").expect("parses");
+        let mut doc = markdown::parse("a\n\n---\n\nb\n").expect("parses");
         id::assign_block_ids(&mut doc);
         let map = build_alignment_map(
             &doc,

@@ -158,7 +158,7 @@ pub(crate) fn build_validation_report(
 ///
 /// TRACE: SCN-07
 pub(crate) fn order_report_by_document(
-    doc: &crate::parser::Document,
+    doc: &crate::markdown::Document,
     report: &mut ValidationReport,
 ) {
     let doc_order: HashMap<&BlockId, usize> = doc
@@ -212,7 +212,7 @@ mod window_row_order_tests {
     #[test]
     fn window_rows_list_directly_under_their_parent() {
         let mut doc =
-            crate::parser::parse("first paragraph\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\ntail\n")
+            crate::markdown::parse("first paragraph\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\ntail\n")
                 .expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let table = doc.blocks[1].block_id.0.clone();
@@ -270,7 +270,7 @@ mod window_row_order_tests {
 ///
 /// TRACE: SCN-07
 pub(crate) fn assemble_alignment_map(
-    doc: &crate::parser::Document,
+    doc: &crate::markdown::Document,
     final_validated: &[ValidatedBatch],
     offsets: &crate::regen::BlockOffsets,
     opts: &crate::TranslateOptions,
@@ -394,7 +394,7 @@ mod status_completeness_tests {
 
     /// One batch carrying a finalized status for every block of `doc` except
     /// those whose id is in `dropped` — the shape a pipeline bug leaves behind.
-    fn batches(doc: &crate::parser::Document, dropped: &[&str]) -> Vec<ValidatedBatch> {
+    fn batches(doc: &crate::markdown::Document, dropped: &[&str]) -> Vec<ValidatedBatch> {
         vec![ValidatedBatch {
             units: doc
                 .blocks
@@ -409,7 +409,7 @@ mod status_completeness_tests {
     /// Emitted on the pipeline channel, naming the block, once for the run.
     #[test]
     fn a_translatable_block_with_no_finalized_status_is_named_on_the_warn_channel() {
-        let doc = crate::parser::parse(SRC).expect("fixture parses");
+        let doc = crate::markdown::parse(SRC).expect("fixture parses");
         let dropped = doc.blocks[1].block_id.0.clone();
         let final_validated = batches(&doc, &[dropped.as_str()]);
         let accepted: HashMap<crate::id::BlockId, String> = HashMap::new();
@@ -461,7 +461,7 @@ mod status_completeness_tests {
     /// nothing, so the line above is evidence of a fault rather than noise.
     #[test]
     fn a_complete_run_raises_no_completeness_warning() {
-        let doc = crate::parser::parse(SRC).expect("fixture parses");
+        let doc = crate::markdown::parse(SRC).expect("fixture parses");
         let final_validated = batches(&doc, &[]);
         let accepted: HashMap<crate::id::BlockId, String> = HashMap::new();
         let (_, offsets) = crate::regen::regenerate(&doc, &accepted);

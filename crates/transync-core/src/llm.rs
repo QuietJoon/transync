@@ -348,7 +348,7 @@ pub struct HtmlSegmentConstraints {
 /// window (owner decision 2026-08-06) removed the saturation, the constant
 /// and the ceiling warning together.
 ///
-/// The exactness is not academic. `parser::MAX_BLOCK_NESTING_DEPTH` (128)
+/// The exactness is not academic. `markdown::MAX_BLOCK_NESTING_DEPTH` (128)
 /// keeps *source* payloads far short of any interesting depth, but a provider
 /// result is fingerprinted by this same walker **without** passing through
 /// `parse` — so the actual side of the comparison is the untrusted one, and it

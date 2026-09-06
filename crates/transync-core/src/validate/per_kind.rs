@@ -79,8 +79,8 @@ pub fn check_heading(constraints: &BlockConstraints, result: &UnitResult) -> Res
     };
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
-    let root = crate::parser::guarded_parse(&arena, &result.translated_payload, &opts)
+    let opts = crate::markdown::comrak_options();
+    let root = crate::markdown::guarded_parse(&arena, &result.translated_payload, &opts)
         .map_err(|too_deep| too_deep.to_string())?;
     let level = root.children().find_map(|c| match &c.data.borrow().value {
         NodeValue::Heading(h) => Some(h.level),
@@ -322,8 +322,8 @@ pub fn check_code(constraints: &BlockConstraints, result: &UnitResult) -> Result
 pub fn extract_code_info(fragment: &str) -> Option<String> {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
-    let root = crate::parser::guarded_parse(&arena, fragment, &opts).ok()?;
+    let opts = crate::markdown::comrak_options();
+    let root = crate::markdown::guarded_parse(&arena, fragment, &opts).ok()?;
     for child in root.children() {
         if let NodeValue::CodeBlock(c) = &child.data.borrow().value {
             return Some(c.info.clone());

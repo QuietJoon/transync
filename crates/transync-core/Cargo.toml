@@ -22,7 +22,7 @@ test-stub = []  # exposes ::test_stub::EchoTranslator for downstream test bundle
 
 [dependencies]
 # Base crate: GFM parsing, block IR/IDs, and (progressively) the rest of the
-# syntax side. Core re-exports its modules so `crate::id::…`/`crate::parser::…`
+# syntax side. Core re-exports its modules so `crate::id::…`/`crate::markdown::…`
 # keep resolving unchanged (spec 2026-08-04 §2.2, §6).
 transync-syntax = { workspace = true }
 # HTML mechanics (DCR-0032): `validate`'s layer-3 splice + tag-inventory

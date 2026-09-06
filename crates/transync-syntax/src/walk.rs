@@ -14,7 +14,7 @@
 //! TRACE: R0004-0001
 
 use crate::id::{BlockId, BlockKind};
-use crate::parser::Document;
+use crate::intake::markdown::Document;
 
 /// One normalized top-level entry: a kind label plus the source-side
 /// block IDs that contributed to it. Consecutive list-items collapse
@@ -181,7 +181,7 @@ mod tests {
         arena: &'a comrak::Arena<comrak::nodes::AstNode<'a>>,
         md: &str,
     ) -> &'a comrak::nodes::AstNode<'a> {
-        let root = comrak::parse_document(arena, md, &crate::parser::comrak_options());
+        let root = comrak::parse_document(arena, md, &crate::intake::markdown::comrak_options());
         root.children().next().expect("md has a top-level block")
     }
 
@@ -301,7 +301,7 @@ mod tests {
     /// A7: an unmodeled top-level node labels "skipped" — the same label
     /// `label_for` gives `BlockKind::Skipped`, so the round-trip aligns.
     ///
-    /// No node maps here under `parser::comrak_options()` (footnotes,
+    /// No node maps here under `markdown::comrak_options()` (footnotes,
     /// front matter and description lists are all off), so the specimen is
     /// built synthetically — the same pattern the parser / render / align
     /// `Skipped` tests use.
@@ -323,7 +323,7 @@ mod tests {
     /// carrying both ids, and a marker-type change starts a second entry.
     #[test]
     fn normalize_collapses_one_list_and_splits_on_marker_change() {
-        let mut doc = crate::parser::parse("- a\n- b\n\n* c\n").expect("parses");
+        let mut doc = crate::intake::markdown::parse("- a\n- b\n\n* c\n").expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let norm = normalize_top_level(&doc);
         let shape: Vec<(&str, usize)> = norm.iter().map(|e| (e.label, e.sources.len())).collect();

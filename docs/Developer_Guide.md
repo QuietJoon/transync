@@ -1459,7 +1459,7 @@ proportional in-block tracking — is described in
 | `translation failed: malformed response: …`      | The model returned JSON that didn't match the strict schema. Try a Structured-Outputs-capable model. |
 | `every translatable unit fell back to source`    | Persistent validation rejection or provider failure. Inspect `validation_report.per_unit` for `rejected_by`. |
 | `translator error: content filtered: …` / `model refused: …` (exit 7) | The provider refused this document's content. Retries are verbatim (ADR-0009), so re-running cannot help — skip the document. See Troubleshooting. |
-| `parse error: block nesting too deep`            | The source nests blockquotes/list levels past `parser::MAX_BLOCK_NESTING_DEPTH` (128). Deliberate and size-independent — a container costs one byte per level, and a recursive walk that deep aborts the process. See Troubleshooting. |
+| `parse error: block nesting too deep`            | The source nests blockquotes/list levels past `intake::markdown::MAX_BLOCK_NESTING_DEPTH` (128). Deliberate and size-independent — a container costs one byte per level, and a recursive walk that deep aborts the process. See Troubleshooting. |
 | Browser demo loads but doesn't sync              | Check the DevTools console — schema-version mismatch or missing `data-sync-id` attributes. |
 | `CARGO_TARGET_DIR` errors after a workspace move | Reverify that the configured target dir is still mounted. transync respects whatever `CARGO_TARGET_DIR` you have. |
 

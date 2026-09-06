@@ -306,7 +306,7 @@ mod tests {
     }
 
     fn batches_of(src: &str, profile: ProfileMetadata) -> Vec<TranslationBatch> {
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let opts = TranslateOptions {
             target_language: "ko".to_string(),

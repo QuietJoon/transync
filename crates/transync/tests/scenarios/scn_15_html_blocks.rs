@@ -23,7 +23,7 @@
 //!
 //! Two comrak sourcepos quirks are visible in this fixture and are the reason
 //! the run also emits two refdefs "unattributed source text between blocks"
-//! notes (`parser::refdefs`'s documented backstop):
+//! notes (`markdown::refdefs`'s documented backstop):
 //! `html-0008`'s comment reports an end position *before* its start, so its
 //! byte range collapses to empty; and `html-0009`'s type-1 `<pre>` reports an
 //! end at its last content line, leaving the `</pre>` line outside the block

@@ -9,7 +9,7 @@
 //! both are closed at the two ends of the same equality: lone CR is a line
 //! ending Comrak honours, so [`LineOffsets::new`] honours it too (OI-0033);
 //! NUL is a byte Comrak replaces with a three-byte U+FFFD before it records
-//! any position, so `parser::parse` replaces it first (OI-0034). Nothing in
+//! any position, so `markdown::parse` replaces it first (OI-0034). Nothing in
 //! this module needs to know about the second — that is the point of doing it
 //! at intake — but the clamps below are no longer what holds it together.
 //!
@@ -33,7 +33,7 @@ pub struct ByteRange {
 /// is always sliceable: `start <= end <= source.len()`, both on boundaries.
 ///
 /// Byte ranges reach the engine from two places that are not equally
-/// trustworthy. A [`crate::parser::Document`] built by `parse` carries
+/// trustworthy. A [`crate::intake::markdown::Document`] built by `parse` carries
 /// comrak positions, which are boundary-valid by construction — for those
 /// this is the identity. But `Document` and `Block` are `pub` with `pub`
 /// fields, so a caller can hand-build a range that splits a multi-byte char,
@@ -169,7 +169,7 @@ impl<'a> LineOffsets<'a> {
     /// Comrak's NUL column drift non-fatal (OI-0034) — a role it was never
     /// written for, and one it discharged only because a block-level
     /// `Sourcepos` happens to end where a line's content ends. The drift is
-    /// removed at intake now (`parser::parse` normalizes NUL away before
+    /// removed at intake now (`markdown::parse` normalizes NUL away before
     /// Comrak sees it), so nothing depends on this clamp being lucky.
     ///
     /// The clamp is what makes the result meaningful, but it runs *after*
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(LineOffsets::new("").pos_to_byte(1, usize::MAX), 0);
     }
 
-    /// OI-0034. `parser::parse` hands this table the *normalized* document,
+    /// OI-0034. `markdown::parse` hands this table the *normalized* document,
     /// in which every NUL has already become the three-byte U+FFFD Comrak
     /// would have substituted itself. This pins what that buys: a column past
     /// the replacement character resolves to the exact byte, and it does so

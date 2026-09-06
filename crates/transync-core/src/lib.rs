@@ -55,7 +55,7 @@ pub mod cache;
 pub(crate) mod error;
 pub(crate) use transync_syntax::id;
 pub mod llm;
-pub(crate) use transync_syntax::parser;
+pub(crate) use transync_syntax::intake::markdown;
 pub(crate) mod pipeline;
 pub mod profile;
 pub(crate) use transync_syntax::regen;

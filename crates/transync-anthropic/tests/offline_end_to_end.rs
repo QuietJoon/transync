@@ -189,7 +189,7 @@ async fn a_full_translate_run_goes_out_over_the_adapter_and_comes_back_validated
         summary.fallback_source, 0,
         "a fallback means a layer rejected the adapter's output: {summary:?}"
     );
-    let source_blocks = transync_syntax::parser::parse(SOURCE)
+    let source_blocks = transync_syntax::intake::markdown::parse(SOURCE)
         .expect("fixture parses")
         .blocks
         .len();

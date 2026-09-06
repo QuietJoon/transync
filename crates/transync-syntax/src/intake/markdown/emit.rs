@@ -8,7 +8,7 @@
 
 use super::{AstPath, Block, WalkState};
 use crate::id::{BlockId, BlockKind, Spelling};
-use crate::parser::ranges::{self, ByteRange};
+use crate::intake::markdown::ranges::{self, ByteRange};
 use comrak::nodes::AstNode;
 
 impl WalkState<'_> {
@@ -162,7 +162,7 @@ impl WalkState<'_> {
 /// heading or a fenced block survives untouched in the inter-block gap. The
 /// walk stops at the first byte that is not a space or a tab, so the BOM stays
 /// outside the block where every other kind already leaves it. Pinned by
-/// `parser::indented_code_tests::the_snap_stops_at_a_document_leading_bom` and
+/// `markdown::indented_code_tests::the_snap_stops_at_a_document_leading_bom` and
 /// `regen::indented_code_regen_tests::a_leading_bom_survives_an_accepted_indented_block`.
 ///
 /// `end` needs no correction: comrak reports it at column 0 of the line after
@@ -320,13 +320,13 @@ mod ast_path_tests {
 // list item whose range collapses under a real source position, and stay
 // silent for everything else — including the shipped SCN-15 html fixture whose
 // range legitimately collapses. The parse-level pins for the CR fix itself
-// live beside `parse` in `parser.rs`.
+// live beside `parse` in `markdown.rs`.
 #[cfg(test)]
 mod empty_range_guard_tests {
     use super::super::{options::gfm_options, parse};
     use super::warn_on_empty_list_item_range;
     use crate::id::{BlockId, BlockKind};
-    use crate::parser::ranges::ByteRange;
+    use crate::intake::markdown::ranges::ByteRange;
     use comrak::nodes::NodeValue;
 
     #[test]

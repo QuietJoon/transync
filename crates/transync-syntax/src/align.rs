@@ -5,13 +5,13 @@
 //! TRACE: ADR-0001
 
 use crate::id::{BlockId, SourceFormat, Spelling};
+use crate::intake::markdown::Document;
 use crate::outcome::{HtmlOutcome, is_translatable_block};
-use crate::parser::Document;
 use crate::regen::BlockOffsets;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub use crate::parser::ranges::ByteRange;
+pub use crate::intake::markdown::ranges::ByteRange;
 
 /// Current alignment-map wire schema version. Single source of truth so
 /// the `Default` impl and [`build_alignment_map`] cannot drift. Bumped
@@ -446,10 +446,10 @@ mod skipped_row_tests {
     fn skipped_row_is_preserved_anchor_and_uncounted() {
         // No node maps to Skipped under the current comrak options (html
         // became a real kind); pin the never-batched row synthetically.
-        let mut doc = crate::parser::parse("real paragraph\n").expect("parses");
+        let mut doc = crate::intake::markdown::parse("real paragraph\n").expect("parses");
         doc.blocks.insert(
             0,
-            crate::parser::Block {
+            crate::intake::markdown::Block {
                 block_id: BlockId::new("x", 99),
                 kind: BlockKind::Skipped {
                     label: "unsupported".to_string(),
@@ -458,7 +458,7 @@ mod skipped_row_tests {
                 source_range: ByteRange { start: 0, end: 0 },
                 source_hash: 0,
                 section_path: Vec::new(),
-                ast_path: crate::parser::AstPath(Vec::new()),
+                ast_path: crate::intake::markdown::AstPath(Vec::new()),
             },
         );
         crate::id::assign_block_ids(&mut doc);
@@ -591,8 +591,8 @@ mod sync_role_tests {
 mod html_row_tests {
     use super::*;
     use crate::id::assign_block_ids;
+    use crate::intake::markdown::parse;
     use crate::outcome::{HtmlOutcome, html_outcomes};
-    use crate::parser::parse;
     use std::collections::HashMap;
 
     fn map_for(src: &str, outcomes: &HashMap<crate::id::BlockId, HtmlOutcome>) -> AlignmentMap {
@@ -669,7 +669,7 @@ mod wire_format_tests {
     use super::*;
     use crate::id::{SourceFormat, assign_block_ids};
 
-    fn built_map(mut doc: crate::parser::Document) -> AlignmentMap {
+    fn built_map(mut doc: crate::intake::markdown::Document) -> AlignmentMap {
         assign_block_ids(&mut doc);
         let outcomes = crate::outcome::html_outcomes(&doc);
         build_alignment_map(
@@ -689,7 +689,9 @@ mod wire_format_tests {
     /// a bare "default markdown" would mislabel exactly this row.
     #[test]
     fn a_markdown_runs_rows_carry_their_spelling_and_the_map_carries_the_intake() {
-        let map = built_map(crate::parser::parse("prose\n\n<div>island</div>\n").expect("parses"));
+        let map = built_map(
+            crate::intake::markdown::parse("prose\n\n<div>island</div>\n").expect("parses"),
+        );
         assert_eq!(map.input_format, SourceFormat::Markdown);
         let prose = map
             .blocks
@@ -773,7 +775,9 @@ mod wire_format_tests {
     /// omission — the exact bytes a JS consumer sees.
     #[test]
     fn the_wire_keys_are_kebab_case_and_an_absent_row_value_omits_the_key() {
-        let map = built_map(crate::parser::parse("prose\n\n<div>island</div>\n").expect("parses"));
+        let map = built_map(
+            crate::intake::markdown::parse("prose\n\n<div>island</div>\n").expect("parses"),
+        );
         let v = serde_json::to_value(&map).expect("serializes");
         assert_eq!(v["schema_version"], "1.3.0");
         assert_eq!(v["input_format"], "markdown");

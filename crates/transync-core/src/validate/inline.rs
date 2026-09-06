@@ -15,7 +15,7 @@
 //!
 //! The compare is post-translation: the source payload and the
 //! translated payload are each walked with the canonical
-//! [`crate::parser::comrak_options`] parse, so entity/backslash-escape
+//! [`crate::markdown::comrak_options`] parse, so entity/backslash-escape
 //! resolution and angle-bracket stripping cancel out symmetrically. A
 //! mismatch is a retryable [`super::ValidationLayer::Inline`] rejection —
 //! there is no repair pass (the pipeline never rewrites provider output;
@@ -34,7 +34,7 @@
 //! Reference-style links/images (`[text][ref]`, `![alt][ref]`, collapsed
 //! `[ref][]`, and shortcut `[ref]`) are resolved by appending the document's
 //! link-reference-definition pool (`ref_defs`, extracted at parse time by
-//! [`crate::parser::refdefs`]) to BOTH payloads before the parse. The same
+//! [`crate::markdown::refdefs`]) to BOTH payloads before the parse. The same
 //! pool on each side keeps the compare symmetric: a reference whose label the
 //! model preserves resolves identically and passes, while a translated label
 //! breaks resolution on the translated side only — a destination-count
@@ -95,7 +95,7 @@ struct InlineInventory {
 /// a JSON segment array validated by the splice check instead.
 ///
 /// `ref_defs` is the document's link-reference-definition pool
-/// ([`crate::parser::refdefs`]); appended to both payloads so reference-style
+/// ([`crate::markdown::refdefs`]); appended to both payloads so reference-style
 /// links resolve on each side (design D2 §B4). Pass `""` when the document
 /// defines none. Whether it is appended at all is [`effective_pool`]'s answer
 /// — one decision, taken from BOTH payloads, handed to both walks (OI-0040).
@@ -224,7 +224,7 @@ pub fn check_inline(
 /// what makes the first two sufficient:
 ///
 /// 1. `Link` and `Image` nodes need a `[` in the parsed text, and the pool
-///    contributes none of its own: [`crate::parser::refdefs`] pools only
+///    contributes none of its own: [`crate::markdown::refdefs`] pools only
 ///    inter-block gaps that comrak parses to zero top-level nodes, so the
 ///    pool's own brackets are definition labels that produce no node.
 /// 2. The `\n\n` separator means the pool always begins after a blank line,
@@ -273,7 +273,7 @@ fn effective_pool<'a>(source: &str, translated: &str, ref_defs: &'a str) -> &'a 
 fn inline_inventory(payload: &str, ref_defs: &str) -> InlineInventory {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
+    let opts = crate::markdown::comrak_options();
     let appended;
     let to_parse: &str = if ref_defs.is_empty() {
         payload
@@ -286,7 +286,7 @@ fn inline_inventory(payload: &str, ref_defs: &str) -> InlineInventory {
     // then fails and the unit is rejected — which is the right outcome, and
     // the one `validate_unit`'s door has already produced with a better
     // reason before this is reachable.
-    let Ok(root) = crate::parser::guarded_parse(&arena, to_parse, &opts) else {
+    let Ok(root) = crate::markdown::guarded_parse(&arena, to_parse, &opts) else {
         return InlineInventory::default();
     };
 

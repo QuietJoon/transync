@@ -12,7 +12,7 @@ sources:
   - { id: align, resource: crates/transync-syntax/src/align.rs }
   - { id: id, resource: crates/transync-syntax/src/id.rs }
   - { id: outcome, resource: crates/transync-syntax/src/outcome.rs }
-  - { id: ranges, resource: crates/transync-syntax/src/parser/ranges.rs }
+  - { id: ranges, resource: crates/transync-syntax/src/intake/markdown/ranges.rs }
   - { id: render, resource: crates/transync-syntax/src/render.rs }
   - { id: render-attrs, resource: crates/transync-syntax/src/render/attrs.rs }
   - { id: report-phase, resource: crates/transync-core/src/pipeline/report.rs }

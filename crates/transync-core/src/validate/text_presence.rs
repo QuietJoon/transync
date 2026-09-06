@@ -209,8 +209,8 @@ fn rendered_text(payload: &str) -> String {
     use comrak::nodes::NodeValue;
 
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
-    let Ok(root) = crate::parser::guarded_parse(&arena, payload, &opts) else {
+    let opts = crate::markdown::comrak_options();
+    let Ok(root) = crate::markdown::guarded_parse(&arena, payload, &opts) else {
         return String::new();
     };
 

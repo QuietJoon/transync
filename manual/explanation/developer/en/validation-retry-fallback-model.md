@@ -24,7 +24,7 @@ sources:
   - { id: unit-split, resource: crates/transync-core/src/unit/split.rs }
   - { id: htmlseg, resource: crates/transync-html/src/lib.rs }
   - { id: render, resource: crates/transync-syntax/src/render.rs }
-  - { id: parser-ranges, resource: crates/transync-syntax/src/parser/ranges.rs }
+  - { id: parser-ranges, resource: crates/transync-syntax/src/intake/markdown/ranges.rs }
   - { id: align, resource: crates/transync-syntax/src/align.rs }
 synced_hash: 16d55a9db2369c25017d0ead6a08b21f6c2d206c4b21014f6d7c76724b7e401e
 ---

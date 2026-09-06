@@ -36,7 +36,7 @@ sources:
   - { id: default-profile, resource: crates/transync-core/profiles/default.toml }
   - { id: openai-lib, resource: crates/transync-openai/src/lib.rs }
   - { id: openai-endpoint, resource: crates/transync-openai/src/client/endpoint.rs }
-  - { id: syntax-depth, resource: crates/transync-syntax/src/parser/depth.rs }
+  - { id: syntax-depth, resource: crates/transync-syntax/src/intake/markdown/depth.rs }
 synced_hash: 6d37d93a6707fba6675925d016493eb012fb486a98c51d292cd849561fdbef67
 ---
 

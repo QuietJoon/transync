@@ -19,7 +19,7 @@
 //! than a gap. The parser is leaf-block: a list item inside a list, or a
 //! paragraph inside a blockquote, is not a block of its own — the enclosing
 //! list or blockquote is ONE unit whose `source_range` already covers its
-//! nested content (see [`top_level_blocks`] and `parser::Block`), so this
+//! nested content (see [`top_level_blocks`] and `markdown::Block`), so this
 //! splice replaces it in one piece. Nothing here is waiting to be narrowed
 //! to per-nested-item splicing; doing that would break the whole-block
 //! invariant and the reserved child-only design that keeps every anchor
@@ -33,7 +33,7 @@
 
 use crate::align::ByteRange;
 use crate::id::{BlockId, BlockKind, Spelling};
-use crate::parser::{Block, Document};
+use crate::intake::markdown::{Block, Document};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -67,8 +67,10 @@ pub fn regenerate(doc: &Document, accepted: &HashMap<BlockId, String>) -> (Strin
         // document is constructible outside this crate. Parsed documents are
         // unaffected: comrak's positions are boundary-valid, so the snap is
         // the identity for every range `parse` produces.
-        let (bstart, bend) =
-            crate::parser::ranges::clamped_char_bounds(&doc.source_text, block.source_range);
+        let (bstart, bend) = crate::intake::markdown::ranges::clamped_char_bounds(
+            &doc.source_text,
+            block.source_range,
+        );
 
         // Copy inter-block text verbatim (blank lines, frontmatter-like
         // whitespace between blocks).
@@ -274,7 +276,7 @@ impl TableRows {
 pub fn split_table_rows(source: &str) -> Option<TableRows> {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
+    let opts = crate::intake::markdown::comrak_options();
     let root = comrak::parse_document(&arena, source, &opts);
 
     // Exactly one top-level node, and it is a table. A payload that also
@@ -432,7 +434,7 @@ pub fn regenerate_code_fence(body: &str, info: Option<&str>) -> String {
 fn extract_code_body(fragment: &str) -> Option<(String, Option<String>)> {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
+    let opts = crate::intake::markdown::comrak_options();
     let root = comrak::parse_document(&arena, fragment, &opts);
     for child in root.children() {
         if let NodeValue::CodeBlock(c) = &child.data.borrow().value {
@@ -459,7 +461,7 @@ fn extract_code_body(fragment: &str) -> Option<(String, Option<String>)> {
 mod html_regen_tests {
     use super::*;
     use crate::id::assign_block_ids;
-    use crate::parser::parse;
+    use crate::intake::markdown::parse;
 
     /// The accepted-payload map `regenerate` consumes. `None` = the unit fell
     /// back, which the real pipeline expresses as absence from the map.
@@ -513,7 +515,7 @@ mod html_regen_tests {
 mod caller_input_tests {
     use super::*;
     use crate::id::assign_block_ids;
-    use crate::parser::{AstPath, parse};
+    use crate::intake::markdown::{AstPath, parse};
 
     #[test]
     fn unknown_accepted_ids_are_reported_without_changing_the_output() {
@@ -817,14 +819,14 @@ mod table_row_window_tests {
 mod indented_code_regen_tests {
     use super::*;
     use crate::id::assign_block_ids;
-    use crate::parser::parse;
+    use crate::intake::markdown::parse;
 
     const SRC: &str = "Intro.\n\n    let x = 1;\n\nOutro.\n";
 
     fn top_level_labels(md: &str) -> Vec<&'static str> {
         use comrak::nodes::NodeValue;
         let arena = comrak::Arena::new();
-        let opts = crate::parser::comrak_options();
+        let opts = crate::intake::markdown::comrak_options();
         let root = comrak::parse_document(&arena, md, &opts);
         root.children()
             .map(|child| match &child.data.borrow().value {
@@ -878,7 +880,7 @@ mod indented_code_regen_tests {
     /// BOM inside that range — and this run would silently drop it, while the
     /// fallback path (which splices the same range's source bytes back) would
     /// keep it. The parser-side pin is
-    /// `parser::indented_code_tests::the_snap_stops_at_a_document_leading_bom`;
+    /// `markdown::indented_code_tests::the_snap_stops_at_a_document_leading_bom`;
     /// this is the end of the same wire.
     #[test]
     fn a_leading_bom_survives_an_accepted_indented_block() {

@@ -48,7 +48,7 @@ pub(super) fn paragraph_kind<'a>(node: &'a AstNode<'a>) -> BlockKind {
 ///
 /// `fenced` records how the SOURCE spelled the block, and is load-bearing
 /// rather than informational: an indented block's comrak `Sourcepos` starts
-/// after the columns of block structure it consumed, so `parser::emit` moves
+/// after the columns of block structure it consumed, so `markdown::emit` moves
 /// its range back over that indent and `unit::payload::assemble` synthesizes
 /// the fenced wire payload. Both read this flag, so discarding it disarms
 /// both — and what that cost depends on the indent's depth (ti 457e51). A
@@ -58,7 +58,7 @@ pub(super) fn paragraph_kind<'a>(node: &'a AstNode<'a>) -> BlockKind {
 /// code block, so it passed every per-unit layer, was accepted on attempt
 /// one, and was then regenerated into an unclosed fence that swallowed the
 /// following paragraph — contained only by `validate::full_reparse` and the
-/// DCR-0004 cascade. See `parser::emit::snap_indented_code_start` for the
+/// DCR-0004 cascade. See `markdown::emit::snap_indented_code_start` for the
 /// two mechanisms in full; the second one is silent.
 pub(super) fn code_block_kind(code: &NodeCodeBlock) -> BlockKind {
     let info = if code.info.is_empty() {

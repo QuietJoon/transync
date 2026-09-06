@@ -37,7 +37,7 @@ use std::collections::HashMap;
 /// TRACE: SCN-14
 /// TRACE: R0004-0001
 pub(crate) fn finalize_regen_with_reparse_policy(
-    doc: &crate::parser::Document,
+    doc: &crate::markdown::Document,
     accepted: &mut HashMap<BlockId, ValidatedUnit>,
     policy: FullReparseFailure,
 ) -> Result<
@@ -125,7 +125,7 @@ pub(crate) fn finalize_regen_with_reparse_policy(
 /// error. `walk`/comrak never see an HTML document — this branch is the
 /// enforcement (spec §7: "not by adding arms").
 fn layer6_gate(
-    doc: &crate::parser::Document,
+    doc: &crate::markdown::Document,
     regenerated: &str,
     offsets: &crate::regen::BlockOffsets,
 ) -> Result<(), crate::validate::full_reparse::ReparseFailure> {
@@ -140,7 +140,7 @@ fn layer6_gate(
 }
 
 fn regen_pass(
-    doc: &crate::parser::Document,
+    doc: &crate::markdown::Document,
     accepted: &HashMap<BlockId, ValidatedUnit>,
 ) -> (
     String,
@@ -164,7 +164,7 @@ fn regen_pass(
 /// See DCR-0004 for the boundary-contamination rationale.
 ///
 /// TRACE: R0006
-fn widen_to_neighbors(doc: &crate::parser::Document, seeds: &[BlockId]) -> Vec<BlockId> {
+fn widen_to_neighbors(doc: &crate::markdown::Document, seeds: &[BlockId]) -> Vec<BlockId> {
     let top_level: Vec<&BlockId> = crate::regen::top_level_blocks(&doc.blocks)
         .map(|b| &b.block_id)
         .collect();
@@ -211,7 +211,7 @@ fn downgrade_units<'a>(
 /// Mark every accepted unit as `FallbackSource` and regenerate. Always
 /// succeeds structurally — the result is the source document.
 fn fall_back_all(
-    doc: &crate::parser::Document,
+    doc: &crate::markdown::Document,
     accepted: &mut HashMap<BlockId, ValidatedUnit>,
 ) -> (
     String,
@@ -228,7 +228,7 @@ fn fall_back_all(
 /// Project the per-unit `accepted` map into the doc's source-block order
 /// so the regenerator sees one cohesive `ValidatedBatch`.
 fn collect_validated(
-    doc: &crate::parser::Document,
+    doc: &crate::markdown::Document,
     accepted: &HashMap<BlockId, ValidatedUnit>,
 ) -> Vec<ValidatedBatch> {
     let mut units: Vec<ValidatedUnit> = Vec::new();
@@ -252,7 +252,7 @@ fn collect_validated(
 #[cfg(test)]
 mod reparse_policy_tests {
     use super::*;
-    use crate::parser::parse;
+    use crate::markdown::parse;
     use crate::test_fixtures::{EVIL_SOURCE_MD, evil_accepted};
 
     #[test]
@@ -539,7 +539,7 @@ mod list_item_count_pipeline_tests {
 #[cfg(test)]
 mod format_dispatch_tests {
     use super::*;
-    use crate::parser::parse;
+    use crate::markdown::parse;
     use crate::test_fixtures::{EVIL_SOURCE_MD, evil_accepted};
 
     /// One `<p>` element block and one rule-T anonymous run. The run is the
@@ -550,7 +550,7 @@ mod format_dispatch_tests {
     /// under rule T. Only the layer-6 twin can see that.
     const HTML_SRC: &str = "<div>\n<p>keep</p>\nnaked run text\n</div>\n";
 
-    fn html_doc() -> crate::parser::Document {
+    fn html_doc() -> crate::markdown::Document {
         transync_syntax::intake::html::parse(HTML_SRC)
     }
 
@@ -569,7 +569,7 @@ mod format_dispatch_tests {
     /// whitespace. Payloads are JSON segment arrays — the shape wave 2's
     /// re-keyed regen arm decodes for every Html-spelled block.
     fn accepted_with_dissolving_run(
-        doc: &crate::parser::Document,
+        doc: &crate::markdown::Document,
     ) -> HashMap<BlockId, ValidatedUnit> {
         let p_id = doc.blocks[0].block_id.clone();
         let run_id = doc.blocks[1].block_id.clone();

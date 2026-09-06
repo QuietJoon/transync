@@ -74,7 +74,7 @@
 
 use crate::align::ByteRange;
 use crate::id::{BlockId, SourceFormat};
-use crate::parser::Document;
+use crate::markdown::Document;
 use crate::regen::BlockOffsets;
 use crate::validate::full_reparse::ReparseFailure;
 use transync_html::{TagToken, scan_tags, tag_inventory};

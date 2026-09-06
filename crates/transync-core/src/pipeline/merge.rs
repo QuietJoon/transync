@@ -34,7 +34,7 @@
 use crate::FallbackStatus;
 use crate::id::BlockId;
 use crate::llm::{InputMode, TranslationBatch};
-use crate::parser::Document;
+use crate::markdown::Document;
 use crate::structure::inspect_table;
 use crate::validate::ValidatedUnit;
 use std::collections::HashMap;
@@ -367,7 +367,7 @@ mod tests {
 
     /// The run's own batching, with a profile that splits.
     fn split_run(src: &str) -> (Document, Vec<TranslationBatch>) {
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let mut profile = crate::profile::default_profile();
         profile.constraints.default_table_strategy = Some("row-window-first".to_string());
@@ -601,7 +601,7 @@ mod tests {
     /// A run in which nothing split pays nothing and changes nothing.
     #[test]
     fn a_run_without_windows_is_untouched() {
-        let mut doc = crate::parser::parse("a paragraph\n\n| a | b |\n|---|---|\n| 1 | 2 |\n")
+        let mut doc = crate::markdown::parse("a paragraph\n\n| a | b |\n|---|---|\n| 1 | 2 |\n")
             .expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let opts = TranslateOptions {

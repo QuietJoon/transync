@@ -717,7 +717,7 @@ test.describe("WASM render+edit demo", () => {
     //
     // The rejection is planted in the PAYLOAD rather than in the map (test `e`
     // does the map), because that is the only injection a later edit can
-    // outlive: `parser::intake` refuses the regenerated target pane past
+    // outlive: `intake::markdown::intake` refuses the regenerated target pane past
     // `MAX_BLOCK_NESTING_DEPTH`, so a payload of deeper blockquotes is a hard
     // `rebuild` error caused purely by what was typed.
     const REJECTED = `${"> ".repeat(200)}too deep for the intake guard`;

@@ -47,7 +47,7 @@ use crate::llm::{
     DEFAULT_MAX_AUTO_GLOSSARY_TERMS, GlossaryExtractionRequest, MAX_EXTRACTION_SOURCE_BYTES,
     ProviderFingerprint, TranslationUnit, Translator, TranslatorError, UnitResult,
 };
-use crate::parser::parse;
+use crate::markdown::parse;
 use crate::profile::{default_profile, merge_auto_glossary};
 use crate::render::{render_source, render_source_html, render_target, render_target_html};
 use crate::unit::build_batches;
@@ -946,7 +946,7 @@ fn annotate_with_preflight(err: TransyncError, diagnosis: Option<&String>) -> Tr
 /// TRACE: DCR-0024
 /// TRACE: DCR-0028
 async fn resolve_auto_glossary<'o, T: Translator + ?Sized>(
-    doc: &crate::parser::Document,
+    doc: &crate::markdown::Document,
     html_outcomes: &HashMap<BlockId, crate::unit::HtmlOutcome>,
     opts: &'o TranslateOptions,
     translator: &T,
@@ -1801,7 +1801,7 @@ mod run_level_tests {
             target_language: "ko".to_string(),
             ..Default::default()
         };
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let batches = build_batches(&doc, &opts, None, &html_outcomes(&doc));
         let island = batches
@@ -1912,7 +1912,7 @@ mod run_level_tests {
             profile: Some(profile),
             ..Default::default()
         };
-        let mut doc = crate::parser::parse(&src).expect("parses");
+        let mut doc = crate::markdown::parse(&src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let batches = build_batches(&doc, &opts, None, &html_outcomes(&doc));
 

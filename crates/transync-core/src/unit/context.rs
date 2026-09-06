@@ -4,7 +4,7 @@
 
 use crate::id::{BlockId, BlockKind};
 use crate::llm::{BlockContext, HeadingSnippet, NeighborSnippet};
-use crate::parser::{Block, Document};
+use crate::markdown::{Block, Document};
 use std::collections::HashMap;
 
 const NEIGHBOR_SUMMARY_LEN: usize = 120;
@@ -21,7 +21,7 @@ const NEIGHBOR_SUMMARY_LEN: usize = 120;
 pub struct ContextIndex<'a> {
     /// Heading id → the snippet a `section_path` entry for it gets. Only
     /// headings are indexed: a `section_path` element that is not a
-    /// heading cannot exist (`parser::sections` stamps heading ids only),
+    /// heading cannot exist (`markdown::sections` stamps heading ids only),
     /// and no other lookup reads the map.
     headings: HashMap<&'a BlockId, HeadingSnippet>,
     document_title: Option<String>,
@@ -204,7 +204,7 @@ fn inline_plain_text(fragment: &str, ref_defs: &str) -> String {
     use comrak::nodes::NodeValue;
 
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
+    let opts = crate::markdown::comrak_options();
     let appended;
     let to_parse: &str = if ref_defs.is_empty() {
         fragment
@@ -270,7 +270,7 @@ mod heading_text_tests {
 
     /// The snippet the first heading of `md` contributes to a section path.
     fn heading_text(md: &str) -> String {
-        let doc = crate::parser::parse(md).expect("parses");
+        let doc = crate::markdown::parse(md).expect("parses");
         let b = doc
             .blocks
             .iter()
@@ -384,7 +384,7 @@ body paragraph
 
     #[test]
     fn document_title_uses_the_same_extraction_as_section_path() {
-        let doc = crate::parser::parse(DOC).expect("parses");
+        let doc = crate::markdown::parse(DOC).expect("parses");
         let index = build_index(&doc);
         let ctx = build_context(&doc, block_at(&doc, "body paragraph"), &index);
 
@@ -408,13 +408,13 @@ body paragraph
     /// 0f26b5).
     #[test]
     fn the_title_is_the_first_level_1_heading_and_only_that() {
-        let doc = crate::parser::parse("intro\n\n# First\n\nbody\n\n# Second\n").expect("parses");
+        let doc = crate::markdown::parse("intro\n\n# First\n\nbody\n\n# Second\n").expect("parses");
         assert_eq!(document_title(&doc).as_deref(), Some("First"));
 
-        let deep = crate::parser::parse("## Only a subheading\n\nbody\n").expect("parses");
+        let deep = crate::markdown::parse("## Only a subheading\n\nbody\n").expect("parses");
         assert_eq!(document_title(&deep), None);
 
-        let empty = crate::parser::parse("body only\n").expect("parses");
+        let empty = crate::markdown::parse("body only\n").expect("parses");
         assert_eq!(document_title(&empty), None);
     }
 
@@ -426,7 +426,7 @@ body paragraph
     /// them different cache identities (ti 53d495 backstop).
     #[test]
     fn a_bare_hash_is_an_empty_title_not_an_absent_one() {
-        let doc = crate::parser::parse("#\n\nbody\n").expect("parses");
+        let doc = crate::markdown::parse("#\n\nbody\n").expect("parses");
         assert!(
             matches!(doc.blocks[0].kind, BlockKind::Heading1),
             "a bare `#` parses as a level-1 heading"
@@ -450,7 +450,7 @@ body paragraph
     fn neighbor_summaries_stay_verbatim_source() {
         // Deliberate contrast: a neighbor snippet is a source excerpt of any
         // block kind, paired with its `kind`. Only heading *context* is prose.
-        let doc = crate::parser::parse(DOC).expect("parses");
+        let doc = crate::markdown::parse(DOC).expect("parses");
         let index = build_index(&doc);
         let ctx = build_context(&doc, block_at(&doc, "intro"), &index);
         assert_eq!(
@@ -470,8 +470,8 @@ body paragraph
 mod document_title_tests {
     use super::*;
     use crate::id::{SourceFormat, Spelling};
-    use crate::parser::AstPath;
-    use crate::parser::ranges::ByteRange;
+    use crate::markdown::AstPath;
+    use crate::markdown::ranges::ByteRange;
 
     /// A hand-built HTML document: a `Title` block over the first line, an H1
     /// over the last, gap in between. Hand-built because no intake emits a
@@ -530,7 +530,7 @@ mod document_title_tests {
         // The Markdown rule, unchanged — this is the regression guard on the
         // half that must not move.
         let doc =
-            crate::parser::parse("intro\n\n# Heading one\n\n# Heading two\n").expect("parses");
+            crate::markdown::parse("intro\n\n# Heading one\n\n# Heading two\n").expect("parses");
         assert_eq!(document_title(&doc).as_deref(), Some("Heading one"));
     }
 

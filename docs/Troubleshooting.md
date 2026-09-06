@@ -331,8 +331,8 @@ pre-scan bounds this source at 20000 nested block containers, over the
 128-level maximum
 ```
 
-`parser::parse` refuses a document whose block-container nesting exceeds
-`parser::MAX_BLOCK_NESTING_DEPTH` (128) — one level per blockquote,
+`intake::markdown::parse` refuses a document whose block-container nesting exceeds
+`intake::markdown::MAX_BLOCK_NESTING_DEPTH` (128) — one level per blockquote,
 one per list level — *before* comrak parses it. This is deliberate and
 size-independent: a container costs one byte per level, so a single
 20 KB line of `>>>>…` is twenty thousand nested blockquotes, and a
@@ -366,7 +366,7 @@ which is deliberate, not an oversight. Every walk over inline nesting in
 the library runs on the heap rather than the call stack, measured to an
 inline tree over two million levels deep on a stack a quarter the size of
 the smallest one the library ever runs on, and a regression pin in
-`parser::depth` fails if that ever stops being true (ticket `f69e83`).
+`intake::markdown::depth` fails if that ever stops being true (ticket `f69e83`).
 
 ## Translation is slow (~30 s on a small document)
 

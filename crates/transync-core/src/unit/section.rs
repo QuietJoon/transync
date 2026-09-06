@@ -143,15 +143,15 @@ mod tests {
 
     /// A document with no blocks, so the index knows no heading — enough for
     /// the grouping rules, which read the index only for a name.
-    fn empty_doc() -> crate::parser::Document {
-        crate::parser::parse("").expect("parses")
+    fn empty_doc() -> crate::markdown::Document {
+        crate::markdown::parse("").expect("parses")
     }
 
     /// The units `build_batches` would build for `src`, and the index it would
     /// build them with — so the stack assertions below run over the real
     /// snippets, not over hand-written ones.
-    fn parsed(src: &str) -> (crate::parser::Document, Vec<TranslationUnit>) {
-        let mut doc = crate::parser::parse(src).expect("parses");
+    fn parsed(src: &str) -> (crate::markdown::Document, Vec<TranslationUnit>) {
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let outcomes = crate::unit::html_outcomes(&doc);
         let index = crate::unit::context::build_index(&doc);

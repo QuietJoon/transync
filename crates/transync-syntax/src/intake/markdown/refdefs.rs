@@ -129,7 +129,7 @@ fn boundary_slice(source: &str, start: usize, end: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::parse;
+    use crate::intake::markdown::parse;
 
     // Helper: parse then extract from the real top-level blocks.
     fn pool(src: &str) -> (String, Vec<String>) {

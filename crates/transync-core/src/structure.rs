@@ -8,7 +8,7 @@
 //! check.
 //!
 //! Each inspector re-parses its payload fragment under the shared GFM options
-//! (`parser::comrak_options`), so the fingerprint is always taken with the
+//! (`markdown::comrak_options`), so the fingerprint is always taken with the
 //! same parser the pipeline uses (invariant: no second Markdown parser).
 //!
 //! TRACE: SCN-02
@@ -67,7 +67,7 @@ impl ListFacts {
 pub(crate) fn inspect_list_topology(source_payload: &str) -> Option<Vec<ListTopologyEntry>> {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
+    let opts = crate::markdown::comrak_options();
     let root = comrak::parse_document(&arena, source_payload, &opts);
 
     let mut entries: Vec<ListTopologyEntry> = Vec::new();
@@ -92,7 +92,7 @@ pub(crate) fn inspect_list_topology(source_payload: &str) -> Option<Vec<ListTopo
     // process; a host embedding this library cannot catch it. Heap frames
     // grow instead now, so the only ceiling left is memory. The parser's
     // ti `148fcf` routed the other provider-payload reparses through
-    // `parser::guarded_parse`. These three walkers are deliberately NOT
+    // `markdown::guarded_parse`. These three walkers are deliberately NOT
     // routed, and that is not an oversight: they are hardened rather than
     // bounded. `deep_nesting_walks_on_the_heap_not_the_call_stack` pins a
     // thousand levels walked on a 256 KiB stack, and applying the ceiling
@@ -188,7 +188,7 @@ pub(crate) fn inspect_list_topology(source_payload: &str) -> Option<Vec<ListTopo
 pub(crate) fn inspect_blockquote_children(source_payload: &str) -> Option<Vec<String>> {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
+    let opts = crate::markdown::comrak_options();
     let root = comrak::parse_document(&arena, source_payload, &opts);
 
     for child in root.children() {
@@ -216,7 +216,7 @@ pub(crate) fn inspect_blockquote_children(source_payload: &str) -> Option<Vec<St
 pub(crate) fn inspect_table(source_payload: &str) -> Option<(u32, Vec<TableAlign>, u32)> {
     use comrak::nodes::{NodeValue, TableAlignment};
     let arena = comrak::Arena::new();
-    let opts = crate::parser::comrak_options();
+    let opts = crate::markdown::comrak_options();
     let root = comrak::parse_document(&arena, source_payload, &opts);
     for child in root.children() {
         if let NodeValue::Table(t) = &child.data.borrow().value {

@@ -11,7 +11,7 @@
 
 use crate::id::{BlockKind, Spelling};
 use crate::llm::{BlockConstraints, InputMode};
-use crate::parser::{Block, Document};
+use crate::markdown::{Block, Document};
 use crate::structure::{inspect_blockquote_children, inspect_list_topology, inspect_table};
 use transync_syntax::outcome::block_payload;
 
@@ -229,7 +229,7 @@ mod html_payload_tests {
     use crate::TranslateOptions;
     use crate::id::assign_block_ids;
     use crate::llm::InputMode;
-    use crate::parser::parse;
+    use crate::markdown::parse;
     use crate::unit::{HtmlOutcome, build_batches, html_outcomes};
 
     #[test]
@@ -280,7 +280,7 @@ mod lone_cr_topology_tests {
     #[test]
     fn lone_cr_list_items_carry_list_topology_constraints() {
         let src = "intro para\r\r- alpha\r- bravo\r- charlie\r\rtail para\r";
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let outcomes = html_outcomes(&doc);
         let opts = TranslateOptions {
@@ -344,7 +344,7 @@ mod indented_code_payload_tests {
     use crate::TranslateOptions;
     use crate::id::BlockKind;
     use crate::llm::{InputMode, TranslationUnit};
-    use crate::parser::parse;
+    use crate::markdown::parse;
     use crate::unit::{build_batches, html_outcomes};
 
     /// Intro / four-space block whose body holds a ``` run / separator /
@@ -371,7 +371,7 @@ mod indented_code_payload_tests {
     fn code_blocks(payload: &str) -> Vec<(bool, String, String)> {
         use comrak::nodes::NodeValue;
         let arena = comrak::Arena::new();
-        let opts = crate::parser::comrak_options();
+        let opts = crate::markdown::comrak_options();
         let root = comrak::parse_document(&arena, payload, &opts);
         root.children()
             .filter_map(|c| match &c.data.borrow().value {

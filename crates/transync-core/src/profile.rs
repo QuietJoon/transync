@@ -2566,7 +2566,7 @@ mod oi_0003_tests {
         use crate::unit::build_batches;
 
         let src = "one\n\ntwo\n\nthree\n\nfour\n";
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
 
         let mut profile = load_profile(
@@ -3324,7 +3324,7 @@ mod compiled_prompt_state_tests {
         let p = load_profile(&profile_toml(BOTH_SECTIONS)).expect("loads");
         let compiled = render_prompt_body(&p, "en", "ko");
 
-        let mut doc = crate::parser::parse("one\n\ntwo\n").expect("parses");
+        let mut doc = crate::markdown::parse("one\n\ntwo\n").expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let outcomes = crate::unit::html_outcomes(&doc);
         let opts = TranslateOptions {

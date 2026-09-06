@@ -23,8 +23,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use transync_syntax::align::{ByteRange, build_alignment_map};
 use transync_syntax::id::assign_block_ids;
+use transync_syntax::intake::markdown::parse;
 use transync_syntax::outcome::html_outcomes;
-use transync_syntax::parser::parse;
 use transync_syntax::regen::{BlockOffsets, regenerate};
 
 /// Records every `tracing` event field raised on the installing thread.

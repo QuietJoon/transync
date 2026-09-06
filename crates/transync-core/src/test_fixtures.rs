@@ -4,7 +4,7 @@
 
 use crate::FallbackStatus;
 use crate::id::BlockId;
-use crate::parser::Document;
+use crate::markdown::Document;
 use crate::validate::ValidatedUnit;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex, Once};

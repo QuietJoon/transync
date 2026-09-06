@@ -127,7 +127,7 @@ pub enum BlockKind {
         /// Machine label of the underlying node: "footnote-definition",
         /// "front-matter", or "unsupported". `"html-block"` is NOT among
         /// them since the 2026-08-03 spec — raw HTML is [`BlockKind::Html`]
-        /// now, and `parser::classify`'s label table can no longer return
+        /// now, and `markdown::classify`'s label table can no longer return
         /// it. The literal string survives only as the `data-skipped` attribute
         /// value the renderer stamps on a *degraded* html block's escaped
         /// placeholder, which is not this field.
@@ -169,7 +169,7 @@ impl BlockKind {
     /// Heading depth 1–6, or `None` for every non-heading kind.
     ///
     /// THE kind→level mapping. It previously existed twice — once in
-    /// `parser::build_hierarchy`'s private helper and once as a byte-copy in
+    /// `markdown::build_hierarchy`'s private helper and once as a byte-copy in
     /// `transync-core`'s `unit::context`, across a crate boundary where no
     /// compiler check could catch a drift. It lives beside [`id_code`] and
     /// [`wire_str`] because it is the same thing they are: a projection of
@@ -308,7 +308,7 @@ impl Spelling {
 /// `source_format`; the spelling is fixed here so those two cannot be spelled
 /// differently when they arrive.
 ///
-/// [`Default`] is [`SourceFormat::Markdown`] because [`crate::parser::Document`]
+/// [`Default`] is [`SourceFormat::Markdown`] because [`crate::intake::markdown::Document`]
 /// derives `Default` and an empty document was a Markdown document before this
 /// field existed. Every producer that is not the Markdown intake sets the
 /// field explicitly.
@@ -323,7 +323,7 @@ pub enum SourceFormat {
 }
 
 /// Walk the document and re-affirm sequential IDs. Idempotent on the
-/// output of [`crate::parser::parse`], which already assigns IDs in
+/// output of [`crate::intake::markdown::parse`], which already assigns IDs in
 /// source order. Re-running it after manual mutation lets callers
 /// re-key the blocks list (used by future SL-10 partial-resume code).
 ///
@@ -335,7 +335,7 @@ pub enum SourceFormat {
 ///
 /// TRACE: SCN-01..SCN-14
 /// TRACE: ADR-0005
-pub fn assign_block_ids(doc: &mut crate::parser::Document) {
+pub fn assign_block_ids(doc: &mut crate::intake::markdown::Document) {
     use std::collections::HashMap;
 
     let mut counter: u32 = 0;
@@ -361,7 +361,10 @@ pub fn assign_block_ids(doc: &mut crate::parser::Document) {
 /// (the byte slice between the block's `source_range`).
 ///
 /// TRACE: ADR-0005
-pub fn source_hash_block(doc: &crate::parser::Document, block_index: usize) -> Option<u64> {
+pub fn source_hash_block(
+    doc: &crate::intake::markdown::Document,
+    block_index: usize,
+) -> Option<u64> {
     let block = doc.blocks.get(block_index)?;
     let start = block.source_range.start.min(doc.source_text.len());
     let end = block.source_range.end.min(doc.source_text.len()).max(start);
@@ -386,7 +389,7 @@ mod rekey_tests {
     #[test]
     fn rekeying_renumbers_the_id_sequence_and_remaps_section_path() {
         let src = "# Title\n\nfirst\n\nsecond\n";
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::intake::markdown::parse(src).expect("parses");
 
         // Simulate a caller mutation: drop the block between the heading
         // and the last paragraph, then re-key.
@@ -415,7 +418,7 @@ mod rekey_tests {
     #[test]
     fn rekeying_parse_output_is_idempotent() {
         let src = "# T\n\npara\n\n- a\n- b\n";
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::intake::markdown::parse(src).expect("parses");
         let before: Vec<String> = doc.blocks.iter().map(|b| b.block_id.0.clone()).collect();
         assign_block_ids(&mut doc);
         let after: Vec<String> = doc.blocks.iter().map(|b| b.block_id.0.clone()).collect();

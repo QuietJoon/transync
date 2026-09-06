@@ -36,9 +36,9 @@
 //! TRACE: ADR-0025
 
 use crate::id::{BlockId, BlockKind, SourceFormat, Spelling};
-use crate::parser::ranges::ByteRange;
-use crate::parser::sections::SectionStack;
-use crate::parser::{AstPath, Block, Document};
+use crate::intake::markdown::ranges::ByteRange;
+use crate::intake::markdown::sections::SectionStack;
+use crate::intake::markdown::{AstPath, Block, Document};
 use std::collections::HashMap;
 use transync_html::{ElementExtent, TagToken, element_extents, scan_tags};
 
@@ -118,7 +118,7 @@ fn semantic_stop_kind(name: &str) -> Option<BlockKind> {
 /// Identity contract, pinned by `tests/html_intake_identity.rs`:
 /// `regen::regenerate(&parse(s), &HashMap::new()).0 == parse(s).source_text`.
 pub fn parse(source: &str) -> Document {
-    let normalized = crate::parser::normalize_source(source);
+    let normalized = crate::intake::markdown::normalize_source(source);
     let mut walk = HtmlWalk::new(&normalized);
     walk.walk();
     let HtmlWalk {

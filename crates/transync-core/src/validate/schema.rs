@@ -234,7 +234,7 @@ pub(crate) const NUL_IN_PAYLOAD: &str = "translated payload contains a NUL byte 
 /// Reject a translated payload carrying a NUL byte (`U+0000`) — the one
 /// byte `out.md` never contains.
 ///
-/// The source side has been NUL-free since OI-0034: `parser::parse`
+/// The source side has been NUL-free since OI-0034: `markdown::parse`
 /// substitutes U+FFFD before comrak sees the document, because CommonMark
 /// §2.3 requires the substitution and comrak performs it before it reports
 /// a single source position. The *target* side had no such gate.

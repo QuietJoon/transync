@@ -17,8 +17,8 @@
 //! TRACE: R0004-0001
 
 use crate::id::BlockId;
-use crate::parser::Document;
-use crate::parser::ranges::LineOffsets;
+use crate::markdown::Document;
+use crate::markdown::ranges::LineOffsets;
 use crate::regen::BlockOffsets;
 use comrak::nodes::NodeValue;
 use transync_syntax::walk::{NormalizedEntry, direct_item_count, node_label, normalize_top_level};
@@ -65,7 +65,7 @@ fn blocks_over_depth_ceiling(regenerated_md: &str, offsets: &BlockOffsets) -> Ve
         .filter(|(_, range)| {
             regenerated_md
                 .get(range.start..range.end)
-                .is_some_and(|slice| crate::parser::check_nesting_depth(slice).is_err())
+                .is_some_and(|slice| crate::markdown::check_nesting_depth(slice).is_err())
         })
         .map(|(id, _)| id.clone())
         .collect();
@@ -112,13 +112,13 @@ pub fn reparse_full(
     let regen_lines = LineOffsets::new(regenerated_md);
 
     let arena = comrak::Arena::new();
-    let parser_opts = crate::parser::comrak_options();
+    let parser_opts = crate::markdown::comrak_options();
     // The regenerated document is assembled from provider payloads, so it is
     // untrusted for the same reason each payload was — and it is the one
     // place the ceiling can be crossed by ASSEMBLY rather than by any single
     // payload, which is why the refusal attributes per block rather than
     // blaming the unit that happened to be last (ti `148fcf`).
-    let root = match crate::parser::guarded_parse(&arena, regenerated_md, &parser_opts) {
+    let root = match crate::markdown::guarded_parse(&arena, regenerated_md, &parser_opts) {
         Ok(root) => root,
         Err(too_deep) => {
             return Err(ReparseFailure {
@@ -210,7 +210,7 @@ pub fn reparse_full(
     // was a mis-sliced empty payload from the lone-CR sourcepos desync
     // (OI-0033), and `LineOffsets` has counted lone CR as a line boundary
     // since that fix; `unit::payload::lone_cr_topology_tests` asserts the predicate
-    // directly, and `parser::emit`'s empty-range guard makes any future
+    // directly, and `markdown::emit`'s empty-range guard makes any future
     // quirk of that class loud. What this scan still owns is the cross-unit
     // splice-adjacency effect above, plus the render zip's pairing invariant.
     for (i, entry) in normalized_source.iter().enumerate() {
@@ -303,7 +303,7 @@ fn describe_neighbors(normalized: &[NormalizedEntry], index: usize) -> String {
 mod tests {
     use super::*;
     use crate::id::BlockKind;
-    use crate::parser::parse;
+    use crate::markdown::parse;
     use crate::regen::regenerate;
 
     /// Build a `BlockOffsets` for `regenerated_md == source.source_text`,
@@ -337,7 +337,7 @@ mod tests {
     }
 
     /// ti `148fcf`: the regenerated document is assembled from provider
-    /// payloads and never passes `parser::intake`, so the ceiling has to be
+    /// payloads and never passes `markdown::intake`, so the ceiling has to be
     /// applied here too — and the refusal has to NAME blocks, because
     /// `finalize` turns a `ReparseFailure` into per-block fallback and an
     /// unattributed failure rolls back nothing at all.
@@ -346,7 +346,7 @@ mod tests {
         let doc = parse("# Title\n\nsome text\n").expect("source parses");
         let offsets = dummy_offsets(&doc);
 
-        let too_deep = ">".repeat(crate::parser::MAX_BLOCK_NESTING_DEPTH + 1) + " x\n";
+        let too_deep = ">".repeat(crate::markdown::MAX_BLOCK_NESTING_DEPTH + 1) + " x\n";
         let err = reparse_full(&doc, &too_deep, &offsets)
             .expect_err("a document past the ceiling must be refused, not parsed");
 
@@ -368,20 +368,20 @@ mod tests {
         assert_eq!(ids.len(), 2, "two source blocks");
 
         let shallow = "alpha\n\n";
-        let deep = ">".repeat(crate::parser::MAX_BLOCK_NESTING_DEPTH + 1) + " x\n";
+        let deep = ">".repeat(crate::markdown::MAX_BLOCK_NESTING_DEPTH + 1) + " x\n";
         let regenerated = format!("{shallow}{deep}");
 
         let mut offsets = BlockOffsets::default();
         offsets.0.insert(
             ids[0].clone(),
-            crate::parser::ranges::ByteRange {
+            crate::markdown::ranges::ByteRange {
                 start: 0,
                 end: shallow.len(),
             },
         );
         offsets.0.insert(
             ids[1].clone(),
-            crate::parser::ranges::ByteRange {
+            crate::markdown::ranges::ByteRange {
                 start: shallow.len(),
                 end: regenerated.len(),
             },
@@ -420,7 +420,7 @@ mod tests {
         );
         offsets.0.insert(
             ids[0].clone(),
-            crate::parser::ranges::ByteRange {
+            crate::markdown::ranges::ByteRange {
                 start: r.end,
                 end: r.start,
             },

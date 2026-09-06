@@ -41,7 +41,7 @@ use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use transync_syntax::align::{self, AlignmentMap, FallbackStatus};
 use transync_syntax::id::{self, BlockId};
-use transync_syntax::{outcome, parser, regen, render, walk};
+use transync_syntax::{intake::markdown, outcome, regen, render, walk};
 
 /// What went wrong at the JS boundary. Every variant names the input that
 /// failed, because the JS side sees only the stringified message.
@@ -226,7 +226,7 @@ pub fn rebuild_impl(
 /// the signal that the render the caller is about to mount is the degraded
 /// one.
 ///
-/// Both sides go through [`parser::parse`] + [`walk::normalize_top_level`],
+/// Both sides go through [`markdown::parse`] + [`walk::normalize_top_level`],
 /// the same normalization the renderer's zip consumes — so a collapsed list
 /// run counts as one entry on both sides, exactly as it pairs with one
 /// Comrak `List` node. What is compared is [`top_level_shape`]'s whole
@@ -235,12 +235,12 @@ pub fn rebuild_impl(
 /// and still mis-renders — `"EDITED"` typed over a blockquote leaves two
 /// top-level entries either way, while the following paragraph's anchor
 /// picks up the edited text and the paragraph's own content disappears.
-fn check_top_level_structure(doc: &parser::Document, translated_md: &str) -> Option<String> {
+fn check_top_level_structure(doc: &markdown::Document, translated_md: &str) -> Option<String> {
     let expected = top_level_shape(doc);
-    let reparsed = match parser::parse(translated_md) {
+    let reparsed = match markdown::parse(translated_md) {
         Ok(reparsed) => reparsed,
         // Reachable: `parse` refuses a document past
-        // `parser::MAX_BLOCK_NESTING_DEPTH`, and edited payloads can deepen
+        // `markdown::MAX_BLOCK_NESTING_DEPTH`, and edited payloads can deepen
         // a regeneration past a source that was inside it. A silent `None`
         // here would claim a check that never ran.
         Err(err) => {
@@ -279,7 +279,7 @@ struct TopLevelShape {
 /// of its entries, never a second derivation of the rule. A non-list entry
 /// always has exactly one source, so `items` is only ever interesting for
 /// the `"list"` label.
-fn top_level_shape(doc: &parser::Document) -> Vec<TopLevelShape> {
+fn top_level_shape(doc: &markdown::Document) -> Vec<TopLevelShape> {
     walk::normalize_top_level(doc)
         .into_iter()
         .map(|entry| TopLevelShape {
@@ -348,8 +348,8 @@ pub fn schema_version_impl() -> &'static str {
 /// `assign_block_ids` is idempotent right after `parse` today, but the
 /// pipeline always calls it and the IDs on the wire must be the pipeline's,
 /// not the walker's provisional ones.
-fn parse_with_ids(source_md: &str) -> Result<parser::Document, EngineError> {
-    let mut doc = parser::parse(source_md)?;
+fn parse_with_ids(source_md: &str) -> Result<markdown::Document, EngineError> {
+    let mut doc = markdown::parse(source_md)?;
     id::assign_block_ids(&mut doc);
     Ok(doc)
 }
@@ -410,7 +410,7 @@ mod tests {
     /// The id of the first block of `wire_kind`, the way the demo learns
     /// it: off the parsed + id-assigned document, never guessed.
     fn first_block_id_of(md: &str, wire_kind: &str) -> String {
-        let mut doc = parser::parse(md).expect("fixture parses");
+        let mut doc = markdown::parse(md).expect("fixture parses");
         id::assign_block_ids(&mut doc);
         doc.blocks
             .iter()

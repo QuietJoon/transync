@@ -23,22 +23,22 @@ crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017
 ├── Cargo.toml                          #   gate: cargo check --target wasm32-unknown-unknown
 └── src/
     ├── lib.rs                          # module roots only; no pipeline types
-    ├── parser.rs                       # IR types + thin parse; WalkState walker (DCR-0019)
-    ├── parser/
-    │   ├── options.rs                  # Comrak GFM option set
-    │   ├── classify.rs                 # NodeValue → BlockKind + the label tables
-    │   ├── emit.rs                     # THE one emit + the OI-0033 empty-range guard
-    │   ├── sections.rs                 # SectionStack — the one heading-scope algorithm
-    │   ├── ranges.rs                   # byte-range recovery from Comrak nodes; CR-aware
-    │   │                               #   line table matching comrak (OI-0033)
-    │   ├── refdefs.rs                  # link-reference-definition pool (DCR-0013)
-    │   └── depth.rs                    # THE one guarded hand-off of raw Markdown to
-    │                                   #   comrak: nesting-depth refusal before parse
     ├── id.rs                           # BlockId assignment + source_hash + the two vocabularies (BlockKind, Spelling/SourceFormat)
     ├── intake.rs                       # the format seam: one intake per source format (D3)
     ├── intake/
-    │   └── html.rs                     # HTML document intake: five-class classification,
-    │                                   #   rule T, ids/sections/ast_path (ti 490d97 wave 3)
+    │   ├── html.rs                     # HTML document intake: five-class classification,
+    │   │                               #   rule T, ids/sections/ast_path (ti 490d97 wave 3)
+    │   ├── markdown.rs                 # IR types + thin parse; WalkState walker (DCR-0019)
+    │   └── markdown/
+    │       ├── options.rs              # Comrak GFM option set
+    │       ├── classify.rs             # NodeValue → BlockKind + the label tables
+    │       ├── emit.rs                 # THE one emit + the OI-0033 empty-range guard
+    │       ├── sections.rs             # SectionStack — the one heading-scope algorithm
+    │       ├── ranges.rs               # byte-range recovery from Comrak nodes; CR-aware
+    │       │                           #   line table matching comrak (OI-0033)
+    │       ├── refdefs.rs              # link-reference-definition pool (DCR-0013)
+    │       └── depth.rs                # THE one guarded hand-off of raw Markdown to
+    │                                   #   comrak: nesting-depth refusal before parse
     ├── outcome.rs                      # per-block HtmlOutcome closure (DCR-0017 §3.1)
     ├── walk.rs                         # ONE shared top-level normalization + per-list item
     │                                   #   count; consumed by render AND validate::full_reparse
@@ -58,7 +58,7 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
 └── src/
     ├── lib.rs                          # TranslateOptions, translate(), translate_with_cache();
     │                                   #   pub(crate) re-exports of syntax's
-    │                                   #   parser/id/regen/render/align (DCR-0018). Only
+    │                                   #   markdown/id/regen/render/align (DCR-0018). Only
     │                                   #   cache/llm/profile stay pub; unit is
     │                                   #   #[doc(hidden)] pub for transync-openai's live smoke
     ├── unit.rs                         # build_batches() as thin orchestration (DCR-0019)
@@ -247,8 +247,8 @@ scripts/
 ## Scenario → component coverage
 
 Module names in the "Crates / modules touched" column are **engine** modules —
-`transync-syntax` owns `parser` (+`options`/`classify`/`emit`/`sections`/
-`ranges`/`refdefs`/`depth`), `intake` (+`html`), `id`, `regen`,
+`transync-syntax` owns `intake` (+`html`, +`markdown` (+`options`/`classify`/
+`emit`/`sections`/`ranges`/`refdefs`/`depth`)), `id`, `regen`,
 `render` (+`attrs`/`html_pane`), `align`, `outcome`, `walk`; `transync-core` owns `unit`
 (+`payload`/`budget`/`context`/`split`/`section`), `structure` (+`labels`),
 `batch`, `llm` (+`prompt`), `validate` (+ its seven layers), `pipeline`
@@ -258,18 +258,18 @@ reachable through the `transync` facade (only `cache`, `llm`, and `profile`
 are), so they are written bare rather than as `transync::…` paths.
 
 `transync-wasm` owns no engine module: it is a **consumer** that composes
-`parser` / `id` / `outcome` / `regen` / `align` / `render` behind a JSON-string
+`intake::markdown` / `id` / `outcome` / `regen` / `align` / `render` behind a JSON-string
 boundary for the browser (ADR-0019), which is why it never appears in the
 column below.
 
 | SCN     | Description                                                | Crates / modules touched                                                                                  | Files / fixtures                                       | External integrations                              |
 |---------|------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|--------------------------------------------------------|----------------------------------------------------|
-| SCN-01  | Heading + paragraph translation                            | `{parser, id, unit, batch, validate, regen, render, pipeline}`, `MockTranslator`               | `tests/fixtures/scn-01-headings-and-paragraphs.md`     | none                                               |
-| SCN-02  | Whole-block GFM table                                       | `{parser, unit, validate::per_kind, regen, render}`                                             | `scn-02-table-small.md`                                | none                                               |
+| SCN-01  | Heading + paragraph translation                            | `{intake::markdown, id, unit, batch, validate, regen, render, pipeline}`, `MockTranslator`     | `tests/fixtures/scn-01-headings-and-paragraphs.md`     | none                                               |
+| SCN-02  | Whole-block GFM table                                       | `{intake::markdown, unit, validate::per_kind, regen, render}`                                   | `scn-02-table-small.md`                                | none                                               |
 | SCN-03  | Oversized table → header-carrying row windows (DCR-0026)    | `{unit::split, batch, validate::per_kind, pipeline::merge, regen::{split_table_rows,regenerate_table}}` — the table is split at packing time and reassembled before regen | `scn-03-table-large.md`                                | none                                               |
-| SCN-04  | Code block fence regen + comment translation                | `{parser, regen (fence sizing), validate::per_kind}`                                            | `scn-04-code-block.md`                                 | none                                               |
-| SCN-05  | Nested list with task items                                 | `{parser, validate::per_kind (list topology), regen}`                                           | `scn-05-nested-list.md`                                | none                                               |
-| SCN-06  | Blockquote with nested paragraphs                           | `{parser, validate::per_kind, regen}`                                                           | `scn-06-blockquote.md`                                 | none                                               |
+| SCN-04  | Code block fence regen + comment translation                | `{intake::markdown, regen (fence sizing), validate::per_kind}`                                  | `scn-04-code-block.md`                                 | none                                               |
+| SCN-05  | Nested list with task items                                 | `{intake::markdown, validate::per_kind (list topology), regen}`                                 | `scn-05-nested-list.md`                                | none                                               |
+| SCN-06  | Blockquote with nested paragraphs                           | `{intake::markdown, validate::per_kind, regen}`                                                 | `scn-06-blockquote.md`                                 | none                                               |
 | SCN-07  | Validation retry → success                                  | `{validate, pipeline::policy, pipeline::dispatch, pipeline::retry}`, `MockTranslator (rejects-then-accepts)`                          | `scn-07-validation-retry.md`                           | none                                               |
 | SCN-08  | Persistent failure → fallback                               | `{pipeline::policy, pipeline::finalize, pipeline::retry, align (fallback_status), render (data-fallback)}`, `MockTranslator (always-fails-one-unit)` | `scn-08-fallback.md`                          | none                                               |
 | SCN-09  | Prompt injection in source content                          | `{profile, unit (BlockContext), validate::schema}`                                              | `scn-09-prompt-injection.md`                           | recording stub provider                            |
@@ -278,7 +278,7 @@ column below.
 | SCN-12  | CLI end-to-end produces 4 outputs                           | `transync-cli::{main, translate_cmd, output}`, `transync-openai::*`, the `transync` facade                 | `scn-14-full.md` reused as input                       | OpenAI Chat Completions / Responses on a human-invoked live run; the `test-stub-provider` echo `Translator` in every automated run — see the table below |
 | SCN-13  | JS demo sync                                                | `web/js/sync.js`, `{render, align}`                                                                       | output of SCN-12; `web/tests/scn13.spec.js`            | headless Chromium via Playwright (`scripts/test-browser.sh`) |
 | SCN-14  | Full-document reparse                                       | `{regen, validate::full_reparse}`                                                               | `scn-14-full.md`                                       | none                                               |
-| SCN-15  | HTML-content translation end-to-end (post-MVP)              | `transync-html`, `{parser, unit (html_outcomes), validate::per_kind, regen, render, align}`, `web/js/sync.js` (toggle mirror) | `scn-15-html-blocks.md`                 | none (`MockTranslator`); browser leg via Playwright |
+| SCN-15  | HTML-content translation end-to-end (post-MVP)              | `transync-html`, `{intake::markdown, unit (html_outcomes), validate::per_kind, regen, render, align}`, `web/js/sync.js` (toggle mirror) | `scn-15-html-blocks.md`                 | none (`MockTranslator`); browser leg via Playwright |
 | SCN-16  | HTML→HTML document translation end-to-end (post-MVP)        | `transync-html`, `{intake::html, id (Spelling/SourceFormat), regen, validate (full_rescan_html), render (html_pane), align}`, `web/js/sync.js` | `scn-16-html-document.html`; `web/tests/scn16.spec.js` | Integration + CLI; headless Chromium via Playwright (`scripts/test-browser.sh`) |
 
 ## Persistence / file touches per scenario
@@ -303,7 +303,7 @@ column below.
 These are the shapes other modules call into — live signatures, named by their **owning crate**. Most are engine-internal since DCR-0018: `transync-core` re-exports the `transync-syntax` modules `pub(crate)`, and the `transync` facade exposes none of them. Only `cache` and `profile` below are curated API (`transync::cache`, `transync::profile`); the pipeline is reached through `transync::translate` / `transync::translate_with_cache`. A consumer that needs an engine internal depends on `transync-core` / `transync-syntax` directly — see `contracts.md` §0.
 
 ```rust
-// transync-syntax::parser
+// transync-syntax::intake::markdown
 pub fn parse(source: &str) -> Result<Document, ParseError>;
 // The ONE guarded way this crate hands raw Markdown to Comrak: nesting-depth
 // check, then NUL normalization. `parse` and the renderer both go through it,
@@ -334,7 +334,7 @@ pub fn build_batches(
 
 // transync-core::validate (pub(crate))
 // `ref_defs` is the document's link-reference-definition pool
-// (transync-syntax::parser::refdefs), forwarded to the INLINE layer so
+// (transync-syntax::intake::markdown::refdefs), forwarded to the INLINE layer so
 // reference-style links resolve to real destinations before their identity is
 // compared (design D2 §B4). Pass "" when the document defines none.
 pub fn validate_batch(
@@ -374,7 +374,7 @@ pub fn build_alignment_map(
 // strip-kinds, the whole node for table / code block / blockquote). No
 // per-block reparse, no HTML string surgery. render_source parses
 // doc.source_text; render_target parses translated_md — both through
-// parser::intake, so a pane meets the same nesting ceiling and NUL rule a
+// intake::markdown::intake, so a pane meets the same nesting ceiling and NUL rule a
 // source document meets (R0002-0059).
 //
 // Fallible since R0002-0010 / R0002-0011: the map must describe the doc —

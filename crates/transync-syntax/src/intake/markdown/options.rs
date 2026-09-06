@@ -26,7 +26,7 @@ pub(super) fn gfm_options() -> comrak::ComrakOptions<'static> {
 /// Public accessor for the canonical GFM options. Other modules (regen,
 /// render) reparse with the same flags so the AST shape matches.
 ///
-/// Re-exported as `parser::comrak_options` — that path is what the rest of
+/// Re-exported as `markdown::comrak_options` — that path is what the rest of
 /// the workspace calls, and it is load-bearing.
 ///
 /// TRACE: ADR-0004

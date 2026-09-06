@@ -31,7 +31,7 @@ tokio       = { workspace = true }
 
 [dev-dependencies]
 # tests/live_smoke.rs pins the fixture's block/unit shape offline, which needs
-# engine internals (`parser::parse`, `unit::{build_batches, html_outcomes}`)
+# engine internals (`intake::markdown::parse`, `unit::{build_batches, html_outcomes}`)
 # that the facade stops re-exporting. Test-only reach, declared honestly —
 # the same OI-0027 note transync-openai carries.
 # TRACE: OI-0027

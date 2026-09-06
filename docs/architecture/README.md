@@ -19,7 +19,7 @@ The application — not the LLM — owns block IDs, table shape, list topology, 
 
 | Component                | Crate / location                  | Responsibility |
 |--------------------------|-----------------------------------|----------------|
-| Markdown parser          | `crates/transync-syntax` (`parser` mod) | GFM AST + IR with block IDs and source ranges |
+| Markdown parser          | `crates/transync-syntax` (`intake::markdown` mod) | GFM AST + IR with block IDs and source ranges |
 | Block indexer            | `crates/transync-syntax` (`id` mod)    | Stable ID assignment + source hashing |
 | HTML mechanics engine    | `crates/transync-html`            | Text-segment extraction / positional splice-back inside raw-HTML blocks (`lol_html`, one pinned `Settings` for both passes) + render-path fragment balancing (ADR-0018 / DCR-0016) |
 | Source-language gate     | `crates/transync-lang`            | *Pre-flight* only: is this text already in the target language, so a caller can skip the run? Script test first, `whichlang` second (backend chosen by measurement — `benchmark/lang-detect/RESULTS.md`). Depends on no workspace member, and its `Verdict` names no language — it must never become the alignment map's provider-authored `detected_source_language` (ti `e4f4b0`) |

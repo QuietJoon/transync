@@ -100,8 +100,8 @@ use super::{
 };
 use crate::align::{AlignmentMap, SyncRole};
 use crate::id::{BlockId, BlockKind, SourceFormat};
+use crate::intake::markdown::{self, Block, Document};
 use crate::outcome::HtmlOutcome;
-use crate::parser::{self, Block, Document};
 use crate::walk;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -117,7 +117,7 @@ pub fn render_source_html(
 }
 
 /// Render the target pane from the regenerated translated HTML. Same block
-/// set, same refusals, plus the `parser::intake` guard on `translated_html`
+/// set, same refusals, plus the `markdown::intake` guard on `translated_html`
 /// itself — the same guard `render_target` applies to `translated_md`
 /// (R0002-0059; spec §8 step 1).
 pub fn render_target_html(
@@ -151,7 +151,7 @@ fn render_html_fragment(
     // the caller's own bytes (ctx.md), exactly render_fragment's documented
     // posture — there is no parse here to consume the normalized Cow.
     if let Pane::Target(t) = pane {
-        let _guarded = parser::intake(t)?;
+        let _guarded = markdown::intake(t)?;
     }
 
     let mut out = String::from(FRAGMENT_OPEN);
@@ -634,7 +634,7 @@ mod html_pane_tests {
     }
 
     /// §8 step 1 / Deviation 8: the target string passes the same
-    /// parser::intake guard render_target applies to translated_md. Skipping
+    /// markdown::intake guard render_target applies to translated_md. Skipping
     /// the guard returns Ok here — the red this test exists for.
     #[test]
     fn the_target_pane_passes_the_intake_guard() {

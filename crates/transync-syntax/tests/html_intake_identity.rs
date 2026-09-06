@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use transync_syntax::id::{SourceFormat, Spelling};
-use transync_syntax::parser::Document;
+use transync_syntax::intake::markdown::Document;
 use transync_syntax::{intake, regen};
 
 /// The spec-mandated fixture (§11 row 1). Its canonical home is the SCN

@@ -15,7 +15,6 @@ pub mod error;
 pub mod id;
 pub mod intake;
 pub mod outcome;
-pub mod parser;
 pub mod regen;
 pub mod render;
 pub mod walk;

@@ -408,7 +408,7 @@ impl BlankLinePolicy {
 /// type-1 blocks (`<pre>`, `<textarea>`) keep their blank lines (spec §3.3).
 ///
 /// A line ends at `\r\n`, a lone `\r`, or a `\n` — CommonMark §2.1's rule,
-/// and the one `transync_syntax::parser::ranges::LineOffsets` already counts
+/// and the one `transync_syntax::intake::markdown::ranges::LineOffsets` already counts
 /// with, because the reader this protects against is comrak (R0010-0053).
 /// Splitting on `\n` alone left the `\r` of a CRLF blank line *inside* the
 /// candidate slice, where the spaces/tabs test rejects it, and made a

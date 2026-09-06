@@ -1,6 +1,6 @@
 //! Translation-unit construction.
 //!
-//! Walks `parser::Document.blocks` and yields `TranslationBatch`es with
+//! Walks `markdown::Document.blocks` and yields `TranslationBatch`es with
 //! per-unit `BlockContext` and `BlockConstraints` populated.
 //!
 //! TRACE: SCN-01..SCN-06
@@ -14,7 +14,7 @@ pub(crate) mod split;
 use crate::TranslateOptions;
 use crate::id::BlockId;
 use crate::llm::{BatchId, TokenizerHint, TranslationBatch, TranslationUnit};
-use crate::parser::Document;
+use crate::markdown::Document;
 use crate::profile::{default_profile, render_prompt_body};
 use std::collections::HashMap;
 use transync_syntax::outcome::is_translatable_block;
@@ -527,7 +527,7 @@ mod html_dominance_tests {
     /// Parse + id-assign + outcome map, the three steps `run_pipeline` takes
     /// before it asks the question.
     fn warning_for(src: &str) -> Option<String> {
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let outcomes = html_outcomes(&doc);
         html_dominance_warning(&doc, &outcomes)
@@ -762,9 +762,9 @@ mod ref_defs_append_tripwire_tests {
 
     /// A parsed document carrying `pool` as its reference-definition pool.
     /// Parsed rather than hand-built so the field this reads is the one
-    /// `parser::refdefs` fills.
+    /// `markdown::refdefs` fills.
     fn doc_with_pool(pool: &str) -> Document {
-        let mut doc = crate::parser::parse(&format!("Prose.\n\n{pool}")).expect("parses");
+        let mut doc = crate::markdown::parse(&format!("Prose.\n\n{pool}")).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         doc.ref_defs = pool.to_string();
         doc
@@ -854,7 +854,7 @@ mod ref_defs_append_tripwire_tests {
             src.push_str(&format!("Paragraph {i} of prose, citing nothing.\n\n"));
         }
         src.push_str(&pool(110_000));
-        let mut doc = crate::parser::parse(&src).expect("parses");
+        let mut doc = crate::markdown::parse(&src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         assert!(
             doc.ref_defs.len() >= 100_000,
@@ -887,7 +887,7 @@ mod ref_defs_append_tripwire_tests {
         // And the same 60 paragraphs with no definitions at all are silent —
         // the ordinary document, and 259 of this corpus's 262.
         let mut bare =
-            crate::parser::parse(&src[..src.find("[ref").expect("pool starts")]).expect("parses");
+            crate::markdown::parse(&src[..src.find("[ref").expect("pool starts")]).expect("parses");
         crate::id::assign_block_ids(&mut bare);
         assert!(bare.ref_defs.is_empty());
         let quiet = Arc::new(EventLog::default());
@@ -928,7 +928,7 @@ mod section_coherent_packing_tests {
     }
 
     fn batches_of(src: &str, profile: ProfileMetadata) -> Vec<TranslationBatch> {
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let opts = opts_with(profile);
         build_batches(&doc, &opts, None, &html_outcomes(&doc))
@@ -1213,19 +1213,19 @@ mod skipped_unit_tests {
     fn skipped_node_yields_no_translation_unit() {
         // No node maps to Skipped under the current comrak options (html
         // became a real kind); pin the never-batched path synthetically.
-        let mut doc = crate::parser::parse("real paragraph\n").expect("parses");
+        let mut doc = crate::markdown::parse("real paragraph\n").expect("parses");
         doc.blocks.insert(
             0,
-            crate::parser::Block {
+            crate::markdown::Block {
                 block_id: crate::id::BlockId::new("x", 99),
                 kind: BlockKind::Skipped {
                     label: "unsupported".to_string(),
                 },
                 spelling: crate::id::Spelling::Markdown,
-                source_range: crate::parser::ranges::ByteRange { start: 0, end: 0 },
+                source_range: crate::markdown::ranges::ByteRange { start: 0, end: 0 },
                 source_hash: 0,
                 section_path: Vec::new(),
-                ast_path: crate::parser::AstPath(Vec::new()),
+                ast_path: crate::markdown::AstPath(Vec::new()),
             },
         );
         crate::id::assign_block_ids(&mut doc);
@@ -1270,7 +1270,7 @@ mod oi_0026_tests {
             ("real paragraph\n", true),
             ("---\n\nreal paragraph\n", true),
         ] {
-            let mut doc = crate::parser::parse(src).expect("parses");
+            let mut doc = crate::markdown::parse(src).expect("parses");
             crate::id::assign_block_ids(&mut doc);
             let outcomes = html_outcomes(&doc);
             assert_eq!(
@@ -1317,7 +1317,7 @@ mod zero_batching_knob_tests {
         profile.batching.target_input_tokens_per_batch = Some(0);
 
         let mut doc =
-            crate::parser::parse("first paragraph\n\nsecond paragraph\n").expect("parses");
+            crate::markdown::parse("first paragraph\n\nsecond paragraph\n").expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let outcomes = html_outcomes(&doc);
         let batches = build_batches(&doc, &opts_with_profile(profile), None, &outcomes);
@@ -1343,7 +1343,7 @@ mod zero_batching_knob_tests {
         let mut profile = crate::profile::default_profile();
         profile.batching.target_output_tokens = Some(8000);
 
-        let mut doc = crate::parser::parse("a paragraph\n").expect("parses");
+        let mut doc = crate::markdown::parse("a paragraph\n").expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let outcomes = html_outcomes(&doc);
         let batches = build_batches(&doc, &opts_with_profile(profile), None, &outcomes);
@@ -1380,9 +1380,9 @@ mod unusable_glossary_entry_tests {
         }
     }
 
-    fn two_paragraph_doc() -> crate::parser::Document {
+    fn two_paragraph_doc() -> crate::markdown::Document {
         let mut doc =
-            crate::parser::parse("first paragraph\n\nsecond paragraph\n").expect("parses");
+            crate::markdown::parse("first paragraph\n\nsecond paragraph\n").expect("parses");
         crate::id::assign_block_ids(&mut doc);
         doc
     }
@@ -1528,9 +1528,9 @@ mod glossary_control_char_tests {
         }
     }
 
-    fn two_paragraph_doc() -> crate::parser::Document {
+    fn two_paragraph_doc() -> crate::markdown::Document {
         let mut doc =
-            crate::parser::parse("first paragraph\n\nsecond paragraph\n").expect("parses");
+            crate::markdown::parse("first paragraph\n\nsecond paragraph\n").expect("parses");
         crate::id::assign_block_ids(&mut doc);
         doc
     }
@@ -1698,9 +1698,9 @@ mod stacked_section_gate_tests {
         }
     }
 
-    fn two_paragraph_doc() -> crate::parser::Document {
+    fn two_paragraph_doc() -> crate::markdown::Document {
         let mut doc =
-            crate::parser::parse("first paragraph\n\nsecond paragraph\n").expect("parses");
+            crate::markdown::parse("first paragraph\n\nsecond paragraph\n").expect("parses");
         crate::id::assign_block_ids(&mut doc);
         doc
     }
@@ -1820,7 +1820,7 @@ mod stacked_section_gate_tests {
 mod html_unit_tests {
     use super::*;
     use crate::id::assign_block_ids;
-    use crate::parser::parse;
+    use crate::markdown::parse;
     use transync_syntax::outcome::has_translatable_blocks;
 
     fn opts() -> TranslateOptions {
@@ -1935,7 +1935,7 @@ mod section_scoped_glossary_tests {
         src: &str,
         profile: ProfileMetadata,
     ) -> (Vec<TranslationBatch>, Vec<String>) {
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let opts = opts_with(profile);
         let log = Arc::new(EventLog::default());
@@ -2212,7 +2212,7 @@ mod input_budget_preflight_tests {
     }
 
     fn batch_and_capture(src: &str, profile: ProfileMetadata) -> Vec<String> {
-        let mut doc = crate::parser::parse(src).expect("parses");
+        let mut doc = crate::markdown::parse(src).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let opts = TranslateOptions {
             source_language: "en".to_string(),
@@ -2273,7 +2273,7 @@ mod input_budget_preflight_tests {
     /// of its own.
     #[test]
     fn the_starved_run_packs_one_unit_per_batch() {
-        let mut doc = crate::parser::parse(SOURCE).expect("parses");
+        let mut doc = crate::markdown::parse(SOURCE).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let opts = TranslateOptions {
             source_language: "en".to_string(),
@@ -2302,21 +2302,21 @@ mod prompt_html_selection_tests {
     use crate::test_fixtures::{EventLog, record_events};
     use std::sync::Arc;
 
-    fn html_doc() -> crate::parser::Document {
+    fn html_doc() -> crate::markdown::Document {
         let mut doc =
             transync_syntax::intake::html::parse("<h1>T</h1>\n<p>alpha</p>\n<p>bravo</p>\n");
         crate::id::assign_block_ids(&mut doc);
         doc
     }
 
-    fn md_doc() -> crate::parser::Document {
-        let mut doc = crate::parser::parse("# T\n\nalpha\n\nbravo\n").expect("parses");
+    fn md_doc() -> crate::markdown::Document {
+        let mut doc = crate::markdown::parse("# T\n\nalpha\n\nbravo\n").expect("parses");
         crate::id::assign_block_ids(&mut doc);
         doc
     }
 
     fn batches_for(
-        doc: &crate::parser::Document,
+        doc: &crate::markdown::Document,
         profile: Option<crate::profile::ProfileMetadata>,
     ) -> (Vec<crate::llm::TranslationBatch>, Vec<String>) {
         let outcomes = html_outcomes(doc);

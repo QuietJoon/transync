@@ -122,7 +122,7 @@ pub struct ValidatedUnit {
 /// Full-document reparse runs once at the end of the pipeline (SL-14).
 ///
 /// `ref_defs` is the document's link-reference-definition pool
-/// ([`crate::parser::refdefs`]), forwarded to the inline layer so
+/// ([`crate::markdown::refdefs`]), forwarded to the inline layer so
 /// reference-style links resolve to real destinations (design D2 §B4). Pass
 /// `""` when the document defines none.
 ///
@@ -339,7 +339,7 @@ fn validate_unit(
 
     // Architectural invariant 7 says source content is untrusted; a
     // provider's response is no more trustworthy, and it is the one input
-    // `parser::intake`'s nesting-depth pre-scan never sees. Every layer below
+    // `markdown::intake`'s nesting-depth pre-scan never sees. Every layer below
     // reparses this payload — the fragment reparse, the per-kind shapes, the
     // structural oracle, the inline inventory — and each builds its own tree,
     // so a payload past the ceiling is an UNCATCHABLE stack abort that takes
@@ -351,7 +351,7 @@ fn validate_unit(
     // The layer is `FragmentReparse` because that is the first layer below
     // that would have parsed these bytes, and a report row saying so points
     // at the right thing.
-    if let Err(too_deep) = crate::parser::check_nesting_depth(&result.translated_payload) {
+    if let Err(too_deep) = crate::markdown::check_nesting_depth(&result.translated_payload) {
         return reject(ValidationLayer::FragmentReparse, too_deep.to_string());
     }
 
@@ -662,7 +662,7 @@ pub struct ValidationReport {
     /// R0001-0027
     pub schema_version: String,
     /// Per-unit attempt log, in **document (source) order** — the order
-    /// `crate::parser::Document::blocks` traverses, not the order the
+    /// `crate::markdown::Document::blocks` traverses, not the order the
     /// `unit_id` strings sort in (OI-0021 item 2).
     pub per_unit: Vec<UnitValidationRecord>,
     /// Re-dispatches of a unit's **own content** across all batches — the
@@ -707,7 +707,7 @@ pub struct ValidationReport {
     /// translatable kind (footnote definitions, front matter, …). They
     /// are preserved verbatim in the translated Markdown and rendered as
     /// inert, escaped placeholders anchored in both panes (invariant 7);
-    /// forwarded from [`crate::parser::Document::warnings`] so the handling
+    /// forwarded from [`crate::markdown::Document::warnings`] so the handling
     /// is surfaced rather than silent (R0008-0013). Because it mirrors
     /// `Document::warnings` wholesale, other parser-level source notes ride
     /// along too (e.g. the refdefs "unattributed source text between blocks"
@@ -1062,7 +1062,7 @@ mod preserved_tests {
     /// not parsed. Every layer below reparses these bytes, and comrak builds
     /// a tree per call, so parsing this would be an uncatchable stack abort
     /// that kills the run with no fallback and nothing to attribute — the
-    /// exact failure `parser::intake`'s pre-scan exists to prevent, on the
+    /// exact failure `markdown::intake`'s pre-scan exists to prevent, on the
     /// one input it never sees.
     ///
     /// The assertion that matters is that a rejection came back at all: if
@@ -1076,7 +1076,7 @@ mod preserved_tests {
             std::iter::once((&u.unit_id, &u)).collect();
         let policy = crate::profile::ProfileConstraints::default();
 
-        let too_deep = ">".repeat(crate::parser::MAX_BLOCK_NESTING_DEPTH + 1) + " x";
+        let too_deep = ">".repeat(crate::markdown::MAX_BLOCK_NESTING_DEPTH + 1) + " x";
         let vu = validate_unit(&lookup, &policy, &preserved_result(&too_deep), "");
 
         assert_eq!(
@@ -1096,7 +1096,7 @@ mod preserved_tests {
 
         // One level under the ceiling is ordinary content and must still be
         // judged on its merits, so the guard cannot be a blanket refusal.
-        let deep_but_legal = ">".repeat(crate::parser::MAX_BLOCK_NESTING_DEPTH - 1) + " x";
+        let deep_but_legal = ">".repeat(crate::markdown::MAX_BLOCK_NESTING_DEPTH - 1) + " x";
         let ok = validate_unit(&lookup, &policy, &preserved_result(&deep_but_legal), "");
         assert_ne!(
             ok.rejected_by,
@@ -1839,7 +1839,7 @@ mod indented_code_layer_tests {
     /// `unit::payload::assemble` actually produces, never a hand-written
     /// stand-in.
     fn code_batch() -> TranslationBatch {
-        let mut doc = crate::parser::parse(SRC).expect("parses");
+        let mut doc = crate::markdown::parse(SRC).expect("parses");
         crate::id::assign_block_ids(&mut doc);
         let outcomes = html_outcomes(&doc);
         let opts = TranslateOptions {
