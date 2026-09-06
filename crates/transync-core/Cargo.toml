@@ -41,6 +41,7 @@ tiktoken-rs = { workspace = true }
 # their input into. Already in the graph via comrak -> caseless, so the edge
 # costs no new compilation unit.
 unicode-normalization = { workspace = true }
+caseless = { workspace = true }
 # R0006-0015: provider-retry backoff sleeps between transient failures.
 # Only the `time` primitive is used; the core stays HTTP-free (ADR-0002).
 tokio       = { workspace = true }

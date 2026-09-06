@@ -726,8 +726,10 @@ fn glossary_key_order(k: &GlossaryExtractionKey) -> (&str, u32, &str, u64) {
 ///   than removed: the restarted run has a new pid. Either way it is inert,
 ///   because nothing but `transync-cache.jsonl` is ever read.
 fn compact_log(dir: &Path, path: &Path, replayed: &Replayed) -> Result<(), CacheError> {
-    let temp = TempLog::at(
+    compact_log_via_temp(
         dir,
+        path,
+        replayed,
         compaction_temp_name(
             std::process::id(),
             std::time::SystemTime::now()
@@ -735,14 +737,60 @@ fn compact_log(dir: &Path, path: &Path, replayed: &Replayed) -> Result<(), Cache
                 .map(|d| d.as_nanos())
                 .unwrap_or(0),
         ),
-    );
+    )
+}
 
-    let file = File::create(temp.path()).map_err(|e| {
-        CacheError::Io(format!(
-            "create compaction temp {}: {e}",
-            temp.path().display()
-        ))
-    })?;
+/// [`compact_log`] with the temp name handed in rather than chosen, which is
+/// the only way a test can stage the R0011-0005 collision the exclusive create
+/// below defends against: in production the name carries a nanosecond stamp
+/// nothing outside this call can predict. One production caller, immediately
+/// above.
+fn compact_log_via_temp(
+    dir: &Path,
+    path: &Path,
+    replayed: &Replayed,
+    temp_name: String,
+) -> Result<(), CacheError> {
+    let temp = TempLog::at(dir, temp_name);
+
+    // R0011-0005: an EXCLUSIVE create, not `File::create`. The name carries a
+    // pid and a nanosecond stamp, but a stamp is not a lock — a coarse or
+    // frozen clock source, and two opens in one process that read one
+    // nanosecond, both hand two compactions the same path, and a truncating
+    // open would let each write into the other's staging file and rename the
+    // interleaving into place. That is precisely the hybrid this function's
+    // temp-then-rename shape exists to exclude.
+    let created = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(temp.path());
+    let file = match created {
+        Ok(file) => file,
+        // Occupied: those bytes are not ours to overwrite — and, via
+        // `disown`, not ours to delete on the way out either, since they are
+        // evidence of somebody else's interrupted compaction. Routed exactly
+        // like the vanished-source `rename` below, and for the same reason:
+        // compaction is an optimization, the old log is still complete and
+        // still the log, and DCR-0028 §6 does not let a cache fail an open
+        // over a hardening step.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            tracing::warn!(
+                target: "transync::cache",
+                "compaction temp {} already exists; leaving it and the existing log {} \
+                 untouched and skipping this compaction",
+                temp.path().display(),
+                path.display()
+            );
+            temp.disown();
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(CacheError::Io(format!(
+                "create compaction temp {}: {e}",
+                temp.path().display()
+            )));
+        }
+    };
     let mut writer = BufWriter::new(file);
     buffer_record(
         &mut writer,
@@ -912,6 +960,16 @@ impl TempLog {
     fn renamed(mut self) {
         self.renamed = true;
     }
+
+    /// Give up the claim without removing anything (R0011-0005): the path was
+    /// already occupied, so the bytes there are somebody else's interrupted
+    /// compaction rather than this guard's staging file. Sets the same
+    /// leave-the-file flag the rename path sets, for the same reason — nothing
+    /// at this path was put there by this guard — and deregisters the name on
+    /// the way out like every other exit.
+    fn disown(mut self) {
+        self.renamed = true;
+    }
 }
 
 impl Drop for TempLog {
@@ -952,17 +1010,21 @@ fn compaction_temp_name(pid: u32, nanos: u128) -> String {
 /// not one this module wrote.
 ///
 /// Deliberately strict: anything that does not parse — a rotated-aside
-/// `.unreadable-<ts>` log, an operator's own note, a name whose pid field is not
-/// a number — is not ours to reason about, and the sweep neither reclaims it nor
-/// counts it.
+/// `.unreadable-<ts>` log, an operator's own note, a name whose pid *or stamp*
+/// field is not a number — is not ours to reason about, and the sweep neither
+/// reclaims it nor counts it.
 fn compaction_temp_pid(name: &str) -> Option<u32> {
     let rest = name
         .strip_prefix(LOG_FILE_NAME)?
         .strip_prefix(COMPACT_TEMP_INFIX)?;
     let (pid, nanos) = rest.split_once('-')?;
-    if nanos.is_empty() {
-        return None;
-    }
+    // R0011-0035: the stamp is PARSED, not merely required to be non-empty.
+    // The sweep's own-pid branch DELETES what this function claims, so a name
+    // that merely starts with this process's pid — a note, a half-typed
+    // filename, anything ending `-not-a-number` — used to be classified as
+    // this process's abandoned temp and reclaimed. Strict means strict: only a
+    // name this module could have written (`compaction_temp_name`) is ours.
+    nanos.parse::<u128>().ok()?;
     pid.parse().ok()
 }
 
@@ -1473,16 +1535,22 @@ impl Cache for DiskCache {
     /// the entry is not durable, and indexing it anyway would let this process
     /// serve a result the next open cannot see.
     fn put(&self, key: CacheKey, value: UnitResult) -> Result<(), CacheError> {
-        let shared = Arc::new(value);
+        // R0011-0071: the record is built by MOVE and the `Arc` is made from
+        // what comes back out of it, so the payload is serialized out of the
+        // caller's own allocation rather than out of a full copy of it — this
+        // is the hot write path, and a translated batch's payloads are the
+        // largest thing the cache handles. `append` only reads the record, so
+        // nothing observes the round trip.
         let mut state = self.locked();
-        state.append(
-            &Record::Entry {
-                k: key.clone(),
-                v: (*shared).clone(),
-            },
-            &self.dir,
-        )?;
-        state.entries.insert(key, shared);
+        let record = Record::Entry {
+            k: key.clone(),
+            v: value,
+        };
+        state.append(&record, &self.dir)?;
+        let Record::Entry { v, .. } = record else {
+            unreachable!("the record constructed two statements above is an Entry")
+        };
+        state.entries.insert(key, Arc::new(v));
         Ok(())
     }
 
@@ -2950,6 +3018,45 @@ mod tests {
         );
     }
 
+    /// R0011-0005: two compactions can be handed one temp name — a coarse or
+    /// frozen clock source, or two opens in this process inside one nanosecond
+    /// — and a truncating create would let each write into the other's staging
+    /// file and rename the interleaving into place. The exclusive create makes
+    /// the collision *visible*; DCR-0028 §6 decides what to do about it, which
+    /// is nothing: the occupant is somebody else's evidence, the existing log
+    /// is still complete, and a cache does not fail an open over a hardening
+    /// step.
+    #[test]
+    fn a_compaction_temp_name_collision_neither_truncates_nor_fails() {
+        let dir = scratch("transync-diskcache-tempcollision");
+        {
+            let cache = DiskCache::open_with(&dir, unbounded()).expect("opens");
+            cache.put(key(1), result("one")).unwrap();
+        }
+        let path = log_path(&dir);
+        let original = std::fs::read_to_string(&path).unwrap();
+        let replayed = replay_log(&path).expect("replays");
+
+        let name = compaction_temp_name(std::process::id(), 606_060);
+        let occupied = dir.join(&name);
+        let evidence = "another writer's half-written log\n";
+        std::fs::write(&occupied, evidence).unwrap();
+
+        compact_log_via_temp(&dir, &path, &replayed, name)
+            .expect("an occupied temp name costs the compaction, not the open");
+
+        assert_eq!(
+            std::fs::read_to_string(&occupied).unwrap(),
+            evidence,
+            "the occupant was neither truncated by the create nor removed by the guard"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            original,
+            "and the existing log is still the log"
+        );
+    }
+
     /// The writer and the reader of the temp name are welded: `compact_log`
     /// builds the name, the sweep parses the pid back out of it, and a drift
     /// between them would silently turn the sweep into a no-op that no
@@ -2969,7 +3076,9 @@ mod tests {
     /// The sweep reclaims compaction temps and nothing else. A rotated-aside
     /// log is preserved *by decision* and a stranger's file is not ours at all,
     /// so a name that does not parse as `<log>.compact-<pid>-<nanos>` is neither
-    /// removed nor counted — including one whose pid field is not a number.
+    /// removed nor counted — including one whose pid field is not a number, and
+    /// (R0011-0035) one that carries THIS process's pid and a stamp that is not
+    /// a number, which the own-pid branch would otherwise delete.
     #[test]
     fn the_open_time_sweep_touches_only_compaction_temps() {
         let dir = scratch("transync-diskcache-sweepscope");
@@ -2977,6 +3086,10 @@ mod tests {
             format!("{LOG_FILE_NAME}.unreadable-1"),
             format!("{LOG_FILE_NAME}{COMPACT_TEMP_INFIX}not-a-pid-1"),
             format!("{LOG_FILE_NAME}{COMPACT_TEMP_INFIX}{}", std::process::id()),
+            format!(
+                "{LOG_FILE_NAME}{COMPACT_TEMP_INFIX}{}-not-a-number",
+                std::process::id()
+            ),
             "operator-notes.txt".to_string(),
         ];
         for name in &bystanders {

@@ -691,25 +691,41 @@ pub(crate) fn normalized_glossary_profile(
 /// case-folded, and canonically normalized to Unicode **NFC** (R0004-0080).
 ///
 /// The normalization step is what makes the form an *identity* rather than a
-/// spelling. `to_lowercase` is Unicode-aware but purely per-scalar, so before
+/// spelling. Case folding is Unicode-aware but purely per-scalar, so before
 /// it was added, `"Café"` written as `e` + U+0301 and `"Café"` written with
 /// U+00E9 — the same string by Unicode's own definition of canonical
 /// equivalence, and the pair a macOS-originating file and an editor-typed
 /// selector routinely form — folded to two different keys. A section selector
 /// then matched no heading and a glossary term claimed nothing, silently.
 ///
+/// **The fold is `caseless::default_case_fold_str`, not `to_lowercase`
+/// (R0010-0063).** They are different functions, and the difference is exactly
+/// the identity question this form exists to answer. `str::to_lowercase` is a
+/// case *mapping*: it leaves `ß` as `ß` (so `Straße` and `STRASSE` were two
+/// terms), leaves the long s `ſ` as `ſ`, and *introduces* final sigma (so
+/// `ΟΔΟΣ` and `οδοσ` were two terms, in opposite directions). Full case
+/// folding is the operation Unicode defines for caseless matching and settles
+/// all three: `ß` → `ss`, `ſ` → `s`, `ς` → `σ`.
+///
+/// This **extends** DCR-0027's 2026-08-12 amendment rather than reversing it.
+/// That amendment re-examined this same identity and settled the *composition*
+/// half — NFC, and where it runs — deliberately keeping the mapping in place;
+/// composition is untouched here. What changed is only which case operation
+/// runs first.
+///
 /// NFC runs **after** case folding, not before, and that ordering is
-/// load-bearing: case mapping preserves canonical equivalence but does not
-/// preserve the composed form (`to_lowercase` maps some precomposed scalars
-/// onto sequences), so normalizing first would leave the output of the fold
-/// unnormalized again. Composing last makes the function idempotent on its own
-/// output, which is what lets both sides of every comparison run through it.
+/// load-bearing: case operations preserve canonical equivalence but do not
+/// preserve the composed form (both mapping and folding turn some precomposed
+/// scalars into sequences), so normalizing first would leave the output of the
+/// fold unnormalized again. Composing last makes the function idempotent on its
+/// own output, which is what lets both sides of every comparison run through it.
 ///
 /// The ASCII short-circuit is not a micro-optimization for its own sake: an
-/// all-ASCII string is NFC by definition, and this runs once per selector per
-/// heading per section — the innermost loop of `entry_applies_to_section`.
+/// all-ASCII string is NFC by definition — and a full case fold of ASCII is
+/// ASCII — so the early return is exact, and this runs once per selector per
+/// heading per section, the innermost loop of `entry_applies_to_section`.
 fn canonical_key(text: &str) -> String {
-    let folded = text.trim().to_lowercase();
+    let folded = caseless::default_case_fold_str(text.trim());
     if folded.is_ascii() {
         return folded;
     }
@@ -4051,6 +4067,41 @@ mod glossary_section_scope_tests {
             let once = canonical_key(text);
             assert_eq!(canonical_key(&once), once, "not a fixed point: {text:?}");
         }
+    }
+
+    /// R0010-0063: case **folding**, not case *mapping*. Each pair below is one
+    /// term under Unicode's caseless-matching definition and was two keys under
+    /// `to_lowercase` — observed red on all three before the fold changed.
+    #[test]
+    fn caseless_matching_is_a_fold_not_a_lowercase_mapping() {
+        for (a, b, why) in [
+            (
+                "Stra\u{df}e",
+                "STRASSE",
+                "sharp s folds to ss; to_lowercase left it alone",
+            ),
+            (
+                "\u{17f}ection",
+                "Section",
+                "long s folds to s; to_lowercase left it alone",
+            ),
+            (
+                "\u{39f}\u{394}\u{39f}\u{3a3}",
+                "\u{3bf}\u{3b4}\u{3bf}\u{3c2}",
+                "final sigma folds to sigma; to_lowercase INTRODUCED it",
+            ),
+        ] {
+            assert_eq!(
+                canonical_key(a),
+                canonical_key(b),
+                "one term, two spellings ({why}): {a:?} vs {b:?}"
+            );
+        }
+
+        // The whole point is that this reaches both identities, so pin one of
+        // them end to end rather than only the private helper.
+        let entry = sectioned("cell", "셀", &["Stra\u{df}e"]);
+        assert!(entry_applies_to_section(&entry, &stack(&["STRASSE"])));
     }
 
     /// A global entry applies everywhere, preamble included — the predicate is

@@ -560,21 +560,33 @@ pub(crate) fn input_budget_warning(
 }
 
 /// Load the encoder a [`TokenizerHint`] names. Panics only if the bundled
-/// tiktoken assets are broken (same failure mode as [`encoder_for`]).
+/// tiktoken assets are broken (same failure mode as [`encoder_for`]) — and
+/// answers with the named vocabulary or with nothing, never with the other
+/// one.
+///
+/// R0010-0028: the o200k arm used to `or_else` into `cl100k_base`. A hint is
+/// the provider *naming* its vocabulary, so substituting the other one
+/// mis-sizes every batch the run packs — the two disagree by ≈2.0× on the
+/// KO/JA targets this budget exists for — while reporting nothing. ADR-0010
+/// rules on "the bundled assets are broken, abort loudly"; it never licensed
+/// answering a request for one vocabulary with a different one. The
+/// heuristic in [`encoder_for`] keeps its fallback, because there the o200k
+/// choice is this crate's guess about a model *name* and `cl100k_base` is
+/// that heuristic's documented default rather than a substitution.
 ///
 /// TRACE: SCN-10
 /// TRACE: OI-0029
 pub fn encoder_for_hint(hint: TokenizerHint) -> CoreBPE {
-    let primary = match hint {
-        TokenizerHint::O200kBase => {
-            tiktoken_rs::o200k_base().or_else(|_| tiktoken_rs::cl100k_base())
-        }
-        TokenizerHint::Cl100kBase => tiktoken_rs::cl100k_base(),
+    let (named, primary) = match hint {
+        TokenizerHint::O200kBase => ("o200k_base", tiktoken_rs::o200k_base()),
+        TokenizerHint::Cl100kBase => ("cl100k_base", tiktoken_rs::cl100k_base()),
     };
-    primary.expect(
-        "tiktoken encoders (cl100k_base and o200k_base) both failed to load — \
-         bundled assets are corrupt or the tiktoken-rs crate is misbuilt",
-    )
+    primary.unwrap_or_else(|e| {
+        panic!(
+            "tiktoken encoder {named}, named by the provider's tokenizer hint, failed to \
+             load ({e}) — bundled assets are corrupt or the tiktoken-rs crate is misbuilt"
+        )
+    })
 }
 
 /// Resolve the encoder for a run: a provider-declared [`TokenizerHint`]

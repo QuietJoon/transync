@@ -126,6 +126,14 @@ whichlang   = "0.1"
 # `caseless`, so this declares an edge onto a dependency the workspace
 # resolves and compiles either way.
 unicode-normalization = "0.1"
+# R0010-0063: Unicode **full case folding** for that same comparison form.
+# `str::to_lowercase` is a case *mapping*, which is a different function —
+# it leaves `ß` and `ſ` alone and actively introduces final sigma — so
+# `Straße`/`STRASSE` and `ΟΔΟΣ`/`οδοσ` folded to different keys. Consumed by
+# transync-core only, for the same reason as the line above. Also not a new
+# crate in the graph: this is the very crate comrak's `unicode-normalization`
+# edge already comes through.
+caseless = "0.2"
 # Track C (ADR-0019): exact pin, not a caret range. wasm-bindgen requires
 # crate<->CLI version identity. Cargo.lock is committed as of 2026-08-06
 # (OI-0020, reversing the 2026-08-05 deferral), but the pin is the defense

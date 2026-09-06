@@ -378,14 +378,30 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
         // whole ladder (ti 294dda), so splitting a round across several
         // provider calls does not refund it.
         let mut round_verdicts: Vec<ValidatedBatch> = Vec::with_capacity(current_batches.len());
+        // R0010-0006: a sub-batch that ends the run must not discard what this
+        // round's EARLIER sub-batches already earned. ADR-0017 still aborts —
+        // the error is returned unchanged once the round is settled below —
+        // but the units those sub-batches accepted are written to `cache`
+        // first, so a resumed run does not pay the provider for them twice.
+        // That is the same OI-0011 keep-progress mechanism a failing sibling
+        // batch relies on: progress survives in the caller's cache, never in
+        // a return value the error throws away.
+        let mut round_error: Option<TransyncError> = None;
         for current_batch in &current_batches {
-            let (result, transport_retries) = translate_with_provider_retries(
+            let dispatched = translate_with_provider_retries(
                 translator,
                 current_batch.clone(),
                 &mut policy,
                 cancel,
             )
-            .await?;
+            .await;
+            let (result, transport_retries) = match dispatched {
+                Ok(pair) => pair,
+                Err(e) => {
+                    round_error = Some(e);
+                    break;
+                }
+            };
             // R0003-0045: a work-driven counter — every increment is one real
             // round trip — but it is reported telemetry, and telemetry that
             // wraps is worse than telemetry that stops. Saturating keeps the
@@ -396,10 +412,11 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
             // foreign units anyway, but the identity check names the actual
             // failure instead of degrading it into per-unit fallbacks.
             if result.batch_id != current_batch.batch_id {
-                return Err(TransyncError::Validation(format!(
+                round_error = Some(TransyncError::Validation(format!(
                     "provider returned batch_id {:?} for dispatched batch {:?}",
                     result.batch_id.0, current_batch.batch_id.0
                 )));
+                break;
             }
             let validated = crate::validate::validate_batch(current_batch, &result, ref_defs);
 
@@ -447,6 +464,19 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
                     .map(crate::validate::truncate_diagnostic);
             }
             round_verdicts.push(validated);
+        }
+
+        if let Some(err) = round_error {
+            persist_round_progress(
+                cache,
+                &round_verdicts,
+                &unit_lookup,
+                key_ctx,
+                opts,
+                instruction,
+                cohort,
+            );
+            return Err(err);
         }
 
         // OI-0031: decide the round's batch-fault routing once, before the
@@ -528,12 +558,8 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
                         !validation_failed,
                         "Accept implies the unit passed its own layers"
                     );
-                    // contracts.md §5: a clean `rejected_by` is not enough —
-                    // the html-splice engine fault sets `FallbackSource` with
-                    // `rejected_by: None`, and a fallback must never be cached.
-                    if !matches!(vu.final_status, FallbackStatus::FallbackSource)
-                        && let (Some(orig), Some(payload)) =
-                            (unit_lookup.get(&vu.unit_id), vu.accepted_payload.clone())
+                    if let (Some(orig), Some(cached_result)) =
+                        (unit_lookup.get(&vu.unit_id), cacheable_result(&vu))
                     {
                         // ti c02f69: the instruction axis names this
                         // batch, not this round. A round dispatching a
@@ -551,19 +577,6 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
                         // a reparse-disqualified entry cached under a key
                         // nothing looks up. See contracts.md §5a.
                         let key = key_ctx.key_for(opts, orig, instruction, cohort);
-                        let cached_result = UnitResult {
-                            unit_id: vu.unit_id.clone(),
-                            output_kind: match vu.final_status {
-                                FallbackStatus::Translated => OutputKind::Translated,
-                                FallbackStatus::Preserved => OutputKind::Preserved,
-                                FallbackStatus::PartiallyTranslated => {
-                                    OutputKind::PartiallyTranslated
-                                }
-                                FallbackStatus::FallbackSource => OutputKind::FailedNeedsFallback,
-                            },
-                            translated_payload: payload,
-                            warnings: vu.warnings.clone(),
-                        };
                         cache_put(cache, key, cached_result);
                     }
                     accepted.push(vu);
@@ -593,6 +606,71 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
         // and every round dispatches at least one batch (DCR-0028 §3).
         dispatched_provider_call: true,
     })
+}
+
+/// The cache record for a unit the round accepted, or `None` when the unit
+/// must not be persisted.
+///
+/// contracts.md §5: a clean `rejected_by` is not enough — the html-splice
+/// engine fault sets `FallbackSource` with `rejected_by: None`, and a fallback
+/// must never be cached. A unit with no accepted payload has nothing to write.
+fn cacheable_result(vu: &ValidatedUnit) -> Option<UnitResult> {
+    let output_kind = match vu.final_status {
+        FallbackStatus::Translated => OutputKind::Translated,
+        FallbackStatus::Preserved => OutputKind::Preserved,
+        FallbackStatus::PartiallyTranslated => OutputKind::PartiallyTranslated,
+        FallbackStatus::FallbackSource => return None,
+    };
+    Some(UnitResult {
+        unit_id: vu.unit_id.clone(),
+        output_kind,
+        translated_payload: vu.accepted_payload.clone()?,
+        warnings: vu.warnings.clone(),
+    })
+}
+
+/// Write the units a partially-dispatched round already accepted to `cache`,
+/// on the way out of a round that ends in a terminal error (R0010-0006).
+///
+/// The error still aborts the run (ADR-0017) and this batch's `accepted` vec
+/// is still discarded, so the ONLY thing this buys is that a resumed run does
+/// not pay the provider a second time for work the provider already did — the
+/// same OI-0011 keep-progress mechanism a failing sibling batch relies on.
+///
+/// The acceptance rule is `policy::UnitDisposition::Accept`'s, restated rather
+/// than asked for: the policy's counters are round-scoped bookkeeping for a
+/// round that is not going to finish, so recording dispatches and charging
+/// budgets here would only corrupt them. `Accept` is exactly "not an offender
+/// and not rejected", and the offender set is the union over the verdicts that
+/// DID arrive — a fault in an earlier sub-batch of the same round still
+/// disqualifies its offenders here.
+fn persist_round_progress(
+    cache: &(dyn Cache + '_),
+    round_verdicts: &[ValidatedBatch],
+    unit_lookup: &HashMap<BlockId, TranslationUnit>,
+    key_ctx: &CacheKeyContext,
+    opts: &TranslateOptions,
+    instruction: InstructionDigest,
+    cohort: CohortDigest,
+) {
+    let offenders: std::collections::HashSet<&BlockId> = round_verdicts
+        .iter()
+        .filter_map(|v| v.batch_fault.as_ref())
+        .flat_map(|bf| bf.offenders.iter())
+        .collect();
+    for vu in round_verdicts.iter().flat_map(|v| v.units.iter()) {
+        if vu.rejected_by.is_some() || offenders.contains(&vu.unit_id) {
+            continue;
+        }
+        if let (Some(orig), Some(cached_result)) =
+            (unit_lookup.get(&vu.unit_id), cacheable_result(vu))
+        {
+            // Same key the accept path takes: the instruction and cohort axes
+            // name the BATCH as packed, not the round (ti c02f69).
+            let key = key_ctx.key_for(opts, orig, instruction, cohort);
+            cache_put(cache, key, cached_result);
+        }
+    }
 }
 
 /// Pack one round's re-dispatched units into retry batches under the SAME
@@ -1397,6 +1475,97 @@ mod retry_repacking_tests {
         assert_eq!(seen[1].unit_ids, seen[0].unit_ids);
         assert!(seen.iter().all(|s| s.units_stamped));
         assert_every_unit_recovered(&out);
+    }
+
+    /// Rejects every unit on its first dispatch (so the round splits, exactly
+    /// as above), answers the FIRST retry sub-batch, and ends the run on the
+    /// second.
+    #[derive(Default)]
+    struct AnswerThenFailTranslator {
+        /// The unit ids of the retry sub-batch this translator answered.
+        answered: Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Translator for AnswerThenFailTranslator {
+        async fn translate_batch(
+            &self,
+            batch: TranslationBatch,
+            _cancel: &crate::CancellationToken,
+        ) -> Result<TranslationBatchResult, TranslatorError> {
+            if batch.units.iter().any(|u| u.retry.is_some()) {
+                let mut answered = self.answered.lock().unwrap();
+                if !answered.is_empty() {
+                    return Err(TranslatorError::Authentication(
+                        "the second retry sub-batch never lands".to_string(),
+                    ));
+                }
+                *answered = batch.units.iter().map(|u| u.unit_id.0.clone()).collect();
+            }
+            let units = batch
+                .units
+                .iter()
+                .map(|u| {
+                    if u.retry.is_some() {
+                        UnitResult {
+                            unit_id: u.unit_id.clone(),
+                            output_kind: OutputKind::Translated,
+                            translated_payload: format!("{} 번역", u.source_payload),
+                            warnings: Vec::new(),
+                        }
+                    } else {
+                        UnitResult {
+                            unit_id: u.unit_id.clone(),
+                            output_kind: OutputKind::FailedNeedsFallback,
+                            translated_payload: String::new(),
+                            warnings: Vec::new(),
+                        }
+                    }
+                })
+                .collect();
+            Ok(TranslationBatchResult {
+                batch_id: batch.batch_id,
+                detected_source_language: None,
+                units,
+            })
+        }
+    }
+
+    /// R0010-0006. A terminal error in a LATER sub-batch of a round must not
+    /// throw away what the EARLIER ones already earned. ADR-0017 still ends
+    /// the run — the error is the answer, not a half-document — but the units
+    /// the answered sub-batch translated survive in the cache, so the resumed
+    /// run buys them from the provider once rather than twice. Pre-fix the
+    /// `?` on the failing sub-batch exited before the per-unit walk that
+    /// writes them, and the cache came out empty.
+    #[tokio::test]
+    async fn a_failing_later_retry_batch_keeps_the_earlier_ones_progress() {
+        let src = fixture_source();
+        let opts = opts_with_target(target_that_exactly_holds_the_first_round(&src));
+        let translator = AnswerThenFailTranslator::default();
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let err = run_pipeline(&src, &opts, &translator, cache_dyn)
+            .await
+            .expect_err("the failing retry sub-batch ends the run");
+        assert!(
+            matches!(
+                err,
+                TransyncError::Translator(TranslatorError::Authentication(_))
+            ),
+            "the provider's terminal error is the answer: {err:?}"
+        );
+
+        let answered = translator.answered.into_inner().unwrap();
+        assert!(
+            !answered.is_empty(),
+            "the retry round must have split, with its first sub-batch answered"
+        );
+        assert_eq!(
+            cache.len(),
+            answered.len(),
+            "exactly the answered sub-batch's units are cached"
+        );
     }
 }
 
