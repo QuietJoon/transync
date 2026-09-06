@@ -876,4 +876,80 @@ test.describe("WASM render+edit demo", () => {
     await page.unroute("**/alignment.json");
     expect(errors).toEqual([]);
   });
+
+  test("l — a control inside an editable block keeps its own click instead of opening the editor", async ({
+    page,
+  }) => {
+    const errors = collectPageErrors(page);
+    await bootDemo(page);
+
+    const editor = page.locator("#editor");
+    const label = page.locator("#editor-label");
+    const editedId = "p-0004";
+    const row = page.locator(`#target [data-sync-id="${editedId}"]`);
+
+    // R0011-0041. The pane's click handler resolved the nearest anchor for
+    // EVERY descendant click, so a click on a control inside a translated
+    // block did two things at once: the control acted, and the editor opened
+    // over it. A translated block can legitimately carry a link, a form
+    // control, or the `<summary>` of a `<details>` whose open state sync.js
+    // mirrors — so the control is planted here rather than fished out of the
+    // fixture, which pins the guard rather than one document's markup.
+    await expect(editor).toBeDisabled();
+    const clicked = await row.evaluate((el) => {
+      const button = el.ownerDocument.createElement("button");
+      button.type = "button";
+      button.id = "planted-control";
+      button.textContent = "act";
+      button.addEventListener("click", () => {
+        button.dataset.acted = "yes";
+      });
+      el.appendChild(button);
+      return el.dataset.syncId;
+    });
+    expect(clicked).toBe(editedId);
+
+    await page.locator("#planted-control").click();
+    await expect(page.locator("#planted-control")).toHaveAttribute("data-acted", "yes");
+    await expect(editor).toBeDisabled();
+    await expect(label).not.toHaveText(`editing ${editedId}`);
+
+    // And the guard is a guard, not a refusal: the block around the control
+    // still opens when the click is the block's own.
+    await row.click();
+    await expect(label).toHaveText(`editing ${editedId}`);
+    await expect(editor).toBeEnabled();
+
+    expect(errors).toEqual([]);
+  });
+
+  test("m — the editor is reachable by keyboard, and only editable blocks are tab stops", async ({
+    page,
+  }) => {
+    const errors = collectPageErrors(page);
+    await bootDemo(page);
+
+    const editor = page.locator("#editor");
+    const label = page.locator("#editor-label");
+    const editedId = "p-0004";
+
+    // R0011-0042. `openEditor` used to be reachable from `click` alone, so
+    // the demo's one human-edit workflow had no keyboard path at all.
+    const row = page.locator(`#target [data-sync-id="${editedId}"]`);
+    await expect(row).toHaveAttribute("tabindex", "0");
+    await row.focus();
+    await page.keyboard.press("Enter");
+    await expect(label).toHaveText(`editing ${editedId}`);
+    await expect(editor).toBeEnabled();
+    await expect(editor).not.toHaveValue("");
+
+    // A tab stop on a block the click path answers with "is not editable"
+    // would lead nowhere, so the html block is deliberately not one.
+    await expect(page.locator('#target [data-sync-id="html-0018"]')).not.toHaveAttribute(
+      "tabindex",
+      "0",
+    );
+
+    expect(errors).toEqual([]);
+  });
 });

@@ -437,6 +437,55 @@ function buildEditModel(bytes, map) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Pane metadata.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The one reserved source-language label (ADR-0013). `source_language`
+ * carries the run's REQUESTED label verbatim, so a run that asked the model
+ * to detect the language leaves the literal `auto` in the map rather than a
+ * tag. Compared case-insensitively, mirroring the CLI's single recognizer
+ * (`translate_cmd::args::is_source_language_sentinel`).
+ */
+const SOURCE_LANGUAGE_SENTINEL = "auto";
+
+/**
+ * A map language label, trimmed — and empty for anything that is not a
+ * string. `render_pair` refuses a non-string label by name, but it runs
+ * AFTER this, and a `TypeError` thrown out of `boot()` is the one failure
+ * this demo presents by not presenting anything (R0003-0069).
+ */
+function languageLabel(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Stamp `lang` on the two panes from the map's labels (R0011-0038). Without
+ * it both panes inherit the page's `lang="en"`, and a screen reader, a
+ * spellchecker, and the font/hyphenation machinery all read the translated
+ * pane as English.
+ *
+ * The resolution is the CLI bundle's rather than a second one: the source
+ * pane is `publish::pane_source_language` — the sentinel hands the pane over
+ * to the model's detection, and an absent detection leaves it empty — and an
+ * empty label stamps no attribute at all, which is `bundle.rs::lang_attr`.
+ * Labels stay opaque (ADR-0013): they are set as attribute VALUES, never
+ * parsed, canonicalized, or matched against a table.
+ *
+ * Once, at boot, is enough. `mountPanes` replaces each pane's CONTENT
+ * through `innerHTML`, which leaves the pane element and its attributes
+ * standing, and `rebuild` cannot change a run's language labels.
+ */
+function applyPaneLanguages() {
+  const requested = languageLabel(state.sourceLang);
+  const wantsDetection = requested.toLowerCase() === SOURCE_LANGUAGE_SENTINEL;
+  const source = wantsDetection ? languageLabel(state.detected) : requested;
+  const target = languageLabel(state.targetLang);
+  if (source) paneEl("source").lang = source;
+  if (target) paneEl("target").lang = target;
+}
+
+/* ------------------------------------------------------------------ *
  * Mounting.
  * ------------------------------------------------------------------ */
 
@@ -529,6 +578,7 @@ function mountPanes(srcHtml, tgtHtml, map, carry) {
     else showFatal(why);
     return false;
   }
+  markEditable();
   markEditing();
   return true;
 }
@@ -552,6 +602,27 @@ function restorePanes(source, target, previous) {
   source.scrollTop = previous.sourceScroll;
   target.scrollTop = previous.targetScroll;
   if (previous.map) mountSync(source, target, previous.map);
+}
+
+/**
+ * Give each EDITABLE block in the target pane a tab stop (R0011-0042), so the
+ * demo's one human-edit workflow can be reached without a pointer. Re-applied
+ * after every mount for the reason `markEditing` is: `innerHTML` builds new
+ * nodes, and the renderer emits none of this — the anchor markup is shared
+ * with the CLI bundle, where there is no editor to open.
+ *
+ * Editable rows only: a tab stop on a block the click path answers with "is
+ * not editable" is a stop that leads nowhere. No `role`/`aria-label` rides
+ * along — naming a block of translated content would replace the content it
+ * names for a screen reader; the boot line on the `role="status"` strip is
+ * where the keyboard path is announced.
+ */
+function markEditable() {
+  const target = paneEl("target");
+  if (!target) return;
+  for (const anchor of target.querySelectorAll("[data-sync-id]")) {
+    if (state.editable.has(anchor.dataset.syncId)) anchor.tabIndex = 0;
+  }
 }
 
 /** Re-apply the selection outline; the class dies with each innerHTML swap. */
@@ -601,6 +672,17 @@ function restoreDetails(pane, snapshot) {
  * Editing.
  * ------------------------------------------------------------------ */
 
+/**
+ * Descendants that own their own activation (R0011-0041). A translated block
+ * can contain a link, a form control, or the `<summary>` of a `<details>`
+ * whose open state `sync.js` mirrors across the panes — and a click on one of
+ * those is that control's click, not a request to edit the block around it.
+ * The pane handler resolves the nearest anchor for EVERY descendant click, so
+ * without this both happened at once: the control acted and the editor
+ * opened over it.
+ */
+const INTERACTIVE_SELECTOR = "a, button, summary, input, select, textarea, label";
+
 function wireEditing() {
   const target = paneEl("target");
   const editor = document.getElementById("editor");
@@ -608,6 +690,11 @@ function wireEditing() {
 
   target.addEventListener("click", (event) => {
     const node = event.target;
+    // Scoped with `contains` for the reason the anchor lookup below is:
+    // `closest` walks past the pane, so an ancestor of the whole demo could
+    // otherwise answer for a click inside it.
+    const control = node && node.closest ? node.closest(INTERACTIVE_SELECTOR) : null;
+    if (control && target.contains(control)) return;
     const anchor = node && node.closest ? node.closest("[data-sync-id]") : null;
     if (!anchor || !target.contains(anchor)) return;
     const id = anchor.dataset.syncId;
@@ -615,6 +702,22 @@ function wireEditing() {
       setStatus(`${id} (${anchor.dataset.blockKind || "?"}) is not editable`);
       return;
     }
+    openEditor(id);
+  });
+
+  // The same selection without a pointer (R0011-0042): `markEditable` gives
+  // each editable block a tab stop, and Enter/Space open the block that HAS
+  // focus. Keyed off `event.target` — the focused element itself, never its
+  // nearest anchor — so a focusable control inside a block keeps its own
+  // Enter/Space, which is the line the click guard above draws.
+  target.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const node = event.target;
+    const id = node && node.dataset ? node.dataset.syncId : undefined;
+    if (id === undefined || !state.editable.has(id)) return;
+    // Space scrolls the pane by default, which would carry the block that is
+    // about to open out from under the reader.
+    event.preventDefault();
     openEditor(id);
   });
 
@@ -890,6 +993,7 @@ async function boot() {
   state.targetLang = map.target_language || "";
   // wasm-bindgen's `Option<String>`: null and undefined both arrive as None.
   state.detected = map.detected_source_language ?? undefined;
+  applyPaneLanguages();
 
   let pair;
   try {
@@ -903,7 +1007,8 @@ async function boot() {
   wireEditing();
   setStatus(
     `${map.blocks.length} blocks rendered locally — ` +
-      `${state.editable.size} editable; click one in the right pane`,
+      `${state.editable.size} editable; click one in the right pane, ` +
+      `or tab to it and press Enter`,
   );
   // Readiness signal for the headless suite: the panes are mounted and the
   // click handler is live.

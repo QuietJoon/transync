@@ -157,8 +157,22 @@
       <span class="transync-legend-item"><span class="transync-swatch transync-swatch--partial"></span>partially translated</span>
       <span class="transync-legend-item"><span class="transync-swatch transync-swatch--skipped"></span>skipped placeholder</span>
     </div>
-    <div id="source" class="pane" role="region" tabindex="0" aria-label="source"></div>
-    <div id="target" class="pane" role="region" tabindex="0" aria-label="target"></div>
+    <!-- Text direction (OI-0032, R0011-0039): `dir="auto"`, i.e. the
+         browser's own first-strong-character heuristic, per pane. This page
+         takes no `--target-direction` flag and reads no direction field —
+         the alignment map carries none, and ADR-0013's 2026-08-03 amendment
+         names "direction reaches the alignment map" a revisit trigger for
+         the opacity contract rather than a fix — so neither the CLI's RTL
+         primary-subtag table nor a second copy of its override ladder lives
+         here. `index.html` stays hand-edited LTR; that shell is frozen.
+
+         Two pane attributes are set from JS instead of from markup, because
+         both depend on the fetched map: `lang` per pane (R0011-0038,
+         `applyPaneLanguages`) and a tab stop on each EDITABLE block
+         (R0011-0042, `markEditable`). sync.js is direction- and
+         focus-agnostic and needs neither. -->
+    <div id="source" class="pane" role="region" tabindex="0" aria-label="source" dir="auto"></div>
+    <div id="target" class="pane" role="region" tabindex="0" aria-label="target" dir="auto"></div>
     <section class="editor-panel" aria-label="block editor">
       <div class="editor-head">
         <label id="editor-label" for="editor">no block selected</label>
@@ -168,7 +182,7 @@
         id="editor"
         disabled
         spellcheck="false"
-        placeholder="Click an editable block in the right pane to load its Markdown here."
+        placeholder="Choose an editable block in the right pane — click it, or tab to it and press Enter — to load its Markdown here."
       ></textarea>
       <div id="error-strip" role="alert" hidden></div>
     </section>
