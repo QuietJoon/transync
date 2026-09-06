@@ -220,6 +220,15 @@ tickets; `CHANGELOG.md` carries the per-ticket entries under `[0.3.0]` and `[Unr
 
 ### html-walk-foreign-content-breakout — **`e77173`, a live §4a break, and wave 3's precondition**
 
+> **RESOLVED 2026-09-01** (ti `e77173`, DCR-0041), and superseded twice since. `walk_elements`'
+> single inherited `in_foreign` bool became a three-valued content mode per open element, so
+> SVG's `foreignObject`/`desc`/`title` and MathML's text integration points return their children
+> to HTML content and a breakout start tag pops foreign elements — which is exactly the
+> `<div class="wrap"><svg><div>x</svg></div>` case this entry names. DCR-0042 then moved that
+> stack down into `scan_tags` where the tokenizer needs the same answer, DCR-0043 made voidness
+> an HTML-content rule, and DCR-0051 collapsed the crate's two open-element stacks into one.
+> `contracts.md` §4 records the carve-out as CLOSED. Verified 2026-09-06.
+
 - **Type:** 1
 - **Verified:** yes — measured 2026-08-23 through the shipped DOMPurify mount by the
   wave-1 fix review, and again by the 2026-08-24 design review.
@@ -274,6 +283,13 @@ golden corpus has no foreign-content breakout entry at all, which is why five
 `selfclose-*` entries could not see this.
 
 ### transync-html-wave-0-1-findings — five tickets from the wave 0/1 reviews
+
+> **RESOLVED 2026-09-03.** All five tickets landed: `95f55b` (a closer the balancer would bury in
+> an unterminated region is withheld), `415cdb` (a stray `=` begins an attribute name, so the strip
+> stops cutting across one), `e20490` (TAG-NAME and END-TAG-OPEN follow HTML through one shared
+> `tag_name_end`), `2e2453` (raw text and RCDATA are HTML-content states — DCR-0042), and `48f3c6`
+> (voidness is an HTML-content rule — DCR-0043). `c1f9a8`/DCR-0047 then replaced `95f55b`'s
+> withhold with terminate-or-delete. Verified 2026-09-06.
 
 - **Type:** 1
 - **Verified:** yes — each reproduced by the review that filed it.
@@ -351,6 +367,13 @@ Residual measured at 8 of 10,000 generated fragments and recorded in `contracts.
 
 ### git-object-loss-residual-blobs
 
+> **RESOLVED 2026-09-06.** Re-verified today: `git diff --stat HEAD` succeeds, and `git fsck`
+> reports only dangling objects — no missing or corrupt ones. The two blobs this entry names are
+> unreferenced debris, not tree content, and cannot be reconstructed; there was never anything
+> left to repair. Ticket `494a754c` is closed/resolved, so the decision-free close this entry was
+> waiting for has happened. The standing record of the two losses stays where it belongs, in
+> `git-history-lost-twice-standing-record` and `docs/project/git-history-loss-*.md`.
+
 - **Type:** 1
 - **Verified:** partly — reopen verified 2026-08-24: `git diff --stat HEAD` now succeeds; the two named blobs still answer `could not get object info`
 - **Sources:** ticgit:494a754c
@@ -365,6 +388,11 @@ Two blobs the ticket names are still unreadable in `.git`, but they are no longe
 Filed when a plain `git diff --stat` aborted with `fatal: unable to read 1b7a866f…`. The 2026-08-17 restart at `59ce8df` re-created those paths as fresh blobs, so the unreadable objects became unreferenced debris rather than tree content. Nothing at HEAD depends on them and `git fsck` is clean. It is type 1 because the remaining action is a decision-free re-scope or close, not a repair — there is nothing left to recover, and the objects cannot be reconstructed. Left open rather than closed here because this command never closes a ticket it did not file. The related standing record is `ticgit:6b43008a`.
 
 ### developer-guide-names-two-of-three-browser-specs
+
+> **RESOLVED.** Verified in `docs/Developer_Guide.md` on 2026-09-06: the browser-suite row now
+> names all five specs — `scn13.spec.js`, `scn16.spec.js`, `engine.spec.js`, `wasm.spec.js` and
+> `html-oracle.spec.js` — and states that the runner is the authority on coverage, so
+> `docs_browser_suite_drift.rs` welds every one of them.
 
 - **Type:** 1
 - **Verified:** yes — gated finding register
@@ -381,6 +409,13 @@ Filed when a plain `git diff --stat` aborted with `fatal: unable to read 1b7a866
 
 ### playwright-outside-the-runner-validates-a-stale-bundle
 
+> **RESOLVED** (ti `ed2e73`). A bare `pnpm exec playwright test` now REFUSES a bundle older than
+> its inputs: `playwright.config.js` compares the fixture's newest file against `crates/`,
+> `web/js`, `web/vendor`, `web/wasm` and the two shell HTML files — deliberately not `web/tests`,
+> so the documented spec-editing inner loop stays green — and `TRANSYNC_ALLOW_STALE_FIXTURE=1`
+> downgrades it to a warning. Observed firing on 2026-09-06: a bare run outside the script
+> refused with "No rendered bundle at …" rather than validating a stale one.
+
 - **Type:** 1
 - **Verified:** yes — gated finding register
 - **Sources:** ticgit:ed2e73c9
@@ -396,6 +431,27 @@ The script rebuilds the stub CLI, regenerates every bundle and rebuilds the wasm
 
 ### cancellation-tests-assert-wall-clock-bounds
 
+> **RESOLVED 2026-09-06 — and it is ti `d41782`'s option 2, not a new idea.** One correction to this
+> entry as filed: the bounds were no longer the 5 s ones it describes. `d41782` resolved on
+> 2026-09-01 with its **option 1** — derive each bound from the signature it names, giving
+> `CAPPED_BACKOFF / 2` (15 s) and `IGNORED_SLEEP / 10` (60 s) — and recorded in the same breath that
+> **option 2, "assert the property with an instrumented drop counter", was NOT taken, "remains the
+> strongest outcome and is still available"**. So this is the closing half of a decision already
+> made, not a re-litigation of one: widening removed the recurring cost cheaply, but it left a
+> stopwatch measuring a host, and one of the two stalls being ruled out is only 30 s, so widening
+> has a ceiling. Both wall-clock bounds are now gone, along with the `Instant` import, and the
+> property each existed to pin is measured by a clock-free instrument. A `drive_to_completion` helper drives the run one
+> poll per scheduler turn against a 10,000-turn budget with a hook that fires the token between
+> polls: a `yield_now` does not advance the clock, so a run sitting out a `tokio::time::sleep` stays
+> pending on every turn regardless of how loaded the host is, while a raced sleep needs no timer at
+> all. And `IndifferentAndSlow` gained a `reached_far_side` counter incremented only past its 600 s
+> sleep, asserted zero after the cancelled run. **The 30 s and 600 s regression signatures are
+> untouched, and both still fail against them** — the first because the run cannot finish without
+> the timer, the second on either instrument. Test 1 also gained a non-vacuity assertion that the
+> provider really was dispatched once; test 2's canceller became the sequenced hook, so cancellation
+> still arrives from OUTSIDE the provider, which `contracts.md` §5b requires. tokio's paused clock
+> was the other candidate and was rejected: `test-util` is enabled nowhere in the workspace.
+
 - **Type:** 1
 - **Verified:** yes — gated finding register
 - **Sources:** ticgit:d4178267
@@ -410,6 +466,13 @@ Two tests in `crates/transync/tests/cancellation.rs` end in a 5-second wall-cloc
 The bound exists to prove a sleep was raced against a cancellation token rather than waited out. It is a real property worth pinning, but wall-clock is the wrong instrument on a machine where this session measured `syspolicyd` parking fresh binaries at `_dyld_start` for 30–40 minutes and five foreign cargo processes contending for one target dir. A flake here reads as a cancellation regression, which is the most expensive possible false positive: it points an investigator at the retry policy. Type 1 — the fix is to assert on the observable (the token was observed, the provider was dropped) rather than on elapsed time.
 
 ### scratch-scripts-fall-back-to-tmpdir
+
+> **RESOLVED 2026-09-03** (ti `13a73b`). `scripts/lib/workdir.sh` is now the one place the rule
+> lives, and the silent relocation is gone: an explicit override wins verbatim, the preferred
+> `/Volumes/Temp/claude/<name>` is used when its parent exists, and otherwise the script REFUSES,
+> naming the missing root and the override variable that fixes it. `TRANSYNC_WORKDIR_POLICY`
+> defaults to `refuse`; `warn` restores the old behaviour in one edit, and an unrecognized
+> spelling is itself a refusal (R0011-0061, 2026-09-06).
 
 - **Type:** 1
 - **Verified:** yes — gated finding register
@@ -443,6 +506,12 @@ The crate carries no `publish = false`, so it sits on the publication roster. A 
 
 ### sync-role-for-catch-all-would-mis-classify-a-new-kind
 
+> **RESOLVED.** Verified in `crates/transync-syntax/src/align.rs` on 2026-09-06: `sync_role_for`
+> has no `_ => SyncRole::Anchor` arm left. Every `BlockKind` is spelled out — including
+> `Title => NonSync`, the arm this entry predicted the catch-all would swallow — behind the stated
+> rule that "the next variant added to `BlockKind` has to be [a decision] before this compiles".
+> The trap the entry asked for is the exhaustive match itself.
+
 - **Type:** 1
 - **Verified:** yes — gated finding register; **wave 2 Task 6 demonstrated it live**
 - **Sources:** ticgit:9ffb97ee
@@ -457,6 +526,13 @@ The crate carries no `publish = false`, so it sits on the publication roster. A 
 This is no longer a hypothesis. Wave 2 Task 6 added `BlockKind::Title` and captured the catch-all swallowing it: the trap test failed with `left: Anchor, right: NonSync` before the explicit arm was written. That red is the ticket's claim, reproduced. Wave 2 worked around it deliberately rather than fixing it, because removing a catch-all is a change to every kind's dispatch and did not belong in a breaking-window wave. The related and sharper instance is `ticgit:18b9c34b`, where the renderer decides the same question from a literal match instead of asking this function at all. Type 1 — the approach is settled: enumerate the arms and delete the catch-all, letting the compiler demand a decision per variant.
 
 ### render-block-decides-anchoring-without-asking-sync-role-for
+
+> **RESOLVED** (ti `18b9c3`). Verified in `crates/transync-syntax/src/render.rs` on 2026-09-06:
+> the sync-attribute omission is no longer decided in `render_block`. `attrs::write_attrs` reads
+> the alignment ROW's `sync_role`, so every non-sync kind gets the same treatment with no second
+> literal list to keep in step; the `ThematicBreak` arm survives only because an `<hr>` needs a
+> different ELEMENT, not different attributes. This is the rule architectural invariant 1 now
+> states (DCR-0044).
 
 - **Type:** 1
 - **Verified:** yes — reopen verified 2026-08-24: `grep -c sync_role_for crates/transync-syntax/src/render.rs` returns 0
@@ -473,6 +549,11 @@ Verified: the renderer never calls the role function at all. Unreachable at wave
 
 ### scan-tags-tag-name-and-end-tag-open-divergences
 
+> **RESOLVED 2026-09-01** (ti `e20490`). Both divergences are gone: `scan_tags`' TAG-NAME and
+> END-TAG-OPEN states follow HTML, and the scanner and the strip share one `tag_name_end`, which
+> closed the live bypass where `<divq"x=" data-sync-id="v">` was one element carrying a REAL
+> `data-sync-id` that the old name boundary buried in a phantom quoted value. Verified 2026-09-06.
+
 - **Type:** 1
 - **Verified:** yes — gated finding register; owner ruled both in scope for a later task
 - **Sources:** ticgit:e20490fe
@@ -488,6 +569,13 @@ Wave 0 task 8 (`ti 549b20`) aligned `AttrState::Outside` with the browser and cl
 
 ### manual-still-calls-serve-a-deferred-stub
 
+> **RESOLVED.** Verified across `manual/` on 2026-09-06: `manual/reference/user/en/cli.md`
+> documents `transync serve`'s full flag set, defaults, limits and exit codes with source
+> references into `crates/transync-cli/src/serve_cmd*`, and
+> `manual/how-to/operator/en/serve-the-demo-bundle.md` is a how-to for the real server. The only
+> surviving "deferred stub" text is in `manual/log.md`, which is a dated log and correct as
+> written.
+
 - **Type:** 1
 - **Verified:** yes — gated finding register
 - **Sources:** ticgit:0eee5c55
@@ -502,6 +590,12 @@ Wave 0 task 8 (`ti 549b20`) aligned `AttrState::Outside` with the browser and cl
 `transync serve` became real on 2026-08-09 (ticket `b791d6`); `contracts.md` §6 records that it supersedes the deferred-stub contract that stood from SL-13. The `docs/` bundle moved with it. `manual/` is derived one-way from `docs/` and did not. Found while working the exit-code tables, whose scope was table content only — this needs whole sections rewritten, which is a different job. The reason it went unnoticed is `ticgit:7e2fd068`: no weld machine-checks the manual's CLI reference, so a section can describe software that no longer exists and nothing fails. Type 1 — the correct text already exists in `docs/`; this is a derivation the manual pipeline owes.
 
 ### provider-payload-intake-guard (OI-0037)
+
+> **RESOLVED 2026-09-01** (ticket `148fcf`), per `docs/project/open-issues.md#OI-0037`. Provider
+> payloads are refused at one door — `validate::validate_unit` — before any layer parses them, and
+> every remaining provider-path reparse goes through `parser::guarded_parse`, which applies the
+> same ceiling `parser::intake` applies. `structure.rs`'s three walkers are deliberately not
+> routed; the OI records why.
 
 - **Type:** 1
 - **Verified:** yes — Review 0003 findings (R0003-0004, R0003-0005, R0003-0088), gate-accepted, user-routed track
@@ -769,6 +863,18 @@ deliberately pins ordering.
 
 ### parser-intake-markdown-rename
 
+> **2026-09-06 — attempted, and deliberately not done in this tree; ticket `b7e4cc70`, state
+> `blocked`.** Blocked on a commit boundary, not on a decision. This entry's own acceptance
+> condition is that the paying wave's diff must be *only* the rename. The working tree currently
+> carries ~50 files of verified but uncommitted work from the review-0010/0011 decision gate, and
+> three of them are also on the rename's surface — `crates/transync-core/src/profile.rs` (a
+> `crate::parser` reference), `crates/transync-syntax/src/parser/ranges.rs` (a file the rename
+> moves), and `crates/transync-html/src/lib.rs`. Staging exact paths cannot separate two changes
+> inside one file, so renaming now would produce exactly the unreviewable diff the deferral exists
+> to prevent. Unblocks the moment the gate work is committed. Surface re-measured today: 106
+> `parser` references in `transync-syntax`, 122 in `transync-core`, plus `transync-wasm`'s import
+> and `public_surface.rs`'s hidden-module pin.
+
 - **Description:** The format seam is asymmetric on purpose — `intake::html` sits beside
   `parser`, not beside a sibling `intake::markdown` — because the rename is mechanical
   and large: ~43 references in `transync-syntax`, ~74 in `transync-core`, the wasm
@@ -777,6 +883,44 @@ deliberately pins ordering.
   rename, or the review cannot tell the move from a change.
 - **Background:** ti `490d97` wave 3 deviation 1; DCR-0035. Registered by wave 7's
   closure so the deferral survives outside the DCR.
+
+### serve-connection-task-panics-are-discarded (OI-0050)
+
+> **RESOLVED 2026-09-06**, the same day it was filed. All three `join_next()` sites hand the joined
+> `Result<(), JoinError>` to one reporter, which stays silent for a task that finished on its own
+> terms and otherwise names the death as a **panic** — carrying `JoinError`'s task id and payload,
+> plus the sentence that it is a bug in transync rather than a peer failure — or a **cancellation**.
+> Nothing became fatal; the accept loop keeps going. The shutdown drain was lifted verbatim into a
+> private `drain_connections` so one real join site is reachable from a test, since the other two
+> need a bound listener and a live peer and there is still no panic site in non-test `serve_cmd/`.
+> Four tests. The per-connection I/O policy is untouched — R0010-0076 was dropped deliberately and
+> its in-code comment remains that decision's record.
+
+- **Type:** 1
+- **Verified:** yes — Review 0010 finding (R0010-0077), gate-accepted, user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0050, reviews/reviewed/0010.md#R0010-0077
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-06
+
+#### Description
+
+All three `join_next()` sites in `serve_cmd/` ignore the `JoinError` they may
+receive, so a connection task that panics is indistinguishable from one that
+returned normally. The server keeps accepting, and nothing — not stderr, not an
+exit code, not a log line — records that a task died.
+
+#### Background
+
+Filed LOW. There is nothing to swallow **today**: no panic site exists in
+non-test code under `serve_cmd/`. That is a property of the current code, not a
+guarantee it makes, which is why this is tracked rather than dropped — the
+sibling finding R0010-0076 (per-connection I/O errors discarded) *was* dropped,
+because its in-code comment "a dead socket is the peer's business" is already the
+record for a deliberate policy. The re-trigger is self-firing: the first panic
+site entering non-test code under `serve_cmd/`. Type 1 because the approach is
+settled and nothing has to land first — match the `Err` arm and report a
+panicked task distinctly from a peer disconnect.
+
 
 ## Type 2 — needs decision / discussion next
 
@@ -794,6 +938,11 @@ by the marker-file rule and is retained only for its record. `provider-payload-i
 the one that genuinely needs a product answer before any code.
 
 ### publish-lock-nested-tree-boundary (ticket `40e2a5`)
+
+> **RESOLVED.** Ticket `40e2a5` is closed/resolved, and `contracts.md` §6 records the outcome: the
+> lock now covers a `--out-dir` publish that replaces a directory another run is publishing into,
+> the two modes reach one directory further to meet each other, and ti `cbbc4e` settled how deep
+> that goes and what bounds the gap it deliberately leaves under `--force`. Verified 2026-09-06.
 
 > **reopen 2026-08-24: ticgit:40e2a5 is RESOLVED.** Verified with `ti show 40e2a5 --json`. Kept for audit; it is not open work and does not count against the v0.5.0 gate.
 
@@ -852,6 +1001,12 @@ the one that genuinely needs a product answer before any code.
 
 ### out-dir-foreign-staging-temp (ticket `66339b`)
 
+> **RESOLVED.** Ticket `66339b` is closed/resolved. `contracts.md` §6 records the answer: a
+> `<name>.tmp.<pid>` staging leftover is transync's own residue and is recognized as such — as a
+> regular file only, since a directory at that name is somebody else's subtree — so it no longer
+> makes the whole target read as foreign. ADR-0029 (2026-09-06) settles the neighbouring question
+> this entry raised about the ownership marker. Verified 2026-09-06.
+
 > **reopen 2026-08-24: ticgit:66339b is RESOLVED.** Verified with `ti show 66339b --json`. Kept for audit; not open work.
 
 - **Description:** `ensure_out_dir_replaceable` admits only `out.md`, `alignment.json`,
@@ -879,6 +1034,12 @@ the one that genuinely needs a product answer before any code.
   below, as both entries required.
 
 ### out-dir-sparse-bundle-subset (OI-0036)
+
+> **RESOLVED.** OI-0036 lives in `docs/project/open-issues-archive.md`. A target carrying no
+> ownership marker is judged by the COMPLETE published set being present, so a user directory whose
+> only entry happened to be called `out.md` no longer qualifies for replacement without `--force`.
+> ADR-0029 (2026-09-06) records why the marker's *body* is deliberately not part of that test.
+> Verified 2026-09-06.
 
 > **reopen 2026-08-24: OI-0036 lives in `open-issues-archive.md`,** i.e. resolved and archived by `indy-review-prune`. Kept for audit; not open work.
 
@@ -919,6 +1080,13 @@ RESOLVED.
 
 ### sync-anchor-injection-via-raw-html (OI-0035)
 
+> **RESOLVED.** OI-0035 lives in `docs/project/open-issues-archive.md`. `strip_reserved_sync_attrs`
+> removes the whole reserved namespace from the block's own bytes before the wrapper is written, so
+> the sync attributes a pane carries are a construction rather than a scan; DCR-0041's shared
+> `walk_attrs` and ti `415cdb`/`e20490`/`2e2453` closed the four measured bypasses since. The
+> browser oracle now measures the property directly: `reserved:dom-only` fell from 1 to 0 per
+> 10,000 generated inputs at DCR-0051. Verified 2026-09-06.
+
 > **reopen 2026-08-24: OI-0035 was RESOLVED 2026-08-23 and archived** (route (c), DCR-0033). Verified: 0 hits in `open-issues.md`, 1 in `open-issues-archive.md`. Kept for audit; not open work.
 
 - **Type:** 2
@@ -957,6 +1125,11 @@ engine route cheaper: reflow recompute re-collects anchors through the same
 and on every reflow, and it already takes a per-call policy argument.)*
 
 ### warm-cache-run-needs-no-credentials (OI-0038)
+
+> **RESOLVED 2026-09-02** (`cdc1e32`, DCR-0046, ticket `30a744`), per
+> `docs/project/open-issues.md#OI-0038`. The product question this entry existed to ask is
+> answered — a fully-warm run offline is supported — behind an explicit `--offline` flag rather
+> than by deferring translator construction unconditionally. Verified 2026-09-06.
 
 - **Type:** 2
 - **Verified:** yes — Review 0004 finding (R0004-0069), gate-accepted, user-routed track
@@ -1165,6 +1338,9 @@ the deliberately no-build `web/` demos); the doc-hidden `build_batches` gate shi
 
 ### validation-report-schema-bump-for-document-level-entry
 
+> **RESOLVED.** Ticket `52109b22` is closed/resolved — the decision this entry was waiting on has
+> been taken. Verified 2026-09-06.
+
 - **Type:** 2
 - **Verified:** yes — gated finding register
 - **Sources:** ticgit:52109b22
@@ -1180,6 +1356,9 @@ The precedent for the 1.0.0 → 1.1.0 bump (DCR-0026) was exactly 'a new row sha
 
 ### review-round-registry-number-collision
 
+> **RESOLVED.** Ticket `bdf8d981` is closed/resolved — the owner decision this entry was waiting on
+> has been taken, and `reviews/README.md` is the resolver of record. Verified 2026-09-06.
+
 - **Type:** 2
 - **Verified:** yes — gated finding register
 - **Sources:** ticgit:bdf8d981
@@ -1194,6 +1373,12 @@ The precedent for the 1.0.0 → 1.1.0 bump (DCR-0026) was exactly 'a new row sha
 The registry's rule 4 says verbatim that each number was used once, so `R0002-…` through `R0008-…` are unambiguous bare and need no marker. That is what makes a bare citation resolvable. With three numbers reused, a bare `R0002-0047` has two possible referents and a reader has no way to tell which. The collision was observed live on 2026-08-24, when `reviews/0002.md` existed again as a fresh `STATUS: CLAIMED` stub; that transient file is gone today, but the reused numbers and the citations that depend on them are not. Type 2 and tagged owner-decision because the repair is a choice between renumbering the newer rounds, qualifying every affected citation, or amending the rule and accepting ambiguity — each with a different cost across 508 citations.
 
 ### wrapper-ruling-leaves-named-default-stop-elements-exposed
+
+> **RESOLVED.** Ticket `d4bce239` is closed/resolved. `contracts.md` §4 records the answer: the
+> transparent wrapper key is the block's KIND, never the sanitizer's allowlist, because duplicating
+> DOMPurify's allowlist in Rust would be a second opinion about what the sanitizer accepts — and it
+> was the earlier "is the element named in §4's tables" key that left `iframe` and `noscript`
+> self-injecting. Kind-keying needs no list at all. Verified 2026-09-06.
 
 - **Type:** 2
 - **Verified:** yes — gated finding register
@@ -1224,6 +1409,28 @@ The HTML→HTML feature: a second intake producing the same block IR, delivered 
 This was the umbrella the HTML work ran under, recorded here because a backlog that omits the largest open item in the tree is not a census. **All eight waves landed** — DCR-0032 (wave 0) through DCR-0039 (wave 7, 2026-09-04) — and the executed order was 0 → 2 → 3 → 4 → 5 → 6 → 7, corrected from the spec's original graph by wave 4's deviation 1. Retained for the record; it is no longer open work and does not count against the v0.5.0 gate. What the feature deliberately left open has its own entries: `phasing-custom-element-mid-sentence-review` (the owner's §14.1 re-confirmation, `ticgit:84bf37`), `markdown-island-reclassification`, `html-oversize-leaf-block-split` and `parser-intake-markdown-rename`.
 
 ### bin-only-crates-are-outside-the-rustdoc-gate
+
+> **RESOLVED 2026-09-06.** (This entry declares `**Type:** 1` while sitting under the Type 2
+> heading; noted rather than moved, per this file's rule against reordering.) The gate gained a
+> second leg — `RUSTDOC_GATE_BIN_CRATES=(transync-cli)` and
+> `RUSTDOC_GATE_BIN_ARGS=(--document-private-items -p transync-cli)` in
+> `scripts/lib/rustdoc-gate.sh`, run by both callers (`scripts/smoke.sh`, `scripts/hooks/pre-commit`)
+> — plus a mirrored completeness check that fails on any member with no `src/lib.rs` but a
+> `src/main.rs` that is not listed, since a bin-only crate can never appear in the existing
+> `RUSTDOC_GATE_UNGATED`. It is a **second** `cargo doc` invocation rather than two more `-p`
+> entries, because `--document-private-items` documents the private items and so stops
+> `rustdoc::private_intra_doc_links` from firing — which is the failure DCR-0018 built the library
+> leg to catch. The stale "no public API to document" comment now says why that is true and beside
+> the point.
+>
+> **The link half needed no change, and that is worth recording rather than claiming a fix.** All
+> ten links this entry describes were already repaired in commit `2ca092f` (2026-09-05) — the same
+> commit that recorded the finding — including the four `super::X` references in
+> `crates/transync-cli/src/output/lock.rs` and the tenth behind `#[cfg(not(unix))]`. Every remaining
+> doc link in the crate was re-verified against its own module's item inventory. So what was missing
+> was only the gate, which is exactly what this entry was about. Three documents that described the
+> crate as deliberately outside the gate were corrected with it: `docs/Developer_Guide.md`,
+> `docs/Troubleshooting.md` and `docs/project/release-checklist.md`.
 
 - **Type:** 1
 - **Verified:** yes — measured 2026-09-04 during OI-0043's `output.rs` split: nine broken intra-doc links,
@@ -1282,6 +1489,16 @@ puts such a block's anchor on a transparent `<div>` wrapper; treating one as inl
 text inside a run whose markup the sanitizer then deletes.
 
 ### git-history-lost-twice-standing-record
+
+> **2026-09-06 — facts refreshed; the decision is still the owner's and is deliberately not taken
+> here.** `git rev-list --count HEAD` is now **135** (was 48), `git tag` prints **`v0.4.0` and
+> `v0.5.0`** (was `v0.4.0` alone), `git fsck` reports only dangling objects, and the root commit is
+> still `59ce8df7`, the 2026-08-17 restart. So the "exactly one commit, no tags" symptom is further
+> from reproducing than ever, and the loss is no less permanent. What this entry asks — whether the
+> ticket is a defect that should close or the standing record that this object store has lost
+> history twice, and that `/Volumes/Common` is therefore not reliable storage, in which case it
+> should stay open and be re-titled — is unchanged, and is the one open Type 2 item that needs a
+> person rather than a maintainer. Left for the owner rather than decided in passing.
 
 - **Type:** 2
 - **Verified:** partly — reopen verified 2026-08-24: 48 commits and a v0.4.0 tag now exist, so the stated symptom is stale; the loss itself is permanent
@@ -1932,3 +2149,96 @@ Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The t
 - **Background:** spec §15.4 and §15.5.
 - **Blocked by:** demonstrated need. D9's `li` grouping removed the most common trigger
   (long lists), and no oversize-leaf abort has been observed on the corpus.
+
+### batch-payload-duplication (OI-0051)
+
+- **Type:** 3
+- **Verified:** yes — Review 0010 findings (R0010-0091, R0010-0092), gate-accepted, user-routed track
+- **Blocked by:** a sanctioned breaking window. Both actions change
+  `TranslationBatch`'s public field set, which is exhaustive by policy; the
+  v0.5.0 window closed at the `v0.5.0` tag on 2026-09-05.
+- **Sources:** docs/project/open-issues.md#OI-0051, reviews/reviewed/0010.md#R0010-0091,
+  reviews/reviewed/0010.md#R0010-0092
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-06
+
+#### Description
+
+`TranslationBatch` carries **both** `glossary: Vec<GlossaryEntry>` **and**
+`profile: ProfileMetadata`, and `ProfileMetadata` has a `glossary` of its own.
+The one construction site in `unit::build_batches` fills both from the same
+cohort, so the two are byte-identical by construction and a test pins exactly
+that. Separately, `profile` is owned per batch, and its largest member is
+`prompt_body` — the whole compiled system prompt, cloned once per batch even
+though DCR-0027 §5's cohort memo compiles it once.
+
+#### Background
+
+Filed LOW/MEDIUM. The allocation saving is modest; the reason to do it is the
+two-places-one-opinion class this project spent 2026-09-01 through 2026-09-05
+removing. `pipeline` builds the glossary-sensitive `CacheKey` from
+`batch.glossary` while the text the provider sees is `batch.profile.prompt_body`,
+compiled from `profile.glossary`. They cannot disagree today; the first write to
+one without the other makes a cache key that describes a glossary absent from the
+prompt — a silent wrong-cache-hit. `Arc<ProfileMetadata>` plus removing the
+duplicate field makes that unrepresentable. The reviewer's stronger claim, that
+cohorts are recomputed per batch, is wrong — DCR-0027 §5 memoizes them.
+
+### provider-constructor-header-validation (OI-0052)
+
+- **Type:** 3
+- **Verified:** yes — Review 0011 finding (R0011-0022), gate-accepted, user-routed track
+- **Blocked by:** a sanctioned breaking window — the clean fix adds a
+  `ConfigError` variant to an exhaustive-by-policy enum. Owner-deferred until the
+  v0.6.0 window opens, and explicitly may be deferred again at that point.
+- **Sources:** docs/project/open-issues.md#OI-0052, reviews/reviewed/0011.md#R0011-0022
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-06
+
+#### Description
+
+`try_new` validates only that the API key is non-empty. Conversion to a
+`HeaderValue` is deferred to request time, so a key containing a newline, a NUL,
+or any other byte `HeaderValue` refuses passes the constructor whose purpose is
+to reject bad configuration, and then fails on every request afterwards.
+
+#### Background
+
+Filed MEDIUM; the gate's own triage raised it as the round's single escalation
+candidate, because it is the one finding whose correct fix was blocked purely by
+the release boundary rather than by any disagreement about the defect. For a
+long-lived service, `try_new` is a startup check that does not check the thing it
+exists to check. Note the neighbouring `with_timeout` question was decided the
+other way (ADR-0031): a budget is taken verbatim because a bad value fails
+immediately and legibly, whereas an unusable header is a permanent per-request
+failure with no construction-time signal.
+
+### bundle-shell-narrow-viewport-and-pane-headings (OI-0053)
+
+- **Type:** 3
+- **Verified:** yes — Review 0011 findings (R0011-0083, R0011-0084, R0011-0087), gate-accepted, user-routed track
+- **Blocked by:** owner-deferred until the v0.6.0 window opens, and explicitly may
+  be deferred again at that point; the work then still needs a scope decision —
+  whether the shipped shells target narrow viewports at all.
+- **Sources:** docs/project/open-issues.md#OI-0053, reviews/reviewed/0011.md#R0011-0083,
+  reviews/reviewed/0011.md#R0011-0084, reviews/reviewed/0011.md#R0011-0087
+- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-06
+
+#### Description
+
+Every shell transync ships lays its two panes out as `grid-template-columns: 1fr
+1fr` with no media query and no container query, while emitting a
+`width=device-width` viewport meta that promises the opposite. The panes carry
+`aria-label` (R0008-0049 / R0008-0050) but no visible caption, so a sighted
+reader has no on-screen statement of which pane is source and which is target.
+
+#### Background
+
+Filed LOW ×3, registered as **one** entry on purpose: this is a single product
+question — does the bundle shell target narrow viewports at all? — not three
+defects. Answering it decides all three findings, and splitting them invites the
+bundle shell and the demo shell to drift apart, which is the failure mode
+`sync_js_drift.rs` exists to prevent for the engine. A narrow-viewport commitment
+also implies a viewport dimension in the browser matrix, which is Desktop-Chrome-
+only under ADR-0026 — check that ADR's re-open conditions before the work starts.

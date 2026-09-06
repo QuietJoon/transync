@@ -1528,6 +1528,240 @@ Any ONE of these reopens the set as blocking work:
 
 ---
 
+## OI-0050: A panicking connection task in `serve` is discarded along with its panic
+
+- **Source:** R0010-0077 (Review 0010)
+- **Date:** 2026-09-06
+- **Decision:** ACCEPT — user-routed **track** at the indy-review-gate Phase 2 round
+- **Status:** RESOLVED 2026-09-06
+- **Resolution:** Fixed the same day it was filed, in the backlog pass that
+  followed the gate. All three join sites hand the joined
+  `Result<(), JoinError>` to one reporter, which stays silent for a task that
+  finished on its own terms and otherwise names the death as a **panic** (with
+  `JoinError`'s task id and payload, plus the sentence that it is a bug in
+  transync rather than a peer failure) or a **cancellation**. Nothing became
+  fatal: the accept loop keeps going. The shutdown drain was lifted verbatim
+  into a private `drain_connections(&mut JoinSet<()>)` so that one real join
+  site is reachable from a test — the other two need a bound listener and a
+  live peer, and there is still no panic site in non-test `serve_cmd/` to reach
+  them with, which is what made this a tracked gap rather than a live defect.
+
+### Problem
+
+All three `join_next()` sites in `serve_cmd/` ignore the `JoinError` they may
+receive, so a connection task that panics is indistinguishable from one that
+returned normally. The server keeps accepting, and nothing — not stderr, not an
+exit code, not a log line — records that a task died.
+
+### Impact
+
+There is nothing to swallow **today**: no panic site exists in non-test code
+under `serve_cmd/`. That is a property of the current code, not a guarantee the
+code makes. The moment a panic becomes reachable — a slicing bug in header
+handling, an `expect` added under time pressure, a dependency that panics on a
+malformed request — the first symptom will be a connection that closes with no
+diagnosis, and the operator will have no way to tell it from a peer reset.
+Diagnosing it then costs far more than surfacing the `JoinError` now.
+
+### Required Actions
+
+1. Match on `join_next()`'s `Err` arm at all three sites and report a panicked
+   task distinctly from a peer-side disconnect.
+2. Keep the existing "a dead socket is the peer's business" policy for ordinary
+   I/O errors (R0010-0076 was dropped deliberately — the in-code comment there
+   is the record).
+
+### Verification
+
+- [x] Code change applied
+- [x] A test that panics a connection task observes the report — four tests:
+      the panic wording carries its message, a cancellation is reported as a
+      cancellation rather than a panic, a clean exit reports nothing, and the
+      drain survives a panicking task and still joins the rest.
+- [x] No regressions observed
+
+### Re-trigger
+
+Retired: the gap it named is closed. What it said was *"self-firing: the first
+panic site entering non-test code under `serve_cmd/`"* — the fix arrived before
+any such site did, so the trigger never had to fire.
+
+### Related
+
+- R0010-0076 (per-connection I/O errors are discarded) — **dropped**, not tracked:
+  the in-code rationale is already the record.
+
+---
+
+## OI-0051: Every translation batch carries a cloned profile and a second copy of its glossary
+
+- **Source:** R0010-0091, R0010-0092 (Review 0010)
+- **Date:** 2026-09-06
+- **Decision:** ACCEPT — user-routed **track** at the indy-review-gate Phase 2 round
+- **Status:** OPEN (blocked on a breaking window)
+
+### Problem
+
+`TranslationBatch` carries **both** `glossary: Vec<GlossaryEntry>` **and**
+`profile: ProfileMetadata`, and `ProfileMetadata` has a `glossary` of its own.
+The single construction site in `unit::build_batches` fills both from the same
+cohort (`glossary: cohort.glossary.clone(), profile: cohort`), so the two are
+byte-identical by construction — a test pins exactly that equality. Separately,
+`profile` is an owned value per batch whose largest member is `prompt_body`, the
+entire compiled system prompt: DCR-0027's cohort memo compiles it once, but every
+batch in a cohort still holds its own full clone.
+
+### Impact
+
+The allocation cost is real but modest. The reason to fix it is the **two-places-
+one-opinion** class: `pipeline` builds the glossary-sensitive `CacheKey` from
+`batch.glossary`, while the text the provider actually sees is
+`batch.profile.prompt_body`, compiled from `profile.glossary`. Today they cannot
+disagree. The moment any code writes one field without the other, the cache key
+describes a glossary that is not in the prompt — a silent wrong-cache-hit, not a
+crash. Removing the field makes that state unrepresentable.
+
+The reviewer's stronger claim — that cohorts themselves are recomputed per batch —
+is **wrong**; DCR-0027 §5 memoizes them. Only the per-batch clone is real.
+
+### Required Actions
+
+1. Remove `TranslationBatch::glossary`; readers take `profile.glossary` (add an
+   accessor if the call sites read better for it).
+2. Change `profile` to `Arc<ProfileMetadata>` so a cohort's compiled prompt is
+   shared rather than cloned per batch.
+3. Update the equality test to assert the field is gone rather than that two
+   copies agree.
+
+### Verification
+
+- [ ] Code change applied
+- [ ] Cache keys unchanged for an unchanged glossary (byte-level)
+- [ ] No regressions observed
+
+### Blocked by
+
+**A breaking window.** Both actions change `TranslationBatch`'s public field set,
+which is exhaustive-by-policy. The v0.5.0 window closed at the `v0.5.0` tag
+(2026-09-05); a further breaking change needs a new window and the owner decision
+that opens one.
+
+### Related
+
+- DCR-0027 §5 (cohort memoization) — the part of the finding that is already done.
+- OI-0052 — the other finding waiting on the same window.
+
+---
+
+## OI-0052: The checked provider constructors accept header values that cannot become headers
+
+- **Source:** R0011-0022 (Review 0011)
+- **Date:** 2026-09-06
+- **Decision:** ACCEPT — user-routed **track**, deferred until the v0.6.0 window opens
+- **Status:** OPEN (blocked on a breaking window)
+
+### Problem
+
+`try_new` validates only that the API key is non-empty. Conversion to a
+`HeaderValue` is deferred to request time, so a key containing a newline, a NUL,
+or any other byte `HeaderValue` refuses is accepted by the constructor whose whole
+purpose is to reject bad configuration, and then fails on **every** request
+afterwards.
+
+### Impact
+
+The failure is loud but late and repeated: a host that builds an adapter at
+startup learns its credential is unusable only when the first translation call is
+made, and gets a per-request error rather than one construction error. For a
+long-lived service that is a startup check that does not check the thing it exists
+to check.
+
+### Required Actions
+
+1. Attempt the `HeaderValue` conversion inside `try_new` and surface the failure
+   as a `ConfigError` variant.
+2. Apply it to both adapters so the two constructors do not diverge.
+
+### Verification
+
+- [ ] Code change applied
+- [ ] A key with an embedded newline fails at construction, not at request time
+- [ ] No regressions observed
+
+### Blocked by
+
+**A breaking window.** The clean fix adds a `ConfigError` variant to an enum that
+is exhaustive by policy. The v0.5.0 window closed at the `v0.5.0` tag (2026-09-05).
+The owner has recorded that this may be deferred again when the v0.6.0 window opens.
+
+### Related
+
+- OI-0051 — the other finding waiting on the same window.
+- ADR-0031 — the neighbouring `with_timeout` question, decided the other way: a
+  budget is taken verbatim because its error is immediate and legible, whereas an
+  unusable header is a *permanent* per-request failure.
+
+---
+
+## OI-0053: The bundle and demo shells have no small-screen layout, and their panes have no visible headings
+
+- **Source:** R0011-0083, R0011-0084, R0011-0087 (Review 0011)
+- **Date:** 2026-09-06
+- **Decision:** ACCEPT — user-routed **track**, deferred until the v0.6.0 window opens
+- **Status:** OPEN (needs a scope decision)
+
+### Problem
+
+Every shell transync ships lays its two panes out as `grid-template-columns: 1fr
+1fr` with no media query and no container query, while emitting a
+`width=device-width` viewport meta that promises the opposite. On a narrow
+viewport the two panes are squeezed side by side rather than stacked. Separately,
+the panes carry `aria-label` (R0008-0049 / R0008-0050) but no **visible** caption,
+so a sighted reader has no on-screen statement of which pane is source and which
+is target.
+
+### Impact
+
+The bundle is the artifact an operator hands to a reader, and the reader's device
+is not the operator's. Today a phone gets two unreadable columns. The missing
+visible headings are the same gap in the other direction: the accessible name
+exists, the visible one does not, so the two audiences get different information.
+
+### Why one entry and not three
+
+These are one product question — *does the bundle shell target narrow viewports at
+all?* — not three defects. Answering it decides all three findings; splitting them
+invites the shells to drift apart, which is the failure mode `sync_js_drift.rs`
+exists to prevent for the engine.
+
+### Required Actions
+
+1. Decide whether narrow-viewport support is in scope for the shipped shells.
+2. If yes: one stacking breakpoint applied identically to the bundle shell
+   template and the demo shell, plus visible pane headings.
+3. If no: record the decision and drop the `width=device-width` promise, or state
+   in the manual that the bundle targets desktop widths.
+
+### Verification
+
+- [ ] Decision recorded
+- [ ] Change applied to every shell, or the non-support decision documented
+- [ ] No regressions observed
+
+### Blocked by
+
+An owner scope decision, deferred to the v0.6.0 window. The browser suite is
+Desktop-Chrome-only (ADR-0026), so a narrow-viewport commitment also implies a
+viewport dimension in the test matrix — which ADR-0026's re-open conditions
+should be checked against before the work starts.
+
+### Related
+
+- ADR-0026 (the browser suite is Chromium-only) — its conditions govern what any
+  new viewport coverage would cost.
+
+---
+
 ## Open Issues Summary
 
 | Issue ID | Title                                                  | Status   | Severity |
@@ -1547,3 +1781,7 @@ Any ONE of these reopens the set as blocking work:
 | OI-0047  | Sync engine freezes past its last anchor; silent drift on reflow | RESOLVED (2026-09-04) | Low |
 | OI-0048  | Four boundary checks weaker than the inferred contract   | RESOLVED (2026-09-04) — R0009-0052 deferred | Low |
 | OI-0049  | Review 0010's non-blocking survivors (16 findings)       | DEFERRED (2026-09-05) — re-trigger recorded | Low |
+| OI-0050  | A panicking `serve` connection task is discarded silently | RESOLVED (2026-09-06) — fixed the day it was filed | Low |
+| OI-0051  | Every batch clones its profile and duplicates its glossary | OPEN (2026-09-06) — blocked on a breaking window | Low |
+| OI-0052  | Checked provider constructors accept invalid header values | OPEN (2026-09-06) — blocked on a breaking window | Medium |
+| OI-0053  | Shells have no small-screen layout and no visible pane headings | OPEN (2026-09-06) — needs a scope decision | Low |
