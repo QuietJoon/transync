@@ -75,7 +75,12 @@ pub(crate) fn clamped_char_bounds(source: &str, range: ByteRange) -> (usize, usi
 ///
 /// TRACE: SCN-01
 pub struct LineOffsets<'a> {
-    pub offsets: Vec<usize>,
+    /// Private since R0010-0023, for the same reason `source` always was:
+    /// the two are one fact. Every method below reads this table as
+    /// [`Self::new`]'s output *over `source`*, so an entry a caller could
+    /// reassign is a line start describing bytes that are not there.
+    /// [`Self::line_starts`] hands out the read-only view.
+    offsets: Vec<usize>,
     /// The exact source `offsets` was built from, borrowed so every query
     /// resolves against the bytes it describes and cannot be handed a
     /// different string. It is also what makes a line's terminator *length*
@@ -101,6 +106,13 @@ impl<'a> LineOffsets<'a> {
             }
         }
         Self { offsets, source }
+    }
+
+    /// The table, read-only: index `i` is the byte offset of line `i + 1`.
+    ///
+    /// TRACE: SCN-01
+    pub fn line_starts(&self) -> &[usize] {
+        &self.offsets
     }
 
     /// End-of-content cap for a 1-indexed `line`: the offset of the first
@@ -135,8 +147,9 @@ impl<'a> LineOffsets<'a> {
             return bytes.len();
         };
         // Offsets are produced by `new`, so `next_start` is in 1..=len; the
-        // saturating/min pair only keeps a caller-corrupted `offsets` (the
-        // field is `pub`) from indexing out of bounds.
+        // saturating/min pair is what keeps a table that is *not* — an
+        // in-module edit now that the field is private (R0010-0023) — from
+        // indexing out of bounds rather than panicking.
         let last = next_start.saturating_sub(1).min(bytes.len());
         match last.checked_sub(1) {
             Some(prev) if bytes.get(last) == Some(&b'\n') && bytes[prev] == b'\r' => prev,
@@ -162,13 +175,15 @@ impl<'a> LineOffsets<'a> {
     /// The clamp is what makes the result meaningful, but it runs *after*
     /// the add, so the add is saturating (R0001-0045). This is public API in
     /// a public module: `col` is whatever an arbitrary caller passes, not
-    /// only comrak's own small sourcepos columns, and `offsets` is a `pub`
-    /// field a caller can corrupt. An unchecked `line_start + col` panics on
-    /// `usize::MAX` in a checked build and — worse — wraps to a small,
-    /// in-range offset in a release build, where the clamp would then happily
-    /// pass it through as a *valid-looking* byte position. Saturating first
-    /// makes both cases land on the same place an oversized column always
-    /// lands: the line's content end.
+    /// only comrak's own small sourcepos columns. (The other half of that
+    /// exposure — a caller reassigning an entry of `offsets` — closed when
+    /// the field went private in R0010-0023; the column did not.) An
+    /// unchecked `line_start + col` panics on `usize::MAX` in a checked
+    /// build and — worse — wraps to a small, in-range offset in a release
+    /// build, where the clamp would then happily pass it through as a
+    /// *valid-looking* byte position. Saturating first makes both cases land
+    /// on the same place an oversized column always lands: the line's
+    /// content end.
     ///
     /// TRACE: SCN-01
     pub fn pos_to_byte(&self, line: usize, col: usize) -> usize {
@@ -287,7 +302,7 @@ mod tests {
         let lo = LineOffsets::new("just one line\r");
         // The table itself must carry the boundary: without it, `pos_to_byte`
         // only lands on 14 by the out-of-range-line-resolves-to-EOF accident.
-        assert_eq!(lo.offsets, vec![0, 14], "probe: CR-aware offsets [0, 14]");
+        assert_eq!(lo.line_starts(), [0, 14], "probe: CR-aware offsets [0, 14]");
         assert_eq!(lo.pos_to_byte(1, 1), 0);
         assert_eq!(lo.pos_to_byte(2, 1), 14, "line 2 starts at EOF");
     }
@@ -320,26 +335,26 @@ mod tests {
     #[test]
     fn cap_is_derived_correctly_at_the_table_edges() {
         let lo = LineOffsets::new("abc\n");
-        assert_eq!(lo.offsets, vec![0, 4]);
+        assert_eq!(lo.line_starts(), [0, 4]);
         assert_eq!(lo.line_content_end(1), 3, "caps before the \\n");
         assert_eq!(lo.line_content_end(2), 4, "the empty trailing line");
         assert_eq!(lo.line_content_end(9), 4, "past the table");
 
         let lo = LineOffsets::new("");
-        assert_eq!(lo.offsets, vec![0]);
+        assert_eq!(lo.line_starts(), [0]);
         assert_eq!(lo.line_content_end(1), 0);
         assert_eq!(lo.pos_to_byte(1, 1), 0);
 
         // A CRLF-terminated final line: two terminator bytes, one boundary.
         let lo = LineOffsets::new("abc\r\n");
-        assert_eq!(lo.offsets, vec![0, 5]);
+        assert_eq!(lo.line_starts(), [0, 5]);
         assert_eq!(lo.line_content_end(1), 3, "caps before the \\r");
         assert_eq!(lo.line_content_end(2), 5);
 
         // A leading terminator: line 1 is empty, and the `\n` at offset 0 has
         // no preceding byte to test for a `\r`.
         let lo = LineOffsets::new("\nabc");
-        assert_eq!(lo.offsets, vec![0, 1]);
+        assert_eq!(lo.line_starts(), [0, 1]);
         assert_eq!(lo.line_content_end(1), 0);
         assert_eq!(lo.line_content_end(2), 4);
     }
@@ -399,7 +414,7 @@ mod tests {
         // The line after the substitution is unaffected: a NUL is not a line
         // ending (probe-verified in OI-0033), so only within-line columns
         // were ever at stake.
-        assert_eq!(lo.offsets, vec![0, 17, 27]);
+        assert_eq!(lo.line_starts(), [0, 17, 27]);
         assert_eq!(
             &NORMALIZED[lo.pos_to_byte(2, 1)..lo.pos_to_byte(2, 9) + 1],
             "next line"
@@ -424,10 +439,12 @@ mod tests {
         );
     }
 
-    /// `offsets` is a `pub` field, so a caller can hand `pos_to_byte` a line
-    /// start that is nowhere near the source. `line_content_end` already
-    /// guards its own indexing against that; the add in front of it must be
-    /// just as unimpressed.
+    /// A line start that is nowhere near the source. R0010-0023 made
+    /// `offsets` private, so this is no longer something a *caller* can do —
+    /// the test writes it from inside the module, which is the only place
+    /// that can, and pins the guards rather than the reachability:
+    /// `line_content_end` guards its own indexing, and the add in front of
+    /// it must be just as unimpressed.
     #[test]
     fn a_corrupted_line_table_cannot_overflow_the_add_either() {
         let mut lo = LineOffsets::new(LF);

@@ -406,19 +406,58 @@ impl BlankLinePolicy {
 /// Remove interior blank lines (CommonMark definition: a line containing
 /// only spaces/tabs). Only [`splice`] under [`BlankLinePolicy::Collapse`] calls this —
 /// type-1 blocks (`<pre>`, `<textarea>`) keep their blank lines (spec §3.3).
+///
+/// A line ends at `\r\n`, a lone `\r`, or a `\n` — CommonMark §2.1's rule,
+/// and the one `transync_syntax::parser::ranges::LineOffsets` already counts
+/// with, because the reader this protects against is comrak (R0010-0053).
+/// Splitting on `\n` alone left the `\r` of a CRLF blank line *inside* the
+/// candidate slice, where the spaces/tabs test rejects it, and made a
+/// lone-CR segment one single line with no interior at all — so both
+/// spellings kept the blank separator that terminates the host's type-6/7
+/// html block at reparse and breaks the block's anchor, which is the whole
+/// reason this function exists.
+///
+/// Terminators are re-emitted from the source rather than normalized: this
+/// runs on a provider's translated segment, and rewriting its line endings
+/// is content editing, not blank-line collapse.
 pub(crate) fn collapse_blank_lines(text: &str) -> String {
-    let lines: Vec<&str> = text.split('\n').collect();
+    // (content, terminator) per line. The final entry's terminator is empty:
+    // a text ending in a terminator gets a trailing empty line, exactly the
+    // trailing piece `split('\n')` used to produce.
+    let bytes = text.as_bytes();
+    let mut lines: Vec<(&str, &str)> = Vec::new();
+    let mut start = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let term = match bytes[i] {
+            b'\n' => 1,
+            // A `\r` immediately before a `\n` is that one terminator's
+            // first byte, never a boundary of its own.
+            b'\r' if bytes.get(i + 1) == Some(&b'\n') => 2,
+            b'\r' => 1,
+            _ => 0,
+        };
+        if term == 0 {
+            i += 1;
+            continue;
+        }
+        lines.push((&text[start..i], &text[i..i + term]));
+        i += term;
+        start = i;
+    }
+    lines.push((&text[start..], ""));
+
     let n = lines.len();
-    let kept: Vec<&str> = lines
-        .iter()
-        .enumerate()
-        .filter(|(i, l)| {
-            let blank = l.chars().all(|c| c == ' ' || c == '\t');
-            !(blank && *i > 0 && *i + 1 < n)
-        })
-        .map(|(_, l)| *l)
-        .collect();
-    kept.join("\n")
+    let mut out = String::with_capacity(text.len());
+    for (idx, (content, terminator)) in lines.iter().enumerate() {
+        let blank = content.chars().all(|c| c == ' ' || c == '\t');
+        if blank && idx > 0 && idx + 1 < n {
+            continue;
+        }
+        out.push_str(content);
+        out.push_str(terminator);
+    }
+    out
 }
 
 /// Splice translated segments back into the block positionally
@@ -4322,6 +4361,39 @@ mod splice_tests {
         assert!(
             !out.contains("\n \n"),
             "whitespace-only line must collapse: {out:?}"
+        );
+    }
+
+    /// R0010-0053. The collapse existed to keep a blank line out of a type-6/7
+    /// html block, and comrak counts `\r\n` and a lone `\r` as line endings
+    /// too (OI-0033) — so a segment that separated its lines the classic-Mac
+    /// or Windows way used to keep the separator that splits the block and
+    /// breaks its anchor. Terminators are re-emitted verbatim: collapsing
+    /// blank lines is not a licence to rewrite the segment's line endings.
+    #[test]
+    fn collapse_honours_cr_and_crlf_line_endings() {
+        // The LF spelling is unchanged, byte for byte.
+        assert_eq!(collapse_blank_lines("a\n\nb"), "a\nb");
+
+        assert_eq!(collapse_blank_lines("a\r\n\r\nb"), "a\r\nb");
+        assert_eq!(collapse_blank_lines("a\r\rb"), "a\rb");
+        // Whitespace-only counts as blank under every terminator.
+        assert_eq!(collapse_blank_lines("a\r\n \r\nb"), "a\r\nb");
+        assert_eq!(collapse_blank_lines("a\r \rb"), "a\rb");
+        // Mixed terminators: the `\r` of a CRLF is not a boundary of its own.
+        assert_eq!(collapse_blank_lines("a\r\n\rb"), "a\r\nb");
+        // Leading and trailing blank lines survive, as they always have.
+        assert_eq!(collapse_blank_lines("\r\na\r\n"), "\r\na\r\n");
+
+        let out = splice(
+            "<div>text</div>",
+            &["a\r\n\r\nb".to_string()],
+            BlankLinePolicy::from_commonmark_html_block_type(6),
+        )
+        .expect("splices");
+        assert!(
+            !out.contains("\r\n\r\n"),
+            "a CRLF blank line must collapse: {out:?}"
         );
     }
 
