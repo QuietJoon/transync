@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-05-v0.5.0-released
+  last_updated: 2026-09-06-review-0010-0011-gate-closed
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -122,6 +122,52 @@ project:
     that the CONTENT packages and verify-builds at 0.5.0. Step 19's clean-tree
     position - after step 24, before step 25 - is now written into the
     checklist rather than left to be inferred.
+
+    POST-V0.5.0, 2026-09-06 - THE REVIEW-0010/0011 DECISION GATE. Both rounds
+    closed and archived to reviews/reviewed/. 188 findings: 63 routed fix and
+    applied under 63 TicGit tickets, all resolved and their locks released;
+    three recorded as ADR-0029 (the out-dir marker is a name, not a
+    credential), ADR-0030 (the WASM publish lock fails closed) and ADR-0031 (a
+    provider request budget is taken verbatim); four routed track as OI-0050
+    through OI-0053, each with a paired docs/backlog.md entry, which takes the
+    open-issue register off zero deliberately. OI-0050 was then RESOLVED the
+    same day by the Type 1/Type 2 backlog pass, so the register stands at three
+    open. OI-0051 and OI-0052 are BLOCKED ON A BREAKING WINDOW that v0.5.0
+    closed; OI-0053 needs a scope decision. Gates: fmt/check/clippy all exit
+    0, cargo test --workspace -- --test-threads=4 exit 0 with 1,355 passed / 0
+    failed / 8 ignored across 47 targets, scripts/test-browser.sh exit 0 with
+    47 Playwright tests including the Chromium oracle.
+    ONE OWNER DECISION IS OUTSTANDING: R0010-0023 made
+    transync_syntax::parser::ranges::LineOffsets::offsets private, which is a
+    breaking change to that crate's published API (parser::ranges is pub mod;
+    the transync facade is unaffected because public_surface.rs pins parser as
+    hidden). It sits in CHANGELOG [Unreleased] as a change that NEEDS a window,
+    not one that opens one - either the next release is the minor bump that
+    carries it alongside OI-0051 and OI-0052, or the field goes back to pub and
+    only the line_starts() accessor ships.
+
+    THE TYPE 1 / TYPE 2 BACKLOG PASS, 2026-09-06. Nineteen entries were STALE
+    rather than open - work that had landed without the register being
+    reconciled - and each now carries a dated note with the evidence rather
+    than a bare claim. Three were genuinely open and are fixed: OI-0050's serve
+    JoinError reporting; the two cancellation races, which stopped being timed
+    at all (this is ti d41782's OPTION 2, which that ticket named as the
+    strongest outcome, declined at the time, and left explicitly available -
+    its option 1 had only widened the bounds); and bin-only crates entering the
+    rustdoc gate on their own --document-private-items leg, which is why
+    scripts/smoke.sh now runs EIGHT command steps rather than seven.
+    TYPE 1 HAS ONE ITEM LEFT: parser-intake-markdown-rename, ticket b7e4cc70,
+    state blocked. Not on a decision - on a commit boundary. Its own acceptance
+    condition is that the paying wave's diff must be ONLY the rename, and three
+    files on its surface (transync-core/src/profile.rs,
+    transync-syntax/src/parser/ranges.rs, transync-html/src/lib.rs) also carry
+    uncommitted gate work, which staging exact paths cannot separate. Unblocks
+    the moment that work is committed.
+    TYPE 2 HAS ONE ITEM LEFT: git-history-lost-twice-standing-record, which is
+    an owner call by its own text - close it as an unreproducible defect, or
+    keep and re-title it as the standing record that this object store has lost
+    history twice. Its facts were refreshed (135 commits, v0.4.0 and v0.5.0,
+    root still the 2026-08-17 restart) and the decision left untaken.
     SIBLING CONSUMERS (release-checklist step 8) were NOT compiled against this
     tree, and the reason is a change in their manifests rather than an omission:
     both resp-translator and dynwebserver now depend on transync by the GitHub

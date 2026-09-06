@@ -130,6 +130,26 @@ The 2026-07-27 design-review wave (DR-2026-07) opened seven new issues, none blo
 
 Still open in the register besides the above: ~~**OI-0038**~~ **RESOLVED 2026-09-03** (`30a744`, DCR-0046 — `transync translate --offline` serves a fully warm run with no credentials; the product call it was blocked on was taken) and the review-0009 cluster **TEN OF TEN RESOLVED 2026-09-04/05** (DCR-0049 — the v0.5.0 blocker clearance; OI-0039 through OI-0048, four of them carrying a recorded deferral for a named residual rather than a promise). **OI-0044 was the last one open and closed 2026-09-05**: its non-converging-trim member (R0009-0082) was fixed 2026-09-03 by ti `0a3fca`, and the unbounded read (R0009-0080) and the poisonable write (R0009-0081) landed 2026-09-05 — so the register now stands at **zero** open issues. The zero reported during the 2026-09-04 clearance was still wrong when it was written: that recount keyed on resolution dates and read the partial entry as closed, where the summary table's `OPEN` row was the correct reading until the two remaining members actually landed — the review-0009 cluster **OI-0039..OI-0048** (filed 2026-08-26; see the review-0009 action under Immediate Next Actions). **OI-0037** was RESOLVED 2026-09-01 by ticket `148fcf`, its record still in the register. All other filed issues are closed. Their records were archived to `open-issues-archive.md` (OI-0001, 0002, 0003, 0005, 0006, 0009, 0010, 0011, 0012, 0014) or pruned as self-evident fixes (OI-0004, 0007, 0013) in the 2026-07-11 record prune.
 
+**2026-09-06 — the register is no longer at zero, and that is deliberate.** The decision gate over
+independent reviews **0010** and **0011** (188 findings) closed both rounds: 63 findings were routed
+`fix` and applied, three were recorded as **ADR-0029/0030/0031**, and four were routed `track`, which
+is what re-opens the register. **OI-0050** (a panicking `serve` connection task is discarded with its
+panic) was **RESOLVED the same day**, in the backlog pass that followed the gate, so its
+self-firing re-trigger never had to fire. **OI-0051** (every batch clones its
+profile and duplicates its glossary) and **OI-0052** (the checked provider constructors accept header
+values that cannot become headers) both need a **breaking window**, which v0.5.0 closed — the owner has
+recorded that they may be deferred again when v0.6.0's opens. **OI-0053** (the shells have no
+small-screen layout and no visible pane headings) is one scope question registered as one entry rather
+than three defects. Each has a paired `docs/backlog.md` entry. The register therefore stands at **three open**
+— OI-0051, OI-0052 and OI-0053, each with a stated blocker — beside OI-0049's recorded
+deferral. Gates at the close: `cargo fmt --all`,
+`cargo check --workspace --all-targets`, `cargo clippy --all-targets --all-features` and
+`cargo test --workspace -- --test-threads=4` (1,355 passed, 0 failed, 8 ignored across 47 targets) all
+exit 0, and `scripts/test-browser.sh` passed 47 Playwright tests including the Chromium oracle. **One
+item needs an owner decision**: R0010-0023 made `transync_syntax::parser::ranges::LineOffsets::offsets`
+private, which is a breaking change to that crate's published API — recorded in `CHANGELOG.md`'s
+`[Unreleased]` as a change that now *needs* a window rather than one that opens one.
+
 ## Immediate Next Actions
 - **Action (road to 0.2.0, owner-approved 2026-08-03):** ~~HTML-content translation feature (spec v2 at `docs/superpowers/specs/2026-08-03-html-content-translation-design.md`)~~ **DONE 2026-08-04** (ADR-0018 / DCR-0016) → ~~OI-0028 Option B crate split + renderer rework (clears the OI-0008 renderer debt in the same effort)~~ **DONE 2026-08-04** (DCR-0017; OI-0028 RESOLVED, OI-0008 narrowed) → ~~OI-0027 facade curation + `#[non_exhaustive]` + constructor (the window-closing ritual)~~ **DONE 2026-08-04** (DCR-0018; OI-0027 RESOLVED, DCR-0017's widened-surface inventory closed) → ~~0.2.0 release~~ **DONE 2026-08-05** — annotated tag `v0.2.0`; the breaking window is **closed**. `#[non_exhaustive]` — 17 items after the pre-tag owner addendum extended it to the six read-only output types (`TranslationOutput`, `ValidationReport`, `AlignmentMap`, `AlignmentBlock`, `ValidationSummary`, `GeneratorMeta`) — makes the next field/variant addition additive instead of breaking. The release gate below ran for the tag; date + models are recorded in the CHANGELOG's 0.2.0 entry.
 - **Action (post-0.2.0, done 2026-08-05):** ~~OI-0008 + OI-0033 internal-quality wave (spec at `docs/superpowers/specs/2026-08-05-oi0008-0033-internal-quality-design.md`, 12-task plan alongside it) — land the refactor debt *before* Track C, because Track C ships `transync-syntax` to the browser and refactoring a shipped WASM artifact costs more.~~ **DONE 2026-08-05** (DCR-0019; OI-0008 and OI-0033 both RESOLVED, OI-0034 filed).

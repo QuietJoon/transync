@@ -7,9 +7,262 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet — v0.5.0 closed the sanctioned breaking window it had been carrying
-since 2026-08-24. A further breaking change now needs a new window and the
-owner decision that opens one.
+The decision gate over independent reviews **0010** and **0011** (188 findings
+between them). 63 were routed `fix` and applied here; 3 were recorded as ADRs
+(0029–0031); 4 are tracked as open issues (OI-0050…OI-0053), two of them
+waiting on a breaking window; the rest were rejected or dropped, most of them
+against a record that already ruled on the question.
+
+**One breaking change is sitting in this section, and it needs a window.**
+v0.5.0 closed the sanctioned window it had carried since 2026-08-24, and the
+rule is unchanged: a further breaking change needs a **new** window and the
+owner decision that opens one. `LineOffsets::offsets` below is that change. It
+is recorded here rather than held back so the decision is taken deliberately —
+either the next release is the minor bump that carries it (alongside OI-0051
+and OI-0052, which are queued for exactly that window), or the field goes back
+to `pub` and only the accessor ships.
+
+### Changed (BREAKING)
+
+- **`transync_syntax::parser::ranges::LineOffsets::offsets` is private**, and a
+  read-only `line_starts() -> &[usize]` accessor takes its place (R0010-0023).
+  The field and its `source` are one fact: every method reads the table as
+  `new`'s output *over that source*, so an entry a caller could reassign is a
+  line start describing bytes that are not there. The `transync` facade is
+  **not** affected — `public_surface.rs` pins `parser` as hidden, so
+  `transync::parser::…` never resolved — but `transync-syntax` is itself a
+  published crate and `parser::ranges` is `pub mod`, which is what makes this
+  breaking. The saturating guards in `line_content_end` and `pos_to_byte` stay:
+  their comments now say they defend against an in-module edit rather than a
+  caller, which is a narrower claim, and `pos_to_byte`'s oversized-`col`
+  exposure is untouched because a column is still whatever an arbitrary caller
+  passes.
+
+### Changed
+
+- **Glossary and section keys use Unicode full case folding** instead of
+  `str::to_lowercase` (R0010-0063). They are different operations, and the
+  difference is the identity question the key exists to answer: a case
+  *mapping* leaves `ß` as `ß` (so `Straße` and `STRASSE` were two terms) and
+  the long s `ſ` as `ſ`, and Rust's `to_lowercase` *introduces* final sigma (so
+  `ΟΔΟΣ` and `οδοσ` were two terms, in the opposite direction). This **extends**
+  DCR-0027's 2026-08-12 amendment rather than reversing it: that amendment
+  settled the composition half — NFC, and that it runs *after* the fold — and
+  composition is untouched. `caseless` is not a new crate in the dependency
+  graph; it is the crate comrak's `unicode-normalization` edge already comes
+  through, so the lockfile gains one edge and no package. **Cache consequence:**
+  `glossary_key`/`section_key` are a `CohortDigest` axis (contracts.md §5a), so
+  a cached run whose glossary carries a non-ASCII term will **miss** rather than
+  mis-serve, and re-translate it once.
+- **`--strict-csp` adds `form-action 'none'`** (R0011-0033). It is the one
+  directive in that policy guarding a *navigation* rather than a load, and
+  `default-src` does not cover it, so a `<form>` the sanitizer kept from
+  untrusted source content was a live off-origin submit target for a reader's
+  typed input. contracts.md §6, `docs/Developer_Guide.md` and the archived
+  OI-0018 resolution line all carry the amended policy.
+- **The shipped shells stop overlaying their own content.** The tint legend and
+  the theme picker were `position: fixed`, so both sat on top of whatever pane
+  content scrolled under them and no pane inset could reserve space for that at
+  every scroll position (R0011-0085, R0011-0086). Both are now rows of the body
+  grid, which overlap nothing by construction. Applied identically to the
+  `--html-out`/`--out-dir` bundle template and the `web/index.html` demo shell,
+  so the two cannot drift.
+- **The sync engine's smooth follow is time-based and respects
+  `prefers-reduced-motion`** (R0011-0094, R0011-0093). The lerp closed a fixed
+  fraction of the gap *per callback*, so the same gesture settled twice as fast
+  on a 120 Hz display as on a 60 Hz one — the refresh rate deciding a product
+  behavior. It is now applied per elapsed millisecond against a nominal frame,
+  with a ceiling so a backgrounded tab cannot spend its whole arrears in one
+  jump; under reduced motion the partner is placed rather than glided. Both
+  `sync.js` twins move together, as `sync_js_drift.rs` requires.
+- **`scripts/smoke-live.sh` builds once and runs the binary it built**
+  (R0011-0055), instead of a workspace build followed by two `cargo run`
+  invocations that re-resolved and could rebuild under a different feature
+  unification. The binary is resolved from cargo's own JSON — filtered to the
+  `transync` bin target, refusing anything other than exactly one match
+  (R0011-0013's rule, taken here too) — so it keeps working under the
+  workspace's redirected `CARGO_TARGET_DIR`.
+- **`scripts/test-browser.sh` parses cargo's JSON instead of regexing it**
+  (R0011-0012) and selects the `transync` bin target rather than the last line
+  carrying a path (R0011-0013).
+
+### Fixed
+
+- **`scripts/smoke-live.sh` and `scripts/smoke-live-long.sh` were broken in
+  every configuration** (R0011-0001, R0011-0002). `DEFAULT_WORKDIR="$(…)"WORKDIR="…"`
+  is *one* shell assignment word, not two, so `WORKDIR` was never set and the
+  script aborted under `set -u` at its first use; the long wrapper fused an
+  assignment with `export` the same way and exported nothing. Both are
+  syntactically valid, so `bash -n` and shellcheck were silent — the real gap is
+  that the scripts have not been executed since `a30b40d` (2026-09-03), which is
+  `status.md`'s standing live-smoke gap. A sweep of the other scripts that
+  commit touched found no third instance.
+- **A run could overwrite its own input** (R0010-0003, R0010-0004).
+  `vet_destinations` compared only the output set, so `--output`, `--map`,
+  `--report` or a bundle filename naming `--input`, `--profile` or
+  `--system-prompt-file` published the translation over the document being
+  translated — silently, because the source was already in memory and the write
+  was a legitimate publication of a successful run. `--out-dir` had the wider
+  version: an input *inside* the target is destroyed without any destination
+  naming it. Read-side identities now enter the same preflight, before the
+  provider is called. **`--force` does not waive it** — that flag says an
+  existing *output* may be replaced, and no argv spelling asks a run to destroy
+  its own inputs.
+- **A retry round no longer discards the work its earlier sub-batches did**
+  (R0010-0006). A terminal error from a later split sub-batch returned before
+  the per-unit walk where `cache_put` runs, so units accepted earlier in the
+  same round were never cached and had to be re-translated on resume. ADR-0017
+  still aborts the run; only the cache write is recovered.
+- **An explicitly requested tokenizer vocabulary no longer silently becomes a
+  different one** (R0010-0028). `encoder_for_hint` fell back from `o200k_base`
+  to `cl100k_base`; ADR-0010 rules on the both-fail case, not on this one.
+- **Diagnostics cannot be made to reorder what a terminal shows** (R0010-0068).
+  `diagnostic_line` escaped category Cc only, so the nine explicit bidi
+  formatting characters — reachable through a provider-authored
+  `rejection_reason` or `warning`, i.e. through untrusted source content under
+  invariant 7 — passed straight through and could render a diagnostic as a path
+  or verdict it does not contain. They are escaped now; `ZWJ`/`ZWNJ` are
+  deliberately not, because they carry no reordering power and belong to
+  legitimate Persian and Indic terms.
+- **A mid-iteration directory-entry error in the staging sweep is reported**
+  rather than dropped by `.flatten()` (R0010-0017), which was the more
+  misleading half of that silence: the `read_dir` open failure was already
+  reported, so the sweep could claim success having never seen the entry it was
+  looking for.
+- **Bundle-only flags say so consistently.** `--title` and `--target-direction`
+  joined `--strict-csp`'s existing note when a run emits no HTML bundle
+  (R0010-0059), instead of two of the three doing nothing silently.
+- **The stub-provider build no longer skips the preflight it exists to test**
+  (R0010-0029). The `test-stub-provider` arm skipped `Url::parse` and
+  `ModelId::parse`, so the feature that exists to test the CLI tested a CLI with
+  a different preflight; the parse is now shared and feature-independent.
+- **Blank-line collapse recognizes lone-CR and CRLF blanks** (R0010-0053), not
+  just LF.
+- **Live-smoke and live-gate preflights happen before the paid work**, not
+  after: bind/port/allow-host go through the real `serve` argv (a no-side-effect
+  probe that never opens a socket), target language, profile path and
+  system-prompt path are checked before `cargo build`, whitespace-only API keys
+  and padded model / non-HTTP base-URL overrides are refused by name
+  (R0011-0007 through R0011-0011, R0011-0049 through R0011-0051, R0011-0057,
+  R0011-0058).
+- **Hook installation reports what it actually did** — a failed `chmod` is no
+  longer reported as success (R0011-0015), force-install can override worktree
+  and command scope (R0011-0014), remediation commands survive apostrophes in
+  paths (R0011-0060), and the pre-commit helper's probe variables stop leaking
+  to global scope (R0011-0062).
+- **Compaction temp creation cannot truncate an existing file** (R0011-0005),
+  its parsing validates the timestamp field (R0011-0035), and a cache put
+  serializes from the borrow instead of cloning the whole result first
+  (R0011-0071).
+- **A provider body-read failure keeps the HTTP status and the retry hint it
+  already knew** (R0011-0026), and default endpoints are parsed once rather than
+  per request (R0011-0073).
+- **The WASM demo panes carry `lang` and `dir`** (R0011-0038, R0011-0039), a
+  click on a control inside an editable block keeps its own click instead of
+  also opening the editor (R0011-0041), and the editor is reachable by keyboard:
+  editable blocks are tab stops and Enter/Space open them (R0011-0042).
+- **The shells announce what they are doing.** Panes ship `aria-busy` and a
+  visible loading copy that every boot exit clears (R0011-0091), fatal boot
+  errors reach a `role="alert"` region instead of the console alone
+  (R0011-0090), a sync refusal is stated on screen while both rendered documents
+  are kept (R0011-0031), translation status carries a border cue and a clipped
+  text label rather than colour alone (R0011-0088), and a stored theme is
+  accepted only when the selector offers it (R0011-0089).
+- Documentation: the CLI reference stops always naming `out.md` for out-dir mode
+  (R0011-0080), the manual introduction stops describing Markdown only
+  (R0011-0081), and the WASM build doc stops repeating a workdir fallback the
+  helper refuses (R0011-0082) — as do two live-smoke comments that promised the
+  same nonexistent fallback (R0011-0052, R0011-0053) and the long-test help text
+  that named the wrong port (R0011-0054). An unrecognized
+  `TRANSYNC_WORKDIR_POLICY` is now refused by name instead of behaving as
+  `refuse` (R0011-0061).
+
+### Security
+
+- **Sanitized inline styles can no longer cover trusted chrome** (R0011-0032).
+  DOMPurify's default profile keeps the `style` attribute — the shells' CSP
+  comment explicitly accommodates it — so a type-6 html block carried in from
+  untrusted source Markdown could ship `position: fixed` and paint over the
+  opposite pane or the shell's own controls. Each `.pane` is now a paint
+  containment boundary. Containment rather than stripping is deliberate: `style`
+  is how a source document's own presentation survives into the pane at all, and
+  removing it would change what every legitimate html block renders in order to
+  close a case a boundary already closes. Recorded in contracts.md §4a.
+- `form-action 'none'` (above) and the bidi escaping (above) are the other two
+  entries of this kind in this section.
+
+### Also in this window — the Type 1 / Type 2 backlog pass (2026-09-06)
+
+Nineteen backlog entries turned out to be **stale rather than open** — work that had
+landed without the register being reconciled — and each now carries a dated note with
+the evidence rather than a bare claim. Three were genuinely open and are fixed here:
+
+- **A panicking `serve` connection task is no longer discarded along with its panic**
+  (OI-0050 / R0010-0077). All three `join_next()` sites hand the joined
+  `Result<(), JoinError>` to one reporter, which stays silent for a task that finished
+  on its own terms and otherwise names the death as a **panic** — carrying the task id
+  and payload, and the sentence that it is a bug in transync rather than a peer failure
+  — or a **cancellation**. Nothing became fatal; the accept loop keeps going. The
+  per-connection I/O policy is untouched: `let _ = conn::serve(...)` is deliberate, and
+  its "a dead socket is the peer's business" comment remains that decision's record.
+- **The two cancellation races stopped being timed** — ti `d41782`'s **option 2**, which
+  that ticket named as the strongest outcome, declined to take, and left explicitly
+  available. Its option 1 (2026-09-01) had widened the bounds to `CAPPED_BACKOFF / 2`
+  and `IGNORED_SLEEP / 10`, which removed the recurring flake cheaply but left a
+  stopwatch measuring a host, and one of the two stalls being ruled out is only 30 s, so
+  widening has a ceiling. The property both bounds reached for is **abandonment**, not
+  speed: it is now pinned by a scheduler-turn budget (yielding does not move the clock,
+  so a run sitting out a `tokio::time::sleep` is pending on every turn) and by a counter
+  the ten-minute provider increments only past its sleep. Both regression signatures are
+  unchanged and both tests still fail decisively against them.
+- **Bin-only crates entered the rustdoc gate.** `scripts/lib/rustdoc-gate.sh` gained
+  `RUSTDOC_GATE_BIN_CRATES` and a `--document-private-items` leg over `transync-cli`, run
+  by both callers, plus a mirrored completeness check for any member with a `src/main.rs`
+  and no `src/lib.rs` that is not listed. It is a **second** `cargo doc` invocation rather
+  than two more `-p` entries, because `--document-private-items` suppresses the
+  `private_intra_doc_links` lint the library leg exists to catch. The nine links this was
+  filed for had already been repaired in `2ca092f`; what was missing was the gate that
+  would have reported them, which is what this closes. Consequence for the next
+  release-prep: `scripts/smoke.sh` now runs **eight** command steps plus its `OK` summary
+  line, where the `[0.5.0]` entry below correctly records seven for that cut.
+
+### Decisions recorded
+
+- **ADR-0029 — the `--out-dir` ownership marker is a name, not a credential.**
+  Recognition is the filename and file type; the body is documentation and is
+  never compared. Safe because an unmarked target is not refused, it falls
+  through to the complete-fileset check — and a byte-exact compare would buy
+  nothing against an actor who can write into an operator-named output directory
+  while making a checkout-converted marker demand `--force`, the false refusal
+  OI-0036 action 3 was written to avoid. (R0011-0003.)
+- **ADR-0030 — the WASM publish lock fails closed, and the remedy is a human.**
+  No automatic stale-owner recovery: the lock is held for two renames, `INT` and
+  `TERM` are routed through `exit` so only `SIGKILL` can strand it, and every
+  automatic break has a wrong branch whose consequence is the nested-staging
+  corruption the lock exists to prevent. The refusal already names the remedy.
+  (R0011-0016.)
+- **ADR-0031 — a provider request budget is taken verbatim.** `with_timeout` is
+  infallible by design and applies no floor or clamp, so `Duration::ZERO` is
+  accepted and fails every request immediately while `request_timeout()` still
+  reports zero — which is that accessor's one guarantee. Validating a domain
+  would break an infallible builder to catch a mistake that already announces
+  itself. (R0011-0075.)
+
+### Tracked, not fixed
+
+- ~~**OI-0050**~~ **RESOLVED 2026-09-06** — fixed the same day it was filed, in the
+  backlog pass recorded above. It is listed here anyway because the gate routed it
+  `track`, and that routing is part of this section's record.
+- **OI-0051** — every batch clones its profile and carries a second copy of its
+  glossary. The allocation is modest; the reason to fix it is that the
+  glossary-sensitive cache key reads one field while the prompt is compiled from
+  the other. Needs a breaking window.
+- **OI-0052** — the checked provider constructors accept header values that
+  cannot become headers. Needs a breaking window (a new `ConfigError` variant).
+- **OI-0053** — the shells have no small-screen layout and no visible pane
+  headings. One scope question, not three defects; a narrow-viewport commitment
+  also implies a viewport dimension in a browser matrix that is Chromium-only
+  under ADR-0026.
 
 ## [0.5.0] - 2026-09-05
 
