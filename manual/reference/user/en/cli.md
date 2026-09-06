@@ -37,16 +37,17 @@ sources:
   - { id: openai-lib, resource: crates/transync-openai/src/lib.rs }
   - { id: openai-endpoint, resource: crates/transync-openai/src/client/endpoint.rs }
   - { id: syntax-depth, resource: crates/transync-syntax/src/parser/depth.rs }
-synced_hash: 50930da09894bf4d8e13034bb6b8a27587e976be4d3904eb09a7822841d3964f
+synced_hash: 6d37d93a6707fba6675925d016493eb012fb486a98c51d292cd849561fdbef67
 ---
 
 # CLI reference
 
 The `transync` binary has two subcommands: `transync translate`, which
-translates a Markdown document and publishes the output set, and
-`transync serve`, which serves a rendered bundle directory over HTTP on
-loopback. They share an exit-code space and a stderr stream and nothing else:
-`serve` has no provider, no profile, and no verbosity flags.
+translates a Markdown or HTML document — the intake is chosen by
+[`--input-format`](#transync-translate) (ADR-0025) — and publishes the output
+set, and `transync serve`, which serves a rendered bundle directory over HTTP
+on loopback. They share an exit-code space and a stderr stream and nothing
+else: `serve` has no provider, no profile, and no verbosity flags.
 
 `--help` and `--version` are handled by the argument parser and exit `0`.
 
@@ -54,7 +55,7 @@ loopback. They share an exit-code space and a stderr stream and nothing else:
 
 | Flag | Required | Default | Meaning |
 |---|---|---|---|
-| `--input <path>` | yes | — | Source Markdown file. |
+| `--input <path>` | yes | — | Source Markdown or HTML file. |
 | `--max-input-bytes <n>` | no | `67108864` (64 MiB) | Refuse a larger `--input` before parsing (exit `2`). The read takes `n + 1` bytes rather than trusting file metadata. Does not govern `--profile` / `--system-prompt-file`, which are capped at a fixed 4 MiB. |
 | `--input-format <markdown\|html>` | no | `markdown` | Which intake parses `--input`. Routing is **flag-only** — the HTML preamble sniff stays a refusal, never a router. `html` takes the HTML→HTML path (ADR-0025): HTML intake, same pipeline and block ids, HTML back out, and `--output` writes `out.html`. Conflicts with `--allow-html-input` (exit `1`). |
 | `--allow-html-input` | no | off | Translate an `--input` whose preamble declares an HTML document *as Markdown anyway*, overriding the sniff refusal. For an HTML island in a Markdown file — to translate a whole HTML document, use `--input-format html` instead. Conflicts with `--input-format html` (exit `1`). |
@@ -100,12 +101,17 @@ clean cancellation.
 
 ```
 <dir>/
-├── out.md                   translated Markdown
+├── out.md | out.html        the translated document
 ├── alignment.json           alignment map
 ├── validation-report.json   always written in this mode
 ├── html/                    the six-file demo bundle
 └── .transync-out-dir        ownership marker
 ```
+
+The translated document is named for the run's intake, not for the source
+file: a Markdown run publishes `out.md`, an `--input-format html` run publishes
+`out.html`. One of the two, never both — routing is flag-only, so the flag
+decides the filename too.
 
 The six bundle filenames are `index.html`, `source.html`, `target.html`,
 `alignment.json`, `sync.js`, `purify.min.js`. Any other regular file in an

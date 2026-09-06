@@ -13,6 +13,7 @@ sources:
   - { id: dcr-0020, resource: docs/project/design-change-records/DCR-0020-track-c-wasm-demo.md }
   - { id: build-wasm, resource: scripts/build-wasm.sh }
   - { id: workdir-guard, resource: scripts/lib/workdir-guard.sh }
+  - { id: workdir-pick, resource: scripts/lib/workdir.sh }
   - { id: test-browser, resource: scripts/test-browser.sh }
   - { id: playwright-config, resource: web/playwright.config.js }
   - { id: demo-html, resource: web/demo-wasm.html }
@@ -23,7 +24,7 @@ sources:
   - { id: align-version, resource: crates/transync-syntax/src/align.rs }
   - { id: serve-mime, resource: crates/transync-cli/src/serve_cmd/mime.rs }
   - { id: gitignore, resource: .gitignore }
-synced_hash: 24b64d02ec987e4a351fd3e8c2c1998a8a53f07abd7f06db97500a56a7b1cb40
+synced_hash: 28f62ac5b37aa496b455187864d45332c6f8c935bb3e182191547567718de8dc
 ---
 
 # How to build and run the wasm render+edit demo
@@ -79,13 +80,19 @@ What runs, in order:
    --no-opt --no-pack --out-dir "$STAGING"`, where `$STAGING` is a
    `mktemp -d` subdirectory of the staging root. That root is
    `TRANSYNC_WASM_STAGING`, defaulting to
-   `/Volumes/Temp/claude/transync-wasm-pkg` and falling back to
-   `${TMPDIR:-/tmp}/transync-wasm-pkg` when the default's parent directory does
-   not exist; an override is vetted by the shared deletion guard
-   (`scripts/lib/workdir-guard.sh`). The per-run subdirectory is what lets two
-   concurrent builds coexist. `--no-opt` is mandatory, not merely preferable:
-   wasm-pack ignores its optimization key for a user-defined profile like
-   `wasm-release`.
+   `/Volumes/Temp/claude/transync-wasm-pkg`. An explicit override wins
+   verbatim — even when its parent does not exist yet — and is vetted by the
+   shared deletion guard (`scripts/lib/workdir-guard.sh`). With no override and
+   no `/Volumes/Temp/claude`, the script **refuses**: it names the missing root
+   and the variable that fixes it, and exits non-zero before wasm-pack is even
+   looked for. There is no silent relocation, because a scratch root that is
+   unreachable is a stop-and-ask rather than a work-around (ti `13a73b`,
+   `scripts/lib/workdir.sh`). Set `TRANSYNC_WASM_STAGING=<path>` to build
+   anywhere; `TRANSYNC_WORKDIR_POLICY=warn` restores the old
+   `${TMPDIR:-/tmp}/transync-wasm-pkg` fallback, with a warning. The per-run
+   subdirectory is what lets two concurrent builds coexist. `--no-opt` is
+   mandatory, not merely preferable: wasm-pack ignores its optimization key for
+   a user-defined profile like `wasm-release`.
 2. `wasm-opt -Oz` invoked directly, with the bulk-memory / reference-types /
    nontrapping-float-to-int / sign-ext / mutable-globals proposal flags current
    rustc output needs.
