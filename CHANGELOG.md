@@ -13,30 +13,49 @@ between them). 63 were routed `fix` and applied here; 3 were recorded as ADRs
 waiting on a breaking window; the rest were rejected or dropped, most of them
 against a record that already ruled on the question.
 
-**One breaking change is sitting in this section, and it needs a window.**
+**Two breaking changes are sitting in this section, and they need a window.**
 v0.5.0 closed the sanctioned window it had carried since 2026-08-24, and the
 rule is unchanged: a further breaking change needs a **new** window and the
-owner decision that opens one. `LineOffsets::offsets` below is that change. It
-is recorded here rather than held back so the decision is taken deliberately —
-either the next release is the minor bump that carries it (alongside OI-0051
-and OI-0052, which are queued for exactly that window), or the field goes back
-to `pub` and only the accessor ships.
+owner decision that opens one. Both are below, both are invisible through the
+`transync` facade, and both are breaking only for a consumer that depends on
+`transync-syntax` directly: `LineOffsets::offsets` becoming private
+(R0010-0023), and the Markdown intake's move from `parser` to
+`intake::markdown` (DCR-0053). They are recorded here rather than held back so
+the decision is taken deliberately — either the next release is the minor bump
+that carries them (alongside OI-0051 and OI-0052, which are queued for exactly
+that window), or the field goes back to `pub` and only the accessor ships. The
+rename has no such fallback: it is the discharge of a deferral DCR-0035 wrote
+down, and reverting it would re-open the asymmetry that record exists to
+explain.
 
 ### Changed (BREAKING)
 
-- **`transync_syntax::parser::ranges::LineOffsets::offsets` is private**, and a
-  read-only `line_starts() -> &[usize]` accessor takes its place (R0010-0023).
-  The field and its `source` are one fact: every method reads the table as
-  `new`'s output *over that source*, so an entry a caller could reassign is a
-  line start describing bytes that are not there. The `transync` facade is
-  **not** affected — `public_surface.rs` pins `parser` as hidden, so
-  `transync::parser::…` never resolved — but `transync-syntax` is itself a
-  published crate and `parser::ranges` is `pub mod`, which is what makes this
-  breaking. The saturating guards in `line_content_end` and `pos_to_byte` stay:
-  their comments now say they defend against an in-module edit rather than a
-  caller, which is a narrower claim, and `pos_to_byte`'s oversized-`col`
-  exposure is untouched because a column is still whatever an arbitrary caller
-  passes.
+- **`transync_syntax::intake::markdown::ranges::LineOffsets::offsets` is
+  private**, and a read-only `line_starts() -> &[usize]` accessor takes its
+  place (R0010-0023). The field and its `source` are one fact: every method
+  reads the table as `new`'s output *over that source*, so an entry a caller
+  could reassign is a line start describing bytes that are not there. The
+  `transync` facade is **not** affected — `public_surface.rs` pins the module
+  hidden, so it never resolved through the facade — but `transync-syntax` is
+  itself a published crate and `ranges` is reachable through a `pub mod` chain,
+  which is what makes this breaking. The saturating guards in
+  `line_content_end` and `pos_to_byte` stay: their comments now say they defend
+  against an in-module edit rather than a caller, which is a narrower claim, and
+  `pos_to_byte`'s oversized-`col` exposure is untouched because a column is
+  still whatever an arbitrary caller passes. (Its **path** also moved in this
+  same window — see the rename below — so a direct `transync-syntax` consumer
+  reaching this type sees both changes at once.)
+
+- **The Markdown intake moved from `transync_syntax::parser` to
+  `transync_syntax::intake::markdown`** (DCR-0053, ticket `b7e4cc70`,
+  `18c1ab4`), making the format seam symmetric: `intake::html` and
+  `intake::markdown` are now siblings under the module that names the seam, the
+  shape ADR-0025's D3 specified and DCR-0035 deferred. **No behaviour changes** —
+  the workspace tally is identical to the pre-rename baseline. Like the entry
+  above, this is invisible through the `transync` facade, which never re-exported
+  the module, and breaking only for a consumer depending on `transync-syntax`
+  directly. It is listed here rather than under "Changed" because that is the
+  same audience and the same unopened window.
 
 ### Changed
 

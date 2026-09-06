@@ -150,6 +150,36 @@ item needs an owner decision**: R0010-0023 made `transync_syntax::parser::ranges
 private, which is a breaking change to that crate's published API — recorded in `CHANGELOG.md`'s
 `[Unreleased]` as a change that now *needs* a window rather than one that opens one.
 
+**2026-09-07 — the format seam is symmetric, and Type 1 is empty.** The
+`parser` → `intake::markdown` rename landed as `18c1ab4` (ticket `b7e4cc70`,
+**DCR-0053**), discharging the deferral DCR-0035 recorded on 2026-09-03 under
+that deferral's own acceptance condition: **the diff is only the rename**. Its
+blocker was never a decision — it was a commit boundary, since three files on
+the rename's surface also carried uncommitted gate work, and staging exact paths
+cannot separate two changes inside one file. Committing that work as
+`43cc19c`..`cc20f4f` cleared it. Eight files moved by `git mv` — git reports all
+eight as renames at 94–100% similarity — and ~300 path references followed across
+four crates and eleven documents. **Zero behaviour changed**, and the evidence
+for that claim is a tally identical to the pre-rename baseline: 47 targets,
+**1,359 passed, 0 failed, 8 ignored**, with `cargo fmt`, clippy, the two-package
+`wasm32` gate, both rustdoc legs and biome all exit 0. Minimality was checked
+mechanically rather than by eye — the rename transform was replayed over each
+file's `HEAD` content, and all 47 remaining `.rs` files are byte-identical to its
+output, leaving exactly three hand-edited files. Four judgement calls a
+mechanical rename does not make for you are recorded in DCR-0053: `transync-core`
+keeps a **leaf** re-export so it still reads `crate::markdown::…`;
+`public_surface.rs` has **zero diff**, keeping `"parser"` as a re-introduction
+guard exactly as it still keeps `"htmlseg"`, retired since DCR-0032; living
+reference documents moved while every dated record did not; and the
+`intake::markdown::intake` collision the rename creates is left alone as a
+separate decision, owned by OI-0034. **The backlog's Type 1 group is now empty**;
+Type 2 still holds `git-history-lost-twice-standing-record`, which is the owner's
+call by its own text. **The unopened window now carries two changes, not one** —
+`LineOffsets::offsets` going private *and* this rename — both invisible through
+the `transync` facade and breaking only for a direct `transync-syntax` consumer;
+the `[Unreleased]` preamble says so. Unlike the field, the rename has no revert
+fallback: reverting it would re-open the asymmetry DCR-0035 exists to explain.
+
 ## Immediate Next Actions
 - **Action (road to 0.2.0, owner-approved 2026-08-03):** ~~HTML-content translation feature (spec v2 at `docs/superpowers/specs/2026-08-03-html-content-translation-design.md`)~~ **DONE 2026-08-04** (ADR-0018 / DCR-0016) → ~~OI-0028 Option B crate split + renderer rework (clears the OI-0008 renderer debt in the same effort)~~ **DONE 2026-08-04** (DCR-0017; OI-0028 RESOLVED, OI-0008 narrowed) → ~~OI-0027 facade curation + `#[non_exhaustive]` + constructor (the window-closing ritual)~~ **DONE 2026-08-04** (DCR-0018; OI-0027 RESOLVED, DCR-0017's widened-surface inventory closed) → ~~0.2.0 release~~ **DONE 2026-08-05** — annotated tag `v0.2.0`; the breaking window is **closed**. `#[non_exhaustive]` — 17 items after the pre-tag owner addendum extended it to the six read-only output types (`TranslationOutput`, `ValidationReport`, `AlignmentMap`, `AlignmentBlock`, `ValidationSummary`, `GeneratorMeta`) — makes the next field/variant addition additive instead of breaking. The release gate below ran for the tag; date + models are recorded in the CHANGELOG's 0.2.0 entry.
 - **Action (post-0.2.0, done 2026-08-05):** ~~OI-0008 + OI-0033 internal-quality wave (spec at `docs/superpowers/specs/2026-08-05-oi0008-0033-internal-quality-design.md`, 12-task plan alongside it) — land the refactor debt *before* Track C, because Track C ships `transync-syntax` to the browser and refactoring a shipped WASM artifact costs more.~~ **DONE 2026-08-05** (DCR-0019; OI-0008 and OI-0033 both RESOLVED, OI-0034 filed).

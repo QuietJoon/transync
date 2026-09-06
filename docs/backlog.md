@@ -863,6 +863,23 @@ deliberately pins ordering.
 
 ### parser-intake-markdown-rename
 
+> **RESOLVED 2026-09-07** (ticket `b7e4cc70`, commit `18c1ab4`; DCR-0053). Done, and done under this
+> entry's own acceptance condition: the diff is *only* the rename. `src/parser.rs` and its seven
+> children moved to `src/intake/markdown/` by `git mv` — git reports all eight as renames at 94–100%
+> similarity — and ~300 path references followed across four crates and eleven documents. Zero
+> behaviour changed, and the workspace tally is identical to the pre-rename baseline: 47 targets,
+> 1,359 passed, 0 failed, 8 ignored, with fmt, clippy, the two-package wasm32 gate, both rustdoc legs
+> and biome all exit 0. Minimality was verified mechanically rather than by eye — the transform was
+> replayed over each file's `HEAD` content and all 47 remaining `.rs` files are byte-identical to its
+> output, so only three files are hand-edited: `lib.rs` (drops `pub mod parser;`), `intake.rs` (the
+> deferral paragraph this change makes false, replaced by the symmetric statement), and
+> `intake/markdown.rs` (one comment naming its own old filename). Four judgement calls are recorded in
+> DCR-0053 rather than left to inference: `transync-core` keeps a **leaf** re-export so it still reads
+> `crate::markdown::…`; `public_surface.rs` has **zero diff**, keeping `"parser"` as a re-introduction
+> guard exactly as it still keeps `"htmlseg"`; living reference documents moved while every dated
+> record did not; and the `intake::markdown::intake` collision the rename creates is left alone as a
+> separate decision, owned by OI-0034.
+
 > **2026-09-06 — attempted, and deliberately not done in this tree; ticket `b7e4cc70`, state
 > `blocked`.** Blocked on a commit boundary, not on a decision. This entry's own acceptance
 > condition is that the paying wave's diff must be *only* the rename. The working tree currently
@@ -1603,11 +1620,11 @@ two complete `HtmlRewriter` passes over the same bytes. A WASM `rebuild_impl` is
 
 Type 2: three of the six cannot be started without a decision, so the cluster
 tie-breaks up. R0009-0031's fix pushes an arena lifetime through
-`transync-syntax`'s public render signature, because `parser::parse` owns its
+`transync-syntax`'s public render signature, because `intake::markdown::parse` owns its
 arena and returns owned IR. R0009-0043 must **not** be fixed by carrying the
 validated splice into regen: the two calls take different inputs — validation
 uses `constraints.html.source_bytes` from `outcome::block_payload`, regen slices
-`doc.source_text` via `parser::ranges::clamped_char_bounds` — and `validate.rs`
+`doc.source_text` via `intake::markdown::ranges::clamped_char_bounds` — and `validate.rs`
 documents the divergence as load-bearing ("cannot make this layer lie about
 regen's success"), so sharing collapses a deliberate independent double-check.
 R0009-0065's recommended one-scan staging is not implementable as written, since
