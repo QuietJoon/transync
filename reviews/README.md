@@ -83,6 +83,8 @@ false "mis-cited id" report before it was noticed.
 | `R0007` | by 2026-07-10 (DCR-0005 records it) | — | **never tracked**, as `R0006`. |
 | `R0008` | 2026-07-11 | 91 (65 accepted) | **never tracked**, as `R0006`. `CHANGELOG.md`'s "Review 0008 wave" entry summarizes the round. |
 | `R0009` | 2026-08-24 | 91 (6 high, 43 medium, 42 low) | `reviews/reviewed/0009.md`, with `reviews/reviewed/0009.patch`. **Claimed as `0002` and renumbered before any citation existed** — see the note in the file's header and the rule-4 discussion below. |
+| `R0010` | 2026-09-04 | 93 (1 critical, 9 high, 65 medium, 18 low) | `reviews/reviewed/0010.md`, with `reviews/reviewed/0010.patch`. Gated and archived 2026-09-06. |
+| `R0011` | 2026-09-05 | 95 (6 high, 42 medium, 47 low) | `reviews/reviewed/0011.md`, with `reviews/reviewed/0011.patch`. Gated and archived 2026-09-06 in the same round as `R0010`. |
 
 `bb93b68` ("reviews: remove archived reviews 0001-0005 (findings preserved)")
 is the commit that took rounds `0001`–`0005` off disk; `bb93b68^` is therefore

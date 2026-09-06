@@ -1,0 +1,126 @@
+# STATUS: COMPLETED
+# CLAIM_TOKEN: 186B2CBA-487B-4D33-8804-3FA9905E32B4
+# SUMMARY: Repair two broken live-smoke assignments, authenticate the out-dir marker body, make cache compaction staging exclusive, surface browser sync refusal, and prevent form submission under strict CSP.
+# AFFECTED_FILES: scripts/smoke-live.sh, scripts/smoke-live-long.sh, crates/transync-cli/src/output/preflight.rs, crates/transync-core/src/cache/disk.rs, crates/transync-cli/web/index.html.tpl, crates/transync-cli/src/output/bundle.rs
+# FINDINGS: R0011-0001, R0011-0002, R0011-0003, R0011-0005, R0011-0031, R0011-0033
+
+diff --git a/scripts/smoke-live.sh b/scripts/smoke-live.sh
+--- a/scripts/smoke-live.sh
++++ b/scripts/smoke-live.sh
+@@ -61,6 +61,7 @@ TARGET_LANG="${TRANSYNC_LIVE_TARGET_LANG:-ko}"
+ # Default workdir prefers /Volumes/Temp/claude (per project guidance) but
+ # falls back to a system tmpdir when that path doesn't exist, so the
+ # script is portable for contributors without that volume mounted.
+-DEFAULT_WORKDIR="$(transync_pick_workdir TRANSYNC_LIVE_WORKDIR /Volumes/Temp/claude/transync-live)"WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_WORKDIR}"
++DEFAULT_WORKDIR="$(transync_pick_workdir TRANSYNC_LIVE_WORKDIR /Volumes/Temp/claude/transync-live)"
++WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_WORKDIR}"
+ PORT="${TRANSYNC_LIVE_PORT:-7470}"
+ BIND="${TRANSYNC_LIVE_BIND:-127.0.0.1}"
+diff --git a/scripts/smoke-live-long.sh b/scripts/smoke-live-long.sh
+--- a/scripts/smoke-live-long.sh
++++ b/scripts/smoke-live-long.sh
+@@ -33,5 +33,6 @@ export TRANSYNC_LIVE_INPUT="${TRANSYNC_LIVE_INPUT:-${REPO_ROOT}/samples/demo-long.md}"
+ # for the same demo-server port. R0008-0054: mirror smoke-live.sh's
+ # portable fallback so a contributor without /Volumes/Temp/claude gets a
+ # working default instead of a permission/path failure.
+-DEFAULT_LONG_WORKDIR="$(transync_pick_workdir TRANSYNC_LIVE_WORKDIR /Volumes/Temp/claude/transync-live-long)"export TRANSYNC_LIVE_WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_LONG_WORKDIR}"
++DEFAULT_LONG_WORKDIR="$(transync_pick_workdir TRANSYNC_LIVE_WORKDIR /Volumes/Temp/claude/transync-live-long)"
++export TRANSYNC_LIVE_WORKDIR="${TRANSYNC_LIVE_WORKDIR:-$DEFAULT_LONG_WORKDIR}"
+ export TRANSYNC_LIVE_PORT="${TRANSYNC_LIVE_PORT:-7471}"
+diff --git a/crates/transync-cli/src/output/preflight.rs b/crates/transync-cli/src/output/preflight.rs
+--- a/crates/transync-cli/src/output/preflight.rs
++++ b/crates/transync-cli/src/output/preflight.rs
+@@ -13,7 +13,9 @@
+ use super::destination::vet_destinations;
+ use super::fileset::tmp_pid_suffix;
+ use super::lock::PUBLISH_LOCK_NAME;
+-use super::publish::{HTML_SUBDIR, OUT_DIR_ENTRIES, out_dir_name};
++use super::publish::{
++    HTML_SUBDIR, OUT_DIR_ENTRIES, OUT_DIR_MARKER_BODY, out_dir_name,
++};
+ use super::{BEFORE_THIS_PUBLICATION, Notify, OUT_DIR_MARKER_NAME, note_cleanup_residue};
+ use std::collections::HashSet;
+ use std::fs;
+@@ -413,8 +415,12 @@ pub(super) fn ensure_out_dir_replaceable(
+             ));
+         };
+         let file_type = entry.file_type()?;
+         if is_transync_marker(name, file_type) {
+-            owned |= name == OUT_DIR_MARKER_NAME;
++            if name == OUT_DIR_MARKER_NAME {
++                let metadata = entry.metadata()?;
++                owned |= metadata.len() == OUT_DIR_MARKER_BODY.len() as u64
++                    && fs::read(entry.path())? == OUT_DIR_MARKER_BODY;
++            }
+             continue;
+         }
+         if file_type.is_file() && staging_temp_pid(name, OUT_DIR_ENTRIES).is_some() {
+diff --git a/crates/transync-core/src/cache/disk.rs b/crates/transync-core/src/cache/disk.rs
+--- a/crates/transync-core/src/cache/disk.rs
++++ b/crates/transync-core/src/cache/disk.rs
+@@ -737,12 +737,16 @@ fn compact_log(dir: &Path, path: &Path, replayed: &Replayed) -> Result<(), Cache
+         ),
+     );
+ 
+-    let file = File::create(temp.path()).map_err(|e| {
+-        CacheError::Io(format!(
++    let file = OpenOptions::new()
++        .write(true)
++        .create_new(true)
++        .open(temp.path())
++        .map_err(|e| {
++            CacheError::Io(format!(
+             "create compaction temp {}: {e}",
+             temp.path().display()
+         ))
+-    })?;
++        })?;
+     let mut writer = BufWriter::new(file);
+     buffer_record(
+         &mut writer,
+diff --git a/crates/transync-cli/web/index.html.tpl b/crates/transync-cli/web/index.html.tpl
+--- a/crates/transync-cli/web/index.html.tpl
++++ b/crates/transync-cli/web/index.html.tpl
+@@ -273,9 +273,17 @@
+           document.getElementById("source").textContent = msg;
+           console.error(msg);
+         } else {
+-          document.getElementById("source").innerHTML = window.DOMPurify.sanitize(src);
+-          document.getElementById("target").innerHTML = window.DOMPurify.sanitize(tgt);
+-          mountSync(document.getElementById("source"), document.getElementById("target"), align);
++          const sourcePane = document.getElementById("source");
++          const targetPane = document.getElementById("target");
++          sourcePane.innerHTML = window.DOMPurify.sanitize(src);
++          targetPane.innerHTML = window.DOMPurify.sanitize(tgt);
++          if (!mountSync(sourcePane, targetPane, align)) {
++            const msg = "transync: synchronization map refused — panes were not mounted";
++            sourcePane.textContent = msg;
++            sourcePane.setAttribute("role", "alert");
++            targetPane.replaceChildren();
++            console.error(msg);
++          }
+         }
+       }
+     </script>
+diff --git a/crates/transync-cli/src/output/bundle.rs b/crates/transync-cli/src/output/bundle.rs
+--- a/crates/transync-cli/src/output/bundle.rs
++++ b/crates/transync-cli/src/output/bundle.rs
+@@ -54,6 +54,7 @@
+ /// * `connect-src 'self'` — the shell fetches `source.html`, `target.html` and
+ ///   `alignment.json` from beside itself, and nothing else.
+ /// * `object-src 'none'` / `base-uri 'none'` — the bundle has no plugin
+ ///   content and no `<base>`; both would otherwise be reachable through
+ ///   rendered content.
++/// * `form-action 'none'` — rendered content cannot submit viewer data.
+ ///
+ /// `frame-ancestors`, `sandbox` and `report-uri` are deliberately absent: a
+ /// `<meta>`-delivered policy ignores them, so naming them would only add a
+@@ -71,6 +72,7 @@ const CSP_META: &str = concat!(
+     "style-src 'self' 'unsafe-inline'; ",
+     "connect-src 'self'; ",
+     "object-src 'none'; ",
+-    "base-uri 'none'",
++    "base-uri 'none'; ",
++    "form-action 'none'",
+     "\">",
+ );
