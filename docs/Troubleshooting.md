@@ -204,7 +204,7 @@ the above, and §7 *Cache reuse across ceilings* for the cache argument.
 
 ```
 transync: translation failed: translator error: content filtered:
-Responses run ended with an incomplete content_filter reason
+Responses output incomplete (reason: content_filter)
 ```
 
 ```

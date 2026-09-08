@@ -65,8 +65,8 @@ transync/                     # Cargo workspace root
 │   │                        #   no workspace member (ADR-0028 / DCR-0045)
 │   ├── transync-html/        # HTML mechanics — tag scanning, element extents, fragment
 │   │                        #   balancing, text-segment extract/splice; wasm32-clean
-│   ├── transync-syntax/      # syntax layer — parser, IR + IDs, regen, render, align;
-│   │                        #   sits on transync-html; wasm32-clean
+│   ├── transync-syntax/      # syntax layer — intake::{markdown,html}, IR + IDs, regen,
+│   │                        #   render, align; sits on transync-html; wasm32-clean
 │   ├── transync-core/        # translation pipeline on top — HTTP-free, no LLM dep
 │   ├── transync/             # curated public facade — explicit re-export list (contracts.md §0)
 │   ├── transync-cli/         # `transync` binary

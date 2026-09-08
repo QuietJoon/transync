@@ -183,7 +183,7 @@ transync/
 ├── crates/
 │   ├── transync-lang/        source-language gate — "should a translation run start at all?"; depends on no workspace member, carries no serialization (ADR-0028 / DCR-0045)
 │   ├── transync-html/        HTML mechanics: tag scan, element extents, segment extract/splice, fragment balancing; lol_html + htmlize only (DCR-0032)
-│   ├── transync-syntax/      syntax layer (parser, id, regen, render, align, outcome, walk); compiles for wasm32 under a standing gate
+│   ├── transync-syntax/      syntax layer (intake, id, regen, render, align, outcome, walk); compiles for wasm32 under a standing gate
 │   ├── transync-core/        pipeline on top (unit, batch, llm, validate, cache, profile, pipeline); no HTTP, no LLM dep
 │   ├── transync/             curated facade (semver firewall) — an EXPLICIT re-export list, not a glob; contracts.md §0 is its table of contents
 │   ├── transync-openai/      Translator impl; model-driven dispatch to Chat Completions + Responses
@@ -201,7 +201,7 @@ transync/
 └── scripts/
     ├── smoke.sh              full hard gate: build + wasm gate + both test suites + rustdoc gate + wasm build + dry-stub end-to-end
     ├── build-wasm.sh         wasm-pack + explicit binaryen wasm-opt + size budget
-    ├── test-browser.sh       headless Playwright: SCN-13 + SCN-16 + the wasm demo
+    ├── test-browser.sh       headless Playwright: every spec under web/tests/ (SCN-13, SCN-16, the engine contract, the wasm demo, the Chromium HTML oracle)
     ├── smoke-live.sh         live OpenAI smoke + transync serve
     └── test.sh               local convenience wrapper for smoke-live
 ```
@@ -217,8 +217,11 @@ cargo fmt --all
 cargo check -p transync-syntax -p transync-wasm \
   --target wasm32-unknown-unknown                       # standing wasm gate
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
-  -p transync-html -p transync-syntax -p transync-core -p transync \
-  -p transync-openai -p transync-anthropic -p transync-wasm   # standing rustdoc gate
+  -p transync-lang -p transync-html -p transync-syntax -p transync-core \
+  -p transync -p transync-openai -p transync-anthropic \
+  -p transync-wasm                          # rustdoc gate, library leg (8 crates)
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
+  --document-private-items -p transync-cli  # rustdoc gate, bin-only leg
 ./scripts/build-wasm.sh                                # demo module + size budget
 ```
 
@@ -243,10 +246,14 @@ The installer will not take a hooks configuration away from you. If
 `core.hooksPath` already names some other directory — yours, or one
 inherited from your global config — it prints what it found, lists the
 three ways forward (chain the two hooks, take over, or clear the value)
-and exits non-zero having changed nothing. `--force` takes over anyway:
-a local value is saved to `transync.replacedHooksPath` before being
-overwritten, an inherited one is left alone and merely shadowed by the
-local value, and either way the exact restore command is printed. Once
+and exits non-zero having changed nothing. `--force` takes over **in the
+scope that wins** (R0011-0014): a `local` or `worktree` value is saved to
+`transync.replacedHooksPath` in that same scope and overwritten there, an
+inherited global or system value is left alone and merely shadowed by a
+local write, and a command-scope value (`git -c core.hooksPath=…`, or
+`GIT_CONFIG_*`) makes `--force` **refuse** and exit 1, because no config
+write could outrank it. In the cases that do proceed, the exact restore
+command is printed. Once
 the value is already `scripts/hooks`, re-running is a one-line no-op.
 
 **The rustdoc gate** (DCR-0018, widened to `transync-openai` on
@@ -1197,7 +1204,8 @@ the run outright.
 - Map provider errors to the right `TranslatorError` variant
   (`Network`, `Authentication`, `RateLimited`, `MalformedResponse`,
   `Unsupported`, `ContentFiltered`, `OutputCeilingExhausted`,
-  `ModelRefused`, `ResponseTooLarge`, `ProviderRejected`, `Cancelled`,
+  `ContextWindowExceeded`, `ModelRefused`, `ResponseTooLarge`,
+  `ProviderRejected`, `NoProviderAvailable`, `Cancelled`,
   `Other`). The pipeline only retries on `Network`/`RateLimited`; every
   other variant is terminal on first occurrence. Reach for `Other` when
   nothing fits — a forced ill-fitting name is worse than an honest
@@ -1270,7 +1278,8 @@ carry a custom impl across the bump:
   `TranslatorError::stable_code()` give you a stable machine string per
   variant if you need to branch across a process boundary — the former
   delegates to the latter for provider failures, so one call answers either
-  way (contracts.md §1 holds the nineteen-code vocabulary).
+  way (contracts.md §1 holds the twenty-two-code vocabulary — 8 engine-side
+  plus 14 provider-side).
 - **`TranslatorError` states a cause, not a policy.** Each variant names why
   the provider stopped — a content-policy stop, an exhausted output ceiling,
   a model refusal, an oversize response, a rejected request — and none of them

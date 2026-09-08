@@ -110,16 +110,22 @@ two Prerequisites rows come from. In order, it runs:
    --test-threads=4`
 5. a completeness check that every library member is named in the
    rustdoc gate's crate list, then `RUSTDOCFLAGS="-D warnings" cargo
-   doc --no-deps` over those crates
-6. `scripts/build-wasm.sh` — wasm-pack plus an explicitly resolved
+   doc --no-deps` over those eight crates
+6. the same completeness check for bin-only members, then a **second**
+   `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+   --document-private-items -p transync-cli` — a separate leg rather
+   than more `-p` entries on the first, because
+   `--document-private-items` disarms the private-intra-doc-link lint
+   the library leg exists to catch
+7. `scripts/build-wasm.sh` — wasm-pack plus an explicitly resolved
    binaryen `wasm-opt`, against a size budget
-7. *only then* the CLI dry run of step 3, whose eight output files must
+8. *only then* the CLI dry run of step 3, whose eight output files must
    all be non-empty
 
 So it is a full workspace build and two test suites before it reaches
 the part step 3 does, and the two wasm prerequisites are load-bearing
 rather than optional: sub-step 2 fails if the `wasm32-unknown-unknown`
-rustup target is missing, and sub-step 6 exits immediately with an
+rustup target is missing, and sub-step 7 exits immediately with an
 install hint if `wasm-pack` or a `wasm-opt` ≥ 121 is not on `PATH`.
 Both fail loudly instead of skipping, on purpose — the wasm module is a
 shipped artifact, not an optional linter. Install them with `rustup
