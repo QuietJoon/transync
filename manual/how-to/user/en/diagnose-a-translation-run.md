@@ -37,7 +37,7 @@ shows up, a table that came back half-translated.
 | `3` | Every translatable unit fell back to source. Outputs *were* written — go to step 2. |
 | `4` | Write failure — an atomic write or bundle write errored. The filesystem, not the translation. |
 | `5` | The residual: an unclassified translator error, a malformed provider response, or — for `transync serve` — an address that could not be bound. |
-| `6` | The provider refused over **how the run was configured**: the credential, a `--model` that does not exist, an output ceiling too small, or the context window exceeded. Nothing was published. Fix the named knob and re-run. |
+| `6` | The provider refused over **how the run was configured**: the credential, a `--model` that does not exist, an output ceiling too small, the context window exceeded, or an `--offline` run that reached a unit the cache could not answer (`no provider available for this run: …`). Nothing was published. Fix the named knob and re-run. |
 | `7` | The provider refused **this document's content** (content filtered, or the model declined). Nothing was published, and re-running unchanged cannot help — retry is a verbatim resubmission, so it sends identical content. |
 
 The stderr line is the fastest diagnosis for most of these, but which prefix
@@ -153,10 +153,13 @@ render the prompt the run will actually send before spending an API call:
 ```rust
 use transync::profile::{load_profile, render_prompt_body};
 
-let profile = load_profile("profile.toml")?;
+let profile = load_profile(&std::fs::read_to_string("profile.toml")?)?;
 let compiled = render_prompt_body(&profile, "en", "ko");
 println!("{}", compiled.prompt_body);
 ```
+
+`load_profile` takes the profile's TOML **text**, not a path, which is why
+the file is read first.
 
 `render_prompt_body` is idempotent over its own output, so calling it twice
 never doubles the appended sections — what you print is what a real run

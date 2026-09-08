@@ -26,6 +26,9 @@ sources:
   - { id: cli-serve-mime, resource: crates/transync-cli/src/serve_cmd/mime.rs }
   - { id: cli-output, resource: crates/transync-cli/src/output.rs }
   - { id: cli-output-lock, resource: crates/transync-cli/src/output/lock.rs }
+  - { id: cli-output-fileset, resource: crates/transync-cli/src/output/fileset.rs }
+  - { id: cli-output-preflight, resource: crates/transync-cli/src/output/preflight.rs }
+  - { id: cli-output-publish, resource: crates/transync-cli/src/output/publish.rs }
   - { id: cli-drift-test, resource: crates/transync-cli/tests/docs_cli_flags_drift.rs }
   - { id: cli-manifest, resource: crates/transync-cli/Cargo.toml }
   - { id: core-lib, resource: crates/transync-core/src/lib.rs }
@@ -275,6 +278,7 @@ does nothing else: no upload, no directory listing, no execution, no proxying.
 | `--rendered <dir>` | yes | — | Directory to serve, normally an `--html-out` bundle. Canonicalized once at startup, so a symlinked directory is served as the directory it points at. |
 | `--port <u16>` | no | `7470` | TCP port. `0` asks the OS for a free one, which is then printed with the bound address. |
 | `--bind <addr>` | no | `127.0.0.1` | Address to bind, parsed as an IP address. A value that is not one is exit `1`. Any non-loopback address prints a warning. |
+| `--allow-host <authority>` | no | none | Another authority to answer for, as `host` or `host:port` — a bare host means the bound port. Repeatable. A value that is not an authority is exit `1`. |
 
 `serve` has no `--quiet` and no `--verbose`. It always runs at the default
 tracing floor (`warn`), and its own diagnostics are prefixed
@@ -286,11 +290,13 @@ On stderr, in order:
 
 ```
 transync serve: listening on http://127.0.0.1:7470/ — serving /abs/path/to/dir
+transync serve: answering for 127.0.0.1:7470, localhost:7470 — a request naming another authority is refused (--allow-host adds one).
 transync serve: WARNING: <ip> is not a loopback address — everything under <root> is reachable from other machines on this network.
 transync serve: press Ctrl-C to stop.
 ```
 
-The warning line appears only when the bound address is not a loopback address.
+The warning line appears only when the bound address is not a loopback address;
+the other three always print.
 Ctrl-C stops the accept loop, as does `SIGTERM` on platforms that have one
 (a supervisor that stops the server sends the latter); the server then prints
 `transync serve: shutting down.`, drains in-flight connections for two seconds,
@@ -308,16 +314,26 @@ the loop backs off 50 ms and continues.
 | Status | Cause |
 |---|---|
 | `200 OK` | A regular file inside the served root. |
-| `400 Bad Request` | The request line is not three tokens ending in an `HTTP/` version; the target is not origin-form; a percent escape is truncated or non-hex; a decoded segment is not valid UTF-8; a segment decodes to something carrying `/`, `\` or NUL. |
+| `400 Bad Request` | The request line is not three tokens ending in an `HTTP/` version; the head states no `Host` field, more than one, an obs-folded or colon-less field line, or a `Host` that is not an authority; the target is not origin-form; a percent escape is truncated or non-hex; a decoded segment is not valid UTF-8; a segment decodes to something carrying `/`, `\` or NUL. |
 | `403 Forbidden` | A segment decodes to `.` or `..`; or the canonicalized path resolves outside the served root, which is what catches a symlink escape. |
 | `404 Not Found` | Nothing is at that path, or what is there is not a regular file — a directory with no `index.html`, a device, a socket. |
 | `405 Method Not Allowed` | Any method other than `GET` or `HEAD`. The response carries `Allow: GET, HEAD`. |
 | `408 Request Timeout` | The request head did not arrive within the head timeout. |
+| `421 Misdirected Request` | A well-formed `Host` authority this server does not answer for. The body names the ones it does; `--allow-host` widens the set. |
 | `431 Request Header Fields Too Large` | The request head exceeded the head cap. |
 
 Refusals reject; they never clamp a traversal back into the root. A refused
 request is an HTTP status on the connection, never a process exit — the server
 keeps serving.
+
+The `Host` verdict is settled before the method, so an unservable method sent to
+an authority this server does not answer for is the `421` rather than the `405`.
+The set answered for is derived from the bind and widened only by
+`--allow-host`: the bound address literal, plus `localhost` when the bind is a
+loopback address, plus — for a wildcard bind (`0.0.0.0`, `::`), which names no
+interface — the loopback authorities it is also listening on. The port is part
+of the authority, so `Host: 127.0.0.1` names port 80 and is not a server bound
+on `7470`.
 
 Every response carries these headers:
 
@@ -364,6 +380,7 @@ it opened.
 |---|---|
 | Request-head size | 8 KiB (`431` beyond it) |
 | Request-head arrival | 15 s (`408` beyond it) |
+| Response delivery | 60 s total, measured from the moment the head is in hand; a peer that has not read its answer by then has the connection closed |
 | In-flight connections | 128; the accept loop waits for one to finish |
 | Accept-error backoff | 50 ms |
 | Response read into memory | at or below 8 MiB; larger files stream |
@@ -387,7 +404,7 @@ it opened.
 | Code | `transync translate` | `transync serve` |
 |---:|---|---|
 | 0 | Success. Also `--help` and `--version`. | A shutdown signal stopped a running server after draining. |
-| 1 | The argument parser rejected argv, `--profile` failed to load, or one of the CLI's own boundary refusals fired. | The argument parser rejected argv, including a `--bind` value that is not an IP address. |
+| 1 | The argument parser rejected argv, `--profile` failed to load, or one of the CLI's own boundary refusals fired. | The argument parser rejected argv, including a `--bind` value that is not an IP address or an `--allow-host` value that is not an authority. |
 | 2 | Input read or parse failure: `--input` missing, unreadable, not valid UTF-8, or larger than `--max-input-bytes`; a `--profile` or `--system-prompt-file` past the fixed 4 MiB cap; any parse error, including the block-nesting refusal at depth 128. | `--rendered` cannot be canonicalized, is not a directory, or is unreadable. |
 | 3 | Every translatable unit fell back to source. All outputs are still written. Fires only when the run had at least one unit. | Not reachable. |
 | 4 | Write failure — `could not write --html-out bundle to {dir}: {source}` or `could not write outputs: {e}`. | Not reachable. |
@@ -447,7 +464,10 @@ published bytes are correct. `--quiet` suppresses them all.
 | `note: waiting for another transync run to finish publishing into {dir}` | Another run holds the publication lock on that directory. This run waits; neither fails. |
 | `note: {dir} holds {n} staging temp(s) from other transync runs (e.g. {first}) — kept in case a run is still staging into them; delete them by hand once no transync run is active` | Staging leftovers carrying another process's pid are never reclaimed automatically. |
 | `note: could not flush the directory {dir} to disk ({e}); the published file CONTENTS are durable, but the directory entries naming them may not survive a crash — re-run the publication if the machine goes down before the filesystem catches up` | The directory could not be flushed, or could not even be opened to try. |
-| `note: could not clean up {n} {what} after a failed publication (e.g. {path}: {e}); the residue is inert — delete it by hand once no transync run is active` | Best-effort cleanup after a *failed* publication left residue. `{what}` is either `staged temp file(s)` or `directory level(s) this run created`. Printed once however many entries failed, and printed **beside** the run's real error, not instead of it. |
+| `note: could not clean up {n} {what} {occasion} (e.g. {path}: {e}); the residue is inert — delete it by hand once no transync run is active` | Best-effort cleanup left residue. `{occasion}` is either `after a failed publication` or `found before this publication` — the second is the opportunistic sweep that clears a crashed predecessor's own leftovers on the way in. `{what}` names what stayed: `staged temp file(s)`, `staged output tree(s)`, `directory level(s) this run created`, or, for that sweep, the `staging temp file(s)` / `staging tree(s) carrying this run's own pid`. Printed once however many entries failed; on the failed-publication occasion it prints **beside** the run's real error, not instead of it. |
+| `note: published to {dir}, but the backup of the previous output could not be removed ({backup}: {e}); it holds the output this run replaced — delete it by hand once you no longer need it` | The publication itself succeeded — the swap is done and the target is the new tree. What survives is the hidden backup of whatever was there before. |
+| `note: could not scan {dir} for staging trees left by a crashed earlier run with this process's pid ({e}); any that are there stay where they are, inert, and the next run will try again` | The pre-publication sweep could not read the parent directory at all. |
+| `note: could not read an entry of {dir} while looking for staging trees left by a crashed earlier run with this process's pid ({e}); …` | The same sweep could not read one directory entry. Said and skipped: the remaining entries are still swept. |
 | `note: could not carry the existing permissions of {path} over to its replacement ({e}); the published file keeps this run's default mode instead` | Unix only. |
 | `note: --strict-csp has no effect without --html-out or --out-dir (this run emits no HTML bundle)` | The flag was passed but no bundle was emitted. |
 | `could not open --cache-dir {dir}: {e}; continuing with a fresh in-memory cache (this run will not reuse or persist anything)` | The disk cache could not be opened. The run continues and translates everything. |

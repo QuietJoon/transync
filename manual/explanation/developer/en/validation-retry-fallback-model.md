@@ -19,6 +19,7 @@ sources:
   - { id: validate, resource: crates/transync-core/src/validate.rs }
   - { id: validate-per-kind, resource: crates/transync-core/src/validate/per_kind.rs }
   - { id: validate-text-presence, resource: crates/transync-core/src/validate/text_presence.rs }
+  - { id: validate-full-rescan-html, resource: crates/transync-core/src/validate/full_rescan_html.rs }
   - { id: pipeline-merge, resource: crates/transync-core/src/pipeline/merge.rs }
   - { id: pipeline-policy, resource: crates/transync-core/src/pipeline/policy.rs }
   - { id: unit-split, resource: crates/transync-core/src/unit/split.rs }
@@ -61,8 +62,10 @@ policy asks for it). Each layer catches a failure mode the ones before it
 cannot see.
 
 The final layer is different in kind from the rest: after every unit is
-individually valid, the whole regenerated document is reparsed and the
-anchor count and order are checked against the source. This is what
+individually valid, the whole regenerated document is reparsed — under GFM for
+a Markdown run, or re-scanned by the HTML intake's scanner for an
+`--input-format html` one, since the layer dispatches on the document's format
+— and the anchor count and order are checked against the source. This is what
 catches drift that only exists at the seams — a splice that leaves the
 document syntactically different from what any per-unit check could
 detect in isolation. It's why unit validity is explicitly two-tier

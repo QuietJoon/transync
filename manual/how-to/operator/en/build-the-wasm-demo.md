@@ -291,8 +291,16 @@ recovery; the strip clears on the next clean rebuild.
 assembles this demo leg on top of a generated CLI bundle inside its scratch
 fixture directory, and drives it headless. The runner is the authority on coverage — it runs
 every spec under `web/tests/`: `web/tests/scn13.spec.js`,
-`web/tests/engine.spec.js`, `web/tests/wasm.spec.js` and
-`web/tests/scn16.spec.js`. Playwright serves the fixture on loopback
+`web/tests/engine.spec.js`, `web/tests/wasm.spec.js`,
+`web/tests/scn16.spec.js` and `web/tests/html-oracle.spec.js`. That last one
+puts Chromium in the loop as an independent oracle for `transync-html`, so
+the script grows one leg for it: it emits the generated fragments and the
+crate's own answers into `html-oracle/corpus.json` inside the served fixture
+directory before Playwright starts. `cargo test --workspace` never runs
+that emitter — it is
+`#[ignore]`d and additionally gated on the environment variable naming the
+corpus path, so the workspace suite needs no browser and writes no file.
+Playwright serves the fixture on loopback
 `127.0.0.1:4319` with `transync serve` when the script hands it a binary via
 `TRANSYNC_SERVE_BIN`, and with a small Node stand-in otherwise.
 

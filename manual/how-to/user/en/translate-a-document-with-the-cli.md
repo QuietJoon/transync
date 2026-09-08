@@ -102,6 +102,7 @@ It binds `127.0.0.1:7470` by default and prints, on stderr:
 
 ```
 transync serve: listening on http://127.0.0.1:7470/ — serving /abs/path/to/dist/demo
+transync serve: answering for 127.0.0.1:7470, localhost:7470 — a request naming another authority is refused (--allow-host adds one).
 transync serve: press Ctrl-C to stop.
 ```
 

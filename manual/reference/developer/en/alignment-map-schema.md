@@ -67,10 +67,14 @@ are the same either way. Flags and exit codes are in
 | `blocks` | array | One row per top-level source block, in source order. See [Block rows](#block-rows). |
 | `validation_summary` | object | Run-level tallies. See [validation_summary](#validation_summary). |
 
-No field carries a serde default, so a Rust consumer deserializing into
-`AlignmentMap` fails by name on any absent or mistyped field. Unknown fields
-are ignored rather than rejected — that is what lets a build pinned to an
-older minor read a newer map.
+Every field but the two schema 1.3.0 additions is required, so a Rust consumer
+deserializing into `AlignmentMap` fails by name on any absent or mistyped one.
+`input_format` and the rows' `source_format` carry serde defaults on purpose,
+because 1.3.0 was additive and a 1.2.0 map must still deserialize: an absent
+`input_format` reads as `"markdown"`, the format every pre-1.3.0 run actually
+had, and an absent `source_format` stays absent and is resolved by the
+`block_kind` rule below. Unknown fields are ignored rather than rejected — that
+is what lets a build pinned to an older minor read a newer map.
 
 ## `schema_version`
 
@@ -140,7 +144,7 @@ addressed.
 | `source_order` | number (u32) | The block's 0-based index in source order. |
 | `target_order` | number (u32) | Equal to `source_order` in every row this project emits. |
 | `source_range` | object | `{ "start": <byte>, "end": <byte> }` into the source document. |
-| `target_range` | object | `{ "start": <byte>, "end": <byte> }` into the regenerated Markdown. |
+| `target_range` | object | `{ "start": <byte>, "end": <byte> }` into the regenerated translated document — `out.md` for a Markdown run, `out.html` for an `--input-format html` one. |
 | `sync_role` | string | `anchor`, `container`, `child-only` or `non-sync`. |
 | `fallback_status` | string | `translated`, `preserved`, `partially_translated` or `fallback_source`. |
 | `parent_id` | string or `null` | Always `null`. Reserved. |
@@ -185,7 +189,7 @@ violation; omitting the field says nothing that contradicts the identity.
 The kebab-case wire form of the block kind, identical to the `data-block-kind`
 DOM attribute: `heading-1`, `heading-2`, `heading-3`, `heading-4`,
 `heading-5`, `heading-6`, `paragraph`, `table`, `code-block`, `list-item`,
-`blockquote`, `thematic-break`, `image`, `html`, `skipped`.
+`blockquote`, `thematic-break`, `image`, `title`, `html`, `skipped`.
 
 `skipped` (schema 1.1.0) is a top-level source node the pipeline does not
 model as translatable — front matter, a footnote definition, an unsupported
@@ -193,6 +197,10 @@ node. It is never sent to a provider, its source bytes are spliced verbatim,
 and it renders as an escaped, inert `<pre data-skipped="<label>">` placeholder
 in both panes. The label naming the underlying node kind lives on that DOM
 attribute, not in `block_kind`.
+
+`title` (schema 1.3.0) is an HTML document's `<title>`: real translatable
+content that is not page content, so its row carries `sync_role: non-sync` and
+it is never anchored in a pane. Its id prefix is `title`.
 
 `html` (schema 1.2.0) is a block-level raw-HTML node, and it is a translatable
 kind: text segments are extracted, translated, and spliced back. Whether a
@@ -249,16 +257,22 @@ UTF-16 indices.
 
 `source_range` indexes the source document **as parsed**, and `document_id`
 hashes that same string. That is byte-for-byte the file the caller passed with
-one exception: a NUL byte (`U+0000`) is replaced with `U+FFFD` before parsing,
-because CommonMark requires the substitution and the parser reports positions
-only afterwards. A consumer slicing `source_range` out of the original file
-must apply the same replacement first; `out.md` and the rendered panes already
-carry the substituted form.
+one exception, and that exception is the Markdown intake's alone: a NUL byte
+(`U+0000`) is replaced with `U+FFFD` before parsing, because CommonMark
+requires the substitution and the parser reports positions only afterwards. A
+consumer slicing `source_range` out of the original file must apply the same
+replacement first; `out.md` and the rendered panes already carry the
+substituted form. The HTML intake performs no such substitution, so on an
+`--input-format html` run the parsed string is the file.
 
-`target_range` indexes the regenerated Markdown — `out.md` — which never
-contains a NUL on either side of the document: the source side by
+`target_range` indexes the regenerated translated document — `out.md` for a
+Markdown run, `out.html` for an `--input-format html` one. On a Markdown run
+neither side of the document ever contains a NUL: the source side by
 substitution, the target side by refusal, since a `U+0000` in a translated
-payload fails the schema validation layer.
+payload fails the schema validation layer. On an HTML run only the second half
+holds — the schema layer still refuses a `U+0000` in a translated payload, but
+nothing substitutes one out of the source, so a NUL in the input survives into
+both documents.
 
 An **empty in-bounds range (`0..0`) is legitimate**: `build_alignment_map`
 emits it for a block whose regeneration offsets it was not given, and logs one
@@ -272,7 +286,7 @@ mid-character — as `RenderError::UnusableRange`, alongside
 `RenderError::DuplicateRow` for a repeated `source_block_id` and
 `RenderError::UncoveredBlock` for a block of the document that no row names.
 Each pane is measured against what it slices: the target pane's ranges are the
-rows' `target_range`, measured against the translated Markdown, while the
+rows' `target_range`, measured against the translated document, while the
 source pane measures the parsed document's own block ranges against the source
 text. In the browser demo the refusal surfaces as a fatal
 `render failed: … unusable target byte range …`.
@@ -325,8 +339,9 @@ Two different bars apply, because the two reference consumers need different
 things from the same file.
 
 **Rust (`render_pair`, or any `serde_json` read into `AlignmentMap`)** —
-every field documented above must be present with the correct type. There are
-no serde defaults, so a missing `blocks`, a row without a `source_block_id`, a
+every field documented above must be present with the correct type, the two
+schema 1.3.0 additions aside. Only `input_format` and `source_format` carry a
+serde default, so a missing `blocks`, a row without a `source_block_id`, a
 mistyped offset or an unknown `sync_role` all fail at deserialization, by
 name. Unknown extra fields are ignored.
 
@@ -361,6 +376,7 @@ Illustration only — two rows of a real map:
   "source_language": "en",
   "target_language": "ko",
   "detected_source_language": "en",
+  "input_format": "markdown",
   "generator": { "name": "transync", "version": "0.5.0" },
   "blocks": [
     {
@@ -373,7 +389,8 @@ Illustration only — two rows of a real map:
       "target_range": { "start": 0, "end": 22 },
       "sync_role": "anchor",
       "fallback_status": "translated",
-      "parent_id": null
+      "parent_id": null,
+      "source_format": "markdown"
     },
     {
       "source_block_id": "p-0002",
@@ -385,7 +402,8 @@ Illustration only — two rows of a real map:
       "target_range": { "start": 24, "end": 211 },
       "sync_role": "anchor",
       "fallback_status": "fallback_source",
-      "parent_id": null
+      "parent_id": null,
+      "source_format": "markdown"
     }
   ],
   "validation_summary": {

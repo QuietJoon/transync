@@ -16,7 +16,7 @@ sources:
   - { id: serve-tests, resource: crates/transync-cli/tests/serve_static.rs }
   - { id: exit-codes, resource: crates/transync-cli/src/error.rs }
   - { id: cli-main, resource: crates/transync-cli/src/main.rs }
-  - { id: bundle-entries, resource: crates/transync-cli/src/output.rs }
+  - { id: bundle-entries, resource: crates/transync-cli/src/output/preflight.rs }
   - { id: bundle-shell, resource: crates/transync-cli/web/index.html.tpl }
   - { id: sync-engine, resource: web/js/sync.js }
   - { id: align-version, resource: crates/transync-syntax/src/align.rs }
@@ -49,7 +49,7 @@ or `--out-dir <dir>`) open and scroll-syncing in a browser, using the server
 
 - A `--html-out <dir>` run: the six bundle files (`index.html`,
   `source.html`, `target.html`, `alignment.json`, `sync.js`,
-  `purify.min.js` — the set `crates/transync-cli/src/output.rs` calls
+  `purify.min.js` — the set `crates/transync-cli/src/output/preflight.rs` calls
   `HTML_BUNDLE_ENTRIES`) sit directly in `<dir>`. Serve `<dir>`.
 - An `--out-dir <dir>` run: those same six files live one level down, in
   `<dir>/html/`, alongside top-level siblings `out.md`, `alignment.json` and
@@ -68,12 +68,17 @@ The directory is an argument, so no `cd` is needed, and `--rendered` may itself
 be a symlink — the root is canonicalized once at startup and every request is
 measured against the link's target.
 
-Two lines arrive on stderr:
+Three lines arrive on stderr:
 
 ```
 transync serve: listening on http://127.0.0.1:7470/ — serving /abs/path/to/bundle
+transync serve: answering for 127.0.0.1:7470, localhost:7470 — a request naming another authority is refused (--allow-host adds one).
 transync serve: press Ctrl-C to stop.
 ```
+
+The middle line is the set of `Host` authorities this server answers for: the
+bound address, plus `localhost` when that address is a loopback one, plus each
+`--allow-host`. A request naming anything else is refused rather than served.
 
 `127.0.0.1` and `7470` are the flag defaults (`--bind`, `--port`). Useful
 variations:
@@ -84,6 +89,10 @@ variations:
 - `--bind 0.0.0.0` (or any non-loopback address) works, and prints a warning
   first: `transync serve: WARNING: 0.0.0.0 is not a loopback address —
   everything under <root> is reachable from other machines on this network.`
+- `--allow-host <host[:port]>` adds one authority to the answered set and is
+  repeatable; a bare host means the bound port. It is for the names a bind
+  cannot name — the address a `--bind 0.0.0.0` server is reached at from
+  another machine, or a hostname put in front of it.
 - Everything `serve` prints goes to **stderr**; stdout stays empty. A script
   that needs the bound port reads stderr. `serve` has no `--quiet` or
   `--verbose` flag — `crates/transync-cli/src/main.rs` pins it to the default
@@ -144,6 +153,10 @@ Worth knowing before pointing `--rendered` at anything other than a bundle:
 
 - **`GET` and `HEAD` only.** Every other method is 405 with
   `Allow: GET, HEAD`. There is no upload, no execution and no proxying.
+- **A `Host` this server does not answer for is 421**, with a body naming the
+  answered set and saying `--allow-host` adds one; a missing, repeated or
+  unparsable `Host` header is 400 instead. Both are decided before the method
+  is, so a misdirected `POST` gets the 421 rather than the 405.
 - **No directory listing, in any spelling.** A directory named *without* a
   trailing slash resolves to a non-regular file and is 404; with a trailing
   slash it resolves to that directory's `index.html`.
@@ -185,6 +198,7 @@ Worth knowing before pointing `--rendered` at anything other than a bundle:
 | `404` on a path that exists | The target names a directory without a trailing slash, or something that is not a regular file | Add the trailing slash, or name the file |
 | `403` | A `.`/`..` segment, or a path that resolved out of the root through a symlink | Expected refusal; move the real file inside the served root |
 | `405` | Something sent a method other than `GET`/`HEAD` | Expected refusal; nothing to fix on the server |
+| `421` | The request's `Host` names an authority this server does not answer for | Open the server under one of the authorities on the `answering for` line, or restart it with `--allow-host <host[:port]>` |
 | `transync: DOMPurify missing — refusing to mount unsanitized HTML` in the left pane | `purify.min.js` did not load | Almost always the wrong directory — see the `--out-dir`/`html/` distinction above |
 | The page hangs, then `transync: timed out loading <path> after 20000 ms` in the left pane | A server accepted the request and stalled (a hung proxy in front, or a wedged process) | `fetchOk` bounds every artifact at 20 s; restart the server, and check nothing else is bound to that port |
 | Console warns `the … pane is not the offsetParent of its blocks` | The pane lost its non-static `position` — restyled CSS | Fix the CSS. This is the one warning that means sync will be **misaligned** rather than absent |

@@ -204,6 +204,16 @@ That is a warning, not a failure: the exit code is unaffected and the
 translation proceeds at full price. `--quiet` suppresses the line, so do
 not use `--quiet` on the run where you are checking that caching works.
 
+**A warm directory can be run without a credential.** `--offline` builds the
+provider with no key — `OPENAI_API_KEY` is never read — and fingerprints
+identically to a credentialed one, so it looks in the namespace the warming
+run wrote. It requires `--cache-dir`: `--offline` on its own is an argument
+error (exit `1`), because a throwaway in-memory cache misses its first lookup
+by construction. A unit the log cannot answer stops the run with `no provider
+available for this run: …` and exit `6` — including every unit, if the
+directory was one of the unopenable ones above and the run degraded to a fresh
+in-memory cache.
+
 **Deleting the directory is always safe.** The next run re-translates from
 scratch and rebuilds it.
 

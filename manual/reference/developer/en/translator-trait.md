@@ -282,7 +282,7 @@ Rules governing the vocabulary:
 One narrowing is the single sanctioned exception to append-only, and it
 rides the v0.4.0 window: `provider_error` still means "a provider
 failure", but now only the *unclassified* one. Code that read
-`provider_error` as "any provider failure" now sees twelve sibling codes it
+`provider_error` as "any provider failure" now sees thirteen sibling codes it
 must treat as unrecognized-but-opaque.
 
 `cancelled` and `provider_cancelled` are deliberately two codes, not one.

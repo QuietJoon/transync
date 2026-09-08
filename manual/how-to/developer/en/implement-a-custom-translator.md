@@ -65,8 +65,10 @@ is provider-specific, and what appears in both is the contract.
 **Neither the second adapter nor yours is reachable from the CLI.**
 `transync-cli` has no dependency on `transync-anthropic`, and
 `translate_cmd/provider.rs` has exactly two build configurations: the live
-`TransyncOpenAI::from_env()` path, and an in-process stub behind the
-`test-stub-provider` feature. There is no provider flag and no plugin
+path, which builds `TransyncOpenAI::try_new` from `OPENAI_API_KEY` — or the
+credential-free `TransyncOpenAI::offline` under `--offline` — and an
+in-process stub behind the `test-stub-provider` feature. There is no
+provider flag and no plugin
 lookup. A custom `Translator` is consumed by a host program that constructs
 it and calls `transync::translate` itself — the same status
 `transync-anthropic` has.
@@ -238,13 +240,12 @@ Two rules govern which one you reach for:
 
 Both adapters keep a crate-private `ProviderError`, classify at the site
 that reads the signal, and let the boundary function only rename. Here is
-`transync-openai/src/error.rs`'s map, all eleven arms:
+`transync-openai/src/error.rs`'s map, all ten arms:
 
 ```rust
 match err {
     ProviderError::Transport(s) => TranslatorError::Network(s),
     ProviderError::Auth(s) => TranslatorError::Authentication(s),
-    ProviderError::RateLimited => TranslatorError::RateLimited { retry_after: None },
     ProviderError::RateLimitedAfter(retry_after) => {
         TranslatorError::RateLimited { retry_after }
     }
@@ -260,13 +261,13 @@ match err {
 }
 ```
 
-`transync-anthropic`'s map is the same idea over a different arm set: it
-has no bare `RateLimited` (a rate-limited response there always carries
-whatever the header parsed to, absence included), and it adds
+`transync-anthropic`'s map is those ten plus one: it adds
 `ContextWindowExceeded → ContextWindowExceeded`, because that provider says
-*this specifically* while OpenAI has no signal that maps to it. Which
-variants your own private enum needs is decided the same way — by what your
-provider actually distinguishes, not by copying either list.
+*this specifically* while OpenAI has no signal that maps to it. Neither
+adapter keeps a bare `RateLimited` — one rate-limit variant on purpose, and
+`RateLimitedAfter` carries whatever the header parsed to, absence included.
+Which variants your own private enum needs is decided the same way — by what
+your provider actually distinguishes, not by copying either list.
 
 ### HTTP status → variant
 
@@ -279,8 +280,9 @@ worth retrying:
 | 401, 403 | `Auth` (bare body excerpt, no `HTTP <status>:` prefix) | No |
 | 429 | `RateLimitedAfter(parsed Retry-After)` | Yes |
 | 408, 409, 425 | `Transport` — commonly retryable, not obvious from the code alone | Yes |
+| 300–399 | `Rejected { status: Some(code), message }` — no redirect is followed; point `base_url` at the endpoint that answers directly | No |
 | any other 400–499 | `Rejected { status: Some(code), message }` | No |
-| everything else (5xx and beyond) | `Transport` | Yes |
+| everything else (1xx, 5xx and beyond) | `Transport` | Yes |
 
 **Do not collapse the other 4xx into `Other`.** They carry the status as a
 typed `u16`, and that is the whole point: `Some(404)` is a model name that
@@ -471,6 +473,7 @@ alongside their submodules for the parts that differ per provider:
 | `openai/client/classify.rs` | HTTP status / `reqwest` failure → provider error (the table in §3) |
 | `anthropic/client/messages.rs` | Messages DTOs, both body builders, the single envelope reader |
 | `anthropic/client/schema.rs` | rendering the shared schema object into a narrower dialect |
+| `anthropic/client/endpoint.rs` | the single Messages path, base-URL normalization |
 | `anthropic/client/transport.rs` | `x-api-key` POST with the body caps |
 | `anthropic/client/classify.rs` | the same status table, plus 529 by name |
 
@@ -482,7 +485,10 @@ exactly once, whether the crate supports one HTTP surface or two.
 Their constructors are worth copying too. Both crates offer an unchecked
 `new` (validates nothing), a checked `try_new`, and a `from_env` that *is*
 `try_new` once the variables are read — so the environment is never the
-weaker door. A padded model id is refused rather than trimmed, because the
+weaker door. The OpenAI crate adds a fourth, `offline`, which validates the
+same configuration with no credential at all, for a run that intends to be
+served entirely from cache. A padded model id is refused rather than
+trimmed, because the
 stored string is simultaneously the wire value and a `fingerprint()` axis.
 
 ## What is already done for you, and the one thing that is not

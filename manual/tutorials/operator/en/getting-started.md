@@ -114,9 +114,10 @@ The run exits `0` and prints one line on stderr:
 transync: note: html block html-0017 contains no translatable text: it is preserved verbatim and live-rendered (possibly visually empty)
 ```
 
-That is a success-time note, not a failure. The fixture ends with a bare
-`</details>` line, which parses as a raw HTML block with no text in it;
-transync reports what it preserved rather than dropping it silently. The
+That is a success-time note, not a failure. The fixture carries a bare
+`</details>` line near its end, which parses as a raw HTML block with no text
+in it; transync reports what it preserved rather than dropping it silently.
+The `<div align="center">` banner after it has text and translates normally. The
 `--quiet` in the command above belongs to `cargo` and only hides the build log
 — transync has a `--quiet` of its own, which would go after the `--`, and that
 is the flag that would suppress notes like this one. The
@@ -156,6 +157,7 @@ prints:
 
 ```
 transync serve: listening on http://127.0.0.1:7470/ — serving …/transync-demo/html
+transync serve: answering for 127.0.0.1:7470, localhost:7470 — a request naming another authority is refused (--allow-host adds one).
 transync serve: press Ctrl-C to stop.
 ```
 
