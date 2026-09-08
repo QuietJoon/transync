@@ -51,8 +51,12 @@ fn provider_config(model: &str, base_url: Option<&str>) -> Result<(ModelId, Opti
 /// Pick the right `Translator` for the current build configuration.
 ///
 /// With the `test-stub-provider` feature, an in-process echo translator
-/// is used (no network, no API key). Without it, the live OpenAI client
-/// is constructed via `from_env()`.
+/// is used (no network, no API key). Without it, `provider_config` resolves
+/// the model and base URL first, then this builds either
+/// `TransyncOpenAI::offline` (under `--offline`, credential-free) or
+/// `TransyncOpenAI::try_new` from `OPENAI_API_KEY` — not `from_env()`, which
+/// would re-read the environment this function has already resolved
+/// (ti `30a744`).
 ///
 /// TRACE: SCN-12
 #[cfg(feature = "test-stub-provider")]

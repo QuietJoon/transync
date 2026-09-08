@@ -278,15 +278,26 @@ Run all of them on the exact commit from step 1, and keep the output.
 6. **`./scripts/test-browser.sh`** — the headless Playwright suite. The runner
    is the authority on coverage: it runs every spec under `web/tests/` —
    SCN-13 dual-pane sync, the SCN-16 HTML-run bundle through the shipped shell,
-   `sync.js`'s mount contract driven directly, and the Track C wasm demo
-   including the CLI-vs-browser render parity pin. It regenerates its own CLI fixture and runs
+   `sync.js`'s mount contract driven directly, the Track C wasm demo
+   including the CLI-vs-browser render parity pin, and the browser-oracle
+   suite (`html-oracle.spec.js`, ti `ec235f`) that puts Chromium in the loop
+   as an independent oracle for `transync-html`, whose corpus the runner
+   emits from `crates/transync-html/tests/generative_properties.rs` before
+   Playwright starts. It regenerates its own CLI fixture and runs
    `build-wasm.sh`, so it inherits smoke's prerequisites plus Chromium.
 
 7. **`cargo fmt --all -- --check`** and **`cargo clippy --all-targets
    --all-features -- -D warnings`.** The tracked pre-commit hook runs both
-   plus the wasm gate and the rustdoc gate on the release-prep commit, so
+   plus the wasm gate, **both** rustdoc legs — the library one and the
+   bin-only `--document-private-items` one `transync-cli` needs (`a24f323`,
+   2026-09-06) — and a `biome format` leg over every tracked
+   `.js`/`.mjs`/`.cjs` (OI-0039 / DCR-0049), on the release-prep commit, so
    running them here is an early check, not a substitute — and the hook is
-   never bypassed with `--no-verify`. Confirm the hook is live:
+   never bypassed with `--no-verify`. Install the JS toolchain before that
+   commit (`cd web && pnpm install --frozen-lockfile`): a declared-but-uninstalled
+   `@biomejs/biome` **fails** the hook rather than skipping it, so a fresh
+   clone can fail the release-prep commit on a leg neither Rust command above
+   touches. Confirm the hook is live:
    `git config core.hooksPath` must **resolve to** `scripts/hooks` — the
    installer writes an absolute path, so the literal it prints is
    `<repo>/scripts/hooks` and not the relative spelling this step used to
@@ -301,10 +312,14 @@ Run all of them on the exact commit from step 1, and keep the output.
 8. **Sibling consumers.** Two checkouts consume this workspace, and **the
    edges they consume it through decide what this step can even ask for**:
 
-   - `/Volumes/Common/QJoon/resp-translator` — `transync`, `transync-openai`
+   - `/Volumes/Common/QJoon/resp-translator` — `transync`, `transync-openai`,
+     **`transync-lang`** (a third edge since 2026-09-08, `4d55d64`: the
+     facade deliberately does not re-export the source-language gate, so a
+     consumer that wants it names the crate)
    - `/Volumes/Common/QJoon/dynwebserver` — `transync`, `transync-openai`,
      **`transync-syntax`** (a third edge, because `transync::BlockId` *is*
-     `transync_syntax::id::BlockId` and the provider unifies the types)
+     `transync_syntax::id::BlockId` and the provider unifies the types), and
+     **`transync-lang`** (a fourth, since 2026-09-06, `a4b1acc`)
 
    **Verified 2026-09-05, and the step's original premise is spent.** It read
    "every checkout below depends on `crates/transync` and `crates/transync-openai`
@@ -331,6 +346,13 @@ Run all of them on the exact commit from step 1, and keep the output.
 
    A per-consumer record is owed either way; "not applicable, and here is why"
    is a result, silence is not.
+
+   **Updated 2026-09-06.** Both consumers have since moved their pin from
+   `v0.4.0` to `tag = "v0.5.0"` — dynwebserver on 2026-09-05 (`9ea9711`),
+   resp-translator on 2026-09-06 (`d104793`) — so the migration items step 8
+   owed them for v0.5.0 are spent, and what this step owes now is the set the
+   **next** release will hand them. The 2026-09-05 paragraph above is a dated
+   observation and stands as written; the branch it selects has not changed.
 
    For reference, the shape a real run produces: v0.2.0's was an empty profile `target_language` now
    failing fast with `stable_code "internal"` — exactly the class of change a
@@ -391,25 +413,37 @@ Run all of them on the exact commit from step 1, and keep the output.
     the next release on, the `git diff --stat v<prev>..HEAD` form above
     applies again as written.
 
-11. **Run it:** `OPENAI_API_KEY=… ./scripts/smoke-live-gate.sh` (default
-    `all` — two tiny mini-model calls, one per API surface; `chat` /
-    `responses` narrow it). The script supplies both gates the `#[ignore]`d
-    tests require and refuses to run without a key. A failure means real
+11. **Run it — by leg name, not by the bare default.**
+    `OPENAI_API_KEY=… ./scripts/smoke-live-gate.sh chat`, then the same with
+    `responses`: two tiny mini-model calls, one per OpenAI API surface. The
+    script takes `chat|responses|anthropic|all` and defaults to **`all`**,
+    which since DCR-0029 is *three* legs and demands **both** keys —
+    `require_key ANTHROPIC_API_KEY` refuses up front, before a test target
+    compiles — so the bare form refuses outright in this environment, where
+    there is no `ANTHROPIC_API_KEY` (`status.md` carries that as a standing
+    gap, and the `anthropic` leg has never been executed here). The script
+    supplies both gates the `#[ignore]`d tests require and refuses to run
+    without the key the requested leg needs. A failure means real
     drift — transport, auth, schema, or model behavior — because the
     assertions are structural (unit count, matching anchor counts,
     `fallback_source < total_units`, non-empty output differing from the
     source), not textual. If a default model identifier has been retired the
     failure surfaces at the provider: use `TRANSYNC_LIVE_SMOKE_CHAT_MODEL` /
-    `TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL` rather than reading it as a code
-    regression.
+    `TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL` (and
+    `TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL`, whose default is
+    `claude-haiku-4-5`, if the third leg is ever run) rather than reading it
+    as a code regression.
 
-12. **Record the outcome in the release's CHANGELOG section — date and both
-    model names.** The v0.2.0 shape: “Release gate (OI-0030):
+12. **Record the outcome in the release's CHANGELOG section — date and every
+    model name.** The v0.2.0 shape: “Release gate (OI-0030):
     `scripts/smoke-live-gate.sh` **PASS** on YYYY-MM-DD — 2/2
     machine-asserted live round-trips against `<chat-model>` (Chat
-    Completions) and `<responses-model>` (Responses).” If the gate was *not*
-    triggered, say so explicitly — an absent line is indistinguishable from a
-    forgotten one.
+    Completions) and `<responses-model>` (Responses).” Name the legs that
+    ran **and** the legs that did not, so that `2/2` reads as the two OpenAI
+    surfaces rather than as the whole gate — the `anthropic` leg (DCR-0029)
+    is the one that has never been run here, and a release that skips it says
+    so. If the gate was *not* triggered, say so explicitly — an absent line
+    is indistinguishable from a forgotten one.
 
 ## D. CHANGELOG
 
@@ -544,11 +578,12 @@ Run all of them on the exact commit from step 1, and keep the output.
     rather than a skipped member, and the same file welds the `workspace = true`
     rule this paragraph states.
 
-    **Nothing in this workspace has been published to a registry**, and the
-    one downstream consumer uses path dependencies, so no release so far has
-    run `cargo publish`. Adding a real registry publish is a change to this
-    checklist and needs its own record. What a release *does* owe is the dry
-    run, so that publishability does not rot unnoticed between releases:
+    **Nothing in this workspace has been published to a registry**, and both
+    roster consumers (step 8) depend on a GitHub tag rather than a registry,
+    so no release so far has run `cargo publish`. Adding a real registry
+    publish is a change to this checklist and needs its own record. What a
+    release *does* owe is the dry run, so that publishability does not rot
+    unnoticed between releases:
 
     ```bash
     cargo publish --dry-run --workspace
@@ -726,15 +761,19 @@ followed. A future insertion should do the same rather than shift anything.
     `origin/main`. Neither push is publication in the crates.io sense; see
     below.
 
-    **Publication is still unwired.** The CHANGELOG's compare URLs name
-    `github.com/QuietJoon/transync`, the `repository` field of the root
-    manifest, and `origin` now points there — so the remaining gap is the push
-    itself, not the remote. Those links resolve only once the
-    commit — and the tag, when there is one — reach it. v0.4.0 has both: the
-    release-prep commit and, since 2026-08-20, the `v0.4.0` tag, whose
-    `releases/tag/` URL is what starts resolving if that remote is ever wired
-    up. Both are on the `backup` mirror today, which is redundancy, not
-    publication.
+    **GitHub publication is wired and pushed; registry publication is not.**
+    The CHANGELOG's compare URLs name `github.com/QuietJoon/transync`, the
+    `repository` field of the root manifest, and `origin` points there — and
+    that remote now *has* the release, so those links resolve: `origin/main`
+    is v0.5.0's release-prep commit, the `v0.5.0` tag is on it, and v0.4.0's
+    release-prep commit and its 2026-08-20 tag are ancestors. That the *tag*
+    is on the remote is read off the consumers rather than off `git ls-remote`
+    (the `github` ssh alias does not resolve from every shell): both of them
+    resolve `{ git = "https://github.com/QuietJoon/transync.git", tag =
+    "v0.5.0" }` (step 8), which is impossible unless it is. Push to `backup`
+    as well, every time; that half is redundancy, not publication. **The one
+    thing still unwired is crates.io** — see step 19: no release has run
+    `cargo publish`, only the dry run.
 
     **Step 15's commit-URL form costs a second commit, by construction** — the
     reason to prefer tagging even when a release's history is unusual. The URL

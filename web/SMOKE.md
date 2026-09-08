@@ -127,12 +127,15 @@ environment for the automated suite is unavailable.
   progress within that block) and falls back to the topmost visible
   block; there is no hysteresis state machine, so rapid flicks across
   multiple blocks may briefly select a neighboring block.
-- Partner-pane scrolling is a per-frame lerp toward the computed
-  scrollTop (proportional offset within the active block): each frame
-  closes ~20 % of the remaining gap and arms a 90 ms
+- Partner-pane scrolling is a time-based lerp toward the computed
+  scrollTop (proportional offset within the active block): it closes
+  ~20 % of the remaining gap per 16.7 ms of elapsed time (so a gesture
+  settles in the same wall-clock time at 120 Hz as at 60 Hz, and one
+  frame may claim at most 100 ms of arrears) and arms a 90 ms
   programmatic-scroll lock, and the loop snaps and stops once the gap
-  drops below the 0.5 px settle threshold. Alternative easing /
-  alignment policies are deferred.
+  drops below the 0.5 px settle threshold. Under
+  `prefers-reduced-motion: reduce` the partner is placed rather than
+  glided. Other easing policies are deferred.
 - DOMPurify 3.2.6 is vendored (`web/vendor/purify.min.js`; CLI bundles
   ship their own copy) and both shells sanitize fetched fragments before
   mounting, failing closed with an on-page error if DOMPurify is absent

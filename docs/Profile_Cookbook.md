@@ -8,7 +8,7 @@ on top of that schema.
 
 ## How profiles shape output
 
-A profile contributes three things to a translation run:
+A profile contributes four things to a translation run:
 
 1. **System prompt** — `[system].prompt` becomes the LLM's system
    message after `{{source_language}}` / `{{target_language}}`
@@ -58,11 +58,27 @@ A profile contributes three things to a translation run:
    with a warning naming the key and is treated as if you had omitted
    it, so it never reaches the provider as a ceiling with no room to
    answer and never gets quietly rounded up to a one-unit batch.
+4. **Constraint policy** — `[constraints]` reaches the run twice.
+   `preserve_code_identifiers` and `preserve_urls` are rendered as
+   explicit policy lines in the compiled prompt (see
+   `crates/transync-core/src/profile.rs::format_profile_constraints`)
+   **and** they gate the inline-protection validation layer: link and
+   image destination identity is enforced unless `preserve_urls` is
+   `false`, and code-span identity only when
+   `preserve_code_identifiers` is `true`. `default_table_strategy` is
+   application policy rather than prompt text — it chooses the
+   row-window split (DCR-0026) and is never rendered.
+
+Two further keys have homes of their own rather than a place in that
+list: top-level `auto_glossary` (the candidate-glossary preflight) and
+`[render].target_direction` (presentation-only), both documented in
+`contracts.md` §2.
 
 The block-level structural contract (preserve unit IDs, table column
 counts, list depth, code-fence info, heading levels) is enforced by
 the validator regardless of what the prompt says. You can't break
-structure from a profile, only style.
+that contract from a profile; what `[constraints]` moves is narrower —
+which of the inline checks the validator runs.
 
 ### `--profile` replaces the default profile; it does not layer onto it
 

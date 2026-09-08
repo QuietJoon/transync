@@ -113,9 +113,10 @@ explain.
   script aborted under `set -u` at its first use; the long wrapper fused an
   assignment with `export` the same way and exported nothing. Both are
   syntactically valid, so `bash -n` and shellcheck were silent — the real gap is
-  that the scripts have not been executed since `a30b40d` (2026-09-03), which is
-  `status.md`'s standing live-smoke gap. A sweep of the other scripts that
-  commit touched found no third instance.
+  that the scripts have not been executed since `a30b40d` (2026-09-03); the only
+  live-run gap `status.md` tracks is the DCR-0015 endpoint gate
+  (`smoke-live-gate.sh`), which never invokes either of these two. A sweep of the
+  other scripts that commit touched found no third instance.
 - **A run could overwrite its own input** (R0010-0003, R0010-0004).
   `vet_destinations` compared only the output set, so `--output`, `--map`,
   `--report` or a bundle filename naming `--input`, `--profile` or
@@ -206,7 +207,8 @@ explain.
   containment boundary. Containment rather than stripping is deliberate: `style`
   is how a source document's own presentation survives into the pane at all, and
   removing it would change what every legitimate html block renders in order to
-  close a case a boundary already closes. Recorded in contracts.md §4a.
+  close a case a boundary already closes. Recorded in contracts.md §4 (the
+  html-block success bullet).
 - `form-action 'none'` (above) and the bidi escaping (above) are the other two
   entries of this kind in this section.
 

@@ -301,12 +301,13 @@ depends entirely on who owns the cache:
   every axis that can change a translation — provider fingerprint,
   validation-schema version, the unit's source hash, both language
   labels, profile version and prompt hash, glossary hash, model id,
-  block kind, a hash of the unit's context hints, and a digest of the
-  instruction its batch assembled — and any difference forces
-  re-translation. Because the context hints cover the section path and
-  the neighbors' summaries, editing one paragraph also invalidates its
-  neighbors; changing the profile, the glossary or the model
-  invalidates the whole document.
+  block kind, the unit's input mode as the prompt spells it (a whole
+  table vs. one row window of an oversize one, ti `5f7942`), a hash of
+  the unit's context hints, and a digest of the instruction its batch
+  assembled — and any difference forces re-translation. Because the
+  context hints cover the section path and the neighbors' summaries,
+  editing one paragraph also invalidates its neighbors; changing the
+  profile, the glossary or the model invalidates the whole document.
 - `--auto-glossary` costs one extra provider call the **first** time a
   given document, profile, language pair and provider are run together.
   The harvest is then cached in its own document-scoped record — keyed
@@ -360,12 +361,14 @@ profile, not the document.
 ## Memory
 
 None of the dials above move memory. The pipeline is whole-document by
-design (ADR-0016): one Comrak AST over the entire source, exact source
-byte ranges spliced during regeneration, and a reparse of the *complete*
-regenerated document in validation layer 5. Peak memory therefore tracks
-document size, and the `--max-input-bytes` admission cap is boundary
-hygiene — it rejects absurd inputs before parse, it does not lower the
-peak for anything it admits.
+design (ADR-0016): one whole-document parse over the entire source (a
+Comrak AST for Markdown, the `intake::html` scanner for an HTML run),
+exact source byte ranges spliced during regeneration, and the layer-6
+gate over the *complete* regenerated document (`full_reparse` /
+`full_rescan_html`). Peak memory therefore tracks document size, and
+the `--max-input-bytes` admission cap is boundary hygiene — it rejects
+absurd inputs before parse, it does not lower the peak for anything it
+admits.
 
 What that costs, measured coarsely on 2026-08-07:
 

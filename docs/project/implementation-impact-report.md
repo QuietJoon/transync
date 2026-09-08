@@ -6,11 +6,17 @@ This report tracks the implementation track's relationship to the design baselin
 
 | Field                                      | Value                              |
 |--------------------------------------------|------------------------------------|
-| Synced baseline ID                         | `BL-2026-05-01-A`                  |
+| Synced baseline ID                         | `BL-2026-07-B`                     |
 | Synced stub-manifest version               | `generated-2026-05-01`             |
-| Sync status                                | `synced`                           |
-| Open design change records                 | none                               |
-| Last sync                                  | 2026-05-01 (initial)               |
+| Sync status                                | `synced` (`mvp_complete`)          |
+| Open design change records                 | none — DCR-0001..DCR-0053 have landed and live in `docs/project/design-change-records/` |
+| Last sync                                  | 2026-07-13 (`BL-2026-07-B`); initial 2026-05-01 (`BL-2026-05-01-A`) |
+
+## Baseline re-sync (2026-07-13 — recorded here 2026-09-08)
+
+`BL-2026-05-01-A` was superseded by `BL-2026-07-B` at the close of the 2026-07 external-review wave (`docs/project/design-baseline-2026-07.md`); the earlier baseline's own record is preserved unedited under a supersession banner and is historical. `phase-state.yaml`'s `implementation.synced_baseline_id` has read `BL-2026-07-B` since, with `sync_status: synced`, `status: mvp_complete` and `blocked_slices: []` — every slice in the cutline below is closed. The "Current state" table above went on naming the superseded baseline and a single 2026-05-01 sync; it is corrected in place, and the dated sections below it are not.
+
+**Where Design Change Records live.** "Notes for future syncs" below asks that each landing DCR be listed under "Open design change records" in this report. That is not how the practice settled: fifty-three have landed (DCR-0001 through DCR-0053), each its own file under `docs/project/design-change-records/` (closed ones under `archive/`), and what is still outstanding is carried by the open-issue register and `docs/backlog.md` rather than by this table. A DCR is *open* here in one sense only — it has landed and its impacted slices have not yet re-implemented against the new baseline — and by that reading none are.
 
 ## Initial sync (2026-05-01)
 
