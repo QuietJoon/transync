@@ -40,38 +40,23 @@ No observed jank; cost grows with document size. Optimize only when profiling sh
 
 1. If profiling shows jank: design the offset cache (invalidation on resize/reflow/mutation) and decide the non-monotonic-layout policy. *(2026-08-09, ticket `d3acc3`: the invalidation half got cheaper — the engine now observes `ResizeObserver` on both panes, `document.fonts.ready` and image `load`/`error`, and already re-collects its anchor sets on each. An offset cache would hang off that same recompute rather than needing hooks of its own. The non-monotonic-layout policy is untouched, and this issue stays gated on profiling.)*
 
-***
-
-## OI-NNNN: <Title>
-
-- **Source:** RNNNN-#### (Review NNNN)
-- **Date:** YYYY-MM-DD
-- **Decision:** ACCEPT
-- **Status:** OPEN | RESOLVED (YYYY-MM-DD)
-- **Resolution:** <RNNNN-#### that resolved it, if applicable>
-
-### Problem
-
-<Description of the issue - what was found and why it matters>
-
-### Impact
-
-<What could go wrong if not addressed>
-
-### Required Actions
-
-1. <Specific action item>
-2. <Specific action item>
-
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Added 2026-09-09, ticket `13fcede1`. This entry was the only resolved one in the
+file with no verification block at all — and the only one resolved by a measurement
+rather than by a code change, which is the shape a reader is most likely to question.)*
 
-### Related
-
-- <Links to related decisions or ignored issues>
+- [x] Code change applied — **not applicable, and deliberately so.** The resolution
+      is a measurement, not a fix: `activeBlockWithProgress`'s linear scan is
+      unchanged and the sorted-offset cache stays unbuilt. Ticking this box as
+      "done" would assert the opposite of what was decided.
+- [x] Tests pass (if applicable) — no code changed, so there was nothing to re-run.
+      The evidence is the profiling artifact `benchmark/scroll-frame/RESULTS.md`: a
+      V8 profile putting the scan's worst case at 1.95 ms of a 16.67 ms frame at
+      5,000 blocks (11.7 %), with all main-thread JS at 2.44 ms (14.6 %), and
+      roughly 12× headroom at 2,000 blocks — more blocks than any document in this
+      repository.
+- [x] No regressions observed — nothing shipped that could regress.
 
 ***
 
@@ -247,9 +232,16 @@ offline instance namespaces the cache **byte-identically** — pinned by
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — `--offline` on `transync translate` (`cdc1e32`,
+      DCR-0046, ticket `30a744`): the run reads no credential, the credential-free
+      provider fingerprints identically to the credentialed one so it reads the
+      same cache namespace, and `--offline` without `--cache-dir` is an argument
+      error rather than a silent full run.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored).
+- [x] No regressions observed — the credentialed path is unchanged, and a cache
+      miss under `--offline` surfaces as exit 6 rather than a partial document.
 
 ### Related
 
@@ -346,9 +338,20 @@ Playwright exercises the sync engine, the WASM demo and SCN-13.
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — **partially, by decision.** The format half is adopted
+      (`biome format` over the tracked JS corpus, repo-rooted via `git ls-files`);
+      the **lint half is deliberately not adopted** and is recorded as a separate,
+      still-open decision, which is what this entry's Status line means. Two real
+      fixes landed with it: the printed remediation no longer instructs an install
+      that measurement showed makes the *next* commit fail, and a tool declared in
+      `web/package.json` but absent from `node_modules/.bin` now FAILS rather than
+      skipping, because that is an uninstalled dependency and not an absent choice.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored), and the hook's JS leg runs on every commit
+      (12 tracked files, no fixes applied).
+- [x] No regressions observed — the gate is strictly louder than before: it can no
+      longer exit 0 while validating nothing, which was the defect.
 
 ### Related
 
@@ -479,9 +482,16 @@ would make the code worse:
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — **partially, by decision.** The `[`-prefilter landed at
+      both `inline_inventory` sites and the run-level `unit_count × |ref_defs|`
+      tripwire landed in `build_batches`. The shared-AST **seam** is deferred, with
+      that tripwire as its own re-trigger, so the deferral reports itself when it
+      starts to matter rather than waiting to be remembered.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored).
+- [x] No regressions observed — the prefilter is a fast path in front of unchanged
+      logic, and the tripwire only warns.
 
 ### Related
 
@@ -614,9 +624,19 @@ even though nothing reaches it today.
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — **partially, by decision**, as the Status line says.
+      `unit/split.rs` now plans in one pass and carries the sliced parent with the
+      plan, so `windows_of` runs once per unit instead of once per unit plus once
+      more up to the first splitting table, and a whole comrak `split_table_rows`
+      per splitting table is gone. **A panic site was deleted** — the invariant
+      rides the signature instead of an `.expect`. The remainder is declined or
+      deferred with the evidence recorded above.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored).
+- [x] No regressions observed — the one-pass plan produces the same windows; the
+      deleted `.expect` was the only behavioural difference, and it removed a panic
+      rather than adding one.
 
 ### Related
 
@@ -686,9 +706,18 @@ throughput problem and should not be prioritized as one.
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — all three sites linearized, including
+      `validate/full_rescan_html.rs`'s `attribute_offenders` — a twin written eight
+      days after this entry and covered here rather than given its own row, because
+      splitting twins across two entries is how one of them rots.
+      `widen_to_neighbors` also stopped comparing `String` where `usize` was
+      available, which is why it was 8× its sibling.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored).
+- [x] No regressions observed — **measured rather than assumed**: 26 ms / 245 ms /
+      1.9 s at 5,000 / 20,000 / 50,000 blocks, and N here is the caller's document
+      rather than this repository's.
 
 ### Related
 
@@ -767,9 +796,18 @@ work — re-cutting `pipeline.rs`'s orchestration, which is already cut.
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — `crates/transync-cli/src/output.rs` went **4,005 → 411
+      lines** across five concern modules — `fileset` (staged commit + atomicity),
+      `publish` (`--out-dir`), `preflight` (bundle-directory shape), `bundle`
+      (rendering + templates) and `destination` (vetting + normalization) — beside
+      the pre-existing `lock`.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored).
+- [x] No regressions observed — **proven a pure move rather than asserted**: an
+      independent review wrote its own Rust lexer and found 119 of 119 item bodies
+      and all 49 test bodies byte-exact, with the code string-literal multiset
+      identical at 746 of 746.
 
 ### Related
 
@@ -1038,9 +1076,18 @@ trying an authority that cannot work. R0009-0009 is display noise.
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — all three defects fixed. `send_file`'s streaming branch
+      keeps the count `tokio::io::copy` returns and fails with `UnexpectedEof`
+      naming both numbers, so a file that shrank between `metadata()` and the copy
+      drops the connection instead of closing as if the response had been
+      delivered; and `HostPolicy` advertises only the loopback authorities of the
+      bound socket's own family.
+- [x] Tests pass (if applicable) — **each fix carries a test proven to fail against
+      pre-fix code**, which is the stronger claim than a green suite; the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored).
+- [x] No regressions observed — the truncation path now drops the connection, which
+      is the only correct HTTP/1.1 answer once `Content-Length` is on the wire.
 
 ### Related
 
@@ -1140,9 +1187,19 @@ once, on a code path the threat model says to assume hostile.
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — all three sub-items. The rustdoc **completeness** loop
+      moved out of `scripts/smoke.sh` into the shared `scripts/lib/rustdoc-gate.sh`
+      that both smoke and the hook already source, so the hook gained it for about
+      thirteen net lines and 15 ms. Its only candid deferral trigger would have
+      been "someone adds a library member without gating it" — the very event it
+      exists to catch — and that trigger **had already fired**: the documented gate
+      command in `Developer_Guide.md` omitted `transync-lang`.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored); the moved completeness check now runs on
+      every commit through the hook.
+- [x] No regressions observed — the checking apparatus is strictly wider: the hook
+      fails on a library *or* bin-only member left outside the rustdoc gate.
 
 ### Related
 
@@ -1239,9 +1296,20 @@ explanation.
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — `activeBlockWithProgress` gained the bottom clamp it
+      was missing (it tracks the last-ending anchor during the existing walk and
+      returns it at `progress: 1`, so the follower no longer freezes once the
+      reference line passes the last anchor), and `warnMapDomDrift` /
+      `warnOffsetParentDrift` re-run on every coalesced reflow recompute,
+      **latched** so a warning fires only when the verdict changes. Both `sync.js`
+      copies moved in one commit, as `sync_js_drift.rs` requires.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored), `sync_js_drift.rs` included; the browser
+      suite exercises the clamp in `engine.spec.js`.
+- [x] No regressions observed — one consequence surfaced later and is on the
+      record: DCR-0052 found `engine.spec.js` test `l` had been asserting the dead
+      zone this clamp removed, so the **test** was corrected and the clamp stands.
 
 ### Related
 
@@ -1410,9 +1478,20 @@ bytes the pane does not hold (R0009-0078).
 
 ### Verification
 
-- [ ] Code change applied
-- [ ] Tests pass (if applicable)
-- [ ] No regressions observed
+*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
+
+- [x] Code change applied — **partially, under an adopted policy**, as the Status
+      line says: the library refuses at a boundary a real caller can reach, and
+      records with a named trigger where no caller can reach it yet, reachability
+      measured against the consumer roster in `release-checklist.md`. R0009-0053
+      landed — `TransyncError::InvalidOptions(String)` with the new stable code
+      `invalid_options`, so an empty `TranslateOptions.target_language` stops
+      reporting `internal`, a code that told a consumer "transync has a bug" about
+      a value the consumer passed in. **R0009-0052 is deferred** under that policy.
+- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored); the stable-code vocabulary is welded by
+      `crates/transync/tests/error_taxonomy.rs`.
+- [x] No regressions observed — the new variant is additive, and it rode the
+      sanctioned v0.5.0 breaking window.
 
 ### Related
 
@@ -1862,3 +1941,49 @@ can be made crate-private — in which case nothing blocks it.
 | OI-0052  | Checked provider constructors accept invalid header values | OPEN (2026-09-06) — blocked on a breaking window | Medium |
 | OI-0053  | Shells have no small-screen layout and no visible pane headings | OPEN (2026-09-06) — needs a scope decision | Low |
 | OI-0054  | The NUL/nesting guard is reachable as `intake::markdown::intake` | OPEN (2026-09-08) — needs a decision; rename needs a window | Low |
+
+***
+
+## Entry template — not an issue
+
+Copy this shape when adding an entry above. It lived between OI-0016 and OI-0037
+until 2026-09-09 with a `## OI-NNNN:` heading, where it read as a live entry and,
+because `NNNN` is not digits, defeated every parser that splits this file on
+`## OI-\d{4}` — such a parser folded it into the preceding entry instead. Kept
+here, under a heading that cannot be mistaken for an issue id, so the shape stays
+available without being counted (ticket `13fcede1`). Every line inside the
+fence is indented two spaces so a line-based scan cannot match `^## ` either —
+which is the form of parser the original stub actually broke. Dedent on copy.
+
+```markdown
+  ## OI-NNNN: <Title>
+
+  - **Source:** RNNNN-#### (Review NNNN)
+  - **Date:** YYYY-MM-DD
+  - **Decision:** ACCEPT
+  - **Status:** OPEN | RESOLVED (YYYY-MM-DD)
+  - **Resolution:** <RNNNN-#### that resolved it, if applicable>
+
+  ### Problem
+
+  <Description of the issue - what was found and why it matters>
+
+  ### Impact
+
+  <What could go wrong if not addressed>
+
+  ### Required Actions
+
+  1. <Specific action item>
+  2. <Specific action item>
+
+  ### Verification
+
+  - [ ] Code change applied
+  - [ ] Tests pass (if applicable)
+  - [ ] No regressions observed
+
+  ### Related
+
+  - <Links to related decisions or ignored issues>
+```

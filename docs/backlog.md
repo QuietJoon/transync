@@ -142,6 +142,84 @@ Types:
 
 ## Type 1 — actionable now
 
+### open-issue-verification-boxes-unticked-on-eleven-resolved-entries
+
+> **RESOLVED 2026-09-09** (ticket `13fcede1`). **And the count in this entry's own topic name is
+> wrong: it is ten, not eleven.** Resolving it found why. The register carried a literal
+> `## OI-NNNN: <Title>` template stub between OI-0016 and OI-0037 — placeholder fields, three
+> unticked boxes — and because `NNNN` is not digits, a parser splitting on `## OI-\d{4}` does not
+> see it as an entry boundary and folds it into the preceding entry. This sweep used exactly that
+> pattern, so the stub's three boxes were counted against OI-0016 and the total came out one high.
+> OI-0016 in fact had **no `### Verification` block at all** — the only resolved entry in the file
+> without one, and the only one resolved by a measurement rather than a code change.
+>
+> Fixed, all three parts: the stub moved to the end of the file under
+> `## Entry template — not an issue`, inside a fence and indented two spaces so neither a
+> Markdown-aware nor a line-based parser can read it as a heading; OI-0016 gained a verification
+> block whose first box says **"not applicable, and deliberately so"** rather than claiming a code
+> change that was deliberately not made; and each of the ten — OI-0038, 0039, 0040, 0041, 0042,
+> 0043, 0045, 0046, 0047, 0048 — now records evidence per box drawn from its own resolution, with
+> the three partial resolutions (OI-0039's unadopted linter half, OI-0041's declined remainder,
+> OI-0048's deferred R0009-0052) saying which box does not apply and why. No `Status:`,
+> `Resolution:` or body prose was rewritten. Acceptance re-checked mechanically: zero non-issue
+> `## OI-` headings, zero resolved entries without a verification block, zero resolved entries with
+> an unticked box, and the four OPEN entries still unticked — correctly, since their work is undone.
+
+
+- **Type:** 1
+- **Verified:** yes — reopen verified 2026-09-09 by counting `- [x]` against `- [ ]` per entry in
+  `docs/project/open-issues.md` and comparing with `docs/project/open-issues-archive.md`
+- **Sources:** ticgit:13fcede1, docs/project/open-issues.md — the `OI-NNNN` template stub; OI-0016
+  (no verification block at all); and the ten with unticked boxes: OI-0038, OI-0039, OI-0040,
+  OI-0041, OI-0042, OI-0043, OI-0045, OI-0046, OI-0047, OI-0048
+- **First seen:** 2026-09-09
+- **Last seen:** 2026-09-09
+
+### Description
+
+Eleven entries in the live Open Issues register say `RESOLVED` on their `Status:` line and carry
+three **unticked** `- [ ]` boxes under their own `### Verification` heading. The boxes are the
+register's standard three — "Code change applied", "Tests pass (if applicable)", "No regressions
+observed" — so each of the eleven simultaneously asserts that the work is done and records that
+none of the three verification steps was confirmed.
+
+This is not a claim that the work did not ship. It did: every one of the eleven names a date and,
+in most cases, a commit. What is missing is the verification record, and its absence is
+indistinguishable from the case the boxes exist to catch — an entry marked resolved whose fix was
+never checked.
+
+### Background
+
+The Open Issues register is written by `indy-review-gate` and read by anyone auditing what shipped
+and on what evidence. Its header states the retention rule: entries are removed once fully
+resolved, and resolved entries **with audit value** move to `open-issues-archive.md`. So a resolved
+entry that stays in the live file stays precisely because someone may need to audit it later, and
+the `### Verification` block is the part of it that an auditor reads.
+
+The checkbox convention is demonstrably live rather than vestigial. `open-issues-archive.md` holds
+58 ticked boxes against 12 unticked. In the live register three resolved entries have all three
+ticked — OI-0037 (resolved 2026-09-01), OI-0044 (2026-09-05) and OI-0050 (2026-09-06) — and those
+include the two most recent resolutions in the file. The convention was therefore being honoured
+both before and after the gap.
+
+The eleven that are unticked cluster perfectly by batch: every one was resolved on 2026-09-02 or
+2026-09-04, the review-0009 fix wave recorded in DCR-0040. A genuine per-entry verification gap
+would not sort itself that neatly by date; a maintenance lapse during one large batch would, and
+that is the reading the dates support. The four genuinely OPEN entries (OI-0051 through OI-0054)
+are unticked correctly — their work has not been done — and OI-0049 carries no boxes at all because
+it is a recorded deferral rather than a resolution.
+
+It is type 1 because nothing has to land first and no one has to choose anything: the register's own
+convention settles the approach, the evidence each entry needs is already cited inside it, and the
+three most recent resolutions show the intended end state. Three of the eleven resolved only
+partially and say so in their own `Status:` line — OI-0039 (the linter half deliberately not
+adopted), OI-0041 (partial, the rest declined or deferred) and OI-0048 (R0009-0052 deferred) — so
+those want a short note beside the boxes rather than a bare tick. That is work, not a decision.
+
+Done looks like this: each of the eleven either has its three boxes ticked against the evidence its
+own entry cites, or carries one line saying which box does not apply and why. A reader who then
+finds an unticked box in the live register can trust that it means what it says.
+
 ### commissioned-roadmap-post-0.3.0 — **ALL SIX LANDED (2026-08-09/10)**
 
 - **Description:** Six feature-scale work items the owner commissioned on 2026-08-06
@@ -986,6 +1064,57 @@ entry directly beneath it says so. OI-0039 through OI-0054 followed it.
 resolved-and-retained or explicitly deferred with its blocker stated; the three ticketed
 2026-08-10 resolutions named above are retained below rather than "gone from it". The
 only entries here that are genuinely open work are the ones whose own note says so.
+
+### dcr-0032-divergence-tally-not-reconstructible
+
+- **Type:** 2
+- **Verified:** yes — reopen verified 2026-09-09: DCR-0032's amendment ordinals were read directly
+  and jump from unnumbered prose to "the fifteenth through nineteenth divergences"
+- **Sources:** ticgit:3f0879ef, docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md, CLAUDE.md
+- **First seen:** 2026-09-08
+- **Last seen:** 2026-09-09
+
+### Description
+
+`CLAUDE.md` tells every agent that the record trail "records **nineteen** deliberate behavioural
+divergences" of `transync-html` from the retired `htmlseg` module, and that a difference from
+`htmlseg` in any of the nineteen is the **fix** rather than a regression to restore. That sentence
+is what stops the next reader from "repairing" a deliberate behaviour change. But the nineteen
+cannot be enumerated from the trail: DCR-0032's last amendment is titled "the fifteenth through
+nineteenth divergences", and no document carries the running list that reaches fourteen before it.
+
+### Background
+
+`transync-html` was extracted from `transync-syntax::htmlseg` by DCR-0032 in August, verbatim at
+the extraction. Since then the crate has deliberately diverged from what `htmlseg` did, one
+tokenizer or tree-construction rule at a time, each change made because a browser disagreed with
+the old behaviour and several of them closing routes that put an attacker-chosen `data-sync-id`
+into a live DOM. The count matters operationally: `CLAUDE.md` uses it to tell a future reader that
+a difference from `htmlseg` is intentional, so a maintainer who finds one and cannot place it in
+the list has no way to decide whether it is a fix or a bug.
+
+The divergences were recorded as they landed, in DCR-0032's own amendments plus DCR-0041 through
+DCR-0043, DCR-0050 and DCR-0051. The earlier amendments describe theirs in prose and by ticket —
+"three tokenizer divergences" for ti `549b20`, two walk and strip changes on 2026-08-23 — without
+assigning ordinals. The 2026-09-05 amendment then assigns ordinals for the first time, numbering
+DCR-0051's five as the fifteenth through nineteenth. Anyone trying to verify "nineteen" therefore
+has one bracket and no list.
+
+Found by the 2026-09-08 documentation drift audit, which took the minimal repair on the living side
+only: `CLAUDE.md` now attributes the number to DCR-0032's running count instead of asserting it
+independently, and stops citing `contracts.md` §4 as a place that records the tally — §4 records
+browser-verified behaviour and §4b a browser-oracle census, neither of which is a divergence count.
+The record-side gap was left alone deliberately, because DCR-0032 is a dated record and closing the
+gap means choosing how.
+
+It is type 2 because the three ways forward are mutually exclusive and none is obviously right.
+Appending a dated numbered index to DCR-0032 preserves the body and makes the count checkable, but
+it means reconstructing fourteen ordinals from prose written without them, and a reconstruction
+could be wrong in a record whose whole value is precision. Dropping the number from `CLAUDE.md` and
+describing the class instead ("every divergence the DCR-0032 amendment trail records") is honest
+and costs nothing, but gives a reader no way to know whether they have found all of them. Recording
+that the number is DCR-0032's internal bookkeeping rather than a verifiable count is the cheapest,
+and leaves `CLAUDE.md` making a claim no one can check. Nothing is blocked — a person has to pick.
 
 ### publish-lock-nested-tree-boundary (ticket `40e2a5`)
 
@@ -1912,7 +2041,7 @@ paid out._
   puts an attacker-chosen `data-sync-id` into a live DOM through a reconstructed formatting element.
 - **Sources:** ticgit:525bef96, `docs/architecture/contracts.md` §4b, DCR-0051
 - **First seen:** 2026-09-04
-- **Last seen:** 2026-09-08
+- **Last seen:** 2026-09-09
 
 #### Description
 
@@ -1943,7 +2072,7 @@ unnoticed. `open@input:order` is a divergence mechanism the census had never car
   so admitting it means giving the scanner a notion of context it deliberately does not have.
 - **Sources:** ticgit:16721e90, DCR-0050
 - **First seen:** 2026-09-04
-- **Last seen:** 2026-09-08
+- **Last seen:** 2026-09-09
 
 #### Description
 
@@ -2307,7 +2436,7 @@ Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The t
 - **Sources:** docs/project/open-issues.md#OI-0051, reviews/reviewed/0010.md#R0010-0091,
   reviews/reviewed/0010.md#R0010-0092
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
-- **First seen:** 2026-09-06 · **Last seen:** 2026-09-06
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
 
 #### Description
 
@@ -2340,7 +2469,7 @@ cohorts are recomputed per batch, is wrong — DCR-0027 §5 memoizes them.
   v0.6.0 window opens, and explicitly may be deferred again at that point.
 - **Sources:** docs/project/open-issues.md#OI-0052, reviews/reviewed/0011.md#R0011-0022
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
-- **First seen:** 2026-09-06 · **Last seen:** 2026-09-06
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
 
 #### Description
 
@@ -2372,7 +2501,7 @@ failure with no construction-time signal.
   surface question and may make the rename non-breaking.
 - **Sources:** docs/project/open-issues.md#OI-0054, ticgit:cdadffea, DCR-0053, DCR-0035
 - **First seen:** 2026-09-08
-- **Last seen:** 2026-09-08
+- **Last seen:** 2026-09-09
 
 #### Description
 
@@ -2402,7 +2531,7 @@ invisible through the `transync` facade and breaking only for a direct `transync
 - **Sources:** docs/project/open-issues.md#OI-0053, reviews/reviewed/0011.md#R0011-0083,
   reviews/reviewed/0011.md#R0011-0084, reviews/reviewed/0011.md#R0011-0087
 - **Unfiled:** gate registers documents only — queue it through reopen's selection gate
-- **First seen:** 2026-09-06 · **Last seen:** 2026-09-06
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
 
 #### Description
 
