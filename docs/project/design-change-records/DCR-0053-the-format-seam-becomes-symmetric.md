@@ -193,3 +193,27 @@ against `docs/index.md`).
   `transync::parser::…` never resolved.
 - **Bad:** `intake::markdown::intake` now says "intake" twice. Recorded above,
   owned by OI-0034, and deliberately not fixed here.
+
+## Appended note (2026-09-08) — the collision's owner, corrected
+
+The line above, and the two register sentences written with it, said the
+collision was **owned by OI-0034**. That is wrong, and the 2026-09-08
+documentation drift audit found it.
+
+OI-0034 is *comrak's NUL→U+FFFD substitution desyncs byte columns* — **RESOLVED
+2026-08-06** and archived to `open-issues-archive.md`. It owns the NUL
+normalization the guard *performs*, which is exactly what every `TRACE: OI-0034`
+in the code correctly cites. It has never owned a naming decision, and being
+resolved and archived it cannot acquire one. So between 2026-09-07 and
+2026-09-08 the collision this record created had **no live owner** — the record
+said it was tracked, and it was not.
+
+It has one now: **OI-0054** in `docs/project/open-issues.md`, ticket
+`cdadffea`, with a paired `docs/backlog.md` entry
+(`intake-markdown-intake-name-collision`). The entry records the option this
+record did not consider: check whether any external caller needs the function at
+all, because making it crate-private would remove the surface question and may
+make the rename non-breaking. If it stays public, the rename rides the same
+unopened window as `LineOffsets::offsets` and this record's own change.
+
+The body above is otherwise correct as written and is not revised.

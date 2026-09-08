@@ -1,6 +1,6 @@
 # Backlog — WIP / deferred / open items
 
-Maintained by the `/reopen` sweep. Last sweep: **2026-08-26**; last full update:
+Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-08-26**; last in-place update: **2026-09-08** (the documentation drift audit; earlier in-place passes 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`). Original note follows: last full update:
 **2026-08-26** (the review-0009 track register). Three sweeps have run since the
 2026-08-07 refresh this line used to date itself from, and each one's markers are dated
 in place on the entries it touched: **2026-08-24** (`e89b537` — the index was missing 18
@@ -56,6 +56,25 @@ figures on each sweep rather than trusting them — an entry counts unless it ca
 resolution or a dated deferral line. The release-side half of this rule is
 `docs/project/release-checklist.md` step 2a, which is where a release actually consults
 the census.
+
+**Census (2026-09-08) — post-v0.5.0, and this is the current one.** Re-derived against
+`ti list --all` and `docs/project/open-issues.md`, not read off the 2026-09-05 line below.
+The **TicGit queue still holds exactly two open tickets** — ti `525bef96` and
+ti `16721e90`, both still tagged `deferred-v050` with their re-triggers unchanged and
+unfired — and both now have entries of their own under Type 3, which they did not on
+2026-09-05. The **open-issue register is no longer empty**: OI-0051, OI-0052, OI-0053
+were filed 2026-09-06 by the review-0010/0011 gate and OI-0054 on 2026-09-08, and all
+four are blocked rather than ready — OI-0051/0052/0054 on a **sanctioned breaking window
+that v0.5.0 closed** (the owner has recorded that OI-0051 and OI-0052 may be deferred
+again when v0.6.0's opens), OI-0053 on a scope decision. OI-0049's deferral stands.
+**Type 1 is empty**, since `parser-intake-markdown-rename` resolved 2026-09-07 (DCR-0053).
+What that means for the *next* gate is the owner's to state, because v0.5.0's
+window-closing condition was written for v0.5.0; nothing here counts against a gate that
+has not been declared. Five Type 2/Type 3 entries that read as open on 2026-09-05 were
+**already resolved** and are now marked so — tickets `6b43008a`, `473dd1e0`, `650bbba6`,
+`7e2fd068` and `dd21ad59`, three of them since 2026-09-02/03; the 2026-09-06 pass that
+reconciled nineteen entries was scoped to Type 1 and decision-made Type 2, so these were
+never in it.
 
 **Census (2026-09-05) — the v0.5.0 cut.** Re-derived against `ti list --all` and
 `docs/project/open-issues.md` rather than read off the line above, as step 2a requires:
@@ -879,6 +898,13 @@ deliberately pins ordering.
 > guard exactly as it still keeps `"htmlseg"`; living reference documents moved while every dated
 > record did not; and the `intake::markdown::intake` collision the rename creates is left alone as a
 > separate decision, owned by OI-0034.
+>
+> **Correction, 2026-09-08:** that attribution is wrong, and it was wrong when written above.
+> OI-0034 is *comrak's NUL→U+FFFD substitution desyncs byte columns*, RESOLVED 2026-08-06 and
+> archived — it owns the NUL normalization the guard performs, which is what the code's
+> `TRACE: OI-0034` tags correctly cite, and it has never owned a naming decision. The collision's
+> real owner is now `OI-0054` / ticket `cdadffea`, registered under
+> `intake-markdown-intake-name-collision` in Type 3.
 
 > **2026-09-06 — attempted, and deliberately not done in this tree; ticket `b7e4cc70`, state
 > `blocked`.** Blocked on a commit boundary, not on a decision. This entry's own acceptance
@@ -951,8 +977,15 @@ trust in the browser — resolved 2026-08-23 (route (c), both layers; ti `490d97
 DCR-0033); its entry below is retained for the record. `out-dir-sparse-bundle-subset` (OI-0036) was settled with `66339b`
 by the marker-file rule and is retained only for its record. `provider-payload-intake-guard`
 (OI-0037) sits in Type 1 below, since its approach is settled.
-`warm-cache-run-needs-no-credentials` (OI-0038) is the newest, from Review 0004, and is
-the one that genuinely needs a product answer before any code.
+`warm-cache-run-needs-no-credentials` (OI-0038) was **RESOLVED 2026-09-02** (`cdc1e32`,
+DCR-0046, ticket `30a744` closed) — `transync translate --offline` runs from a warm cache
+with no credential — so it is neither the newest nor a pending product question; the
+entry directly beneath it says so. OI-0039 through OI-0054 followed it.
+
+**Read this section as a record, not a queue** (2026-09-08). Every entry below is either
+resolved-and-retained or explicitly deferred with its blocker stated; the three ticketed
+2026-08-10 resolutions named above are retained below rather than "gone from it". The
+only entries here that are genuinely open work are the ones whose own note says so.
 
 ### publish-lock-nested-tree-boundary (ticket `40e2a5`)
 
@@ -1423,7 +1456,7 @@ The HTML→HTML feature: a second intake producing the same block IR, delivered 
 
 #### Background
 
-This was the umbrella the HTML work ran under, recorded here because a backlog that omits the largest open item in the tree is not a census. **All eight waves landed** — DCR-0032 (wave 0) through DCR-0039 (wave 7, 2026-09-04) — and the executed order was 0 → 2 → 3 → 4 → 5 → 6 → 7, corrected from the spec's original graph by wave 4's deviation 1. Retained for the record; it is no longer open work and does not count against the v0.5.0 gate. What the feature deliberately left open has its own entries: `phasing-custom-element-mid-sentence-review` (the owner's §14.1 re-confirmation, `ticgit:84bf37`), `markdown-island-reclassification`, `html-oversize-leaf-block-split` and `parser-intake-markdown-rename`.
+This was the umbrella the HTML work ran under, recorded here because a backlog that omits the largest open item in the tree is not a census. **All eight waves landed** — DCR-0032 (wave 0) through DCR-0039 (wave 7, 2026-09-04) — and the executed order was 0 → 2 → 3 → 4 → 5 → 6 → 7, corrected from the spec's original graph by wave 4's deviation 1. Retained for the record; it is no longer open work and does not count against the v0.5.0 gate. What the feature deliberately left open has its own entries: `phrasing-custom-element-mid-sentence-review` (the owner's §14.1 re-confirmation, `ticgit:84bf37`), `markdown-island-reclassification`, `html-oversize-leaf-block-split` and `parser-intake-markdown-rename`.
 
 ### bin-only-crates-are-outside-the-rustdoc-gate
 
@@ -1506,6 +1539,15 @@ puts such a block's anchor on a transparent `<div>` wrapper; treating one as inl
 text inside a run whose markup the sanitizer then deletes.
 
 ### git-history-lost-twice-standing-record
+
+> **RESOLVED 2026-09-02** (ticket `6b43008a`), and the 2026-09-06 note below was already wrong when
+> it was written. The owner decision it calls untaken was received **2026-09-01** — "the
+> authoritative `.git` is GitHub" — and is recorded in
+> `docs/project/git-history-loss-2026-08-17.md` (commit `1173a02`); the ticket closed once
+> `origin/main` held every local commit. The standing record of the two losses lives in the two
+> `git-history-loss-*.md` documents, which is where a reader should go. Retained here for audit;
+> **not open work**, and not the "one open Type 2 item that needs a person".
+
 
 > **2026-09-06 — facts refreshed; the decision is still the owner's and is deliberately not taken
 > here.** `git rev-list --count HEAD` is now **135** (was 48), `git tag` prints **`v0.4.0` and
@@ -1856,6 +1898,66 @@ pane, all coalescing into one animation frame that re-collects both anchor sets 
 re-runs the last driving pane's scroll handler. The block was coverage, and the coverage
 paid out._
 
+### adoption-agency-and-active-formatting-elements
+
+> **Registered 2026-09-08.** The ticket was open at the v0.5.0 cut and the file's own census named
+> it, but it had no entry of its own — which is the 2026-08-24 lesson (18 of 24 open tickets
+> unindexed) repeating on a smaller scale.
+
+- **Type:** 3
+- **Verified:** yes — filed by DCR-0051 before pinning it, on `web/tests/html-oracle.spec.js`'s own
+  instruction; the residual is measured, not predicted
+- **Blocked by:** an explicit owner deferral taken at the v0.5.0 cut (ticket tagged
+  `deferred-v050`). Re-trigger: a `sec4a:break-nested` count that stops shrinking, or a route that
+  puts an attacker-chosen `data-sync-id` into a live DOM through a reconstructed formatting element.
+- **Sources:** ticgit:525bef96, `docs/architecture/contracts.md` §4b, DCR-0051
+- **First seen:** 2026-09-04
+- **Last seen:** 2026-09-08
+
+#### Description
+
+`transync-html`'s `balance_fragment` models no **list of active formatting elements** and no
+**adoption agency algorithm**. `end_tag_effect` records why the omission is safe for the *closer*
+the balancer appends — an extra frame makes it append a redundant closer rather than lose a needed
+one — but that reasoning does not cover **reconstruction**: when a browser inserts the next element
+it reconstructs the active formatting elements, so a `<b>` the crate has closed reappears as a real
+frame, and that frame is what the appended closers then have to get past.
+
+#### Background
+
+DCR-0051 collapsed the crate's two open-element stacks into one and closed five divergences,
+taking the oracle's agreement from 7,697 to 8,619 of 10,000 and `sec4a:break-nested` from 1,358 to
+**8**. Those 8 are this ticket, and `contracts.md` §4b records the residual as accepted rather than
+unnoticed. `open@input:order` is a divergence mechanism the census had never carried before.
+
+### noscript-read-as-markup
+
+> **Registered 2026-09-08**, for the same reason as the entry above.
+
+- **Type:** 3
+- **Verified:** yes — deferred out of ti `bebebe` / DCR-0050 with a stated reason
+- **Blocked by:** an explicit owner deferral taken at the v0.5.0 cut (ticket tagged
+  `deferred-v050`), and a design question it inherits: `is_raw_text` answers the **name** question
+  and leaves the parsing context to its caller, which is the discipline ti `48f3c6` and ti `2e2453`
+  established. `noscript` is raw text only when the scripting flag is enabled, which is context —
+  so admitting it means giving the scanner a notion of context it deliberately does not have.
+- **Sources:** ticgit:16721e90, DCR-0050
+- **First seen:** 2026-09-04
+- **Last seen:** 2026-09-08
+
+#### Description
+
+`RAW_TEXT_ELEMENTS` carries eight names since ti `bebebe`; `noscript` is the ninth and was left
+out on purpose. But the scripting flag is enabled in every context this crate's output is parsed
+in — a pane is mounted by `pane.innerHTML = DOMPurify.sanitize(…)` from JavaScript, and a bundle's
+`source.html` navigated to directly runs scripts too — so Chromium reads `<noscript>` contents as
+text where `scan_tags` reads them as markup.
+
+#### Background
+
+The divergence is real and measured; what is unsettled is where the fix belongs, because the
+honest answer requires either a context parameter or an exception to the name-only rule.
+
 ### section-batch-coalescing _(owner-deferred to 2027, 2026-08-09)_
 
 - **Description:** Section-coherent batching (DCR-0027, ticket `43cfb4`) confines every
@@ -1883,6 +1985,13 @@ paid out._
   tracker.
 
 ### oi-0016-active-block-scan-perf
+
+> **RESOLVED 2026-09-02** (ticket `dd21ad59`). The profiling gate this entry says produced no
+> evidence **fired**: `benchmark/scroll-frame/RESULTS.md` measured the linear scan's main-thread
+> busy time from a V8 profile at up to 11.68% of a 16.67 ms frame with 5,000 blocks — no overrun —
+> so the sorted-offset cache stays unbuilt by the ticket's own second acceptance criterion, and
+> `docs/project/open-issues.md#OI-0016` reads RESOLVED. Not open work.
+
 
 - **Sources:** ticgit:dd21ad59, `docs/project/open-issues.md#OI-0016`
 
@@ -2028,7 +2137,7 @@ paid out._
 - **Description:** Whether to replace/augment the scroll-listener engine with an
   IntersectionObserver-based active-block pick.
 - **Background:** DCR-0008 open judgment call (OI-0006 third action).
-- **Blocked by:** deferred to a future performance pass — rides OI-0016's profiling gate.
+- **Blocked by:** deferred to a future performance pass — rode OI-0016's profiling gate, which **fired 2026-09-02**: `benchmark/scroll-frame/RESULTS.md` found no scroll-frame overrun (ti `dd21ad59` closed). Still deferred, now on that measurement rather than on a pending gate; the re-trigger is unchanged — a measured overrun on a large document.
 
 ### dialect-trait
 
@@ -2097,6 +2206,12 @@ paid out._
 
 ### no-cli-surface-selects-the-second-provider
 
+> **RESOLVED 2026-09-03** (ticket `473dd1e0`, commit `d136b0d`) — option (b): the binary stays
+> OpenAI-backed by DCR-0029's scope, and the Anthropic adapter is **declared library-only**, in the
+> crate's own module doc and in a paragraph of `contracts.md` §8. The decision this entry waits on
+> was taken. Not open work.
+
+
 - **Type:** 3
 - **Verified:** yes — reopen verified 2026-08-24: `grep -c transync-anthropic crates/transync-cli/Cargo.toml` returns 0
 - **Blocked by:** an owner decision on whether the CLI links a second provider at all (ADR-0002 currently says compile-time choice)
@@ -2113,6 +2228,14 @@ This is a dependency-graph fact rather than a missing-argument fact: the binary 
 
 ### no-machine-check-of-the-manual-cli-reference
 
+> **RESOLVED 2026-09-02** (ticket `7e2fd068`, commit `7355008`) — the owner chose option (c):
+> `crates/transync/tests/manual_source_refs.rs` resolves every frontmatter source path in the
+> manual bundle. The **CLI-flag prose** class this entry describes is deliberately *not* welded by
+> that choice, so if it needs closing it is a new ticket rather than this one. Also: the Background
+> below calls `ticgit:0eee5c55` "still open" — it closed 2026-09-01, and this file's own
+> `manual-still-calls-serve-a-deferred-stub` entry records that resolution.
+
+
 - **Type:** 3
 - **Verified:** yes — reopen verified 2026-08-24: `grep -c manual crates/transync-cli/tests/docs_cli_flags_drift.rs` returns 0
 - **Blocked by:** a decision on whether the guard belongs on `manual/`'s generated output or on the generator that produces it
@@ -2128,6 +2251,13 @@ This is a dependency-graph fact rather than a missing-argument fact: the binary 
 It has already fallen two flags behind (`--cache-dir`, `--table-strategy`) and kept a whole `transync serve` section describing a deferred stub for days after the real server shipped, with nothing failing. `ticgit:0eee5c55` is that same drift, still open — so this gap has a demonstrated cost, not a theoretical one. The reason it is blocked rather than ready is that `manual/` is generated one-way from `docs/` by `write-diataxis-manual`, so a weld pointed at it would pin generated output: either the generator must guarantee the reference, or the weld must be placed at the generator rather than at its product. That is a design decision about where the guard belongs.
 
 ### disk-cache-capacity-policy-unreachable-from-the-cli
+
+> **RESOLVED 2026-09-03** (ticket `650bbba6`, commit `d136b0d`) — option (b): the 1 GiB /
+> no-entry-cap default is **declared fixed for CLI runs**, written on `DiskCacheOptions::max_bytes`
+> and in `contracts.md` §6's `--cache-dir` row, each carrying a revisit trigger (an operator
+> reporting a real 1 GiB cache, or an `--offline` run failing at a miss an open-time trim evicted).
+> The trim precondition became ticket `0a3fca`, closed under OI-0044. Not open work.
+
 
 - **Type:** 3
 - **Verified:** yes — reopen verified 2026-08-24: `grep -rc DiskCacheOptions crates/transync-cli/src/` sums to 0
@@ -2229,6 +2359,38 @@ exists to check. Note the neighbouring `with_timeout` question was decided the
 other way (ADR-0031): a budget is taken verbatim because a bad value fails
 immediately and legibly, whereas an unusable header is a permanent per-request
 failure with no construction-time signal.
+
+### intake-markdown-intake-name-collision (OI-0054)
+
+- **Type:** 3
+- **Verified:** yes — found by the 2026-09-08 documentation drift audit; the collision is in the
+  code and the misattribution was in three documents
+- **Blocked by:** a sanctioned breaking window, *conditionally*. `intake::markdown` is a `pub mod`
+  of the published `transync-syntax`, so renaming the function is breaking for a direct consumer,
+  and v0.5.0 closed the window. The first required action is **not** blocked: check whether any
+  external caller needs the function at all, because making it crate-private would remove the
+  surface question and may make the rename non-breaking.
+- **Sources:** docs/project/open-issues.md#OI-0054, ticgit:cdadffea, DCR-0053, DCR-0035
+- **First seen:** 2026-09-08
+- **Last seen:** 2026-09-08
+
+#### Description
+
+The Markdown NUL/nesting guard **function** is reachable as `crate::intake::markdown::intake` — the
+path says "intake" twice, and the module and the function share the word for two different things.
+DCR-0053 created the collision when it renamed `parser` to `intake::markdown`, and left the
+function alone on purpose: renaming a public function is a surface change rather than a move, and
+folding it in would have broken that change's "the diff must be only the rename" condition.
+
+#### Background
+
+The entry exists because the collision was recorded in three places as "owned by OI-0034", and that
+attribution is **wrong**. OI-0034 is *comrak's NUL→U+FFFD substitution desyncs byte columns*,
+RESOLVED 2026-08-06 and archived. It owns the NUL normalization the guard performs — which is what
+every `TRACE: OI-0034` in the code correctly cites — but it has never owned a naming decision, and
+resolved-and-archived it cannot acquire one. So the collision had no live owner. It rides the same
+unopened window as `LineOffsets::offsets` (R0010-0023) and the DCR-0053 rename: all three are
+invisible through the `transync` facade and breaking only for a direct `transync-syntax` consumer.
 
 ### bundle-shell-narrow-viewport-and-pane-headings (OI-0053)
 

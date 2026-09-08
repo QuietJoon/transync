@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-06-review-0010-0011-gate-closed
+  last_updated: 2026-09-08-documentation-drift-audit
   notes: |
     V0.3.0 RELEASED 2026-08-07 (annotated tag; release-prep commit carries the
     CHANGELOG promotion, the workspace version bump 0.2.0 -> 0.3.0 including
@@ -204,6 +204,44 @@ project:
     the CHANGELOG [Unreleased] preamble was updated to say so. The rename has no
     revert fallback the way the field does - reverting it would re-open the
     asymmetry DCR-0035 exists to explain.
+    2026-09-08 - THE DOCUMENTATION DRIFT AUDIT. Every living document in the
+    bundle was checked claim-by-claim against the CODE rather than against
+    another document, across fourteen clusters. 98 findings, all but five in
+    living documents. The dominant class was not typos: it was a document
+    stating something a reader would ACT on that had stopped being true -
+    module-map.md's output/ subtree five files behind OI-0043's split, its
+    scripts/ tree listing four of thirteen files (omitting lib/rustdoc-gate.sh,
+    the one home of both rustdoc crate lists), rough-schema.md's schema-1.3.0
+    sketch missing both fields 1.3.0 added, Developer_Guide.md's rustdoc gate
+    command contradicting its own prose two paragraphs later in the exact block
+    the hook's failure message names as the mirror that must stay total,
+    persistence-and-files.md naming three facade paths that do not resolve, and
+    Troubleshooting.md quoting an error string that exists NOWHERE in the source
+    or in any commit of this history.
+    FIVE BACKLOG ENTRIES PRESENTED RESOLVED WORK AS OPEN - 6b43008a, 473dd1e0,
+    650bbba6, 7e2fd068 and dd21ad59 are all closed/resolved, three of them since
+    2026-09-02/03. This is the SAME stale-register defect the 2026-09-06 pass
+    reconciled nineteen entries of; that pass was scoped to Type 1 and
+    decision-made Type 2, and these five sit in Type 2/Type 3, so they were
+    never in its scope. The two genuinely open tickets (525bef96, 16721e90) had
+    no backlog entries at all and now do, which is the 2026-08-24 lesson - 18 of
+    24 open tickets unindexed - repeating on a smaller scale.
+    ONE CORRECTION IS THE AUDIT'S OWN: the 2026-09-07 rename recorded the
+    intake::markdown::intake collision as "owned by OI-0034" in three places.
+    OI-0034 is comrak's NUL->U+FFFD substitution issue, RESOLVED 2026-08-06 and
+    ARCHIVED; it owns the normalization the guard performs, which is what the
+    code's TRACE tags correctly cite, and it never owned a naming decision. The
+    collision had no live owner. It now has one: OI-0054 and ticket cdadffea,
+    with a paired backlog entry, and the unopened window carries THREE changes
+    rather than two.
+    NOT DONE, DELIBERATELY: the weld test named
+    the_module_enumeration_names_every_module_both_crates_declare keeps its
+    stale name because a dated plan cites it and renaming would dangle that
+    citation - the DOCUMENT was the wrong thing, and it was fixed. Forty older
+    ADRs/DCRs keep their missing `generated:` frontmatter because only manual/
+    declares okf_version; docs/ has no conformance standard to violate. The
+    manual's how-to/user/en/index.md sub-index asymmetry is recorded in
+    manual/log.md for the pipeline's owner rather than guessed at.
     TI 490d97 WAVE 0 LANDED 2026-08-20 TO 2026-08-22 (DCR-0032; Task 1 1d6f19d on
     the 20th, Task 8 and the close 1299280 on the 22nd - the single 2026-08-20
     was the plan's writing date, corrected 2026-08-24): the HTML mechanics left
@@ -1176,6 +1214,7 @@ design:
     - DCR-0050-four-tokenizer-divergences-and-the-plaintext-decision
     - DCR-0051-one-open-element-stack
     - DCR-0052-the-bottom-clamp-is-the-contract
+    - DCR-0053-the-format-seam-becomes-symmetric
   rewind_required_to_phase: null
   status: handoff_complete
 

@@ -1762,6 +1762,82 @@ should be checked against before the work starts.
 
 ---
 
+## OI-0054: The Markdown NUL/nesting guard is reachable as `intake::markdown::intake`
+
+- **Source:** the 2026-09-08 documentation drift audit; created by DCR-0053
+- **Date:** 2026-09-08
+- **Decision:** ACCEPT — track; the rename itself needs a breaking window
+- **Status:** OPEN (needs a decision)
+
+### Problem
+
+The Markdown NUL/nesting guard **function** is reachable as
+`crate::intake::markdown::intake`. The path says "intake" twice, and the module
+and the function share the word for two different things: the module is the
+format seam, the function is the guard that substitutes U+FFFD for NUL and
+refuses over-nested source before comrak sees it.
+
+DCR-0053 (2026-09-07, `18c1ab4`) created the collision by renaming `parser` to
+`intake::markdown`, and deliberately left the function alone — renaming a
+public function is a surface change rather than a move, and folding it in would
+have broken that change's "the diff must be only the rename" acceptance
+condition.
+
+### Why this entry exists
+
+The collision was recorded in three places as "owned by OI-0034", and **that
+attribution is wrong**. OI-0034 is *comrak's NUL→U+FFFD substitution desyncs
+byte columns*, RESOLVED 2026-08-06 and archived. It owns the NUL normalization
+the guard performs — which is what every `TRACE: OI-0034` in the code correctly
+cites — but it has never owned a naming decision, and being resolved and
+archived it cannot acquire one. So the collision had no live owner. This entry
+and ticket `cdadffea` are that owner.
+
+### Impact
+
+Readability only; nothing is incorrect at runtime. The cost is that
+`intake::markdown::intake` reads as a mistake to every new reader of the seam,
+which is why `intake.rs`'s module doc has had to carry a "not to be confused
+with" note since DCR-0035.
+
+### Why it is not a free rename
+
+`intake::markdown` is a `pub mod` of `transync-syntax`, a published crate, so
+renaming the function is **breaking** for a consumer depending on it directly.
+v0.5.0 closed the sanctioned window, so this sits in the same unopened window as
+`LineOffsets::offsets` going private (R0010-0023) and the DCR-0053 rename —
+all three invisible through the `transync` facade, all three breaking only for a
+direct `transync-syntax` consumer.
+
+### Required Actions
+
+1. Check first whether any external caller needs the function at all. If not,
+   making it crate-private removes the surface question and may make the rename
+   non-breaking.
+2. Otherwise decide between renaming it (`guarded_intake`, `normalize_and_guard`,
+   or folding it into `parse`) in the next breaking window, and keeping the name
+   with its wrinkle note on the grounds that it is ugly rather than wrong.
+3. Correct any remaining "owned by OI-0034" attribution as it is found.
+
+### Verification
+
+- [ ] Decision recorded
+- [ ] Change applied, or the keep-the-name decision documented
+- [ ] `intake.rs`'s wrinkle note updated to match the outcome
+
+### Blocked by
+
+A sanctioned breaking window for option (a), unless step 1 shows the function
+can be made crate-private — in which case nothing blocks it.
+
+### Related
+
+- DCR-0053 (created the collision, and records why it was left alone)
+- DCR-0035 (first recorded the wrinkle, when the path was `parser::intake`)
+- OI-0034 in `open-issues-archive.md` — the NUL normalization, **not** this
+
+---
+
 ## Open Issues Summary
 
 | Issue ID | Title                                                  | Status   | Severity |
@@ -1785,3 +1861,4 @@ should be checked against before the work starts.
 | OI-0051  | Every batch clones its profile and duplicates its glossary | OPEN (2026-09-06) — blocked on a breaking window | Low |
 | OI-0052  | Checked provider constructors accept invalid header values | OPEN (2026-09-06) — blocked on a breaking window | Medium |
 | OI-0053  | Shells have no small-screen layout and no visible pane headings | OPEN (2026-09-06) — needs a scope decision | Low |
+| OI-0054  | The NUL/nesting guard is reachable as `intake::markdown::intake` | OPEN (2026-09-08) — needs a decision; rename needs a window | Low |
