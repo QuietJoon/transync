@@ -606,3 +606,20 @@ the `### Discriminating tests` list under *Parser / id / unit*:
 The name is left in place above, as the two before it were. `git log -S` over
 `crates` is the check, and it returns exactly `954711a` plus the
 2026-08-17 restart commit `59ce8df`.
+
+## Amendment (2026-09-04, DCR-0048) — the whitespace-only rejection became a comparison, and left `check_html`
+
+*Appended, not a rewrite. One statement above is superseded: the 2026-08-09
+amendment's first bullet, "`check_html` rejects a WHITESPACE-ONLY element, not
+only an empty one".*
+
+Its own premise is why. `transync_html::extract`'s drop test is the *same*
+`char::is_whitespace`, so a source segment carrying only U+200B / U+200C /
+U+200D / U+2060 / U+00AD is kept and sent, and a faithful echo of one was
+rejected unconditionally — a false positive that spent the unit's whole retry
+budget reaching a fallback that changed nothing. Since ticket `c887bc`,
+`validate::text_presence` owns the definition of "renders nothing" for **both**
+intakes, and the rule is a **comparison** rather than a predicate: reject when
+the source payload carried visible text and the translation carries none. The
+layer name is unchanged (`ValidationLayer::PerKindShape` — no seventh layer),
+and so is the retryable rejection. See DCR-0048.

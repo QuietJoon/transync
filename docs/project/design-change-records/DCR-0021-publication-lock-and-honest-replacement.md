@@ -330,3 +330,14 @@ Beyond that: the few syscalls between the second guard pass
 and the rename, which nothing closes, because a guard is a check on a snapshot
 and a writer that takes no lock is not excludable by one. `contracts.md` §6
 states both under "Scope", as settled rather than residual.
+
+## Appended note — 2026-08-13: the decisions behind this record live in ADR-0024
+
+*Appended, not a rewrite.* `docs/decisions/0024-output-publication-protocol.md`
+is the decision record for the protocol this DCR changed — a kernel lock rather
+than a lease file, a lock marker that deliberately outlives the run, contention
+that waits rather than failing or stealing, and reclamation restricted to
+staging temps carrying the running pid. It exists because twelve findings across
+two independent review rounds have argued each of those back. This record
+carries the delta; that ADR carries the rationale, and names this one as part of
+the protocol's change history alongside DCR-0006 and DCR-0011.

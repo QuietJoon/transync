@@ -253,3 +253,16 @@ under `crates/transync-core`, `crates/transync-cli`, `crates/transync-openai`,
 Do **not** add `intake` re-exports to `transync-core` or the facade: wave 5
 decides how core reaches the intake, and `public_surface.rs`'s `forbidden` array
 now pins `"intake"` as never-documented surface.
+
+## Amendment (2026-09-07, DCR-0053) — the deferred rename landed
+
+*Appended, not a rewrite. "The deferred rename, on record" above is correct as
+written for this record's date and stays as written.*
+
+`18c1ab4` (ticket `b7e4cc70`) paid the mechanical cost in the diff that is
+*only* that: `parser` is `intake::markdown`, the seam is symmetric, and not one
+branch, constant, string or wire byte changed. The blast radius measured above
+is the estimate that change tested, and ADR-0025's D3 is now implemented as
+written rather than approximated. The wrinkle survives in a new spelling — the
+NUL/nesting guard function (OI-0034) is `intake::markdown::intake`, which says
+"intake" twice — and DCR-0053 records leaving it open.

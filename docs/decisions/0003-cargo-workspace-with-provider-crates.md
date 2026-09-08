@@ -123,6 +123,63 @@ The *Bad* tradeoff line below ("Three `Cargo.toml` files", amended to five in
 fifth did: it is what makes the browser surface a compiler-checked target
 instead of a script that happens to work.
 
+### Amendment 2026-09-02 (DCR-0029 / DCR-0032 / ADR-0028 / DCR-0045) — the seventh, eighth and ninth members
+
+*Appended, not a rewrite. Everything above stands as written. The note is
+late, and covers three members that joined on three separate dates — the last
+of them, `crates/transync-lang`, is one that DCR-0045 already cites as an amendment
+to this ADR.*
+
+The workspace is now **nine members**, in the `members` list's own order:
+`transync-html`, `transync-lang`, `transync-syntax`, `transync-core`,
+`transync`, `transync-openai`, `transync-anthropic`, `transync-cli`,
+`transync-wasm`. The three that arrived after the sixth:
+
+- **`crates/transync-anthropic/`** — the second provider, added 2026-08-10
+  (DCR-0029). It is the shape this ADR predicted: future provider crates land
+  at `crates/transync-anthropic/`. The DAG gains `transync-anthropic →
+  transync`, exactly the edge `transync-openai` has, and nothing else moves —
+  no workspace member depends on the adapter, because the CLI is OpenAI-backed
+  by DCR-0029's own scope.
+- **`crates/transync-html/`** — the HTML mechanics, added 2026-08-20
+  (DCR-0032), lifted out of `transync-syntax`'s `htmlseg` module (the name the
+  tree diagram above still carries). DCR-0032 recorded **no amendment** to
+  this ADR deliberately, and that judgement stands: the extraction follows
+  this ADR's shape rather than changing it. What moves is the count, and one
+  sentence of the 2026-08-04 amendment — `transync-syntax` is no longer
+  dependency-free. `transync-syntax → transync-html` is the new edge, it is
+  still a strict DAG, and `transync-html` takes over as the engine stack's
+  dependency-free base. The new
+  member carries the same two prohibitions for the same reason — **no
+  `[features]`**, and no dependency on a workspace member — because it now
+  sits under the `wasm32-unknown-unknown` gate transitively. The gate's
+  command string is unchanged and must stay unchanged: it names
+  `transync-syntax` and `transync-wasm`, and reaches this crate through the
+  first.
+- **`crates/transync-lang/`** — the source-language gate, added 2026-09-02
+  (ADR-0028 / DCR-0045), and the first member that is neither an engine layer
+  nor a provider. It **depends on no workspace member**, and that absence is
+  load-bearing rather than incidental (ADR-0028): a second local answer to
+  "what language is this" is precisely what the gate must not become. So it is
+  the second member with no internal dependency, and it answers a pre-flight
+  question for the caller rather than a question inside the pipeline.
+
+Two statements below move with this note:
+
+- The *Implementation* section's parenthetical members list stops at
+  `crates/transync-wasm` (2026-08-05); read `crates/transync-anthropic`
+  (2026-08-10), `crates/transync-html` (2026-08-20) and `crates/transync-lang`
+  (2026-09-02) after it. The explicit-`members`-list rule is unchanged and now
+  load-bearing twice over: `transync-wasm`'s `publish = false` makes the
+  publication roster the other **eight**, and a first publication has to walk
+  those eight in dependency order.
+- The *Bad* tradeoff line's manifest count — three, then five, then six — is
+  now **nine**.
+
+The original decision drivers (one-command build, compile-time wire
+compatibility, localized provider addition, no `CARGO_TARGET_DIR` override)
+are all unchanged.
+
 ### Implementation
 
 - Workspace root `Cargo.toml` declares an explicit `members` list (`crates/transync-core`, `crates/transync`, `crates/transync-openai`, `crates/transync-cli`; `crates/transync-syntax` added 2026-08-04; `crates/transync-wasm` added 2026-08-05) — not a `crates/*` glob — and a `[workspace.package]` block for shared metadata (license, edition, repository).
