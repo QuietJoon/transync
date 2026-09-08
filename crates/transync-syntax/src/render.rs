@@ -2046,14 +2046,17 @@ mod non_sync_anchor_tests {
     /// row, asserting both halves in ONE test so they cannot pass separately
     /// while disagreeing.
     ///
-    /// Nothing mints `BlockKind::Title` yet — the Markdown intake cannot, and
-    /// wave 3's HTML intake is unrun — so this synthesizes one the way
-    /// `skipped_render_tests` synthesizes a `Skipped` block. That is the
-    /// point: the divergence ti `18b9c3` found is unreachable today and
-    /// arrives with wave 3, so the test has to reach forward to it. It takes
-    /// the Guard-2 degrade path (no Comrak node carries the label `title`),
-    /// which is the arm a Markdown-pane render would give it and is enough to
-    /// exercise the attribute decision.
+    /// Nothing reaches this renderer with a `BlockKind::Title`, from either
+    /// direction, so this synthesizes one the way `skipped_render_tests`
+    /// synthesizes a `Skipped` block: the Markdown intake cannot mint a
+    /// `Title` at all, and the HTML intake — which does mint one, since ti
+    /// `490d97` wave 3 landed — renders through `render::html_pane`, which
+    /// omits every `non-sync` row outright. That is the point: the divergence
+    /// ti `18b9c3` found is unreachable through either pane, so the test has
+    /// to construct the one block that would expose it. It takes the Guard-2
+    /// degrade path (no Comrak node carries the label `title`), which is the
+    /// arm a Markdown-pane render would give it and is enough to exercise the
+    /// attribute decision.
     #[test]
     fn a_title_block_renders_without_the_dom_anchor_its_row_denies() {
         let src = "para\n";

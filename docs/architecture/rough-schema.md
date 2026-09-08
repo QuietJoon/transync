@@ -10,7 +10,7 @@ A stable string identifier per sync-relevant block. Shape decided in ADR-0005:
 <kind>-<NNNN>
 ```
 
-- `<kind>` ∈ `{h1, h2, h3, h4, h5, h6, p, t, c, li, q, hr, img, title, html, x}` — `html` is a block-level raw HTML block (ADR-0018) and `x` a skipped node (DCR-0013); both are real prefixes, appearing in schema-1.2.0 alignment rows and in `data-sync-id` anchors. `BlockKind::id_code` is the authority. `title` is an HTML document's `<title>` (ADR-0025) — a real row with `sync_role: non-sync` and no DOM anchor.
+- `<kind>` ∈ `{h1, h2, h3, h4, h5, h6, p, t, c, li, q, hr, img, title, html, x}` — `html` is a block-level raw HTML block (ADR-0018) and `x` a skipped node (DCR-0013); both are real prefixes, appearing in alignment rows since schema 1.2.0 (1.3.0 today) and in `data-sync-id` anchors. `BlockKind::id_code` is the authority. `title` is an HTML document's `<title>` (ADR-0025) — a real row with `sync_role: non-sync` and no DOM anchor.
 - `<NNNN>` is a zero-padded sequential number assigned in source-order traversal of the AST, starting at `0001`. Numbers are not reused within a document.
 
 Examples: `h2-0001`, `p-0042`, `t-0007`, `c-0003`, `li-0019`.
@@ -90,9 +90,11 @@ every raw-HTML island carries `Some(t)`.
 
 Per-block spelling is required rather than stylistic: one Markdown document
 interleaves HTML-spelled islands with Markdown-spelled blocks, so no
-document-level bit can carry that axis. Neither type is exported by the
-`transync` facade yet — both are tier-(c) engine types until the window that
-exports them (`contracts.md` §0/§1).
+document-level bit can carry that axis. `SourceFormat` **is** exported by the
+`transync` facade — tier (a), `transync::SourceFormat`, since ti `490d97`
+wave 5 / DCR-0037, alongside `TranslateOptions.input_format`. `Spelling` is
+still a tier-(c) engine type, reachable only through a direct
+`transync-syntax` dependency (`contracts.md` §0/§1).
 
 ## 3. `Document` IR (in-memory only — not serialized)
 
@@ -144,7 +146,7 @@ TranslationUnit {
   retry: Option<RetryContext>,  // v0.2: None on first dispatch; present on re-dispatch (contracts §1)
 }
 
-BatchId = String                 // shape "b-NNNN" — assigned by transync::batch
+BatchId = String                 // shape "b-NNNN" — assigned by transync-core::batch
 
 RetryContext {                   // v0.2 non-content retry side channel (ADR-0009; contracts §1)
   attempt: u32,                  // 1-based attempt of THIS dispatch (first retry carries 2)
@@ -294,6 +296,7 @@ ProfileMetadata {
   slug: String,           // "default", "technical-docs-ko", ...
   version: String,        // opaque non-empty identifier; any change invalidates cache
   prompt_body: String,    // the compiled system prompt (after profile + glossary substitution)
+  prompt_html: Option<String>,      // the raw [system].prompt_html template an --input-format html run compiles instead of prompt (ti 490d97); None = key absent
   glossary: Vec<GlossaryEntry>,     // structured entries, also rendered into prompt_body
   constraints: ProfileConstraints,  // typed [constraints] section (OI-0003)
   batching: ProfileBatching,        // typed [batching] section (OI-0003)
@@ -337,6 +340,7 @@ AlignmentMap {
   source_language: String,
   target_language: String,
   detected_source_language: Option<String>,
+  input_format: SourceFormat,      // 1.3.0: which intake produced the document; serde default, so a pre-1.3.0 map reads as markdown
   generator: GeneratorMeta,        // { name, version }
   blocks: Vec<AlignmentBlock>,
   validation_summary: ValidationSummary,
@@ -353,6 +357,7 @@ AlignmentBlock {
   sync_role: SyncRole,             // Anchor | Container | ChildOnly | NonSync
   fallback_status: FallbackStatus, // Translated | Preserved | PartiallyTranslated | FallbackSource
   parent_id: Option<BlockId>,
+  source_format: Option<SourceFormat>, // 1.3.0: how the source spelled this block; skip-serialized when None
 }
 
 ValidationSummary {

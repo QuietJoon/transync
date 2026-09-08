@@ -78,7 +78,8 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     │                                   #   partition is one level up; packs retry rounds too
     ├── llm.rs                          # Translator trait + types
     ├── llm/
-    │   └── prompt.rs                   # provider-neutral prompt assembly + schema (DCR-0015)
+    │   ├── prompt.rs                   # provider-neutral prompt assembly + schema (DCR-0015)
+    │   └── prompt/golden/              # the four pinned prompt + schema goldens
     ├── validate.rs                     # layered validation orchestrator
     ├── validate/
     │   ├── schema.rs                   # ID set / shape checks
@@ -113,7 +114,11 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     │   └── disk.rs                     # DiskCache — the disk-backed store (DCR-0028);
     │                                   #   a §0 tier-(a) export since v0.4.0
     ├── profile.rs                      # TOML loader + ProfileMetadata builder
-    └── error.rs                        # TransyncError + sub-errors (Parse wraps syntax's ParseError)
+    ├── error.rs                        # TransyncError + sub-errors (Parse wraps syntax's ParseError)
+    ├── test_stub.rs                    # cfg(feature = "test-stub"): the echo Translator that
+    │                                   #   transync-cli's test-stub-provider feature enables —
+    │                                   #   SCN-12's only automated path
+    └── test_fixtures.rs                # cfg(test) scaffolding
 
 crates/transync-lang/                   # the source-language GATE: "should a run start?"
 ├── Cargo.toml                          #   ONE dependency (whichlang), NO workspace member —
@@ -161,9 +166,10 @@ crates/transync-cli/                    # binary; no profiles/ dir — the defau
 ├── Cargo.toml
 ├── web/                                # CLI's local copy of demo assets, embedded
 │   ├── index.html.tpl
-│   ├── purify.min.js                   # vendored DOMPurify; include_str!'d by output.rs into
+│   ├── purify.min.js                   # vendored DOMPurify; include_str!'d by output/bundle.rs into
 │   │                                   #   every --html-out bundle (pinned against web/vendor/)
-│   └── sync.js                         # symlink/copy from workspace web/js/sync.js (build-time)
+│   └── sync.js                         # tracked copy of web/js/sync.js, byte-pinned by
+│                                       #   tests/sync_js_drift.rs (no build step)
 └── src/
     ├── main.rs                         # clap dispatch
     ├── translate_cmd.rs                # `transync translate` — args, the execute() seam,
@@ -184,11 +190,23 @@ crates/transync-cli/                    # binary; no profiles/ dir — the defau
     │   ├── conn.rs                     # one request per connection: read head, answer, close
     │   └── host.rs                     # which authorities this server answers for; a
     │                                   #   loopback bind is not an access control
-    ├── output.rs                       # atomic write helpers; --html-out templating
+    ├── output.rs                       # publication root: THE deletion rule + the two
+    │                                   #   entry points' contracts (OI-0043 split)
     ├── output/
-    │   └── lock.rs                     # cross-process exclusion for publication
-    │                                   #   (R0001-0034) — staging alone did not cover
-    │                                   #   the rename pass
+    │   ├── bundle.rs                   # embedded assets (include_str! of web/sync.js,
+    │   │                               #   index.html.tpl, purify.min.js) + index.html
+    │   │                               #   template filler + attribute escaping
+    │   ├── destination.rs              # destination vetting + lexical path
+    │   │                               #   normalization (same-destination refusal)
+    │   ├── fileset.rs                  # write_fileset_atomic: the staged fileset commit
+    │   │                               #   for --output / --map / --html-out
+    │   ├── lock.rs                     # cross-process exclusion for publication
+    │   │                               #   (R0001-0034) — staging alone did not cover
+    │   │                               #   the rename pass
+    │   ├── preflight.rs                # preflight_html_out / preflight_out_dir;
+    │   │                               #   HTML_BUNDLE_ENTRIES
+    │   └── publish.rs                  # publish_out_dir: the --out-dir staged tree,
+    │                                   #   OUT_DIR_ENTRIES, the ownership marker
     ├── direction.rs                    # bundle text direction, stamped at the PANE
     │                                   #   level (OI-0032)
     ├── logging.rs                      # where the library's `tracing` events go in the
@@ -229,7 +247,8 @@ web/                                    # workspace-level demo source-of-truth
                                         #     oracle for transync-html's walk/balancer)
 
 scripts/
-├── smoke.sh                            # build + wasm gate + tests + rustdoc gate + build-wasm + CLI e2e
+├── smoke.sh                            # build + wasm gate + tests + CLI stub suite + the TWO
+│                                       #   rustdoc legs + build-wasm + CLI e2e (eight steps)
 ├── build-wasm.sh                       # wasm-pack --no-opt + explicitly resolved binaryen
 │                                       #   wasm-opt (cached 117 rejects current rustc output);
 │                                       #   enforces the size budget; loud prereq failures
@@ -239,8 +258,24 @@ scripts/
 │                                       #    + wasm.spec.js + scn16.spec.js
 │                                       #    + html-oracle.spec.js — every spec
 │                                       #    under web/tests/)
-└── hooks/pre-commit                    # fmt, clippy --all-features, the two-package wasm
-                                        #   gate, the rustdoc gate; plus a JS leg that SKIPS
+├── install-hooks.sh                    # points core.hooksPath at the tracked hook; keeps and
+│                                       #   reports a differing legacy .git/hooks shadow
+│                                       #   rather than deleting it (R0001-0038)
+├── test.sh                             # the workspace suite with the thread cap
+├── test-long.sh                        # the long-running suite split out of test.sh
+├── smoke-live.sh                       # one real provider round-trip
+├── smoke-live-gate.sh                  # the per-provider live gate (openai | anthropic | all)
+├── smoke-live-long.sh                  # the long live gate
+├── lib/rustdoc-gate.sh                 # THE one home of both rustdoc-gate crate lists plus
+│                                       #   the completeness check; sourced (never executed)
+│                                       #   by smoke.sh and by hooks/pre-commit
+├── lib/workdir.sh                      # the shared scratch-workdir rule
+├── lib/workdir-guard.sh                # and its guard
+└── hooks/pre-commit                    # FIVE Rust legs — fmt, clippy --all-targets
+                                        #   --all-features, the two-package wasm gate, and the
+                                        #   two rustdoc legs (library crates; then
+                                        #   --document-private-items over the bin-only
+                                        #   transync-cli) — plus a JS format leg that SKIPS
                                         #   (loudly) when web/ declares no linter
 ```
 
@@ -278,7 +313,7 @@ column below.
 | SCN-12  | CLI end-to-end produces 4 outputs                           | `transync-cli::{main, translate_cmd, output}`, `transync-openai::*`, the `transync` facade                 | `scn-14-full.md` reused as input                       | OpenAI Chat Completions / Responses on a human-invoked live run; the `test-stub-provider` echo `Translator` in every automated run — see the table below |
 | SCN-13  | JS demo sync                                                | `web/js/sync.js`, `{render, align}`                                                                       | output of SCN-12; `web/tests/scn13.spec.js`            | headless Chromium via Playwright (`scripts/test-browser.sh`) |
 | SCN-14  | Full-document reparse                                       | `{regen, validate::full_reparse}`                                                               | `scn-14-full.md`                                       | none                                               |
-| SCN-15  | HTML-content translation end-to-end (post-MVP)              | `transync-html`, `{intake::markdown, unit (html_outcomes), validate::per_kind, regen, render, align}`, `web/js/sync.js` (toggle mirror) | `scn-15-html-blocks.md`                 | none (`MockTranslator`); browser leg via Playwright |
+| SCN-15  | HTML-content translation end-to-end (post-MVP)              | `transync-html`, `{intake::markdown, outcome (html_outcomes), unit, validate::per_kind, regen, render, align}`, `web/js/sync.js` (toggle mirror) | `scn-15-html-blocks.md`                 | none (`MockTranslator`); browser leg via Playwright |
 | SCN-16  | HTML→HTML document translation end-to-end (post-MVP)        | `transync-html`, `{intake::html, id (Spelling/SourceFormat), regen, validate (full_rescan_html), render (html_pane), align}`, `web/js/sync.js` | `scn-16-html-document.html`; `web/tests/scn16.spec.js` | Integration + CLI; headless Chromium via Playwright (`scripts/test-browser.sh`) |
 
 ## Persistence / file touches per scenario

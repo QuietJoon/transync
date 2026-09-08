@@ -133,10 +133,10 @@ Accepted output changes (the full list is in DCR-0017):
 | Renderer error policy         | strict — failed fragments use retry/fallback chain; never silent corruption |
 | HTML sanitization (JS demo)   | DOMPurify |
 | Default OpenAI model          | `gpt-5-chat-latest` (override via `TRANSYNC_OPENAI_MODEL` or `--model`; if your project lacks access, try `gpt-4o-2024-11-20`) |
-| Default request max tokens    | `12_000` (alias-tunable) |
+| Provider output ceiling       | `[batching].target_output_tokens` — `--target-output-tokens` overrides. There is no separate request-max-tokens knob; a `12_000` default was written here at Phase 1 and never shipped as a constant. |
 | Default `target_output_tokens`| `8_000` per page |
 | Default max segments per page | `8` (low for MVP, raise after fixture-driven tuning) |
-| Default split retries         | `3` per oversized page |
+| Default split retries         | *(removed)* — `max_split_retries` was deleted, not repurposed, by DCR-0026 (SL-104); the loader now emits an unknown-key warning for it, because a deterministic packing-time split has no split retry to bound. |
 | License                       | MIT (single) |
 | Rust edition                  | `2024` (workspace pins `rust-version = "1.88"` — let-chains, not the edition, set the floor; `transync-cli` pins 1.89 for the std file lock) |
 
