@@ -1,5 +1,26 @@
 # Manual Log
 
+## 2026-09-07
+
+* **Out-of-band edits, not a Sync.** The bundle was changed twice by ordinary
+  repository work rather than by a run of the manual skill, and this entry
+  exists so the log does not silently skip them. No page was regenerated, no
+  page was added or removed, and the tally is unchanged at 17 (1 tutorial,
+  8 how-to, 4 reference, 4 explanation).
+  * 2026-09-06 (`c5de190`): three stale claims corrected in place, found by the
+    review-0010/0011 decision gate.
+  * 2026-09-07 (`18c1ab4`, DCR-0053): three frontmatter source paths followed
+    the `parser` → `intake::markdown` rename in `transync-syntax`. Paths only —
+    `crates/transync/tests/manual_source_refs.rs` fails on a source reference
+    that does not resolve, so they had to move in the same commit as the
+    module.
+* **Known asymmetry, not fixed here:** `how-to/user/en/index.md` is the only
+  quadrant sub-index in the bundle, is not listed in `index.md`, and duplicates
+  four entries the manifest already carries — so a fifth user how-to would land
+  in the manifest and silently not in it. Whether to complete the pattern, drop
+  the file, or leave it is a bundle-structure decision for the manual pipeline's
+  owner, not for a drift sweep.
+
 ## 2026-08-13
 * **Sync**: All 12 existing pages were stale — the codebase had advanced far
   past the bundle, and four pages were wrong at the premise rather than
