@@ -175,7 +175,7 @@ Types:
 - **First seen:** 2026-09-09
 - **Last seen:** 2026-09-09
 
-### Description
+#### Description
 
 Eleven entries in the live Open Issues register say `RESOLVED` on their `Status:` line and carry
 three **unticked** `- [ ]` boxes under their own `### Verification` heading. The boxes are the
@@ -188,7 +188,7 @@ in most cases, a commit. What is missing is the verification record, and its abs
 indistinguishable from the case the boxes exist to catch — an entry marked resolved whose fix was
 never checked.
 
-### Background
+#### Background
 
 The Open Issues register is written by `indy-review-gate` and read by anyone auditing what shipped
 and on what evidence. Its header states the retention rule: entries are removed once fully
@@ -1074,7 +1074,7 @@ only entries here that are genuinely open work are the ones whose own note says 
 - **First seen:** 2026-09-08
 - **Last seen:** 2026-09-09
 
-### Description
+#### Description
 
 `CLAUDE.md` tells every agent that the record trail "records **nineteen** deliberate behavioural
 divergences" of `transync-html` from the retired `htmlseg` module, and that a difference from
@@ -1083,7 +1083,7 @@ is what stops the next reader from "repairing" a deliberate behaviour change. Bu
 cannot be enumerated from the trail: DCR-0032's last amendment is titled "the fifteenth through
 nineteenth divergences", and no document carries the running list that reaches fourteen before it.
 
-### Background
+#### Background
 
 `transync-html` was extracted from `transync-syntax::htmlseg` by DCR-0032 in August, verbatim at
 the extraction. Since then the crate has deliberately diverged from what `htmlseg` did, one
