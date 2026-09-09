@@ -1463,13 +1463,27 @@ again, ticketed, or otherwise moved during the arc that followed.
 
 ### browser-sync-ux-polish _(owner-deferred 2026-08-06)_
 
+> **One of the three claims below expired, and is corrected here — 2026-09-09, ticket
+> `3f0879ef`'s experiment.** The easing policy has not been a **20%/frame** lerp since
+> R0011-0094 (`e125a3a`, 2026-09-06): the factor is applied per elapsed **millisecond**, as
+> `SMOOTHING_FACTOR` raised to `elapsed / NOMINAL_FRAME_MS`, with `MAX_FRAME_STEP_MS` capping the
+> arrears one frame may claim — so a gesture settles in the same wall-clock time at 120 Hz as at
+> 60 Hz, which is the defect the words "20%/frame" describe. **Single and fixed still hold; "per
+> frame" does not.** This entry was written 2026-08-06 and the change landed a month later, and
+> nobody re-read it — which is what a parked entry costs. All three claims are now pinned by
+> `crates/transync/tests/parked_claims_sync_engine.rs`, so the next expiry is a failing assertion
+> rather than another month of nobody looking.
+
 - **Description:** Three small accepted MVP simplifications in the sync engine: no
-  hysteresis on active-block selection (rapid flicks may briefly pick a neighbor), a
-  single fixed partner-pane easing policy (20%/frame lerp), and `SMOOTHING_FACTOR`
-  hardcoded rather than a `mountSync` option. Each is small; whether any is wanted is a UX
-  priority decision.
+  hysteresis on active-block selection (rapid flicks may briefly pick a neighbor); a
+  single fixed partner-pane easing policy — **time-based since 2026-09-06**, ~20% of the
+  remaining gap per 16.7 ms of elapsed time rather than per frame, and still not variable
+  by any caller; and `SMOOTHING_FACTOR` hardcoded rather than a `mountSync` option. Each is
+  small; whether any is wanted is a UX priority decision.
 - **Background:** web/SMOKE.md "Known limitations (post-MVP)"; 2026-05-03 smooth-scroll
-  spec's deferred list.
+  spec's deferred list. The hysteresis and `SMOOTHING_FACTOR` halves were re-executed
+  2026-09-09 and both still hold: `activeBlockWithProgress` keeps no memory of its last
+  choice, and `mountSync` takes three positional parameters with no options object.
 
 ### in-browser-retranslation _(owner-deferred 2026-08-06)_
 
@@ -1635,37 +1649,6 @@ inside the gate; this asks whether bin-only members should be doc-checked at all
 diagnosed these nine — it costs one more `cargo doc` invocation and needs no new dependency. The reason it
 was excluded was "no public API to document", which is true and beside the point: `--document-private-items`
 is how a developer reads this crate, and that is the reader the links are for.
-
-### phrasing-extension-list-for-custom-elements
-
-- **Type:** 2
-- **Verified:** yes — measured 2026-09-04 over 42 real pages (10.1 MB, 8,879 blocks, 346 custom-element
-  start tags): **zero** mid-sentence splits
-- **Sources:** ticgit:84bf37 (RESOLVED 2026-09-04 — the owner accepted the current behaviour), spec
-  `2026-08-20-html-to-html-translation-design.md` §14.1 / §13.5, ADR-0025 (D4)
-- **First seen:** 2026-09-04 · **Last seen:** 2026-09-04
-
-> **Deferred at filing, 2026-09-04, by owner ruling.** `84bf37` was closed by **accepting** the current
-> behaviour on the measurement above; this entry carries only the untaken lever, and it is recorded so the
-> option survives outside the closed ticket. **Does not count against the v0.5.0 gate.** **Re-trigger: a
-> real page whose prose sits directly inside a container rather than in `<p>`/heading/`<li>` AND whose
-> sentences are cut by a custom element** — the shape the 42-page corpus did not contain.
-
-#### Description
-
-An unknown element is DEFAULT-STOP (ADR-0025 D4), so a custom element used mid-sentence flushes the text run
-before it and starts a new one after. In prose **not wrapped in an element** that severs one sentence into
-`p-…` / `html-…` / `p-…` translation units. Wrapped in `<p>`, a heading or an `<li>` the wrapping element is
-the block and the custom element is interior, so the sentence stays one block — which is why the measured
-corpus shows zero splits. The candidate lever, if the naked case ever matters, is a per-run or per-profile
-phrasing-extension list letting an operator declare `price-tag`, `fa-icon` and friends as phrasing.
-
-#### Background
-
-The prohibition that constrains any design here: **unknown elements must not become PHRASING by default.**
-DOMPurify removes an unknown element and every attribute riding it, which is why wave 6's 2026-08-21 ruling
-puts such a block's anchor on a transparent `<div>` wrapper; treating one as inline phrasing would put its
-text inside a run whose markup the sanitizer then deletes.
 
 ### git-history-lost-twice-standing-record
 
@@ -2026,6 +2009,44 @@ panes, `document.fonts.ready`, and capture-phase `load`/`error` on `<img>` insid
 pane, all coalescing into one animation frame that re-collects both anchor sets and
 re-runs the last driving pane's scroll handler. The block was coverage, and the coverage
 paid out._
+
+### phrasing-extension-list-for-custom-elements
+
+- **Type:** 3
+- **Verified:** yes — measured 2026-09-04 over 42 real pages (10.1 MB, 8,879 blocks, 346 custom-element
+  start tags): **zero** mid-sentence splits
+- **Blocked by:** evidence, not a decision. The re-trigger quoted below is a concrete external
+  prerequisite — **a real page whose prose sits directly inside a container rather than in
+  `<p>`/heading/`<li>`, whose sentences are cut by a custom element** — and the 42-page corpus did
+  not contain that shape. Nobody can choose their way past it; either such a page turns up or the
+  lever stays untaken. *(Re-typed 2026-09-09 from Type 2. It had been filed as needing a decision,
+  but the classifier's own tie-break is 3 > 2 > 1 and this has a stated external prerequisite, so it
+  was inflating the needs-a-decision count with something nobody can decide yet.)*
+- **Sources:** ticgit:84bf37 (RESOLVED 2026-09-04 — the owner accepted the current behaviour), spec
+  `2026-08-20-html-to-html-translation-design.md` §14.1 / §13.5, ADR-0025 (D4)
+- **First seen:** 2026-09-04 · **Last seen:** 2026-09-04
+
+> **Deferred at filing, 2026-09-04, by owner ruling.** `84bf37` was closed by **accepting** the current
+> behaviour on the measurement above; this entry carries only the untaken lever, and it is recorded so the
+> option survives outside the closed ticket. **Does not count against the v0.5.0 gate.** **Re-trigger: a
+> real page whose prose sits directly inside a container rather than in `<p>`/heading/`<li>` AND whose
+> sentences are cut by a custom element** — the shape the 42-page corpus did not contain.
+
+#### Description
+
+An unknown element is DEFAULT-STOP (ADR-0025 D4), so a custom element used mid-sentence flushes the text run
+before it and starts a new one after. In prose **not wrapped in an element** that severs one sentence into
+`p-…` / `html-…` / `p-…` translation units. Wrapped in `<p>`, a heading or an `<li>` the wrapping element is
+the block and the custom element is interior, so the sentence stays one block — which is why the measured
+corpus shows zero splits. The candidate lever, if the naked case ever matters, is a per-run or per-profile
+phrasing-extension list letting an operator declare `price-tag`, `fa-icon` and friends as phrasing.
+
+#### Background
+
+The prohibition that constrains any design here: **unknown elements must not become PHRASING by default.**
+DOMPurify removes an unknown element and every attribute riding it, which is why wave 6's 2026-08-21 ruling
+puts such a block's anchor on a transparent `<div>` wrapper; treating one as inline phrasing would put its
+text inside a run whose markup the sanitizer then deletes.
 
 ### adoption-agency-and-active-formatting-elements
 
