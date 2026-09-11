@@ -140,9 +140,78 @@ Types:
 
 ---
 
-## Type 1 — actionable now
+# Type 1 — Ready
 
-### open-issue-verification-boxes-unticked-on-eleven-resolved-entries
+## adr-0014-anchors-without-their-successor
+
+- **Type:** 1
+- **Verified:** yes — reopen verified 2026-09-11 first-hand: `grep -rn 'ADR-0014' crates/` gives
+  fourteen anchors, and reading twelve lines above each shows ten name DCR-0027 and four do not
+- **Sources:** ticgit:6f52db2d, docs/decisions/archive/0014-section-scoped-glossary-renders-globally.md
+- **First seen:** 2026-09-11
+- **Last seen:** 2026-09-11
+
+### Description
+
+Four places in the source cite `ADR-0014` with nothing pointing onward to the record that
+superseded it. `ADR-0014` carries `status: deprecated` and its own description says "this is the
+record of the rejection era, not current behavior", so a maintainer who follows one of those four
+lands on a document that tells them it does not describe how the system works today and offers no
+next step. Ten of the fourteen anchors already name `DCR-0027` nearby and are fine.
+
+The four are `crates/transync-core/src/llm.rs` (the `GlossaryScope::GlobalAcrossDocument` doc),
+`crates/transync-core/src/llm/prompt.rs` (the module doc and the force-global-scope assertion
+message), and `crates/transync/tests/scenarios/scn_09_prompt_injection.rs`.
+
+### Background
+
+`ADR-0014` originally rejected the reserved glossary scope `conditional-on-section`: a glossary
+entry meant for one section of a document would have steered every section, because nothing could
+filter it per section. Its 2026-07-13 amendment turned the rejection into a **time-boxed
+deferral** — the profile loader refuses the scope with `ProfileError::Unsupported`, and the scope
+is "re-admitted the moment section-aware batching makes per-section filtering cheap". `DCR-0027`
+(2026-08-09) is the change that fired that trigger: it made batches section-coherent and, in its
+own title, made "the glossary section scope become real". So the successor reversed the
+predecessor's operative holding rather than refining it, and both records say so — `ADR-0014`
+carries `superseded_by` and `DCR-0027` carries the matching `supersedes`.
+
+This item is the narrow residue of a wider claim that did not survive verification. Ticket
+`6f52db2d`, filed by the `reconcile-docs` command on 2026-09-10, asserted that code was resting on
+the reversed holding and named a sentence in `prompt.rs` as the exemplar. Reading the paragraph
+that sentence sits in refutes that: the comment opens by stating the reversal outright, then gives
+three current and independent reasons the *extraction* exclusion survives it — the extraction wire
+schema carries no scope or sections field, the model is shown flat text with no section identity,
+and no layer validates a returned glossary — and attributes the survival to `DCR-0027`, the live
+record. The same ticket's claim that only one anchor cites the successor was also wrong: ten of
+fourteen do. What is left is citation hygiene on four sites, which is why this is type 1 and not
+the design question the ticket carries.
+
+Nothing is blocked and nothing is owed a decision. The repository already contains the shape to
+copy, since `prompt.rs` writes the paired form in one place. While it stays open the cost is small
+but recurring and demonstrated: it is what led a documentation-reconciliation run to file an
+over-stated ticket, and it will read the same way to the next reader or tool that follows one of
+the four. Done means each of the four names `DCR-0027` beside `ADR-0014`, with no assertion text
+and no behaviour changed.
+
+### Options
+
+The approach is settled, so what follows is the method rather than a choice. Add the successor
+beside the predecessor at each of the four sites, in the paired form the file already uses, taking
+each site in its own idiom: two are prose rationale in doc comments, one is the text of an
+assertion message, and one is a `TRACE:` anchor, so a blanket string substitution would read
+wrongly in at least two of them.
+
+Two alternatives are ruled out by the item's own evidence rather than by preference. Retargeting
+the citations to `DCR-0027` **alone** would lose the origin — `ADR-0014` as amended is still the
+record that defines what the scope *means*, and `DCR-0027` describes the change, not the semantics.
+Deleting the anchors would drop traceability that the `TRACE:` weld depends on.
+
+One thing a reader should know: ticket `6f52db2d` is still open, still carries the broader
+unnarrowed claim, and is still `blocked` with a "Needs decision" marker from its filer. This
+command does not reclassify a ticket it did not file, so that divergence is reported rather than
+reconciled; `reconcile-docs` owns closing it on its next run.
+
+## open-issue-verification-boxes-unticked-on-eleven-resolved-entries
 
 > **RESOLVED 2026-09-09** (ticket `13fcede1`). **And the count in this entry's own topic name is
 > wrong: it is ten, not eleven.** Resolving it found why. The register carried a literal
@@ -175,7 +244,7 @@ Types:
 - **First seen:** 2026-09-09
 - **Last seen:** 2026-09-09
 
-#### Description
+### Description
 
 Eleven entries in the live Open Issues register say `RESOLVED` on their `Status:` line and carry
 three **unticked** `- [ ]` boxes under their own `### Verification` heading. The boxes are the
@@ -188,7 +257,7 @@ in most cases, a commit. What is missing is the verification record, and its abs
 indistinguishable from the case the boxes exist to catch — an entry marked resolved whose fix was
 never checked.
 
-#### Background
+### Background
 
 The Open Issues register is written by `indy-review-gate` and read by anyone auditing what shipped
 and on what evidence. Its header states the retention rule: entries are removed once fully
@@ -220,8 +289,9 @@ Done looks like this: each of the eleven either has its three boxes ticked again
 own entry cites, or carries one line saying which box does not apply and why. A reader who then
 finds an unticked box in the live register can trust that it means what it says.
 
-### commissioned-roadmap-post-0.3.0 — **ALL SIX LANDED (2026-08-09/10)**
+## commissioned-roadmap-post-0.3.0 — **ALL SIX LANDED (2026-08-09/10)**
 
+- **Type:** 1
 - **Description:** Six feature-scale work items the owner commissioned on 2026-08-06
   (decisions delegated to the controller and recorded in each ticket, tagged
   `owner-decision,roadmap`, priority 5). Each was actionable as-is. Four opened with a DCR
@@ -303,6 +373,7 @@ finds an unticked box in the live register can trust that it means what it says.
   the roadmap's record, not as open work. The "none has been started — all six are
   `state: new` and unassigned" note this line used to carry described the 2026-08-07
   refresh and was already stale by 2026-08-10.
+- **Unfiled:** resolved and retained for the record; no ticket is owed
 
 _The 2026-08-05 sweep's Type-1 work is fully resolved: its nine items landed 2026-08-05/06
 (`0f137ed`..`3c9bc15`). The review-0001 arc that followed ran waves C–H over 2026-08-06/07
@@ -315,7 +386,7 @@ locally only — no remote, nothing published — so post-release CHANGELOG mate
 findings of `reviews/reviewed/0001.md`; `ti list --status closed --tag review-0001` enumerates the
 tickets; `CHANGELOG.md` carries the per-ticket entries under `[0.3.0]` and `[Unreleased]`._
 
-### html-walk-foreign-content-breakout — **`e77173`, a live §4a break, and wave 3's precondition**
+## html-walk-foreign-content-breakout — **`e77173`, a live §4a break, and wave 3's precondition**
 
 > **RESOLVED 2026-09-01** (ti `e77173`, DCR-0041), and superseded twice since. `walk_elements`'
 > single inherited `in_foreign` bool became a three-valued content mode per open element, so
@@ -334,7 +405,7 @@ tickets; `CHANGELOG.md` carries the per-ticket entries under `[0.3.0]` and `[Unr
   (2026-08-23 amendment)
 - **First seen:** 2026-08-22 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `walk_elements` models neither HTML's foreign-content **breakout** tags nor its
 integration points. `<div class="wrap"><svg><div>x</svg></div>` followed by a block
@@ -350,7 +421,7 @@ and passes the fragment through. So this is not wave 1's fix leaking — it is a
 gap that fix neither introduced nor worsened (`balance_fragment` output is
 byte-identical old-versus-new for every one of these inputs).
 
-#### Background — why it is scheduled rather than parked
+### Background — why it is scheduled rather than parked
 
 The ticket's own words put the fix-or-accept decision **before wave 3 lands**, and the
 2026-08-24 design review found it had no owner: `e77173`, "breakout" and
@@ -379,7 +450,7 @@ The ticket suggests the corpus entry that would have caught it:
 golden corpus has no foreign-content breakout entry at all, which is why five
 `selfclose-*` entries could not see this.
 
-### transync-html-wave-0-1-findings — five tickets from the wave 0/1 reviews
+## transync-html-wave-0-1-findings — five tickets from the wave 0/1 reviews
 
 > **RESOLVED 2026-09-03.** All five tickets landed: `95f55b` (a closer the balancer would bury in
 > an unterminated region is withheld), `415cdb` (a stray `=` begins an attribute name, so the strip
@@ -393,7 +464,7 @@ golden corpus has no foreign-content breakout entry at all, which is why five
 - **Sources:** ticgit:95f55b3a, ticgit:415cdb7f, ticgit:4882ac7d, ticgit:2e2453dd, ticgit:48f3c6d8
 - **First seen:** 2026-08-22 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 | ticket | finding | class |
 |---|---|---|
@@ -403,7 +474,7 @@ golden corpus has no foreign-content breakout entry at all, which is why five
 | `2e2453` | `scan_tags` enters raw-text state for `script`/`style`/`textarea`/`title` even inside `svg`/`math`, where a browser does not | scanner-level, pre-existing |
 | `48f3c6` | a void name used as a real foreign element keeps `is_void` globally | deliberate trade, recorded |
 
-#### Background
+### Background
 
 These were filed rather than fixed because each is pre-existing and orthogonal to the
 wave that found it. `415cdb` additionally **contradicts a shipped contract sentence** —
@@ -416,7 +487,7 @@ sweep in, which is a reason to schedule that fix rather than five separate ones.
 
 ---
 
-### transync-html-one-open-element-stack — six tickets, one root cause — **RESOLVED 2026-09-05**
+## transync-html-one-open-element-stack — six tickets, one root cause — **RESOLVED 2026-09-05**
 
 - **Type:** 1
 - **Verified:** yes — five reproduced by the reviews and the browser oracle that filed
@@ -426,7 +497,7 @@ sweep in, which is a reason to schedule that fix rather than five separate ones.
   ticgit:bb961a70, ticgit:a7e62558
 - **First seen:** 2026-09-04 · **Last seen:** 2026-09-05 · **Resolved:** 2026-09-05
 
-#### Description
+### Description
 
 | ticket | finding | class |
 |---|---|---|
@@ -437,7 +508,7 @@ sweep in, which is a reason to schedule that fix rather than five separate ones.
 | `bb961a` | an ignored `</desc>` puts the crate in foreign content reading a CDATA section where Chromium is in HTML content reading a bogus comment — a live `data-sync-id` plus a `parent-td` §4a break | **P1**, OI-0035 again |
 | `a7e625` | `mglyph`/`malignmark` keep their children in MathML; `child_content_mode` returned `Html` for every child of `mi`/`mo`/`mn`/`ms`/`mtext` | P2, was `needs-measurement` |
 
-#### Background
+### Background
 
 All six were the same defect: the crate kept **two** open-element stacks —
 `scan_tags_with_state`'s `mode_stack` and `walk_elements`' `open_stack` — and they popped
@@ -462,7 +533,7 @@ Residual measured at 8 of 10,000 generated fragments and recorded in `contracts.
 
 ---
 
-### git-object-loss-residual-blobs
+## git-object-loss-residual-blobs
 
 > **RESOLVED 2026-09-06.** Re-verified today: `git diff --stat HEAD` succeeds, and `git fsck`
 > reports only dangling objects — no missing or corrupt ones. The two blobs this entry names are
@@ -476,15 +547,15 @@ Residual measured at 8 of 10,000 generated fragments and recorded in `contracts.
 - **Sources:** ticgit:494a754c
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 Two blobs the ticket names are still unreadable in `.git`, but they are no longer HEAD blobs and the symptom the ticket is titled after — `git diff` over the whole tree aborting — no longer reproduces.
 
-#### Background
+### Background
 
 Filed when a plain `git diff --stat` aborted with `fatal: unable to read 1b7a866f…`. The 2026-08-17 restart at `59ce8df` re-created those paths as fresh blobs, so the unreadable objects became unreferenced debris rather than tree content. Nothing at HEAD depends on them and `git fsck` is clean. It is type 1 because the remaining action is a decision-free re-scope or close, not a repair — there is nothing left to recover, and the objects cannot be reconstructed. Left open rather than closed here because this command never closes a ticket it did not file. The related standing record is `ticgit:6b43008a`.
 
-### developer-guide-names-two-of-three-browser-specs
+## developer-guide-names-two-of-three-browser-specs
 
 > **RESOLVED.** Verified in `docs/Developer_Guide.md` on 2026-09-06: the browser-suite row now
 > names all five specs — `scn13.spec.js`, `scn16.spec.js`, `engine.spec.js`, `wasm.spec.js` and
@@ -496,15 +567,15 @@ Filed when a plain `git diff --stat` aborted with `fatal: unable to read 1b7a866
 - **Sources:** ticgit:729ec8ec
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `docs/Developer_Guide.md` describes the browser suite as SCN-13 plus the wasm demo, but `web/tests/` holds a third spec — `engine.spec.js`, `sync.js`'s mount contract driven over a bare two-pane rig — which the same runner executes.
 
-#### Background
+### Background
 
 `playwright.config.js` sets `testDir: "./tests"` and `scripts/test-browser.sh` ends in a bare `pnpm exec playwright test`, so all three specs run. The weld `docs_browser_suite_drift.rs` requires living documents to name the spec files rather than publish a count, and it can only pin what the document names. A spec the guide omits is therefore a spec no weld protects: it could be deleted and both the document and the test would stay green. The fix is a one-line documentation edit plus confirming the weld then covers all three. Type 1 — nothing to decide, no prerequisite.
 
-### playwright-outside-the-runner-validates-a-stale-bundle
+## playwright-outside-the-runner-validates-a-stale-bundle
 
 > **RESOLVED** (ti `ed2e73`). A bare `pnpm exec playwright test` now REFUSES a bundle older than
 > its inputs: `playwright.config.js` compares the fixture's newest file against `crates/`,
@@ -518,15 +589,15 @@ Filed when a plain `git diff --stat` aborted with `fatal: unable to read 1b7a866
 - **Sources:** ticgit:ed2e73c9
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 A bare `pnpm exec playwright test` from `web/` skips the rebuild that `scripts/test-browser.sh` performs, so it validates whatever bundle the last full run left behind.
 
-#### Background
+### Background
 
 The script rebuilds the stub CLI, regenerates every bundle and rebuilds the wasm module on each invocation. The inner loop is documented in the wave plans as a legitimate speed-up with the caveat that any pass must be re-confirmed by a full run — but nothing enforces the caveat, and a green inner-loop run looks identical to a green full run. Pre-existing and suite-wide; surfaced by the adversarial review of wave 1 Task 2. Type 1 because the shape of the fix is settled: make the fast path announce what it did not rebuild, or make it refuse when the bundle is older than its inputs.
 
-### cancellation-tests-assert-wall-clock-bounds
+## cancellation-tests-assert-wall-clock-bounds
 
 > **RESOLVED 2026-09-06 — and it is ti `d41782`'s option 2, not a new idea.** One correction to this
 > entry as filed: the bounds were no longer the 5 s ones it describes. `d41782` resolved on
@@ -554,15 +625,15 @@ The script rebuilds the stub CLI, regenerates every bundle and rebuilds the wasm
 - **Sources:** ticgit:d4178267
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 Two tests in `crates/transync/tests/cancellation.rs` end in a 5-second wall-clock assertion against 30 s and 600 s regression signatures, and flake under load.
 
-#### Background
+### Background
 
 The bound exists to prove a sleep was raced against a cancellation token rather than waited out. It is a real property worth pinning, but wall-clock is the wrong instrument on a machine where this session measured `syspolicyd` parking fresh binaries at `_dyld_start` for 30–40 minutes and five foreign cargo processes contending for one target dir. A flake here reads as a cancellation regression, which is the most expensive possible false positive: it points an investigator at the retry policy. Type 1 — the fix is to assert on the observable (the token was observed, the provider was dropped) rather than on elapsed time.
 
-### scratch-scripts-fall-back-to-tmpdir
+## scratch-scripts-fall-back-to-tmpdir
 
 > **RESOLVED 2026-09-03** (ti `13a73b`). `scripts/lib/workdir.sh` is now the one place the rule
 > lives, and the silent relocation is gone: an explicit override wins verbatim, the preferred
@@ -576,15 +647,15 @@ The bound exists to prove a sleep was raced against a cancellation token rather 
 - **Sources:** ticgit:13a73be0
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 Five scripts prefer `/Volumes/Temp/claude/<name>` and silently fall back to `${TMPDIR:-/tmp}/<name>` when that parent is absent.
 
-#### Background
+### Background
 
 `test-browser.sh`, `smoke.sh`, `smoke-live.sh`, `smoke-live-long.sh` and one more all carry the same two-step rule. The workspace's standing rule is that every temporary artifact lives under `/Volumes/Temp/claude/` and that an unreachable volume is a stop-and-ask, not a fallback — precisely because a silent fallback puts build artifacts somewhere nobody is looking and nobody cleans. The fallback also makes the failure invisible: a run that should have halted instead succeeds against a different directory, and the operator learns nothing. Type 1 — replace the fallback with a refusal that names the missing path.
 
-### transync-html-token-pin-reads-another-crates-fixtures
+## transync-html-token-pin-reads-another-crates-fixtures
 
 > **RESOLVED 2026-09-04 (`ticgit:4fb858`).** Option 1 — the corpus is vendored into the crate: `crates/transync-html/tests/fixtures/{scn-15-html-blocks,scn-14-full,reader-honesty}.md` are byte-verbatim copies, sha256-verified, so the pin no longer reaches through `CARGO_MANIFEST_DIR/../..` into a sibling crate. It was also the only admissible option: `publish = false` contradicts wave 0's roster decision, and the feature-gate variant this entry recorded is **barred outright** — `transync-html` may never carry a `[features]` table (CLAUDE.md, and the crate's own manifest header), because that would break the standing two-package `wasm32` gate. The ticket's own hold ("do not act during ti 490d97 waves 0-7 — the fixture freeze holds for the duration") expired when wave 7 landed.
 
@@ -593,15 +664,15 @@ Five scripts prefer `/Volumes/Temp/claude/<name>` and silently fall back to `${T
 - **Sources:** ticgit:4fb85819
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `crates/transync-html`'s `token_stream_pin.rs` reads fixtures from `crates/transync/tests/fixtures/` via `CARGO_MANIFEST_DIR/../..`, which a published tarball does not contain.
 
-#### Background
+### Background
 
 The crate carries no `publish = false`, so it sits on the publication roster. A tarball ships the crate's own `tests/` but not another member's fixtures, so the pin cannot run from it. Nothing breaks today only because nothing has published from a tarball. The second consequence is worse in daily use: when the fixtures move, the pin fails with a file-not-found that reads like a corpus regression rather than a path problem, so the red misdiagnoses itself. Type 1 — either vendor the fixtures the pin needs into the crate, or gate the pin behind a feature that a tarball run does not enable.
 
-### sync-role-for-catch-all-would-mis-classify-a-new-kind
+## sync-role-for-catch-all-would-mis-classify-a-new-kind
 
 > **RESOLVED.** Verified in `crates/transync-syntax/src/align.rs` on 2026-09-06: `sync_role_for`
 > has no `_ => SyncRole::Anchor` arm left. Every `BlockKind` is spelled out — including
@@ -614,15 +685,15 @@ The crate carries no `publish = false`, so it sits on the publication roster. A 
 - **Sources:** ticgit:9ffb97ee
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `align::sync_role_for` ends in `_ => SyncRole::Anchor`, so any `BlockKind` nobody named silently anchors — and `SyncRole` is wire-visible, deciding whether a row gets a DOM anchor and whether the engine counts it synchronizable.
 
-#### Background
+### Background
 
 This is no longer a hypothesis. Wave 2 Task 6 added `BlockKind::Title` and captured the catch-all swallowing it: the trap test failed with `left: Anchor, right: NonSync` before the explicit arm was written. That red is the ticket's claim, reproduced. Wave 2 worked around it deliberately rather than fixing it, because removing a catch-all is a change to every kind's dispatch and did not belong in a breaking-window wave. The related and sharper instance is `ticgit:18b9c34b`, where the renderer decides the same question from a literal match instead of asking this function at all. Type 1 — the approach is settled: enumerate the arms and delete the catch-all, letting the compiler demand a decision per variant.
 
-### render-block-decides-anchoring-without-asking-sync-role-for
+## render-block-decides-anchoring-without-asking-sync-role-for
 
 > **RESOLVED** (ti `18b9c3`). Verified in `crates/transync-syntax/src/render.rs` on 2026-09-06:
 > the sync-attribute omission is no longer decided in `render_block`. `attrs::write_attrs` reads
@@ -636,15 +707,15 @@ This is no longer a hypothesis. Wave 2 Task 6 added `BlockKind::Title` and captu
 - **Sources:** ticgit:18b9c34b
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `render_block` enforces the non-sync-implies-no-anchor rule with a literal `matches!(kind, BlockKind::ThematicBreak)` rather than by consulting `sync_role_for`, so a `Title` block would get a DOM anchor its own alignment row denies.
 
-#### Background
+### Background
 
 Verified: the renderer never calls the role function at all. Unreachable at wave 2's HEAD because nothing mints a `BlockKind::Title` yet — the Markdown intake cannot, and the HTML intake that will is wave 3's — so wave 2's suite is green on the merits rather than by luck. Wave 3 mints titles and wave 6 builds the HTML panes, which is where such a block first reaches a renderer on a live path. Wave 6 must extend the guard or state why a literal list is the right shape. Deriving it is the better fix and matches what wave 1 already did one layer up, when it made `synchronizableRowCount` derive from `synchronizableRowIds(...)` precisely so the mount predicate and the anchor predicate could not drift. Type 1 — the approach is settled and the deadline is wave 6.
 
-### scan-tags-tag-name-and-end-tag-open-divergences
+## scan-tags-tag-name-and-end-tag-open-divergences
 
 > **RESOLVED 2026-09-01** (ti `e20490`). Both divergences are gone: `scan_tags`' TAG-NAME and
 > END-TAG-OPEN states follow HTML, and the scanner and the strip share one `tag_name_end`, which
@@ -656,15 +727,15 @@ Verified: the renderer never calls the role function at all. Unreachable at wave
 - **Sources:** ticgit:e20490fe
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 Two deliberate divergences from HTML survive in `scan_tags`: one plants a real attribute the strip never examines, the other invents structure a browser never mints.
 
-#### Background
+### Background
 
 Wave 0 task 8 (`ti 549b20`) aligned `AttrState::Outside` with the browser and closed a measured strip bypass. The owner's 2026-08-21 ruling named these two as out of scope for that task and asked for them to be filed together, because they share a fix. Both are on the untrusted-source path that architectural invariant 7 says to assume hostile, and one is explicitly security-shaped: an attribute the strip never examines is an attribute the strip cannot remove. Type 1 — the owner already ruled, so nothing is undecided; what remains is the work. Related foreign-content gaps that the same stack-scoped bit would sweep in: `ticgit:2e2453dd`, `ticgit:48f3c6d8`, `ticgit:e77173bb`.
 
-### manual-still-calls-serve-a-deferred-stub
+## manual-still-calls-serve-a-deferred-stub
 
 > **RESOLVED.** Verified across `manual/` on 2026-09-06: `manual/reference/user/en/cli.md`
 > documents `transync serve`'s full flag set, defaults, limits and exit codes with source
@@ -678,15 +749,15 @@ Wave 0 task 8 (`ti 549b20`) aligned `AttrState::Outside` with the browser and cl
 - **Sources:** ticgit:0eee5c55
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `manual/` still describes `transync serve` as a deferred stub that never binds, two weeks after the real loopback static file server shipped.
 
-#### Background
+### Background
 
 `transync serve` became real on 2026-08-09 (ticket `b791d6`); `contracts.md` §6 records that it supersedes the deferred-stub contract that stood from SL-13. The `docs/` bundle moved with it. `manual/` is derived one-way from `docs/` and did not. Found while working the exit-code tables, whose scope was table content only — this needs whole sections rewritten, which is a different job. The reason it went unnoticed is `ticgit:7e2fd068`: no weld machine-checks the manual's CLI reference, so a section can describe software that no longer exists and nothing fails. Type 1 — the correct text already exists in `docs/`; this is a derivation the manual pipeline owes.
 
-### provider-payload-intake-guard (OI-0037)
+## provider-payload-intake-guard (OI-0037)
 
 > **RESOLVED 2026-09-01** (ticket `148fcf`), per `docs/project/open-issues.md#OI-0037`. Provider
 > payloads are refused at one door — `validate::validate_unit` — before any layer parses them, and
@@ -700,7 +771,7 @@ Wave 0 task 8 (`ti 549b20`) aligned `AttrState::Outside` with the browser and cl
 - **First seen:** 2026-08-09
 - **Last seen:** 2026-08-09
 
-#### Description
+### Description
 
 Source Markdown enters through `parser::intake` and its depth pre-scan
 (ticket `07844d`); provider-returned payloads call `comrak::parse_document`
@@ -712,7 +783,7 @@ through one guarded entry point and convert a refusal into `ReparseFailure`
 with attributed fallback ids, so the existing retry-then-fallback machinery
 carries it.
 
-#### Background
+### Background
 
 Type 1, not 2: the approach is settled (one guarded entry point, refusal ->
 `ReparseFailure`) and nothing has to land first — it is tracked rather than
@@ -727,7 +798,7 @@ parse with nothing going red. R0003-0088 is the test gap and cannot land
 before the guard.
 
 
-### pre-network-recomputation (OI-0041)
+## pre-network-recomputation (OI-0041)
 
 > **RESOLVED 2026-09-04 (partial); six of eight declined on this entry's own severity verdict, two deferred.** `unit/split.rs` plans in one pass and carries the sliced parent with the plan — one `windows_of` per unit, one fewer whole comrak parse per splitting table, and **a panic site deleted** because the invariant now rides the signature. `ProfileMetadata::default` is documented rather than restructured: the panic is unreachable for any caller of a built crate, and each structural alternative is worse (a `build.rs` duplicates `load_profile`'s rules; Rust literals violate the single-source rule; a `Default` that stops equalling `default_profile()` hands out an empty system prompt). R0009-0049 / R0009-0050 **deferred** — their fix needs a new field on `GlossaryEntry`, a tier-(a) public type *without* `#[non_exhaustive]` whose serde shape is operator-edited profile TOML, i.e. a breaking wire change for a loop this entry records as dwarfed by the tiktoken encode beside it. **Re-trigger: the next breaking window already moving `GlossaryEntry`.** **Does not count against the v0.5.0 gate.**
 
@@ -740,10 +811,10 @@ before the guard.
   reviews/reviewed/0009.md#R0009-0047, reviews/reviewed/0009.md#R0009-0049,
   reviews/reviewed/0009.md#R0009-0050, reviews/reviewed/0009.md#R0009-0051,
   reviews/reviewed/0009.md#R0009-0073
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0041 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 Eight findings in `transync-core`'s once-per-run, pre-network phase, each
 recomputing something it already had. Two edits cover all eight. In
@@ -759,7 +830,7 @@ warnings), `entry_applies_to_section` allocates a fresh canonical `String` per
 comparison, `effective_glossary` canonicalizes each term twice per section, and
 `unit.rs` walks the glossary twice per section for two different questions.
 
-#### Background
+### Background
 
 Type 1: every fix shape is settled and nothing must land first. Six of the
 eight were filed above their verified severity, and the register exists partly
@@ -780,7 +851,7 @@ that applied but were shadowed, which `cohort_key` excludes. The sharpest thing
 in the cluster is not a cost at all — `impl Default for ProfileMetadata` parses
 TOML and can panic.
 
-### degraded-regen-cascade-scans (OI-0042)
+## degraded-regen-cascade-scans (OI-0042)
 
 > **RESOLVED 2026-09-04.** All three sites linearized — including `validate/full_rescan_html.rs`'s twin, written 2026-09-03, eight days after the entry, and covered here rather than given its own row because splitting twins across two entries is how one of them rots. `widen_to_neighbors` also stopped comparing `String` where `usize` was available, which is why it was 8× its sibling: 26 ms / 245 ms / 1.9 s at 5,000 / 20,000 / 50,000 blocks, and N is the caller's document rather than this repository's — which is what moved it off the "cold path, therefore negligible" reading.
 
@@ -789,10 +860,10 @@ TOML and can panic.
   gate-accepted, user-routed track
 - **Sources:** docs/project/open-issues.md#OI-0042, reviews/reviewed/0009.md#R0009-0033,
   reviews/reviewed/0009.md#R0009-0079
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0042 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 Two scans that are worse than linear, both on the path that runs only after
 regeneration has already failed. `validate/full_reparse.rs`'s
@@ -804,7 +875,7 @@ call sites are inside terminal error branches of `reparse_full` that return
 over the whole identity walk, and is reached only at stage 2 of the cascade,
 after `reparse_full` failed **and** the stage-1 re-regeneration failed too.
 
-#### Background
+### Background
 
 Type 1: both fixes are settled and unblocked — one `HashMap<&BlockId, usize>`
 for the seed lookup, and a sorted sweep or binary search over `regen_top` by
@@ -816,7 +887,7 @@ re-raise these as throughput issues. Verification also corrected the proposed
 fix for R0009-0033: containment there is **range**-based (`top.start` inside the
 entry's offset span), not id-based, so an ID lookup table is the wrong shape.
 
-### module-size-versus-inline-tests (OI-0043)
+## module-size-versus-inline-tests (OI-0043)
 
 > **RESOLVED 2026-09-04.** `output.rs` 4,005 → 411 lines across five concern modules; the other three files close as **measured non-issues**, which is what this entry already suspected. The split is proven pure — an independent review found 119/119 item bodies and 49/49 test bodies **byte-exact** and the code string-literal multiset identical at 746/746, so the staging → fsync → rename → rollback ordering behind `--out-dir`'s all-or-nothing guarantee cannot have moved.
 
@@ -826,10 +897,10 @@ entry's offset span), not id-based, so an ID lookup table is the wrong shape.
 - **Sources:** docs/project/open-issues.md#OI-0043, reviews/reviewed/0009.md#R0009-0068,
   reviews/reviewed/0009.md#R0009-0069, reviews/reviewed/0009.md#R0009-0070,
   reviews/reviewed/0009.md#R0009-0071
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0043 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 Four files the review called oversized concern bundles from raw `wc -l`.
 Re-split on `#[cfg(test)]` with brace tracking, three of the four are mostly
@@ -842,7 +913,7 @@ in their own files. The exception is `transync-cli/src/output.rs`: 3,967 lines,
 resolution, staging, bundle rendering and filesystem policy genuinely share one
 module.
 
-#### Background
+### Background
 
 Type 1: the approach for each is settled — split `output.rs` under the repo's
 file-as-module convention, and for the other two move the inline test modules
@@ -857,7 +928,7 @@ floor of 0, "a state nobody has decided against rather than a shape anyone
 chose" — so it rides DCR-0032 and should be sequenced behind the HTML→HTML
 waves still landing in that crate rather than racing them.
 
-### disk-cache-log-edges (OI-0044)
+## disk-cache-log-edges (OI-0044)
 
 > **RESOLVED 2026-09-05.** All three members fixed — the non-converging trim on
 > 2026-09-03 (ti `0a3fca`), the poisonable write and the unbounded read on
@@ -878,10 +949,10 @@ waves still landing in that crate rather than racing them.
   R0009-0082), gate-accepted, user-routed track
 - **Sources:** docs/project/open-issues.md#OI-0044, reviews/reviewed/0009.md#R0009-0080,
   reviews/reviewed/0009.md#R0009-0081, reviews/reviewed/0009.md#R0009-0082
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0044 is RESOLVED 2026-09-05; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 One finding on each of `crates/transync-core/src/cache/disk.rs`'s three paths.
 Replay: `scan_log` reads a physical line with `.read_until(b'\n', &mut line)`
@@ -896,7 +967,7 @@ only entries, so when `oldest_first` is exhausted the loop ends with the budget
 still exceeded — while DCR-0028 §4 promises entries are dropped "until within
 budget" and the public `max_bytes` doc names no exemption.
 
-#### Background
+### Background
 
 Type 1: each fix shape is settled — a floor plus a doc sentence for the trim, a
 last-good offset or a poisoned writer for the write, `Read::take` (or a
@@ -915,7 +986,7 @@ filed**: if header plus `meta_bytes` alone exceeds `max_bytes`, every open drops
 every unit entry and still forces a compaction, so the cache permanently retains
 nothing across opens. No test covers a failing writer.
 
-### serve-body-and-authority-reporting (OI-0045)
+## serve-body-and-authority-reporting (OI-0045)
 
 > **RESOLVED 2026-09-04.** All three fixed, each with a test proven red against pre-fix code. One correction to this entry: it says `contracts.md` carries the `[::1]` claim in prose and must move with the code — it does not. §6's authority sentence is family-agnostic; the enumeration lived in `docs/Developer_Guide.md` and `docs/Quick_Start.md`, both now corrected.
 
@@ -924,10 +995,10 @@ nothing across opens. No test covers a failing writer.
   R0009-0009), gate-accepted, user-routed track
 - **Sources:** docs/project/open-issues.md#OI-0045, reviews/reviewed/0009.md#R0009-0002,
   reviews/reviewed/0009.md#R0009-0008, reviews/reviewed/0009.md#R0009-0009
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0045 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 Three residual `transync serve` findings after the Review 0009 fix pass. In
 `serve_cmd/conn.rs`, the streaming branch announces `len` and then discards the
@@ -941,7 +1012,7 @@ is IPv4-only — advertises `[::1]:port` in startup output and 421 bodies; and
 derived entries plus every `--allow-host` go into one un-normalized `Vec`, so
 `--bind 127.0.0.1 --allow-host localhost` prints `localhost:7470` twice.
 
-#### Background
+### Background
 
 Type 1: three small, settled fixes, nothing blocked. All three were filed above
 their verified severity. The truncated-body case reaches only the >8 MiB branch
@@ -958,7 +1029,7 @@ sentence that repeats it in prose; and the dedup must be order-preserving
 retain-first, because `the_authorities_print_the_way_they_are_typed`
 deliberately pins ordering.
 
-### parser-intake-markdown-rename
+## parser-intake-markdown-rename
 
 > **RESOLVED 2026-09-07** (ticket `b7e4cc70`, commit `18c1ab4`; DCR-0053). Done, and done under this
 > entry's own acceptance condition: the diff is *only* the rename. `src/parser.rs` and its seven
@@ -996,6 +1067,7 @@ deliberately pins ordering.
 > `parser` references in `transync-syntax`, 122 in `transync-core`, plus `transync-wasm`'s import
 > and `public_surface.rs`'s hidden-module pin.
 
+- **Type:** 1
 - **Description:** The format seam is asymmetric on purpose — `intake::html` sits beside
   `parser`, not beside a sibling `intake::markdown` — because the rename is mechanical
   and large: ~43 references in `transync-syntax`, ~74 in `transync-core`, the wasm
@@ -1004,8 +1076,9 @@ deliberately pins ordering.
   rename, or the review cannot tell the move from a change.
 - **Background:** ti `490d97` wave 3 deviation 1; DCR-0035. Registered by wave 7's
   closure so the deferral survives outside the DCR.
+- **Unfiled:** resolved and retained for the record; no ticket is owed
 
-### serve-connection-task-panics-are-discarded (OI-0050)
+## serve-connection-task-panics-are-discarded (OI-0050)
 
 > **RESOLVED 2026-09-06**, the same day it was filed. All three `join_next()` sites hand the joined
 > `Result<(), JoinError>` to one reporter, which stays silent for a task that finished on its own
@@ -1020,17 +1093,17 @@ deliberately pins ordering.
 - **Type:** 1
 - **Verified:** yes — Review 0010 finding (R0010-0077), gate-accepted, user-routed track
 - **Sources:** docs/project/open-issues.md#OI-0050, reviews/reviewed/0010.md#R0010-0077
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0050 is RESOLVED 2026-09-06; this entry is retained for the record
 - **First seen:** 2026-09-06 · **Last seen:** 2026-09-06
 
-#### Description
+### Description
 
 All three `join_next()` sites in `serve_cmd/` ignore the `JoinError` they may
 receive, so a connection task that panics is indistinguishable from one that
 returned normally. The server keeps accepting, and nothing — not stderr, not an
 exit code, not a log line — records that a task died.
 
-#### Background
+### Background
 
 Filed LOW. There is nothing to swallow **today**: no panic site exists in
 non-test code under `serve_cmd/`. That is a property of the current code, not a
@@ -1043,7 +1116,57 @@ settled and nothing has to land first — match the `Err` arm and report a
 panicked task distinctly from a peer disconnect.
 
 
-## Type 2 — needs decision / discussion next
+## bin-only-crates-are-outside-the-rustdoc-gate
+
+> **RESOLVED 2026-09-06.** (Declared `**Type:** 1` while sitting under the Type 2
+> heading until 2026-09-11, when it was moved into Type 1 to match its own field.) The gate gained a
+> second leg — `RUSTDOC_GATE_BIN_CRATES=(transync-cli)` and
+> `RUSTDOC_GATE_BIN_ARGS=(--document-private-items -p transync-cli)` in
+> `scripts/lib/rustdoc-gate.sh`, run by both callers (`scripts/smoke.sh`, `scripts/hooks/pre-commit`)
+> — plus a mirrored completeness check that fails on any member with no `src/lib.rs` but a
+> `src/main.rs` that is not listed, since a bin-only crate can never appear in the existing
+> `RUSTDOC_GATE_UNGATED`. It is a **second** `cargo doc` invocation rather than two more `-p`
+> entries, because `--document-private-items` documents the private items and so stops
+> `rustdoc::private_intra_doc_links` from firing — which is the failure DCR-0018 built the library
+> leg to catch. The stale "no public API to document" comment now says why that is true and beside
+> the point.
+>
+> **The link half needed no change, and that is worth recording rather than claiming a fix.** All
+> ten links this entry describes were already repaired in commit `2ca092f` (2026-09-05) — the same
+> commit that recorded the finding — including the four `super::X` references in
+> `crates/transync-cli/src/output/lock.rs` and the tenth behind `#[cfg(not(unix))]`. Every remaining
+> doc link in the crate was re-verified against its own module's item inventory. So what was missing
+> was only the gate, which is exactly what this entry was about. Three documents that described the
+> crate as deliberately outside the gate were corrected with it: `docs/Developer_Guide.md`,
+> `docs/Troubleshooting.md` and `docs/project/release-checklist.md`.
+
+- **Type:** 1
+- **Verified:** yes — measured 2026-09-04 during OI-0043's `output.rs` split: nine broken intra-doc links,
+  four of them in `crates/transync-cli/src/output/lock.rs`, **a file the split never opened**, because its
+  `super::X` references silently became sibling references when the concerns moved out.
+- **Sources:** OI-0043's resolution (2026-09-04)
+- **First seen:** 2026-09-04 · **Last seen:** 2026-09-04
+- **Unfiled:** resolved and retained for the record; no ticket is owed
+
+### Description
+
+Nothing in this repository would ever have reported those nine links. `scripts/lib/rustdoc-gate.sh` excludes
+`transync-cli` by design — its own comment reads "`transync-cli` is absent on purpose — it is bin-only, with
+no public API to document" — and `cargo clippy --all-targets -- -D warnings` does not check intra-doc links
+at all. So a bin-only crate's rustdoc can rot without limit, and a refactor in one file can break doc links
+in a file it never touched. A tenth break was latent behind `#[cfg(not(unix))]` and would have surfaced only
+on a Windows build.
+
+### Background
+
+Distinct from OI-0046's rustdoc **completeness** sub-item, which asks whether every *library* member is
+inside the gate; this asks whether bin-only members should be doc-checked at all. The cheap shape is a
+`cargo doc -p transync-cli --no-deps --document-private-items` leg with `-D warnings`, which is what
+diagnosed these nine — it costs one more `cargo doc` invocation and needs no new dependency. The reason it
+was excluded was "no public API to document", which is true and beside the point: `--document-private-items`
+is how a developer reads this crate, and that is the reader the links are for.
+
+# Type 2 — Needs decision
 
 The open design questions here carry an `OI-` id rather than a ticket: a review gate
 registers documents only, so each waits for `reopen`'s selection gate to offer it and
@@ -1065,7 +1188,7 @@ resolved-and-retained or explicitly deferred with its blocker stated; the three 
 2026-08-10 resolutions named above are retained below rather than "gone from it". The
 only entries here that are genuinely open work are the ones whose own note says so.
 
-### dcr-0032-divergence-tally-not-reconstructible
+## dcr-0032-divergence-tally-not-reconstructible
 
 - **Type:** 2
 - **Verified:** yes — reopen verified 2026-09-09: DCR-0032's amendment ordinals were read directly
@@ -1074,7 +1197,7 @@ only entries here that are genuinely open work are the ones whose own note says 
 - **First seen:** 2026-09-08
 - **Last seen:** 2026-09-09
 
-#### Description
+### Description
 
 `CLAUDE.md` tells every agent that the record trail "records **nineteen** deliberate behavioural
 divergences" of `transync-html` from the retired `htmlseg` module, and that a difference from
@@ -1083,7 +1206,7 @@ is what stops the next reader from "repairing" a deliberate behaviour change. Bu
 cannot be enumerated from the trail: DCR-0032's last amendment is titled "the fifteenth through
 nineteenth divergences", and no document carries the running list that reaches fourteen before it.
 
-#### Background
+### Background
 
 `transync-html` was extracted from `transync-syntax::htmlseg` by DCR-0032 in August, verbatim at
 the extraction. Since then the crate has deliberately diverged from what `htmlseg` did, one
@@ -1116,7 +1239,7 @@ and costs nothing, but gives a reader no way to know whether they have found all
 that the number is DCR-0032's internal bookkeeping rather than a verifiable count is the cheapest,
 and leaves `CLAUDE.md` making a claim no one can check. Nothing is blocked — a person has to pick.
 
-### publish-lock-nested-tree-boundary (ticket `40e2a5`)
+## publish-lock-nested-tree-boundary (ticket `40e2a5`)
 
 > **RESOLVED.** Ticket `40e2a5` is closed/resolved, and `contracts.md` §6 records the outcome: the
 > lock now covers a `--out-dir` publish that replaces a directory another run is publishing into,
@@ -1125,6 +1248,7 @@ and leaves `CLAUDE.md` making a claim no one can check. Nothing is blocked — a
 
 > **reopen 2026-08-24: ticgit:40e2a5 is RESOLVED.** Verified with `ti show 40e2a5 --json`. Kept for audit; it is not open work and does not count against the v0.5.0 gate.
 
+- **Type:** 2
 - **Description:** DCR-0021's publication lock serializes two runs publishing *into* the
   same directory, but `--out-dir X` locks the directory that **holds** `X` (where the
   staging and backup siblings live) while a files-mode publish into `X`
@@ -1178,7 +1302,7 @@ and leaves `CLAUDE.md` making a claim no one can check. Nothing is blocked — a
   `--force` path, which waives the guard by request, and the few syscalls between the
   second guard pass and the rename.
 
-### out-dir-foreign-staging-temp (ticket `66339b`)
+## out-dir-foreign-staging-temp (ticket `66339b`)
 
 > **RESOLVED.** Ticket `66339b` is closed/resolved. `contracts.md` §6 records the answer: a
 > `<name>.tmp.<pid>` staging leftover is transync's own residue and is recognized as such — as a
@@ -1188,6 +1312,7 @@ and leaves `CLAUDE.md` making a claim no one can check. Nothing is blocked — a
 
 > **reopen 2026-08-24: ticgit:66339b is RESOLVED.** Verified with `ti show 66339b --json`. Kept for audit; not open work.
 
+- **Type:** 2
 - **Description:** `ensure_out_dir_replaceable` admits only `out.md`, `alignment.json`,
   `validation-report.json`, `html` and the `.transync-publish.lock` marker at an
   `--out-dir` target's top level; any other name makes the target foreign and the publish
@@ -1212,7 +1337,7 @@ and leaves `CLAUDE.md` making a claim no one can check. Nothing is blocked — a
   in a directory transync did not publish. Decided in one change with OI-0036 directly
   below, as both entries required.
 
-### out-dir-sparse-bundle-subset (OI-0036)
+## out-dir-sparse-bundle-subset (OI-0036)
 
 > **RESOLVED.** OI-0036 lives in `docs/project/open-issues-archive.md`. A target carrying no
 > ownership marker is judged by the COMPLETE published set being present, so a user directory whose
@@ -1227,8 +1352,9 @@ and leaves `CLAUDE.md` making a claim no one can check. Nothing is blocked — a
 - **Sources:** `docs/project/open-issues-archive.md#OI-0036`
 - **First seen:** 2026-08-08
 - **Last seen:** 2026-08-08
+- **Unfiled:** resolved and retained for the record; no ticket is owed
 
-#### Description
+### Description
 
 `ensure_out_dir_replaceable` treats a directory as a transync bundle — and so
 replaceable without `--force` — when its entries are a **subset** of the allow-listed
@@ -1239,7 +1365,7 @@ below the destructive findings the same review produced, but "holds one allow-li
 name" is a weaker test than "is a bundle this tool produced", and the guard reads as
 though it were the stronger one.
 
-#### Background
+### Background
 
 Low severity at HEAD (the reviewer filed it Medium). It is deliberately parked beside
 `out-dir-foreign-staging-temp` (`66339b`) directly above: both are the same question —
@@ -1257,7 +1383,7 @@ target with no marker still passes on the **complete** published set, so bundles
 before the marker existed keep republishing. `docs/project/open-issues-archive.md#OI-0036` is
 RESOLVED.
 
-### sync-anchor-injection-via-raw-html (OI-0035)
+## sync-anchor-injection-via-raw-html (OI-0035)
 
 > **RESOLVED.** OI-0035 lives in `docs/project/open-issues-archive.md`. `strip_reserved_sync_attrs`
 > removes the whole reserved namespace from the block's own bytes before the wrapper is written, so
@@ -1278,8 +1404,9 @@ RESOLVED.
   Type-2 preamble above, which had gone on framing this as an open design question.
 - **First seen:** 2026-08-08
 - **Last seen:** 2026-08-08
+- **Unfiled:** resolved and retained for the record; no ticket is owed
 
-#### Description
+### Description
 
 The browser sync engine builds its anchor sets by collecting **every** `data-sync-id` in
 each pane's DOM; alignment rows validate and warn but are not the source of the anchor
@@ -1289,7 +1416,7 @@ structurally-owned content that reaches the rendered pane — so a `data-sync-id
 into a source document survives the default DOMPurify configuration and can **pre-claim
 a real block's id**.
 
-#### Background
+### Background
 
 Low severity at HEAD; DOMPurify still bounds what markup renders, so the failure is
 steering, not execution. Half of the reviewer's finding is the recorded `d3acc3` /
@@ -1303,7 +1430,7 @@ engine route cheaper: reflow recompute re-collects anchors through the same
 `collectAnchors`, which is now the single place every anchor set passes through, at mount
 and on every reflow, and it already takes a per-call policy argument.)*
 
-### warm-cache-run-needs-no-credentials (OI-0038)
+## warm-cache-run-needs-no-credentials (OI-0038)
 
 > **RESOLVED 2026-09-02** (`cdc1e32`, DCR-0046, ticket `30a744`), per
 > `docs/project/open-issues.md#OI-0038`. The product question this entry existed to ask is
@@ -1316,7 +1443,7 @@ and on every reflow, and it already takes a per-call policy argument.)*
 - **First seen:** 2026-08-13
 - **Last seen:** 2026-08-13
 
-#### Description
+### Description
 
 The pipeline constructs its `Translator` — and so demands an API key — before
 the cache is consulted, so a run in which every unit is a cache hit and zero
@@ -1325,7 +1452,7 @@ own tests prove such a run exists (they assert zero dispatches on a second
 identical run); what no record says is whether that run is meant to be possible
 **offline**.
 
-#### Background
+### Background
 
 Type 2, not 1: the product question comes first and decides the fix's shape —
 is an offline run against a fully warm cache a supported scenario? Only then
@@ -1337,8 +1464,9 @@ the call site. Low severity — the failure is a clean refusal to start, not
 wrong output — but it withholds the disk cache's most valuable property
 (a document is paid for once) exactly where it is most wanted.
 
-### docs-index-orphaned-trees (ticket `1347b4`) — **RESOLVED 2026-08-10**
+## docs-index-orphaned-trees (ticket `1347b4`) — **RESOLVED 2026-08-10**
 
+- **Type:** 2
 - **Description:** `docs/index.md` calls itself the "single entry point for everything
   under `docs/`" and tells its maintainer to link every new doc "so nothing becomes
   orphaned", but one tracked non-Korean doc was absent from it: this file. (The
@@ -1365,43 +1493,53 @@ wrong output — but it withholds the disk cache's most valuable property
   the refreshed index of open items is reachable from the documentation entry point. It
   is a judgment call about what the index is for, which is why it is a decision rather
   than a one-line edit.
+- **Unfiled:** resolved and retained for the record; no ticket is owed
 
 The ten items below were reviewed by the owner on 2026-08-06 and **deferred as a group**
 ("이번에는 보류" — hold for now). They stay listed so the next sweep re-surfaces them;
 none should be picked up without a fresh owner decision. None of the ten was ruled on
 again, ticketed, or otherwise moved during the arc that followed.
 
-### streaming-translation _(owner-deferred 2026-08-06)_
+## streaming-translation _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** The pipeline is whole-batch request/response only; no
   incremental/streaming delivery path exists. Post-MVP feature wave; needs product/design
   discussion before any work.
 - **Background:** mvp-scope DEFERRED table; "not a slice" list.
+- **Sources:** ticgit:7e42046d-07fd-4fdd-aa29-407039fd92cd
 
-### sentence-level-sub-anchors _(owner-deferred 2026-08-06)_
+## sentence-level-sub-anchors _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** Sync anchors are block-level only (draft NG3). Listed in the DEFERRED —
   not permanently-rejected — table, so picking it up is a posture decision with large
   design implications (invariant 1 names block ID as the only sync currency).
 - **Background:** Draft non-goal NG3 retained as deferred in mvp-scope; also named by
   ADR-0001 as the finer-grained alternative it declined.
+- **Sources:** ticgit:ad9fb766-1cfa-4b53-a138-d5cb296293e0
 
-### mdx-frontmatter-math-support _(owner-deferred 2026-08-06)_
+## mdx-frontmatter-math-support _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** MDX, YAML frontmatter, and math syntax are unparsed/unsupported (draft
   NG2), retained in the DEFERRED table. A posture decision, and technically entangled with
   the dialect-trait item (Type 3).
 - **Background:** Draft non-goal NG2; mvp-scope DEFERRED table and scenario-matrix
   out-of-scope list.
+- **Sources:** ticgit:90e8846e-6e6b-4b82-93fa-8c3ba14d5d29
 
-### glossary-editor-ux _(owner-deferred 2026-08-06)_
+## glossary-editor-ux _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** Glossaries are hand-edited profile TOML; no editor tooling exists.
   Post-MVP product decision.
 - **Background:** mvp-scope DEFERRED table ("post-MVP feature wave").
+- **Sources:** ticgit:3e49630b-2c77-4504-9411-b7447e7f71e8
 
-### html-attribute-text-translation _(owner-deferred 2026-08-06)_
+## html-attribute-text-translation _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** HTML attribute text (`alt`/`title`/`aria-label`) is not extracted for
   translation. A scope decision on widening the segment-extraction contract.
 - **Background:** DCR-0016 / ADR-0018 follow-up list (2026-08-03 design, §9).
@@ -1409,11 +1547,13 @@ again, ticketed, or otherwise moved during the arc that followed.
   limitation — ADR-0025 names the visible consequence (a shared link previews in the
   source language). The owner gate is unchanged; the population grew from raw-HTML
   islands to whole documents.
+- **Sources:** ticgit:60695aa0-0860-429e-831a-1b50a5227edf
 
-### phrasing-custom-element-mid-sentence-review
+## phrasing-custom-element-mid-sentence-review
 
 > **RESOLVED 2026-09-04 (`ticgit:84bf37`) — the owner ACCEPTED the current behaviour.** The re-confirmation ran on the shipped intake over 42 real pages (10.1 MB, 8,879 blocks, 346 custom-element start tags) across two disjoint corpora, the second deliberately covering the generator classes the first missed (Sphinx, MkDocs, Docusaurus, Jekyll, Hugo, GitBook, WordPress, Ghost, Notion, Confluence, gov.uk, MediaWiki, two production email templates): **zero mid-sentence splits.** The measurement also narrowed the hazard — the split fires only in prose **not wrapped in an element**; inside `<p>`, a heading or an `<li>` the wrapping element is the block and the custom element is interior. Twelve errata landed in the spec recording that, including in §4's PHRASING bullet and §13 limitation 5, which both stated the split unconditionally. The untaken lever now lives at `phrasing-extension-list-for-custom-elements`, deferred at filing.
 
+- **Type:** 2
 - **Description:** A custom element mid-sentence **stops** segmentation (D4's DEFAULT-STOP
   default), so one sentence can cross three translation units. Accepted *for now* with
   the PHRASING widening — and the owner **explicitly required re-confirmation against
@@ -1440,28 +1580,34 @@ again, ticketed, or otherwise moved during the arc that followed.
   options: amend §14.1 to state the wrapping condition, add a phrasing-extension list,
   or leave it).
 
-### html-details-fold-reproduction _(owner-deferred 2026-08-06)_
+## html-details-fold-reproduction _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** Interleaved `<details>` regions in raw-HTML blocks always render
   visible; collapsed/expanded state is not reproduced. Scoped out of v1 by decision 5 —
   reviving it is a scope decision.
 - **Background:** DCR-0016 follow-up list.
+- **Sources:** ticgit:6f58ab6a-09a6-44e3-980e-d7bc6b0e2253
 
-### html-nested-in-list-blockquote-protection _(owner-deferred 2026-08-06)_
+## html-nested-in-list-blockquote-protection _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** HTML blocks nested inside list items/blockquotes are protected only by
   coarse child-kind topology labels — the LLM can still mutate tag text there. Closing the
   accepted v1 gap needs an extraction-inside-containers design.
 - **Background:** DCR-0016 follow-up list ("an accepted v1 gap").
+- **Sources:** ticgit:eb322221-e12d-4bc6-abdb-e5e85a3b2511
 
-### intra-block-progress-indicator _(owner-deferred 2026-08-06)_
+## intra-block-progress-indicator _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** Within very long blocks (large tables, long code blocks) sync feels
   coarse; an optional intra-block progress indicator is the drafted mitigation
   (references/draft.md §18.2). Post-MVP UX decision.
 - **Background:** ADR-0001's accepted "Bad" consequence of block-level sync currency.
+- **Sources:** ticgit:1b2e163c-92f6-478a-879c-4d7e345f81f7
 
-### browser-sync-ux-polish _(owner-deferred 2026-08-06)_
+## browser-sync-ux-polish _(owner-deferred 2026-08-06)_
 
 > **One of the three claims below expired, and is corrected here — 2026-09-09, ticket
 > `3f0879ef`'s experiment.** The easing policy has not been a **20%/frame** lerp since
@@ -1474,6 +1620,7 @@ again, ticketed, or otherwise moved during the arc that followed.
 > `crates/transync/tests/parked_claims_sync_engine.rs`, so the next expiry is a failing assertion
 > rather than another month of nobody looking.
 
+- **Type:** 2
 - **Description:** Three small accepted MVP simplifications in the sync engine: no
   hysteresis on active-block selection (rapid flicks may briefly pick a neighbor); a
   single fixed partner-pane easing policy — **time-based since 2026-09-06**, ~20% of the
@@ -1484,14 +1631,17 @@ again, ticketed, or otherwise moved during the arc that followed.
   spec's deferred list. The hysteresis and `SMOOTHING_FACTOR` halves were re-executed
   2026-09-09 and both still hold: `activeBlockWithProgress` keeps no memory of its last
   choice, and `mountSync` takes three positional parameters with no options object.
+- **Sources:** ticgit:4a9a93bc-a7ef-4a05-87e7-c73a330edea1
 
-### in-browser-retranslation _(owner-deferred 2026-08-06)_
+## in-browser-retranslation _(owner-deferred 2026-08-06)_
 
+- **Type:** 2
 - **Description:** The wasm demo edits and re-renders locally but cannot re-run
   translation in the browser — `transync-core` cannot compile to wasm32 (tokio/tiktoken).
   Enabling it needs a network boundary or a second crate split; scoped as its own future
   project.
 - **Background:** Track C design spec §9 (2026-08-05), explicitly framed as future work.
+- **Sources:** ticgit:27808ef5-6b50-40c2-b5c9-1057d8afb4fd
 
 _Resolved since the 2026-08-05 sweep, and removed from this section (each carries its
 record elsewhere; a bare six-hex id below is a TicGit ticket, a seven-hex one a commit):
@@ -1529,7 +1679,7 @@ the deliberately no-build `web/` demos); the doc-hidden `build_batches` gate shi
 
 ---
 
-### validation-report-schema-bump-for-document-level-entry
+## validation-report-schema-bump-for-document-level-entry
 
 > **RESOLVED.** Ticket `52109b22` is closed/resolved — the decision this entry was waiting on has
 > been taken. Verified 2026-09-06.
@@ -1539,15 +1689,15 @@ the deliberately no-build `web/` demos); the doc-hidden `build_batches` gate shi
 - **Sources:** ticgit:52109b22
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `ValidationReport::skipped_source_nodes` now carries a document-level entry alongside the per-block notes it carried before, which changes the ordering contract `contracts.md` §3a states — and `VALIDATION_REPORT_SCHEMA_VERSION` stayed at `1.1.0`.
 
-#### Background
+### Background
 
 The precedent for the 1.0.0 → 1.1.0 bump (DCR-0026) was exactly 'a new row shape a 1.0.0 consumer never met'. This is a new entry shape by the same description, so either the precedent applies and the constant owes a bump, or the precedent is narrower than it reads and the difference should be written down. A consumer that iterates the array positionally is the one that would break. Type 2 because it is a versioning decision with a real cost either way: bumping obliges consumers, and not bumping weakens what the version number promises. Nobody can start until that is chosen.
 
-### review-round-registry-number-collision
+## review-round-registry-number-collision
 
 > **RESOLVED.** Ticket `bdf8d981` is closed/resolved — the owner decision this entry was waiting on
 > has been taken, and `reviews/README.md` is the resolver of record. Verified 2026-09-06.
@@ -1557,15 +1707,15 @@ The precedent for the 1.0.0 → 1.1.0 bump (DCR-0026) was exactly 'a new row sha
 - **Sources:** ticgit:bdf8d981
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `reviews/README.md` is the resolver for bare finding ids and states that rounds 0002 and up never collide. Three gated 2026-08 rounds reused 0002, 0003 and 0004, and 508 live citations depend on the rule that is now false.
 
-#### Background
+### Background
 
 The registry's rule 4 says verbatim that each number was used once, so `R0002-…` through `R0008-…` are unambiguous bare and need no marker. That is what makes a bare citation resolvable. With three numbers reused, a bare `R0002-0047` has two possible referents and a reader has no way to tell which. The collision was observed live on 2026-08-24, when `reviews/0002.md` existed again as a fresh `STATUS: CLAIMED` stub; that transient file is gone today, but the reused numbers and the citations that depend on them are not. Type 2 and tagged owner-decision because the repair is a choice between renumbering the newer rounds, qualifying every affected citation, or amending the rule and accepting ambiguity — each with a different cost across 508 citations.
 
-### wrapper-ruling-leaves-named-default-stop-elements-exposed
+## wrapper-ruling-leaves-named-default-stop-elements-exposed
 
 > **RESOLVED.** Ticket `d4bce239` is closed/resolved. `contracts.md` §4 records the answer: the
 > transparent wrapper key is the block's KIND, never the sanitizer's allowlist, because duplicating
@@ -1578,79 +1728,30 @@ The registry's rule 4 says verbatim that each number was used once, so `R0002-�
 - **Sources:** ticgit:d4bce239
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 The owner's 2026-08-21 wrapper ruling closed the custom-element anchor hole, but it is keyed on elements unknown to spec §4's tables — and DOMPurify also removes some elements those tables do name.
 
-#### Background
+### Background
 
 The ruling fixed a measured defect: a block whose outermost element is unknown to the tables now takes a transparent `<div{attrs}>` wrapper instead of having the anchor injected into its own open tag, because the sanitizer was removing the element and the anchor with it. Verified against the vendored purify 3.2.6. The residue is that 'unknown to our tables' and 'removed by the sanitizer' are different sets, and the ruling covers only the first. A named DEFAULT-STOP element the sanitizer strips still loses its anchor. Type 2 and owner-decision because widening the rule means either deriving it from the sanitizer's behaviour — which the project has elsewhere refused, on the ground that a second opinion about HTML is how anchors drift — or enumerating a second list that must be maintained against a vendored dependency.
 
-### html-to-html-document-translation-epic
+## html-to-html-document-translation-epic
 
 - **Type:** 2
 - **Verified:** yes — owner-commissioned roadmap ticket
 - **Sources:** ticgit:490d9712
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 The HTML→HTML feature: a second intake producing the same block IR, delivered as eight waves. **COMPLETE 2026-09-04** — all eight waves (0–7) landed, recorded in DCR-0032 through DCR-0039.
 
-#### Background
+### Background
 
 This was the umbrella the HTML work ran under, recorded here because a backlog that omits the largest open item in the tree is not a census. **All eight waves landed** — DCR-0032 (wave 0) through DCR-0039 (wave 7, 2026-09-04) — and the executed order was 0 → 2 → 3 → 4 → 5 → 6 → 7, corrected from the spec's original graph by wave 4's deviation 1. Retained for the record; it is no longer open work and does not count against the v0.5.0 gate. What the feature deliberately left open has its own entries: `phrasing-custom-element-mid-sentence-review` (the owner's §14.1 re-confirmation, `ticgit:84bf37`), `markdown-island-reclassification`, `html-oversize-leaf-block-split` and `parser-intake-markdown-rename`.
 
-### bin-only-crates-are-outside-the-rustdoc-gate
-
-> **RESOLVED 2026-09-06.** (This entry declares `**Type:** 1` while sitting under the Type 2
-> heading; noted rather than moved, per this file's rule against reordering.) The gate gained a
-> second leg — `RUSTDOC_GATE_BIN_CRATES=(transync-cli)` and
-> `RUSTDOC_GATE_BIN_ARGS=(--document-private-items -p transync-cli)` in
-> `scripts/lib/rustdoc-gate.sh`, run by both callers (`scripts/smoke.sh`, `scripts/hooks/pre-commit`)
-> — plus a mirrored completeness check that fails on any member with no `src/lib.rs` but a
-> `src/main.rs` that is not listed, since a bin-only crate can never appear in the existing
-> `RUSTDOC_GATE_UNGATED`. It is a **second** `cargo doc` invocation rather than two more `-p`
-> entries, because `--document-private-items` documents the private items and so stops
-> `rustdoc::private_intra_doc_links` from firing — which is the failure DCR-0018 built the library
-> leg to catch. The stale "no public API to document" comment now says why that is true and beside
-> the point.
->
-> **The link half needed no change, and that is worth recording rather than claiming a fix.** All
-> ten links this entry describes were already repaired in commit `2ca092f` (2026-09-05) — the same
-> commit that recorded the finding — including the four `super::X` references in
-> `crates/transync-cli/src/output/lock.rs` and the tenth behind `#[cfg(not(unix))]`. Every remaining
-> doc link in the crate was re-verified against its own module's item inventory. So what was missing
-> was only the gate, which is exactly what this entry was about. Three documents that described the
-> crate as deliberately outside the gate were corrected with it: `docs/Developer_Guide.md`,
-> `docs/Troubleshooting.md` and `docs/project/release-checklist.md`.
-
-- **Type:** 1
-- **Verified:** yes — measured 2026-09-04 during OI-0043's `output.rs` split: nine broken intra-doc links,
-  four of them in `crates/transync-cli/src/output/lock.rs`, **a file the split never opened**, because its
-  `super::X` references silently became sibling references when the concerns moved out.
-- **Sources:** OI-0043's resolution (2026-09-04)
-- **First seen:** 2026-09-04 · **Last seen:** 2026-09-04
-
-#### Description
-
-Nothing in this repository would ever have reported those nine links. `scripts/lib/rustdoc-gate.sh` excludes
-`transync-cli` by design — its own comment reads "`transync-cli` is absent on purpose — it is bin-only, with
-no public API to document" — and `cargo clippy --all-targets -- -D warnings` does not check intra-doc links
-at all. So a bin-only crate's rustdoc can rot without limit, and a refactor in one file can break doc links
-in a file it never touched. A tenth break was latent behind `#[cfg(not(unix))]` and would have surfaced only
-on a Windows build.
-
-#### Background
-
-Distinct from OI-0046's rustdoc **completeness** sub-item, which asks whether every *library* member is
-inside the gate; this asks whether bin-only members should be doc-checked at all. The cheap shape is a
-`cargo doc -p transync-cli --no-deps --document-private-items` leg with `-D warnings`, which is what
-diagnosed these nine — it costs one more `cargo doc` invocation and needs no new dependency. The reason it
-was excluded was "no public API to document", which is true and beside the point: `--document-private-items`
-is how a developer reads this crate, and that is the reader the links are for.
-
-### git-history-lost-twice-standing-record
+## git-history-lost-twice-standing-record
 
 > **RESOLVED 2026-09-02** (ticket `6b43008a`), and the 2026-09-06 note below was already wrong when
 > it was written. The owner decision it calls untaken was received **2026-09-01** — "the
@@ -1676,15 +1777,15 @@ is how a developer reads this crate, and that is the reader the links are for.
 - **Sources:** ticgit:6b43008a
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 The pre-restart history is unreachable and always will be. The ticket's stated symptom — exactly one commit, no tags — has been overtaken by subsequent work.
 
-#### Background
+### Background
 
 Verified: `git rev-list --count HEAD` is 48, `git tag` prints `v0.4.0`, `git fsck` is clean, and the root commit is `59ce8df723b4`, the 2026-08-17 restart rather than the original root. So half the claim stands permanently and half no longer reproduces. `docs/project/git-history-loss-2026-08-17.md` and its 2026-08-10 sibling record both events. Type 2 rather than type 1 because there is nothing to implement: what remains is a decision about what this ticket is *for*. Read as a defect it is unreproducible and should close; read as the standing record that this object store has now lost history twice — and that `/Volumes/Common` is therefore not reliable storage — it should stay open and be re-titled. That is an owner call, not a maintenance one.
 
-### js-lint-gate-exit-status-is-dishonest (OI-0039)
+## js-lint-gate-exit-status-is-dishonest (OI-0039)
 
 > **RESOLVED 2026-09-04 — format half adopted, lint half deferred with a re-trigger.** `biome.jsonc` at the repo root (formatter on, linter and assist **off**, `@biomejs/biome` pinned exactly at 2.5.12 because formatter output is not semver-covered); 457 lines reformatted across 10 files; the hook's JS leg rewritten to a `git ls-files` corpus invoked **from the repo root**, so it reaches the CLI `sync.js` twin and `profile.mjs` — the 22% the old `cd web` scope structurally could not see — and an empty file list is now an explicit FAIL. Two things landed first as fixes rather than decisions: the printed remediation no longer instructs an action that makes the next commit fail with 180 errors, and a tool **declared** in `web/package.json` but not installed now fails instead of skipping. Taken now because the deferral's own re-trigger — "the first commit that already moves both `sync.js` copies together" — is OI-0047's fix, so deferring would have re-triggered immediately. **Lint half deferred; re-trigger: a JS defect reaching a shipped bundle that a lint rule would have caught** (measured basis: 62 diagnostics over all 31 historical blob versions, 61 of them one style preference). **Does not count against the v0.5.0 gate.**
 
@@ -1694,10 +1795,10 @@ Verified: `git rev-list --count HEAD` is 48, `git tag` prints `v0.4.0`, `git fsc
   exit-status half was deliberately refused there as a decision above a fix
   route
 - **Sources:** docs/project/open-issues.md#OI-0039, reviews/reviewed/0009.md#R0009-0014
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0039 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 `scripts/hooks/pre-commit` — the only hook copy, the one `core.hooksPath`
 points at — runs a JavaScript/TypeScript leg over `web/` whose `run_js_tool`
@@ -1713,7 +1814,7 @@ sync engine — plus `web/js/wasm-demo.js`, `web/playwright.config.js` and the
 three spec files ship with zero format or lint coverage, and the hook is the
 only automatic gate this repository has.
 
-#### Background
+### Background
 
 Type 2, and this is the whole point of the entry: the fixing agent did the
 visibility half and **refused the substantive half on the record**. The hook now
@@ -1736,7 +1837,7 @@ browser behaviour. Do **not** close this by improving the message again — the
 message is already as loud as a message can be; what is unresolved is the
 status.
 
-### repeated-parsing-on-the-accepted-path (OI-0040)
+## repeated-parsing-on-the-accepted-path (OI-0040)
 
 > **RESOLVED 2026-09-04 (partial), and the residual is deferred with a SELF-FIRING trigger.** The `[`-prefilter landed at both `inline_inventory` sites; the shared-AST **seam** is deferred, and the deferral carries its own tripwire rather than a promise: `build_batches` now raises one run-level `tracing::warn` when `unit_count × |ref_defs|` passes 6,000,000 bytes, naming `Document.ref_defs` as the knob. **Re-trigger: that warning firing on a real run.** Measured: +1,756 ms on a 1,289 ms baseline at 5,000 units × 20 KB pool; the prefilter recovers 51.8% at this corpus's bracket density and 0% at link-reference house style, which is why the residual is real rather than closed. Also corrected here: this entry's sentence that R0009-0034 and R0009-0037 "are **not blocked** by anything and should ride OI-0037" is **dead** — OI-0037 resolved 2026-09-01 the other way (it shared a *guard*, not an artifact), so those two are re-homed onto OI-0040. **Does not count against the v0.5.0 gate.**
 
@@ -1748,10 +1849,10 @@ status.
   reviews/reviewed/0009.md#R0009-0034, reviews/reviewed/0009.md#R0009-0035,
   reviews/reviewed/0009.md#R0009-0037, reviews/reviewed/0009.md#R0009-0043,
   reviews/reviewed/0009.md#R0009-0065
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0040 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 Six findings, one shape: no seam in this workspace carries a parsed artifact,
 so every layer that needs an AST — or a spliced HTML fragment — builds its own
@@ -1770,7 +1871,7 @@ comparison, then again in `regen.rs`, and up to three more times through
 two complete `HtmlRewriter` passes over the same bytes. A WASM `rebuild_impl` is
 **four** whole-document parses, not two.
 
-#### Background
+### Background
 
 Type 2: three of the six cannot be started without a decision, so the cluster
 tie-breaks up. R0009-0031's fix pushes an arena lifetime through
@@ -1794,7 +1895,7 @@ OI-0037, whose Required Action 1 already mandates funnelling exactly those
 `comrak::parse_document` sites through one guarded entry point — the same
 refactor with a second justification, not a prerequisite.
 
-### checking-apparatus-holes (OI-0046)
+## checking-apparatus-holes (OI-0046)
 
 > **RESOLVED 2026-09-04, and sub-item 3 paid for itself immediately.** (1) The rustdoc completeness loop moved into the shared `rustdoc-gate.sh`, so the hook gained it — its candid deferral trigger had **already fired** (`Developer_Guide.md`'s gate command omitted `transync-lang`). (2) The Playwright port got an env fallback. (3) The "existing coverage suffices" demonstration **failed on measurement**: 8/8 historical divergence classes are pinned, but **not one of the 38 pinned edge cases produces a single orphan close tag**, so `balance_fragment`'s orphan-deletion pass — the first thing it does — had zero corpus coverage; six entries carry a literal `<` and none carries one alongside an orphan closer. The two ingredients existed separately and never together, which is the combinatorial gap a hand-picked corpus cannot close. `generative_properties.rs` (840 lines, nine-line `splitmix64` over four pinned seeds, `std` only, no dependency, no `cargo-fuzz`, no `#[ignore]` — because the hook is the only automatic gate and a coverage-guided harness would run at no venue) found a **live anchor-injection defect on its first execution**, now `ticgit:fdd989`. 400,000 generated inputs over 4 seeds: 399,872 satisfy every property, 128 fail, all one class.
 
@@ -1803,10 +1904,10 @@ refactor with a second justification, not a prerequisite.
   R0009-0067), gate-accepted, user-routed track
 - **Sources:** docs/project/open-issues.md#OI-0046, reviews/reviewed/0009.md#R0009-0015,
   reviews/reviewed/0009.md#R0009-0018, reviews/reviewed/0009.md#R0009-0067
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0046 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 Three findings about what this repository's checks cover rather than about
 shipped behaviour. The rustdoc **completeness** check — the loop that catches a
@@ -1826,7 +1927,7 @@ returns nothing, `find . -type d -name 'fuzz*'` returns nothing, and
 hand-rolled tokenizer on the untrusted-input path validated by 79 handpicked
 cases.
 
-#### Background
+### Background
 
 Type 2: two of the three need a choice before code. The browser harness needs a
 decision about how a second concurrent run gets **both** its port and its
@@ -1846,7 +1947,7 @@ already records "15,726 violations / 200k fuzz iterations" behind ticket
 keep the harness. R0009-0017, the sibling foreign-server finding, was fixed in
 `88964df`; build on it rather than duplicating it.
 
-### sync-engine-dead-zone-and-quiet-reflow (OI-0047)
+## sync-engine-dead-zone-and-quiet-reflow (OI-0047)
 
 > **RESOLVED 2026-09-04.** The bottom clamp landed and the two drift diagnostics now re-run on every coalesced reflow recompute, **latched** so a warning fires only when the verdict changes; the refresh-only alternative was rejected because a diagnostic that fires only on an explicit call is one nobody sees. Both `sync.js` copies moved in one commit. `contracts.md` §4a is amended for the consequence: its "one property read per pane at mount, never per frame" budget is now one read per pane **per recompute frame**, and that widening is the contract.
 
@@ -1855,10 +1956,10 @@ keep the harness. R0009-0017, the sibling foreign-server finding, was fixed in
   gate-accepted, user-routed track
 - **Sources:** docs/project/open-issues.md#OI-0047, reviews/reviewed/0009.md#R0009-0021,
   reviews/reviewed/0009.md#R0009-0025
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0047 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 Two findings in `web/js/sync.js`. `activeBlockWithProgress` returns `null` once
 the reference line (`scrollTop + REFERENCE_OFFSET_PX`, with the constant at 4)
@@ -1873,7 +1974,7 @@ hold a duplicate id, an unlisted id and a block whose `offsetParent` is a
 `<figure>`, `controller.refresh()` emitted **0** warnings where a fresh mount of
 the same DOM emitted **3**.
 
-#### Background
+### Background
 
 Type 2: the clamp is settled, but the diagnostics question is not.
 `contracts.md` §4a states a mount-time budget — "One property read per pane at
@@ -1898,7 +1999,7 @@ reflow" by design. What no record covers is that `warnMapDomDrift` and
 `crates/transync-cli/web/sync.js`, pinned by
 `crates/transync-cli/tests/sync_js_drift.rs`, so either fix is a two-file commit.
 
-### boundary-checks-weaker-than-contract (OI-0048)
+## boundary-checks-weaker-than-contract (OI-0048)
 
 > **RESOLVED 2026-09-04 (R0009-0052 deferred).** Policy: the library refuses where a real caller can reach, and records with a named trigger where none can yet. R0009-0053 landed as `TransyncError::InvalidOptions` with the new stable code `invalid_options`; **the reachability argument inverted in flight** — both roster consumers guard `target_language`, which first read as "unreachable", but the guards exist *because* transync reported the cause as `internal`, so they are downstream compensation for an upstream defect and naming the cause is what retires them. R0009-0075 landed; R0009-0078 landed as its doc half only. R0009-0052 **deferred**: `ProfileConstraints` is `#[non_exhaustive]`, so no external caller can build the unrecognized value. **Re-trigger: a caller-built `ProfileConstraints` becomes constructible, or a consumer reports a silently-whole-block table.** **Does not count against the v0.5.0 gate.**
 
@@ -1908,10 +2009,10 @@ reflow" by design. What no record covers is that `warnMapDomDrift` and
 - **Sources:** docs/project/open-issues.md#OI-0048, reviews/reviewed/0009.md#R0009-0052,
   reviews/reviewed/0009.md#R0009-0053, reviews/reviewed/0009.md#R0009-0075,
   reviews/reviewed/0009.md#R0009-0078
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Unfiled:** none owed — OI-0048 is RESOLVED 2026-09-04; this entry is retained for the record
 - **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
 
-#### Description
+### Description
 
 Four places where the library enforces less than its record implies, each
 visible only to a consumer that is not the CLI. `profile.rs` resolves the table
@@ -1930,7 +2031,7 @@ guarded only by a `debug_assert!` in `pipeline/report.rs`. And
 `block.source_range` for the source pane, so the **row's** `source_range` is
 never read or bounds-checked even though row fields do reach the DOM.
 
-#### Background
+### Background
 
 Type 2: two of the four cannot be closed without a choice, and grouping them
 prevents four inconsistent answers about how much a programmatic caller is owed.
@@ -1962,7 +2063,46 @@ the shipped JS gates two of the listed fields, `data-order` has no consumer in
 `web/`, and the only live foreign-map path is the WASM view mode ADR-0023
 assigns to the demo.
 
-## Type 3 — blocked
+## provider-capability-set — **AWAKE: condition fully fired, no block left**
+
+- **Type:** 2
+- **Description:** No capability descriptor on providers (what strategies/limits a
+  provider supports).
+- **Background:** DCR-0009 YAGNI list.
+- **Unblocked (was: stated revisit condition — a second in-tree provider or the
+  oversize-split feature shipping):** **BOTH LIMBS HAVE FIRED.** `fc0304` / DCR-0026
+  shipped the oversize row-window split on 2026-08-09, and `bda471` / DCR-0029 landed
+  `crates/transync-anthropic` on 2026-08-10, so a second in-tree provider now exists.
+  Nothing blocks this entry any more; it is **awake and ready for a decision**, which
+  makes it Type-2 work. It was **moved into the Type 2 section on 2026-09-11** and filed
+  as `ticgit:6fb6dab2` with a `Needs decision:` marker, because an entry whose stated
+  revisit condition has fired is not blocked on anything and saying otherwise in the type
+  field is what lets a fired condition sit unasked.
+  It is not resolved: what the landings produced is the first real *evidence*, and it points
+  both ways. In favour of a descriptor — the second adapter genuinely does differ
+  in capability, not just in wire spelling: its output ceiling is **required**
+  where the first's is optional, its structured-output schema dialect is narrower
+  (a crate-private profile pass strips keywords the shared schema stamps), its
+  effort vocabulary is a different set, and one stop reason
+  (`model_context_window_exceeded`) has no counterpart on the shipped adapter at
+  all. Against — every one of those was expressible as adapter-local behavior
+  plus, in the one case that reached the seam, a new `TranslatorError` variant;
+  the core trait did not move, which is exactly what ADR-0002 promised, and a
+  descriptor would have bought none of it. The open question the *next* provider
+  should settle is whether core ever needs to **branch** on a capability rather
+  than let the adapter absorb it — nothing in DCR-0029 required that. Re-read
+  DCR-0029's *Where it mirrors, and where it must differ* table before deciding.
+  The other limb, `fc0304` / DCR-0026, adds one datum of its own rather than
+  settling it: the split is a **core-side** decision that has to measure against an
+  output ceiling, and the ceiling it reads is the profile's
+  `[batching].target_output_tokens` (via `batch::effective_output_target`), not
+  anything the provider declares. A capability descriptor is one place that number
+  could have come from instead — which is an argument for a descriptor that the
+  second-provider limb did not produce, and the sharpest concrete question to put to
+  the decision.
+- **Sources:** ticgit:6fb6dab2-a2ac-486c-b06b-932b6a4d9796
+
+# Type 3 — Blocked
 
 Every blocking reason below was re-checked against the code and the arc's commits at the
 2026-08-07 refresh: **none was removed then**, so nothing moved out of Type 3 at that
@@ -2010,7 +2150,7 @@ pane, all coalescing into one animation frame that re-collects both anchor sets 
 re-runs the last driving pane's scroll handler. The block was coverage, and the coverage
 paid out._
 
-### phrasing-extension-list-for-custom-elements
+## phrasing-extension-list-for-custom-elements
 
 - **Type:** 3
 - **Verified:** yes — measured 2026-09-04 over 42 real pages (10.1 MB, 8,879 blocks, 346 custom-element
@@ -2032,7 +2172,7 @@ paid out._
 > real page whose prose sits directly inside a container rather than in `<p>`/heading/`<li>` AND whose
 > sentences are cut by a custom element** — the shape the 42-page corpus did not contain.
 
-#### Description
+### Description
 
 An unknown element is DEFAULT-STOP (ADR-0025 D4), so a custom element used mid-sentence flushes the text run
 before it and starts a new one after. In prose **not wrapped in an element** that severs one sentence into
@@ -2041,14 +2181,14 @@ the block and the custom element is interior, so the sentence stays one block �
 corpus shows zero splits. The candidate lever, if the naked case ever matters, is a per-run or per-profile
 phrasing-extension list letting an operator declare `price-tag`, `fa-icon` and friends as phrasing.
 
-#### Background
+### Background
 
 The prohibition that constrains any design here: **unknown elements must not become PHRASING by default.**
 DOMPurify removes an unknown element and every attribute riding it, which is why wave 6's 2026-08-21 ruling
 puts such a block's anchor on a transparent `<div>` wrapper; treating one as inline phrasing would put its
 text inside a run whose markup the sanitizer then deletes.
 
-### adoption-agency-and-active-formatting-elements
+## adoption-agency-and-active-formatting-elements
 
 > **Registered 2026-09-08.** The ticket was open at the v0.5.0 cut and the file's own census named
 > it, but it had no entry of its own — which is the 2026-08-24 lesson (18 of 24 open tickets
@@ -2064,7 +2204,7 @@ text inside a run whose markup the sanitizer then deletes.
 - **First seen:** 2026-09-04
 - **Last seen:** 2026-09-09
 
-#### Description
+### Description
 
 `transync-html`'s `balance_fragment` models no **list of active formatting elements** and no
 **adoption agency algorithm**. `end_tag_effect` records why the omission is safe for the *closer*
@@ -2073,14 +2213,14 @@ one — but that reasoning does not cover **reconstruction**: when a browser ins
 it reconstructs the active formatting elements, so a `<b>` the crate has closed reappears as a real
 frame, and that frame is what the appended closers then have to get past.
 
-#### Background
+### Background
 
 DCR-0051 collapsed the crate's two open-element stacks into one and closed five divergences,
 taking the oracle's agreement from 7,697 to 8,619 of 10,000 and `sec4a:break-nested` from 1,358 to
 **8**. Those 8 are this ticket, and `contracts.md` §4b records the residual as accepted rather than
 unnoticed. `open@input:order` is a divergence mechanism the census had never carried before.
 
-### noscript-read-as-markup
+## noscript-read-as-markup
 
 > **Registered 2026-09-08**, for the same reason as the entry above.
 
@@ -2095,7 +2235,7 @@ unnoticed. `open@input:order` is a divergence mechanism the census had never car
 - **First seen:** 2026-09-04
 - **Last seen:** 2026-09-09
 
-#### Description
+### Description
 
 `RAW_TEXT_ELEMENTS` carries eight names since ti `bebebe`; `noscript` is the ninth and was left
 out on purpose. But the scripting flag is enabled in every context this crate's output is parsed
@@ -2103,13 +2243,14 @@ in — a pane is mounted by `pane.innerHTML = DOMPurify.sanitize(…)` from Java
 `source.html` navigated to directly runs scripts too — so Chromium reads `<noscript>` contents as
 text where `scan_tags` reads them as markup.
 
-#### Background
+### Background
 
 The divergence is real and measured; what is unsettled is where the fix belongs, because the
 honest answer requires either a context parameter or an exception to the name-only rule.
 
-### section-batch-coalescing _(owner-deferred to 2027, 2026-08-09)_
+## section-batch-coalescing _(owner-deferred to 2027, 2026-08-09)_
 
+- **Type:** 3
 - **Description:** Section-coherent batching (DCR-0027, ticket `43cfb4`) confines every
   batch to one section, so a document of many small sections dispatches **one batch per
   section** where the old packer coalesced them — more requests, more latency, more
@@ -2133,8 +2274,9 @@ honest answer requires either a context parameter or an exception to the name-on
   the reason to re-ask early. **No TicGit ticket, deliberately** — TicGit is the queue for
   work someone means to start, and a 2027 deferral is the opposite; this entry is the
   tracker.
+- **Sources:** ticgit:bfe808e6-ab0b-4f32-8449-a70fdba217e7
 
-### oi-0016-active-block-scan-perf
+## oi-0016-active-block-scan-perf
 
 > **RESOLVED 2026-09-02** (ticket `dd21ad59`). The profiling gate this entry says produced no
 > evidence **fired**: `benchmark/scroll-frame/RESULTS.md` measured the linear scan's main-thread
@@ -2142,6 +2284,7 @@ honest answer requires either a context parameter or an exception to the name-on
 > so the sorted-offset cache stays unbuilt by the ticket's own second acceptance criterion, and
 > `docs/project/open-issues.md#OI-0016` reads RESOLVED. Not open work.
 
+- **Type:** 3
 
 - **Sources:** ticgit:dd21ad59, `docs/project/open-issues.md#OI-0016`
 
@@ -2152,8 +2295,9 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Blocked by:** explicit profiling gate — "optimize only when profiling shows
   scroll-frame overruns"; no such evidence exists.
 
-### oi-0017-detected-language-caching — **RESOLVED 2026-08-09**
+## oi-0017-detected-language-caching — **RESOLVED 2026-08-09**
 
+- **Type:** 3
 - **Description:** A fully-cache-hit `--source-language auto` run reported
   `detected_source_language: None` because the per-unit cache stored no document-level
   metadata.
@@ -2168,11 +2312,13 @@ honest answer requires either a context parameter or an exception to the name-on
   run that dispatched zero provider batches (SL-111), made durable across processes by
   `DiskCache` (SL-112/SL-113) and exercised end-to-end by `transync translate --cache-dir`
   (SL-114). `open-issues-archive.md` carries OI-0017 as RESOLVED.
+- **Unfiled:** resolved and retained for the record; no ticket is owed
 
-### nested-block-ast-splicing
+## nested-block-ast-splicing
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: dated owner-delegated decision (2026-08-06): invest at nested-editing time; no consumer needs the splice today. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** The regen splice walks only top-level source ranges; nested
   list/blockquote units ride parent payload coverage. SL-05/SL-06 name AST-aware
   recursive splicing as the successor — required before any finer-grained nested-unit
@@ -2182,11 +2328,13 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Blocked by:** decided 2026-08-06 (controller under owner delegation): invest **at
   nested-editing time**, not before — the splice has no current consumer that needs it,
   so the item waits for a nested-editing feature to be commissioned.
+- **Sources:** ticgit:9b18ba45-c2f3-40de-b14d-b26097dca7b8
 
-### deep-blockquote-fingerprint-depth (R0001-0008 residual)
+## deep-blockquote-fingerprint-depth (R0001-0008 residual)
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: OI-0022's own gate — “extend if drift is observed in practice”; no drift observed. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** Blockquote structural fingerprints recurse one level; structure deeper
   than one level below a blockquote can drift without validator rejection.
 - **Background:** Review 0001 finding R0001-0008 — a bare `R0001-` id is the live
@@ -2197,11 +2345,13 @@ honest answer requires either a context parameter or an exception to the name-on
   which is a different residual and does not deepen the blockquote recursion.
 - **Blocked by:** OI-0022's own gate — "extend if drift is observed in practice"; no
   observed drift.
+- **Sources:** reviews/reviewed/0001.md#R0001-0008, ticgit:9fdf78fe-59dc-44a0-9f7c-59ce7de2d8fb
 
-### html-same-parent-segment-grouping
+## html-same-parent-segment-grouping
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: telemetry gate — build only if segment-count rejections dominate ValidationReport data. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** Grouping same-parent HTML text segments via opaque placeholder tokens
   to reduce segment-count rejections; recorded fast-follow, not built.
 - **Background:** DCR-0016 decision 6.
@@ -2210,11 +2360,13 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Population note (ti `490d97` wave 7):** every block of an HTML document now rides the
   segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
   more traffic to fire on.
+- **Sources:** ticgit:523b259e-60f7-4751-b946-63ac1a4e4b7f
 
-### html-native-array-wire-field
+## html-native-array-wire-field
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: telemetry gate — build only if double-encoding proves a top validation-rejection cause. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** An additive native-array wire field for HTML payloads as an
   inner-escaping escape hatch; recorded, not built.
 - **Background:** DCR-0016 decision 7.
@@ -2223,11 +2375,13 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Population note (ti `490d97` wave 7):** every block of an HTML document now rides the
   segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
   more traffic to fire on.
+- **Sources:** ticgit:83816e44-73c1-45a7-808f-cc4c5c471822
 
-### html-br-normalization-guard
+## html-br-normalization-guard
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: DCR-0016's named revisit trigger, behind a telemetry gate. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** The byte-verbatim comparison guard is the named revisit point if models
   normalizing `<br>` vs `<br/>` becomes a top inline-rejection cause.
 - **Background:** DCR-0016 revisit trigger.
@@ -2235,64 +2389,36 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Population note (ti `490d97` wave 7):** every block of an HTML document now rides the
   segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
   more traffic to fire on.
+- **Sources:** ticgit:594b3e21-72b1-443b-a76a-5993b1271064
 
-### per-kind-expansion-factors
+## per-kind-expansion-factors
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: DCR-0012's deferred refinement, behind an evidence gate. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** Output-aware batching uses one global expansion factor (2.0) for all
   block kinds; per-kind factors (code ≈ 1.0) were deliberately deferred to keep one knob.
 - **Background:** DCR-0012 deferred refinement.
 - **Blocked by:** evidence gate — revisit only if code-heavy documents demonstrably
   over-split painfully.
+- **Sources:** ticgit:3ff89400-9b75-4514-96f4-010ea06d2b7a
 
-### provider-capability-set — **AWAKE: condition fully fired, no block left → Type 2**
-
-- **Description:** No capability descriptor on providers (what strategies/limits a
-  provider supports).
-- **Background:** DCR-0009 YAGNI list.
-- **Unblocked (was: stated revisit condition — a second in-tree provider or the
-  oversize-split feature shipping):** **BOTH LIMBS HAVE FIRED.** `fc0304` / DCR-0026
-  shipped the oversize row-window split on 2026-08-09, and `bda471` / DCR-0029 landed
-  `crates/transync-anthropic` on 2026-08-10, so a second in-tree provider now exists.
-  Nothing blocks this entry any more; it is **awake and ready for a decision**, which
-  makes it Type-2 work sitting in the Type-3 section — marked here rather than moved.
-  It is not resolved: what the landings produced is the first real *evidence*, and it points
-  both ways. In favour of a descriptor — the second adapter genuinely does differ
-  in capability, not just in wire spelling: its output ceiling is **required**
-  where the first's is optional, its structured-output schema dialect is narrower
-  (a crate-private profile pass strips keywords the shared schema stamps), its
-  effort vocabulary is a different set, and one stop reason
-  (`model_context_window_exceeded`) has no counterpart on the shipped adapter at
-  all. Against — every one of those was expressible as adapter-local behavior
-  plus, in the one case that reached the seam, a new `TranslatorError` variant;
-  the core trait did not move, which is exactly what ADR-0002 promised, and a
-  descriptor would have bought none of it. The open question the *next* provider
-  should settle is whether core ever needs to **branch** on a capability rather
-  than let the adapter absorb it — nothing in DCR-0029 required that. Re-read
-  DCR-0029's *Where it mirrors, and where it must differ* table before deciding.
-  The other limb, `fc0304` / DCR-0026, adds one datum of its own rather than
-  settling it: the split is a **core-side** decision that has to measure against an
-  output ceiling, and the ceiling it reads is the profile's
-  `[batching].target_output_tokens` (via `batch::effective_output_target`), not
-  anything the provider declares. A capability descriptor is one place that number
-  could have come from instead — which is an argument for a descriptor that the
-  second-provider limb did not produce, and the sharpest concrete question to put to
-  the decision.
-
-### intersection-observer-active-block
+## intersection-observer-active-block
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: rides OI-0016's profiling gate, now ticketed as dd21ad59. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** Whether to replace/augment the scroll-listener engine with an
   IntersectionObserver-based active-block pick.
 - **Background:** DCR-0008 open judgment call (OI-0006 third action).
 - **Blocked by:** deferred to a future performance pass — rode OI-0016's profiling gate, which **fired 2026-09-02**: `benchmark/scroll-frame/RESULTS.md` found no scroll-frame overrun (ti `dd21ad59` closed). Still deferred, now on that measurement rather than on a pending gate; the re-trigger is unchanged — a measured overrun on a large document.
+- **Sources:** ticgit:5676a268-9d91-4074-ad65-60c304fee169
 
-### dialect-trait
+## dialect-trait
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: explicit YAGNI condition — a real second dialect must supply constraints first. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** A `Dialect` trait + front-end crates abstracting the parser beyond
   GFM/comrak; the syntax-crate split created the boundary but deliberately not the trait.
 - **Background:** DCR-0005 Migration/Follow-up, reaffirmed 2026-07-13 and by the
@@ -2304,11 +2430,13 @@ honest answer requires either a context parameter or an exception to the name-on
   explicitly rejected a format-axis crate split. The YAGNI condition should be re-read
   against ADR-0025 at the next sweep rather than assumed still unmet; nothing in the
   HTML wave required core to branch on a dialect capability.
+- **Sources:** ticgit:8e383504-b95c-4471-9bec-6d8ed67726b7
 
-### nested-anchor-scheme
+## nested-anchor-scheme
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: the hierarchical-alignment revision is uncommissioned; no active demand. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** `sync_role: child-only` and `data-parent-id` are reserved wire values
   never emitted; the `Section` IR type is shape-frozen with no producer, reserved for the
   hierarchical-alignment revision expected to project it from the heading stack.
@@ -2316,22 +2444,26 @@ honest answer requires either a context parameter or an exception to the name-on
   allow this without a schema break.
 - **Blocked by:** the hierarchical-alignment revision has not been commissioned; no active
   demand.
+- **Sources:** ticgit:3ba61128-597e-4b2f-a10e-2d80b64a06e6
 
-### wasm-in-cli-bundle
+## wasm-in-cli-bundle
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: ADR-0019's recorded size economics (~41× the bundle's whole JS payload). **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** The wasm renderer ships only as the standalone demo; CLI `--html-out`
   bundle integration is deliberately excluded.
 - **Background:** Track C scope across DCR-0017/ADR-0019/DCR-0020.
 - **Blocked by:** ADR-0019's recorded size economics — the module is ~41× the bundle's
   entire JS payload for capability the bundle already has; revisit only if that ratio
   changes dramatically.
+- **Sources:** ticgit:21b47815-6968-44ab-8198-cb07af829a1b
 
-### live-edit-reanchoring
+## live-edit-reanchoring
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: contradicts architectural invariant 8; needs a baseline-level design revision. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** Block-ID survival across structural source edits (insert/delete blocks
   with stable IDs) is unsupported; the wasm demo deliberately never restructures either
   document.
@@ -2339,11 +2471,13 @@ honest answer requires either a context parameter or an exception to the name-on
   2026-08-05").
 - **Blocked by:** contradicts architectural invariant 8 ("document is assumed static") —
   needs a baseline-level design revision before any implementation.
+- **Sources:** ticgit:48cfcb19-b61b-46ef-a839-7241ad92b7bd
 
-### template-webcomponent-extraction
+## template-webcomponent-extraction
 
 > **Deferral audited 2026-08-25 (reopen).** Explicitly deferred, and the condition is recorded: stated gate — “revisit only on demonstrated need”; none demonstrated. **Does not count against the v0.5.0 gate**, which excludes work deferred with a recorded decision. Re-counts the moment its named condition fires.
 
+- **Type:** 3
 - **Description:** Text inside `<template>` elements (and web-component content) is
   bucketed with `script`/`style` and left untranslated (`transync-html`'s
   segment scan tracks `template_depth` specifically to exclude it).
@@ -2353,8 +2487,9 @@ honest answer requires either a context parameter or an exception to the name-on
   DEFAULT-STOP in the new intake — a `BlockKind::Html` block extracting zero segments,
   honest `PreservedZeroSegment` row — so the exclusion now has an anchor-bearing
   spelling too. Gate unchanged.
+- **Sources:** ticgit:6a8dcca4-868a-4ea2-aefa-d5ba55e9d380
 
-### no-cli-surface-selects-the-second-provider
+## no-cli-surface-selects-the-second-provider
 
 > **RESOLVED 2026-09-03** (ticket `473dd1e0`, commit `d136b0d`) — option (b): the binary stays
 > OpenAI-backed by DCR-0029's scope, and the Anthropic adapter is **declared library-only**, in the
@@ -2368,15 +2503,15 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Sources:** ticgit:473dd1e0
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `transync-anthropic` implements `Translator` and reads its three environment variables, but `transync-cli` does not depend on the crate, so no flag, environment variable or profile key can select it.
 
-#### Background
+### Background
 
 This is a dependency-graph fact rather than a missing-argument fact: the binary does not link the crate, so a flag could not reach it even if one existed. The user-visible trap is that someone who already has `ANTHROPIC_API_KEY` exported can reasonably conclude the CLI will use it, and it silently will not — the run goes to OpenAI. ADR-0002 records that the CLI's provider is a compile-time choice, so the current state is intentional, but the manual and the crate's presence together imply otherwise. Blocked on a decision: adding the dependency widens the CLI's build surface and its credential story, and the alternative is documenting the asymmetry loudly enough that nobody is caught by it.
 
-### no-machine-check-of-the-manual-cli-reference
+## no-machine-check-of-the-manual-cli-reference
 
 > **RESOLVED 2026-09-02** (ticket `7e2fd068`, commit `7355008`) — the owner chose option (c):
 > `crates/transync/tests/manual_source_refs.rs` resolves every frontmatter source path in the
@@ -2392,15 +2527,15 @@ This is a dependency-graph fact rather than a missing-argument fact: the binary 
 - **Sources:** ticgit:7e2fd068
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `docs_cli_flags_drift.rs` guards `contracts.md` §6 and `docs/Developer_Guide.md` only. `manual/reference/user/en/cli.md` is a third full CLI reference with no machine guard.
 
-#### Background
+### Background
 
 It has already fallen two flags behind (`--cache-dir`, `--table-strategy`) and kept a whole `transync serve` section describing a deferred stub for days after the real server shipped, with nothing failing. `ticgit:0eee5c55` is that same drift, still open — so this gap has a demonstrated cost, not a theoretical one. The reason it is blocked rather than ready is that `manual/` is generated one-way from `docs/` by `write-diataxis-manual`, so a weld pointed at it would pin generated output: either the generator must guarantee the reference, or the weld must be placed at the generator rather than at its product. That is a design decision about where the guard belongs.
 
-### disk-cache-capacity-policy-unreachable-from-the-cli
+## disk-cache-capacity-policy-unreachable-from-the-cli
 
 > **RESOLVED 2026-09-03** (ticket `650bbba6`, commit `d136b0d`) — option (b): the 1 GiB /
 > no-entry-cap default is **declared fixed for CLI runs**, written on `DiskCacheOptions::max_bytes`
@@ -2415,16 +2550,17 @@ It has already fallen two flags behind (`--cache-dir`, `--table-strategy`) and k
 - **Sources:** ticgit:650bbba6
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
-#### Description
+### Description
 
 `DiskCacheOptions` carries a byte budget and an entry cap; no CLI surface reaches either, so every `--cache-dir` run takes the defaults with no way to change them.
 
-#### Background
+### Background
 
 Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The ticket itself frames this as a decision rather than a defect, and names the two acceptable outcomes — a way to set the policy from the CLI, or an explicit statement in the CLI reference and the DCR that the defaults are fixed for CLI runs and the policy is a library-only knob. Either closes it honestly; leaving it silent does not, because a user who finds `DiskCacheOptions` in the API docs has no way to learn it is unreachable from the binary they are running. Blocked on that choice.
 
-### markdown-island-reclassification
+## markdown-island-reclassification
 
+- **Type:** 3
 - **Description:** A Markdown document's raw-HTML islands stay `BlockKind::Html` with
   `html-…` ids even where a semantic equivalent exists (an HTML `<table>` island is not a
   `Table`). Reclassifying them moves block **ids**, and with the ids go alignment rows,
@@ -2433,9 +2569,11 @@ Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The t
 - **Blocked by:** a schema-2.x-shaped window. The corpus-stability acceptance criterion
   (a document's ids do not move within a minor line) forbids it in any 1.x window, so
   this is not a "when there is time" item — it needs the window first.
+- **Sources:** ticgit:cac88159-af11-45fa-8c79-56b28da4f51e
 
-### html-oversize-leaf-block-split
+## html-oversize-leaf-block-split
 
+- **Type:** 3
 - **Description:** A giant `<table>` or custom element that exceeds the token budget has
   no splitter on the HTML path. The design commits to the **shape** only — a packing-time
   segment-window split in the DCR-0026 mold, never intake descent (D4 rejected
@@ -2446,8 +2584,9 @@ Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The t
 - **Background:** spec §15.4 and §15.5.
 - **Blocked by:** demonstrated need. D9's `li` grouping removed the most common trigger
   (long lists), and no oversize-leaf abort has been observed on the corpus.
+- **Sources:** ticgit:4262bc4e-3c49-48a2-96f9-b802fa311aab
 
-### batch-payload-duplication (OI-0051)
+## batch-payload-duplication (OI-0051)
 
 - **Type:** 3
 - **Verified:** yes — Review 0010 findings (R0010-0091, R0010-0092), gate-accepted, user-routed track
@@ -2455,11 +2594,10 @@ Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The t
   `TranslationBatch`'s public field set, which is exhaustive by policy; the
   v0.5.0 window closed at the `v0.5.0` tag on 2026-09-05.
 - **Sources:** docs/project/open-issues.md#OI-0051, reviews/reviewed/0010.md#R0010-0091,
-  reviews/reviewed/0010.md#R0010-0092
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+  reviews/reviewed/0010.md#R0010-0092, ticgit:98b66817-0e55-4290-af6d-68aa2bb0e388
 - **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
 
-#### Description
+### Description
 
 `TranslationBatch` carries **both** `glossary: Vec<GlossaryEntry>` **and**
 `profile: ProfileMetadata`, and `ProfileMetadata` has a `glossary` of its own.
@@ -2469,7 +2607,7 @@ that. Separately, `profile` is owned per batch, and its largest member is
 `prompt_body` — the whole compiled system prompt, cloned once per batch even
 though DCR-0027 §5's cohort memo compiles it once.
 
-#### Background
+### Background
 
 Filed LOW/MEDIUM. The allocation saving is modest; the reason to do it is the
 two-places-one-opinion class this project spent 2026-09-01 through 2026-09-05
@@ -2481,25 +2619,24 @@ prompt — a silent wrong-cache-hit. `Arc<ProfileMetadata>` plus removing the
 duplicate field makes that unrepresentable. The reviewer's stronger claim, that
 cohorts are recomputed per batch, is wrong — DCR-0027 §5 memoizes them.
 
-### provider-constructor-header-validation (OI-0052)
+## provider-constructor-header-validation (OI-0052)
 
 - **Type:** 3
 - **Verified:** yes — Review 0011 finding (R0011-0022), gate-accepted, user-routed track
 - **Blocked by:** a sanctioned breaking window — the clean fix adds a
   `ConfigError` variant to an exhaustive-by-policy enum. Owner-deferred until the
   v0.6.0 window opens, and explicitly may be deferred again at that point.
-- **Sources:** docs/project/open-issues.md#OI-0052, reviews/reviewed/0011.md#R0011-0022
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+- **Sources:** docs/project/open-issues.md#OI-0052, reviews/reviewed/0011.md#R0011-0022, ticgit:72339140-8b70-4a25-848b-c05499036cd9
 - **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
 
-#### Description
+### Description
 
 `try_new` validates only that the API key is non-empty. Conversion to a
 `HeaderValue` is deferred to request time, so a key containing a newline, a NUL,
 or any other byte `HeaderValue` refuses passes the constructor whose purpose is
 to reject bad configuration, and then fails on every request afterwards.
 
-#### Background
+### Background
 
 Filed MEDIUM; the gate's own triage raised it as the round's single escalation
 candidate, because it is the one finding whose correct fix was blocked purely by
@@ -2510,7 +2647,7 @@ other way (ADR-0031): a budget is taken verbatim because a bad value fails
 immediately and legibly, whereas an unusable header is a permanent per-request
 failure with no construction-time signal.
 
-### intake-markdown-intake-name-collision (OI-0054)
+## intake-markdown-intake-name-collision (OI-0054)
 
 - **Type:** 3
 - **Verified:** yes — found by the 2026-09-08 documentation drift audit; the collision is in the
@@ -2524,7 +2661,7 @@ failure with no construction-time signal.
 - **First seen:** 2026-09-08
 - **Last seen:** 2026-09-09
 
-#### Description
+### Description
 
 The Markdown NUL/nesting guard **function** is reachable as `crate::intake::markdown::intake` — the
 path says "intake" twice, and the module and the function share the word for two different things.
@@ -2532,7 +2669,7 @@ DCR-0053 created the collision when it renamed `parser` to `intake::markdown`, a
 function alone on purpose: renaming a public function is a surface change rather than a move, and
 folding it in would have broken that change's "the diff must be only the rename" condition.
 
-#### Background
+### Background
 
 The entry exists because the collision was recorded in three places as "owned by OI-0034", and that
 attribution is **wrong**. OI-0034 is *comrak's NUL→U+FFFD substitution desyncs byte columns*,
@@ -2542,7 +2679,7 @@ resolved-and-archived it cannot acquire one. So the collision had no live owner.
 unopened window as `LineOffsets::offsets` (R0010-0023) and the DCR-0053 rename: all three are
 invisible through the `transync` facade and breaking only for a direct `transync-syntax` consumer.
 
-### bundle-shell-narrow-viewport-and-pane-headings (OI-0053)
+## bundle-shell-narrow-viewport-and-pane-headings (OI-0053)
 
 - **Type:** 3
 - **Verified:** yes — Review 0011 findings (R0011-0083, R0011-0084, R0011-0087), gate-accepted, user-routed track
@@ -2550,11 +2687,10 @@ invisible through the `transync` facade and breaking only for a direct `transync
   be deferred again at that point; the work then still needs a scope decision —
   whether the shipped shells target narrow viewports at all.
 - **Sources:** docs/project/open-issues.md#OI-0053, reviews/reviewed/0011.md#R0011-0083,
-  reviews/reviewed/0011.md#R0011-0084, reviews/reviewed/0011.md#R0011-0087
-- **Unfiled:** gate registers documents only — queue it through reopen's selection gate
+  reviews/reviewed/0011.md#R0011-0084, reviews/reviewed/0011.md#R0011-0087, ticgit:463f5c8b-396f-4fed-8884-969aed7b5754
 - **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
 
-#### Description
+### Description
 
 Every shell transync ships lays its two panes out as `grid-template-columns: 1fr
 1fr` with no media query and no container query, while emitting a
@@ -2562,7 +2698,7 @@ Every shell transync ships lays its two panes out as `grid-template-columns: 1fr
 `aria-label` (R0008-0049 / R0008-0050) but no visible caption, so a sighted
 reader has no on-screen statement of which pane is source and which is target.
 
-#### Background
+### Background
 
 Filed LOW ×3, registered as **one** entry on purpose: this is a single product
 question — does the bundle shell target narrow viewports at all? — not three
