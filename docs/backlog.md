@@ -1,6 +1,6 @@
 # Backlog — WIP / deferred / open items
 
-Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-08-26**; last in-place update: **2026-09-08** (the documentation drift audit; earlier in-place passes 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`). Original note follows: last full update:
+Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-09-12** (earlier in-place passes 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit). Original note follows: last full update:
 **2026-08-26** (the review-0009 track register). Three sweeps have run since the
 2026-08-07 refresh this line used to date itself from, and each one's markers are dated
 in place on the entries it touched: **2026-08-24** (`e89b537` — the index was missing 18
@@ -57,7 +57,33 @@ resolution or a dated deferral line. The release-side half of this rule is
 `docs/project/release-checklist.md` step 2a, which is where a release actually consults
 the census.
 
-**Census (2026-09-08) — post-v0.5.0, and this is the current one.** Re-derived against
+**Census (2026-09-12) — the full sweep, and this is the current one.** Re-derived against
+`ti list --open`, `ti list --all`, `docs/project/open-issues.md` and the source-C registers, not
+read off the 2026-09-08 line below. **87 entries; 40 are live** — each carrying exactly one open
+TicGit ticket, and every one of the **40 open tickets** has an entry, so the two registers agree
+in both directions. By section: Type 1 holds 26 entries of which **2 are live**, Type 2 holds 32
+of which **15 are live**, Type 3 holds 29 of which **23 are live**; the remaining 47 are resolved
+or historical records retained deliberately. Six entries are **new this run** and all six were
+filed as tickets at the selection gate: the v0.5.0 live-endpoint gate still unrun (`342e028d`),
+the Anthropic leg never executed (`40b29a9d`), the unopened breaking window (`2d616b6a`), the disk
+cache's exempt document-scoped records (`9c26d90c`), the `transync-local-llama` deferral with no
+trigger (`3887f02e`), and three documents still calling the oversize deferral live (`2183fbbb`).
+**Type 1 is no longer empty**, and what is in it is two items rather than one: the new
+`mvp-scope-lists-retired-oversize-deferral`, and `adr-0014-anchors-without-their-successor`, whose
+entry has read Type 1 since 2026-09-11 while its ticket stays `blocked` — a **deliberate**
+divergence, documented in that entry, because 4B narrowed the ticket's broader claim to a settled
+citation fix and this command may not reclassify a ticket it did not file. Sources scanned this
+run: TicGit, `docs/project/open-issues.md`, `reviews/*.md` (top level — every round is gated and
+archived, so it yielded nothing), `docs/decisions/*.md` (**zero** `Pending`),
+`docs/project/stub-manifest.md` (every STUB and all 13 DEFERRED rows closed),
+`docs/project/implementation-slice-checklists.md` (**zero** unticked boxes),
+`docs/architecture/mvp-scope.md`, `docs/project/intake.md`, `docs/project/status.md`,
+`docs/project/phase-state.yaml`, `docs/project/implementation-impact-report.md`, and all 53 DCRs.
+Nothing was absent or unreadable. **What counts against a gate is still the owner's to state**, for
+the reason the 2026-09-08 line gives: v0.5.0's window-closing condition was written for v0.5.0, and
+no later gate has been declared.
+
+**Census (2026-09-08) — post-v0.5.0; superseded by the 2026-09-12 census above.** Re-derived against
 `ti list --all` and `docs/project/open-issues.md`, not read off the 2026-09-05 line below.
 The **TicGit queue still holds exactly two open tickets** — ti `525bef96` and
 ti `16721e90`, both still tagged `deferred-v050` with their re-triggers unchanged and
@@ -149,7 +175,7 @@ Types:
   fourteen anchors, and reading twelve lines above each shows ten name DCR-0027 and four do not
 - **Sources:** ticgit:6f52db2d, docs/decisions/archive/0014-section-scoped-glossary-renders-globally.md
 - **First seen:** 2026-09-11
-- **Last seen:** 2026-09-11
+- **Last seen:** 2026-09-12
 
 ### Description
 
@@ -1166,6 +1192,235 @@ diagnosed these nine — it costs one more `cargo doc` invocation and needs no n
 was excluded was "no public API to document", which is true and beside the point: `--document-private-items`
 is how a developer reads this crate, and that is the reader the links are for.
 
+## mvp-scope-lists-retired-oversize-deferral
+
+- **Type:** 1
+- **Verified:** yes — reopen verified 2026-09-12 first-hand against
+  `crates/transync-core/src/pipeline/retry.rs`, which states the deferral is over, and against
+  DCR-0026, which is the half that shipped; **re-verified 2026-09-13** by a second, adversarial
+  pass (two independent lenses plus a completeness critic; verdict *partly confirmed*, type 1
+  upheld by both). That pass corrected three facts carried here and in the ticket: the
+  `source-of-truth-table.md` clause is not a leftover copy but was written fresh on 2026-09-08 by
+  commit `0d403b9`, which took its wording from `mvp-scope.md`; the CHANGELOG entry that seeded the
+  claim is the **v0.3.0** one (internal-quality wave, 2026-08-05), not v0.4.0; and the
+  "adapter-internal batch pagination is genuinely undecided" sub-question is refuted — no document
+  in the tree proposes it, and the only mention of that sense is a *rejected* alternative in the
+  advisory `docs/investigation/` bundle
+- **Sources:** ticgit:2183fbbb, docs/architecture/mvp-scope.md, docs/project/stub-manifest.md,
+  docs/architecture/source-of-truth-table.md
+- **First seen:** 2026-09-12
+- **Last seen:** 2026-09-13
+
+### Description
+
+Three living documents still describe provider-side oversize handling as deferred work waiting
+to be done. It is not waiting: one half shipped and the other was refused. `mvp-scope.md` says
+"Provider-side batch pagination / split-on-oversize resubmit is **deferred** … The deferral
+stands; only the dead placeholder is gone." The code's own record contradicts it —
+`pipeline/retry.rs` says, of the `oversize_split` hook it removed, "The deferral this bullet
+recorded is over, resolved in opposite directions for its two halves." Row-window splitting
+**shipped** with DCR-0026, as *packing* rather than retrying: `unit::split::split_oversize_tables`
+replaces an oversize table with header-carrying windows exactly once, before round one, and
+`pipeline::merge` reassembles one table afterwards. The *reactive* form — re-scoping a unit after
+a provider signals oversize — is **REJECTED, not deferred**, which is what leaves ADR-0009's
+verbatim-resubmission rule untouched rather than amended.
+
+### Background
+
+The item reached this register the way the defect predicts: a `/reopen` sweep read the scope
+document's DEFERRED table, found a deferral with no resolution beside it, and collected it as
+open work — which is exactly what the next sweep, and the next reader, will also do. That is the
+cost while it stands, and it is recurring rather than one-off. The research pass widened the item
+from the one row this sweep first found to three carriers, because the stale sentence is repeated
+rather than isolated — and the 2026-09-13 verification pass showed the repetition is still active:
+`source-of-truth-table.md`'s copy did not exist on 2026-08-12, it was written on 2026-09-08 by the
+architecture drift audit (`0d403b9`), which carried `mvp-scope.md`'s stale bullet into a tier-2
+document with DCR-0026 cited in the same sentence; the entry's title reflects the wider finding rather than the narrower one it
+started as. Type 1 because the answer already exists in two records and the work is transcribing
+it: DCR-0026 says what shipped and in what form, and `pipeline/retry.rs` plus `unit/split.rs`'s
+module doc say what was refused and why. Nothing is blocked, nothing is owed a decision, and no
+behaviour changes. Done means each of the three rows states its own resolution and cites the
+record for it.
+
+### Options
+
+The approach is settled, so this is the method rather than a choice. Rewrite each row in place to
+say which half shipped (packing-time row-window splitting, DCR-0026) and which half was rejected
+(reactive re-scoping after a provider signal, per `unit/split`'s module doc and contracts §5),
+citing the record for each; take the three documents in one pass so they cannot disagree again.
+Two alternatives are ruled out by the item's own evidence. Deleting the rows is ruled out by
+`stub-manifest.md`'s own preamble — a closed row keeps its place with a dated note — and because
+STUB-029's note cross-references STUB-045, so deleting that row would strand it. Retargeting them
+at `contracts.md` alone does not work either, but not for the reason this entry first gave: §5 does
+cover the refused route, in its no-re-split sentence ("no failure, provider signal, or retry round
+ever changes a unit's scope after packing") and in its `Translator`-error paragraph, which cites
+ADR-0017 and DR-2026-07 for rejecting a per-batch fallback rung. What §5 does not contain is any
+deferral to cite — the word *defer* does not occur in the section at all — so a citation naming it
+as the tracker of a deferral has nothing to land on. A second, genuinely
+optional route named by the research pass and marked *(proposed by reopen)*: add a docs-versus-code
+test pinning the retired phrase so it cannot reappear. It is separable and need not be chosen
+before starting.
+
+## status-step8-consumer-pins-expired
+
+- **Type:** 1
+- **Verified:** yes — reopen verification 2026-09-13 first-hand: both sibling manifests were read,
+  and `grep 'tag ='` returns seven edges all at `tag = "v0.5.0"` (resp-translator 3, dynwebserver 4)
+  with zero at `v0.4.0`; `docs/project/release-checklist.md` step 8 already carries the dated
+  2026-09-06 correction naming both moving commits
+- **Sources:** docs/project/status.md (the "Action (v0.5.0 tag)" bullet and its step-8 paragraph),
+  docs/project/release-checklist.md (step 8's "Updated 2026-09-06" note),
+  resp-translator/Cargo.toml, dynwebserver/Cargo.toml, reviews/README.md (rule 5)
+- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
+  selection gate had already run, so it was never offered there. No ticket is owed until a
+  human picks it at a gate
+- **First seen:** 2026-09-13
+- **Last seen:** 2026-09-13
+
+### Description
+
+`docs/project/status.md`'s "Action (v0.5.0 tag)" bullet still tells a reader that both sibling
+consumers pin this workspace at `v0.4.0` across five edges, and that neither consumer is affected
+until it bumps its tag. Both moved on 2026-09-05 (dynwebserver, `9ea9711`) and 2026-09-06
+(resp-translator, `d104793`), and each has since gained a `transync-lang` edge — seven edges, all
+reading `v0.5.0`, none reading `v0.4.0`. The pinning sentence itself carries "(verified
+2026-09-05)", so under `reviews/README.md` rule 5 it is a dated observation that stands as written;
+what has expired is the forward-looking claim beside it, which still reads as current.
+
+### Background
+
+The release checklist's step 8 already carries the dated correction, so `status.md` is the only
+carrier still out of date, and the fix is a dated addition recording the move rather than a rewrite
+of the dated paragraph. This drift is not hypothetical in its cost: it is what the 2026-09-12 sweep
+read when it filed `342e028d`, whose "Why it matters" argued that the consumers would *later* move
+onto a tree whose gate never ran. Both lenses of the 2026-09-13 verification refuted that
+independently against the manifests, and the argument had to be inverted in the ticket — the
+unattested tree is the one they already build against. A living document that states an expired
+consequence beside a dated observation is read as current by anyone who does not open the two
+manifests, which is exactly what happened.
+
+## oi0030-verification-box-never-ticked
+
+- **Type:** 1
+- **Verified:** yes — reopen verification 2026-09-13 first-hand: the unticked box exists in
+  `docs/project/open-issues-archive.md`, and the `[0.2.0]` CHANGELOG section dated 2026-08-05
+  records `scripts/smoke-live-gate.sh` **PASS** with 2/2 live round-trips, which is the next release
+  after OI-0030 resolved on 2026-08-03
+- **Sources:** docs/project/open-issues-archive.md (OI-0030's verification block),
+  CHANGELOG.md `[0.2.0]` and `[0.4.0]` (the two recorded gate PASSes), reviews/README.md (rule 5),
+  ticket `342e028d` (which cited the stale box; provenance, not this entry's ticket)
+- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
+  selection gate had already run, so it was never offered there. No ticket is owed until a
+  human picks it at a gate
+- **First seen:** 2026-09-13
+- **Last seen:** 2026-09-13
+
+### Description
+
+OI-0030 ("Live-endpoint evidence is manual-only", RESOLVED 2026-08-03) carries one unticked
+verification box: "First actual live run recorded (date + models) in the CHANGELOG at the next
+release touching transync-openai / llm::prompt / the output schema / batching". That condition was
+discharged two days later — the `[0.2.0]` section dated 2026-08-05 records the gate **PASS** with
+2/2 machine-asserted live round-trips against `gpt-4o-mini` and `gpt-5-mini` — and v0.4.0's
+2026-08-20 PASS satisfied it again. The box is a stale tick in a resolved record.
+
+### Background
+
+It is not inert. The 2026-09-12 sweep cited this box as evidence that a first live run is still
+owed, and built the "record needed: none" line of one route on it; the 2026-09-13 verification had
+to strike that support in ticket `342e028d`. Two of the three agents that read the box reached
+opposite conclusions about it — one confirmed the box exists unticked, the other established its
+condition was met — and both were right about their own half, which is what makes the stale tick
+worth retiring rather than leaving for the next reader to re-derive. An archived issue is a dated
+record, so the remedy is an appended dated note saying the box was discharged by the v0.2.0 run,
+not an in-place flip of the checkbox: flipping it would silently re-date a record that
+`reviews/README.md` rule 5 protects. Nothing external is required and no decision is owed — the
+evidence that discharges the box is already in the CHANGELOG, twice.
+
+## emitted-diagnostics-carry-flattened-space-runs
+
+- **Type:** 1
+- **Verified:** yes — reopen verification 2026-09-13 first-hand: the clamp warning in
+  `crates/transync-core/src/cache/disk.rs` carries a run of fourteen spaces between "eviction" and
+  "cannot reclaim" in both the working tree and at HEAD, and the staging-sweep note in
+  `crates/transync-cli/src/output/publish.rs` carries runs of the same length; a repo-wide grep for
+  space runs inside string literals found no third production site
+- **Sources:** crates/transync-core/src/cache/disk.rs (the `trim_to_budget` clamp warning),
+  crates/transync-cli/src/output/publish.rs (the staging-sweep `notify` note),
+  reopen verification 2026-09-13 of ticket `9c26d90c` (provenance, not this entry's ticket)
+- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
+  selection gate had already run, so it was never offered there. No ticket is owed until a
+  human picks it at a gate
+- **First seen:** 2026-09-13
+- **Last seen:** 2026-09-13
+
+### Description
+
+Two operator-facing messages carry long runs of embedded spaces where a line-continuation backslash
+was evidently dropped, so the emitted text is mis-spaced rather than merely wrapped oddly in the
+source. The OI-0044 clamp warning in the disk cache contains a fourteen-space run between
+"eviction" and "cannot reclaim", and two more before "ever satisfy" and "Raise"; the CLI's
+staging-sweep note contains runs of the same length before "by a crashed earlier run" and "there
+stay where they are".
+
+### Background
+
+Both are user-visible. The first goes out through `tracing::warn!` on `transync::cache` at every
+open whose byte budget is at or below the unreclaimable floor; the second through `notify` during
+publication housekeeping. No test catches either, because the clamp test asserts only that the
+emitted line contains "cannot reclaim" and the sweep note is not asserted at all — so the defect is
+invisible to the suite by construction, not by oversight. The fix is the one Rust spelling that
+exists for a wrapped literal: end each continued line with a backslash so the following indentation
+is stripped, which changes the emitted text only by removing the space runs. It crosses two crates,
+one of which has nothing to do with the cache, which is why it is filed apart from the ticket that
+surfaced it. It was found the way such things usually are — an evidence-fidelity verifier noticed
+that a quotation of the warning inside ticket `9c26d90c` had been silently whitespace-normalized,
+and went to the literal to find out which side was wrong. The remaining grep matches are test
+fixtures, where the spacing is the fixture.
+
+## translator-error-variant-window-record-contradiction
+
+- **Type:** 1
+- **Verified:** yes — reopen verification 2026-09-13 first-hand: DCR-0029's taxonomy fork presents
+  the new variant as carried by the open v0.4.0 window, `docs/architecture/contracts.md` §1 states
+  the `#[non_exhaustive]` rule that makes a variant addition non-breaking, the variant's own §1 row
+  says exactly that, and `crates/transync-core/src/llm.rs` carries the attribute at HEAD
+- **Sources:** docs/project/design-change-records/DCR-0029-transync-anthropic-second-provider.md
+  (the taxonomy fork and its resolution), docs/architecture/contracts.md §1,
+  docs/project/open-issues-archive.md (OI-0027, resolved 2026-08-04),
+  crates/transync-core/src/llm.rs, ticket `3887f02e` (surfaced while verifying it; provenance, not
+  this entry's ticket)
+- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
+  selection gate had already run, so it was never offered there. No ticket is owed until a
+  human picks it at a gate
+- **First seen:** 2026-09-13
+- **Last seen:** 2026-09-13
+
+### Description
+
+Two live records disagree about whether adding a `TranslatorError` variant is a breaking change.
+DCR-0029 presents `ContextWindowExceeded(String)` as a new variant "carried by the open v0.4.0
+window" and recommends it because the window "is open now and will not be later", repeating the
+window as the reason in its resolution. `contracts.md` §1 states the landed rule the other way —
+the three error enums are `#[non_exhaustive]` (OI-0027), so variant additions are non-breaking —
+and the variant's own §1 row closes with exactly that.
+
+### Background
+
+The chronology makes this more than wording drift: OI-0027 is archived as resolved on 2026-08-04,
+six days before DCR-0029, so the window DCR-0029 believed it was spending may never have been
+needed. The consequence is forward-looking rather than historical. The sanctioned v0.5.0 window
+closed on 2026-09-05 and a further breaking change needs a new one, so a reader planning a third
+adapter, a new terminal cause, or any taxonomy change will be guided by whichever of the two
+statements they read first — and one of them says the change must wait for a window that does not
+exist. The fix is the house amendment pattern, a dated note on DCR-0029 reconciling it with §1,
+with no code change and no external prerequisite; the approach is settled because the repository
+has shipped this exact correction class as docs-only before. One thing cannot be established from
+here: the attribute's own landing date, because this repository's git history restarts at `59ce8df`
+on 2026-08-17 and OI-0027 predates that. The ticket that surfaced it (`3887f02e`) quotes both sides
+deliberately rather than averaging them, which is right for a ticket whose subject is something
+else, and leaves the contradiction standing in the records themselves.
+
 # Type 2 — Needs decision
 
 The open design questions here carry an `OI-` id rather than a ticket: a review gate
@@ -1195,7 +1450,7 @@ only entries here that are genuinely open work are the ones whose own note says 
   and jump from unnumbered prose to "the fifteenth through nineteenth divergences"
 - **Sources:** ticgit:3f0879ef, docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md, CLAUDE.md
 - **First seen:** 2026-09-08
-- **Last seen:** 2026-09-09
+- **Last seen:** 2026-09-12
 
 ### Description
 
@@ -1508,6 +1763,7 @@ again, ticketed, or otherwise moved during the arc that followed.
   discussion before any work.
 - **Background:** mvp-scope DEFERRED table; "not a slice" list.
 - **Sources:** ticgit:7e42046d-07fd-4fdd-aa29-407039fd92cd
+- **Last seen:** 2026-09-12
 
 ## sentence-level-sub-anchors _(owner-deferred 2026-08-06)_
 
@@ -1518,6 +1774,7 @@ again, ticketed, or otherwise moved during the arc that followed.
 - **Background:** Draft non-goal NG3 retained as deferred in mvp-scope; also named by
   ADR-0001 as the finer-grained alternative it declined.
 - **Sources:** ticgit:ad9fb766-1cfa-4b53-a138-d5cb296293e0
+- **Last seen:** 2026-09-12
 
 ## mdx-frontmatter-math-support _(owner-deferred 2026-08-06)_
 
@@ -1528,6 +1785,7 @@ again, ticketed, or otherwise moved during the arc that followed.
 - **Background:** Draft non-goal NG2; mvp-scope DEFERRED table and scenario-matrix
   out-of-scope list.
 - **Sources:** ticgit:90e8846e-6e6b-4b82-93fa-8c3ba14d5d29
+- **Last seen:** 2026-09-12
 
 ## glossary-editor-ux _(owner-deferred 2026-08-06)_
 
@@ -1536,6 +1794,7 @@ again, ticketed, or otherwise moved during the arc that followed.
   Post-MVP product decision.
 - **Background:** mvp-scope DEFERRED table ("post-MVP feature wave").
 - **Sources:** ticgit:3e49630b-2c77-4504-9411-b7447e7f71e8
+- **Last seen:** 2026-09-12
 
 ## html-attribute-text-translation _(owner-deferred 2026-08-06)_
 
@@ -1548,6 +1807,7 @@ again, ticketed, or otherwise moved during the arc that followed.
   source language). The owner gate is unchanged; the population grew from raw-HTML
   islands to whole documents.
 - **Sources:** ticgit:60695aa0-0860-429e-831a-1b50a5227edf
+- **Last seen:** 2026-09-12
 
 ## phrasing-custom-element-mid-sentence-review
 
@@ -1588,6 +1848,7 @@ again, ticketed, or otherwise moved during the arc that followed.
   reviving it is a scope decision.
 - **Background:** DCR-0016 follow-up list.
 - **Sources:** ticgit:6f58ab6a-09a6-44e3-980e-d7bc6b0e2253
+- **Last seen:** 2026-09-12
 
 ## html-nested-in-list-blockquote-protection _(owner-deferred 2026-08-06)_
 
@@ -1597,6 +1858,7 @@ again, ticketed, or otherwise moved during the arc that followed.
   accepted v1 gap needs an extraction-inside-containers design.
 - **Background:** DCR-0016 follow-up list ("an accepted v1 gap").
 - **Sources:** ticgit:eb322221-e12d-4bc6-abdb-e5e85a3b2511
+- **Last seen:** 2026-09-12
 
 ## intra-block-progress-indicator _(owner-deferred 2026-08-06)_
 
@@ -1606,6 +1868,7 @@ again, ticketed, or otherwise moved during the arc that followed.
   (references/draft.md §18.2). Post-MVP UX decision.
 - **Background:** ADR-0001's accepted "Bad" consequence of block-level sync currency.
 - **Sources:** ticgit:1b2e163c-92f6-478a-879c-4d7e345f81f7
+- **Last seen:** 2026-09-12
 
 ## browser-sync-ux-polish _(owner-deferred 2026-08-06)_
 
@@ -1632,6 +1895,7 @@ again, ticketed, or otherwise moved during the arc that followed.
   2026-09-09 and both still hold: `activeBlockWithProgress` keeps no memory of its last
   choice, and `mountSync` takes three positional parameters with no options object.
 - **Sources:** ticgit:4a9a93bc-a7ef-4a05-87e7-c73a330edea1
+- **Last seen:** 2026-09-12
 
 ## in-browser-retranslation _(owner-deferred 2026-08-06)_
 
@@ -1642,6 +1906,7 @@ again, ticketed, or otherwise moved during the arc that followed.
   project.
 - **Background:** Track C design spec §9 (2026-08-05), explicitly framed as future work.
 - **Sources:** ticgit:27808ef5-6b50-40c2-b5c9-1057d8afb4fd
+- **Last seen:** 2026-09-12
 
 _Resolved since the 2026-08-05 sweep, and removed from this section (each carries its
 record elsewhere; a bare six-hex id below is a TicGit ticket, a seven-hex one a commit):
@@ -2101,6 +2366,418 @@ assigns to the demo.
   second-provider limb did not produce, and the sharpest concrete question to put to
   the decision.
 - **Sources:** ticgit:6fb6dab2-a2ac-486c-b06b-932b6a4d9796
+- **Last seen:** 2026-09-12
+
+## unopened-breaking-window
+
+- **Type:** 2
+- **Verified:** yes — reopen verified 2026-09-12 first-hand: `LineOffsets::offsets` is private
+  with `line_starts()` in its place, and CHANGELOG `[Unreleased]` carries both changes under
+  Changed (BREAKING). **Second pass 2026-09-13** — two adversarial lenses plus a completeness
+  critic, both *partly-confirmed*: every quoted record, both commits, the closed window, the
+  manifest at `0.5.0` and all six ticket ids reproduced first-hand, and **type 2 upheld,
+  uncontested**. Three facts in this entry were wrong and are corrected below — both sibling
+  checkouts pin tag `v0.5.0`, not `v0.4.0`; nothing is published to a registry, so there is no
+  release to yank; and carrying OI-0051/0052/0054 is the first route's chosen content rather
+  than a precondition of opening a window. A sixth route was added, here and in the ticket.
+- **Sources:** ticgit:2d616b6a, CHANGELOG.md `[Unreleased]`, docs/project/status.md,
+  docs/project/phase-state.yaml, docs/project/open-issues.md#OI-0051,
+  docs/project/open-issues.md#OI-0052, docs/project/open-issues.md#OI-0054
+- **First seen:** 2026-09-12
+- **Last seen:** 2026-09-13
+
+### Description
+
+Two API changes are already committed to the tree and cannot ship, because v0.5.0 closed the
+sanctioned breaking window on 2026-09-05 and nobody has opened another.
+`transync_syntax::intake::markdown::ranges::LineOffsets::offsets` went private with a read-only
+`line_starts()` accessor in its place (review finding R0010-0023), and the Markdown intake moved
+from `parser` to `intake::markdown` (DCR-0053). Both are invisible through the `transync` facade —
+`public_surface.rs` pins the module hidden — and breaking only for a program depending on
+`transync-syntax` directly. Three registered items are queued on the same unopened window:
+OI-0051, OI-0052 and OI-0054. So **five records are gated by one decision nobody has taken**, and
+that decision is the owner's; no amount of work clears it.
+
+### Background
+
+A "breaking window" here is an owner decision that a given release may carry breaking API changes.
+The rule is stated in `CLAUDE.md`, in `phase-state.yaml` and in the release checklist, and it is
+unchanged: a further breaking change needs a **new** window and the owner decision that opens one.
+The two parked changes are not equivalent and the asymmetry decides the question. The private-field
+change **has a revert fallback** — the field can go back to `pub` and only the accessor ships — and
+the CHANGELOG says so explicitly. The rename has none: reverting it would re-open the asymmetry
+DCR-0035 exists to explain, and it was itself the discharge of a deferral that record wrote down.
+The three queued register entries each name the same blocker in their own words, and the owner has
+already recorded that OI-0051 and OI-0052 *may be deferred again* when v0.6.0's window opens —
+so opening a window does not automatically consume them. Type 2 rather than type 3: the
+prerequisite is not external and unmet, it is a choice nobody has made, and the tie-break does not
+apply because nothing outside the decision has to land first.
+
+### Options
+
+**Open a v0.6.0 window carrying both parked changes plus the three queued items** *(proposed by
+reopen)* — the only route that clears all five records at once. Effort is three implementations
+plus the release ritual: both parked changes are already committed, but OI-0051, OI-0052 and
+OI-0054 are code, and carrying them is this route's own content rather than a precondition of
+opening a window — the owner has recorded that two of the three may be deferred again when
+v0.6.0's window opens, which is what option 6 below takes up. Blast radius reaches every direct
+`transync-syntax` consumer, of which the roster names one (`dynwebserver`), plus anything naming
+`transync::TranslationBatch` for OI-0051's tier (a) change; both sibling checkouts pin tag
+`v0.5.0` (re-read 2026-09-13 — this entry had said `v0.4.0`) and so are unaffected until they
+bump. Irreversible in one respect only: an annotated tag is outward-facing and is not withdrawn,
+and nothing is published to a registry, so there is nothing to yank. Record needed: the owner decision that opens the window, plus the checklist's step 2a.
+
+**Revert the private field to `pub` and ship only the accessor** *(source: `CHANGELOG.md`
+`[Unreleased]`, which names this route)* — smallest blast radius and the cheapest to undo, but it
+leaves the rename still needing a window, so it narrows the problem rather than closing it, and it
+re-admits a field whose own doc comment argues the field and its source are one fact.
+
+**Cut a non-breaking 0.5.x — only possible from a release branch off the `v0.5.0` tag — and defer
+the decision again** *(proposed by reopen; restated 2026-09-13, since both breaks are already on
+master and no 0.5.x cut from this tree is non-breaking)* — zero blast radius now and it forecloses
+nothing, but it would be this repository's first release branch (`git branch` lists `master`
+alone, and the release checklist has no rule about branches or cherry-picks), `43cc19c` carries
+the `LineOffsets` break in the same two-file commit as an unrelated `transync-html` fix and so
+would have to be split, and every deferral adds another record to the five while `[Unreleased]`
+grows changes that cannot ship.
+
+**Declare deep `transync-syntax` module paths unsupported, so neither change counts as breaking by
+policy** *(proposed by reopen)* — needs no window at all, which is its distinguishing point. It is
+the only route requiring a new or amended ADR, because it changes what the workspace promises
+about a published crate's surface, and it is the hardest to reverse: a support promise withdrawn
+is not re-made cheaply.
+
+**Declare the window open on master now and decide what rides it later** *(proposed by reopen,
+research pass 2026-09-12)* — separates the two questions the other routes fuse. Effort is one
+recorded decision; it unblocks work immediately, at the cost of an open window, which the project's
+own history shows is a state it has twice had to close deliberately.
+
+**Open v0.6.0 and cut it promptly with the committed set, re-deferring the three queued items**
+*(proposed by reopen verification 2026-09-13)* — the only route that unfreezes both pinned sibling
+checkouts quickly, which is the first consequence the ticket names. Effort is the release ritual
+alone: the two parked changes and the 31 commits since `v0.5.0` need no further code, though the
+DCR-0015 Part C live-endpoint gate is already recorded as triggered and unrun at the last cut and
+needs a real key and network, and the tag is the owner's act. Blast radius is the one direct
+`transync-syntax` consumer, whose `parser::parse` call sites break when it bumps — the same break
+every window route hands it, taken sooner. Record needed: the window opening as `ff788f7` recorded
+it, step 2a's condition for the new number, and a dated, falsifiably-triggered deferral for each of
+OI-0051, OI-0052 and OI-0054.
+
+
+## disk-cache-meta-records-evictability
+
+- **Type:** 2
+- **Verified:** yes — reopen verified 2026-09-12 first-hand: `trim_to_budget` computes
+  `unreclaimable = header_bytes() + replayed.meta_bytes` and drops only entries, with the exemption
+  stated in the module's own doc comment. **Second pass 2026-09-13** (two adversarial lenses plus a
+  completeness critic; every quote re-checked first-hand): all code, record and ticket quotes in
+  ticket `9c26d90c` reproduce, and three arguments were refuted and corrected there — the declined
+  capacity CLI lever *does* have a recorded revisit path (two falsifiable triggers on the
+  `max_bytes` rustdoc and in `contracts.md`, with the floor precondition shipped 2026-09-03, so the
+  residue is the two stale "needs OI-0044's floor first" sentences), the oldest-first hazard to a
+  `doc_meta` record ignores the log's write order (harvest → entries → `doc_meta`, and compaction
+  rewrites every document-scoped record after the entries), and a sixth route was missing (measure
+  the budget against the reclaimable bytes only — R0009-0082's first Recommendation in code form).
+  **Type contested:** lens A reads type 2 (the register calls the question open), lens B reads type 1
+  (the exemption is a recorded decision — DCR-0028 §3/§4 plus the 2026-08-10 note, accepted by
+  R0009-0082's own Decision reference — and the one sentence calling it open arrived inside the
+  commit that closed the member). This pass recommends type 1 with the contest on record
+- **Sources:** ticgit:9c26d90c, docs/project/open-issues.md#OI-0044,
+  docs/project/design-change-records/DCR-0028-disk-backed-cache-and-document-metadata.md
+- **First seen:** 2026-09-12
+- **Last seen:** 2026-09-13
+
+### Description
+
+The disk cache log holds two kinds of record: per-unit translation entries, and document-scoped
+records (a run's detected source language, and the auto-glossary harvest). Only the first kind is
+subject to the `max_bytes` byte budget. `trim_to_budget` drops entries alone and treats the header
+plus `meta_bytes` as unreclaimable; `trim_to_budget`'s own doc comment calls the document-scoped
+records **exempt**, and the public `DiskCacheOptions::max_bytes` rustdoc — the text an operator
+actually reads — calls them "exempt by design". OI-0044 fixed the consequence of that in 2026-09-03 — a floor so the drop
+loop stops once dropping everything still cannot get under budget — and then recorded, inside a
+`RESOLVED` entry, a question it deliberately did not answer: *"Whether meta records should instead
+become evictable remains a separate open question and was deliberately not answered by the floor."*
+Nobody has reopened it since, and until this sweep it was in no register at all: OI-0044 is
+resolved, and its own backlog entry is marked retained-for-the-record and does not mention it. The
+2026-09-13 verification pass adds the other half of the picture: the exemption itself is a recorded
+decision with a rationale — DCR-0028 §3 ("there is no metadata eviction"), §4 ("exempt from capacity
+trim — they are tiny and superseded in place"), the 2026-08-10 note extending it to the harvest, and
+R0009-0082's own Decision reference ("DCR-0028 accepts metadata/glossary retention; the contract
+should state the resulting non-hard bound") — so what is unambiguously unfinished is the
+documentation that gate owed, while whether keeping the exemption is still a live choice is exactly
+what the two lenses disagree about.
+
+### Background
+
+The two record kinds are not symmetric, and that asymmetry is the whole decision. Losing a unit
+entry costs one re-translation — squarely inside the "degrade to re-translation" envelope DCR-0028
+already claims. Losing a document-scoped record costs something different in each of its two
+cases: a dropped detection record makes a fully-warm offline rerun report a null source language,
+which is the exact defect OI-0017 was filed for and DCR-0028 closed, and a dropped glossary harvest
+is re-bought from the provider and may come back with a different term list — which moves
+`glossary_hash`, which is a cache-key axis, which orphans that document's unit entries. So the
+cheap-looking eviction has a cascade behind it that the expensive-looking exemption does not.
+Against that, the exemption is what makes the floor necessary at all: an operator who sets
+`max_bytes` small relative to accumulated meta *used to* get a discard-everything trim on every
+open; since the 2026-09-03 floor the budget is ignored for that open with one warning instead, so
+what is left below the floor is decaying entry capacity rather than a trim per open. DCR-0028 §4's
+2026-09-03 amendment does name the exemption; the residue is its pre-amendment sentence and its
+SL-113 slice line, which name `doc_meta` only while the code exempts both kinds, and `contracts.md`
+§1, which states neither what the budget measures nor what eviction can reclaim. **Typing is
+contested after the 2026-09-13 pass:** type 2 if the choice of which guarantee the byte budget makes
+is still open, type 1 if DCR-0028 §3/§4 and the review gate already made it and only the documents
+lag.
+
+### Options
+
+**Keep the exemption and let the public documentation be the whole answer** *(source: the shipped
+state after OI-0044's floor, and R0009-0082's own Recommendation)* — no code moves, but it is not
+free: three documentation residues have to be cleared (DCR-0028 §4's and SL-113's `doc_meta`-only
+shorthand, `contracts.md` §1's silence on what the budget measures and can reclaim, and the two
+stale "a lever needs OI-0044's floor first" sentences), and the record cost is a dated DCR-0028 §4
+amendment note plus a sentence in `contracts.md` §1. Distinguishing point: it is the one route
+under which `max_bytes` keeps meaning something other than what DCR-0028 §4 says it means.
+
+**Make meta records evictable under the same oldest-first rule the entries follow** *(source:
+OI-0044's own sentence)* — makes the budget literal. Blast radius is the cascade above: it
+reintroduces the null-language rerun DCR-0028 closed, and a re-bought harvest can orphan unit
+entries through `glossary_hash`. The 2026-09-13 pass narrows the first half: the log's write order is
+harvest → entries → `doc_meta`, and compaction rewrites every document-scoped record after the
+entries, so an oldest-first rule inheriting the entries' replay-position `seq` reaches a `doc_meta`
+record only once that document's entries are already gone — which a subsequent dispatching run then
+rewrites unless its detection latch held nothing. Needs a DCR-0028 amendment, since it reverses a stated design
+property. Reversible in code, but not in the caches already trimmed.
+
+**Give the meta records their own sub-budget inside `max_bytes`** *(proposed by reopen)* — bounds
+both kinds without letting either starve the other; the most code of the five and the only one
+adding a public knob, which is a §0 surface question and therefore a window question.
+
+**Refuse a `max_bytes` below the unreclaimable floor at construction time** *(proposed by reopen)* —
+smallest change that makes the failure loud instead of silent, and the only route that touches no
+eviction semantics at all. It closes the operator-facing symptom without answering the question the
+entry asks, which is either its virtue or its evasion depending on which the owner wants.
+
+**Evict the glossary harvests only, keeping the detection records exempt** *(proposed by reopen,
+research pass 2026-09-12)* — splits the two kinds on the ground that their costs differ. Needs the
+same DCR amendment as full eviction but carries only half its cascade; distinguishing point is that
+it is the only route derived from what the two record kinds actually cost rather than from what the
+budget says.
+
+**Measure the byte budget against only the reclaimable bytes (header plus entries), leaving the
+document-scoped records neither counted nor evicted** *(proposed by reopen verification 2026-09-13;
+the code form of R0009-0082's first Recommendation, "an evictable-unit budget")* — one comparison in
+`trim_to_budget`, no record deleted, no public field, no ADR-0021 amendment, and the only route that
+stops entry capacity decaying as documents accumulate. Its cost is what `max_bytes` promises: the
+file may exceed it by the live document-scoped population, which is the "non-hard bound" the review
+gate asked the contract to state. Both floor tests have to be revisited — an entries-only
+measurement makes every budget satisfiable and breaks both, while a header-plus-entries measurement
+keeps one passing for a stale reason.
+
+
+## local-llama-provider-deferral-has-no-trigger
+
+- **Type:** 2
+- **Verified:** yes — reopen verified 2026-09-12 first-hand against
+  `docs/architecture/mvp-scope.md`'s Out of scope (DEFERRED) table, whose row reads "stays
+  deferred: trait in place; that sibling crate lands later"; **re-verified 2026-09-13** by the
+  adversarial pass the filing sweep skipped — two independent lenses plus a completeness critic,
+  both partly-confirmed, **type 2 upheld and uncontested**. Three material corrections, each
+  re-reproduced before being encoded: the anthropic landing moved **five** shared places, not six
+  (the root `[workspace.dependencies]` table deliberately has no entry for an adapter nothing
+  depends on, and `workspace_publication.rs` fails one as `declared but unused`); ticket
+  `6fb6dab2` lists **ten** options, not four; and a decision *was* taken — ticket `bda471`
+  records "Anthropic first; local-llama later. Scheduled post-0.3.0." on 2026-08-06, a sequencing
+  decision whose roadmap completed 2026-08-10, so what is missing is the trigger and not the
+  decision. Both downstream consumers were read first-hand on this machine and neither pins
+  `transync-anthropic`, so "no recorded demand" now rests on evidence rather than on an
+  unperformed check. A sixth option was added, and Option 2 lost its claim that a live gate could
+  be run here (no local model server is installed).
+- **Sources:** ticgit:3887f02e, docs/architecture/mvp-scope.md, docs/project/intake.md,
+  docs/decisions/0002-http-free-core-with-translator-trait.md
+- **First seen:** 2026-09-12
+- **Last seen:** 2026-09-13
+
+### Description
+
+A third provider crate, `transync-local-llama`, has been carried in the MVP scope document's
+deferred table since the project's first design day. Its sibling on the same row,
+`transync-anthropic`, landed on 2026-08-10 and the row records that; the local-model crate reads
+only "stays deferred: trait in place; that sibling crate lands later." That is a deferral with no
+trigger, no date and no recorded demand — the one shape this register exists to surface, because
+nothing in it can ever fire and nothing in it can ever be falsified. It will be re-collected by
+every sweep that reads the table, which is how it reached this entry.
+
+### Background
+
+ADR-0002 promises that a new provider is a purely additive sibling crate costing the core trait
+nothing, and DCR-0029 is the only measured test of that promise: landing the second provider took
+five slices and moved the core trait not at all, with one `TranslatorError` variant riding an open
+window. So the cost of a third is known better than it was when the row was written, which is
+precisely what makes the row answerable now and did not before. There is a live second-order
+consequence, and it is why this is worth a decision rather than a shrug: the open
+`provider-capability-set` ticket treats a third provider as the natural next data point for
+whether a provider should describe its own limits, so one undecided row is propping up a second
+undecided question. The research pass could find no ticket for the deferral itself. It also reported no recorded
+demand from either named downstream consumer without having checked them; the 2026-09-13
+verification pass checked both on disk and the premise survives — `/Volumes/Common/QJoon/resp-translator`
+and `/Volumes/Common/QJoon/dynwebserver` both pin this workspace at tag `v0.5.0`, neither pins
+`transync-anthropic`, `dynwebserver` already exposes a configurable `translate.base_url`, and
+resp-translator's own scope lists Ollama as trait-reserved and out of scope for M1. The same pass
+refuted the sharper claim that nobody had decided anything: ticket `bda471` records "Anthropic
+first; local-llama later. Scheduled post-0.3.0." on 2026-08-06, so the owner fixed a sequence and
+not a trigger — and the post-0.3.0 roadmap it pointed at completed on 2026-08-10, which is what
+leaves the word "later" pointing at nothing. It also could not establish what the crate was ever
+meant to be concretely — whether llama.cpp specifically, a named local runtime, or "some local
+model" as a placeholder — and that ambiguity is itself part of what needs deciding. Type 2 because
+nothing external is unmet: the question is whether the project wants this at all, and only a person
+answers that. **This entry is not a request to build it.**
+
+### Options
+
+**Close the row as rejected and correct the roster to say two providers are the set** *(proposed by
+reopen)* — smallest effort, and the only route that reduces the register. Blast radius is the seven
+live documents that name the crate, plus `README.md` and `docs/Developer_Guide.md`, which say
+further providers are siblings of the same shape and would contradict a closed set, plus the
+`provider-capability-set` ticket, whose third-provider option would need re-pricing — and that
+ticket lists **ten** options, so striking its Option 2 leaves nine. Reversible: a rejection can be reopened, and ADR-0002 means the trait does not move
+either way.
+
+**Commission it as a third provider crate on the anthropic precedent** *(source:
+`docs/project/intake.md`, which names it as post-MVP with the trait in place)* — the largest
+effort by far, measured rather than guessed at roughly the size of `transync-anthropic`. It is the
+only route producing the third data point `provider-capability-set` wants. Needs its own DCR and
+slice numbers; a published member is the hardest thing here to withdraw.
+
+**Keep the deferral but attach a falsifiable trigger that fires on its own** *(proposed by reopen)* —
+effort is one sentence; blast radius one row. It is the only route that leaves the answer open
+without leaving it unanswerable, which is the defect this entry is actually about. Needs no record
+beyond the row itself.
+
+**Replace the row with a documented recipe for implementing the `Translator` trait out of tree**
+*(proposed by reopen)* — moves the capability to the consumer instead of the roster. A how-to for
+custom translators already exists in the manual, so this is largely a pointer plus a scope
+sentence; distinguishing point is that it is the only route that answers the underlying user need
+without adding a member.
+
+**Ask the two named downstream consumers whether they want it and let the answer decide** *(proposed
+by reopen, research pass 2026-09-12)* — the only route whose cost is someone else's time rather
+than this repository's. It is no longer the only route that gathers evidence: the 2026-09-13
+verification pass read both consumer repositories and found no request for a non-OpenAI-wire local
+runtime, so what is left to ask is the narrow question the manifests cannot answer. It defers the
+decision by design, which is what the other five are trying to stop.
+
+**Resolve the row as shipped-plus-recipe: date-stamp it RESOLVED, naming `transync-openai`'s
+`base_url` for OpenAI-wire local servers and the out-of-tree how-to for everything else**
+*(proposed by reopen verification 2026-09-13)* — documentation only, and the only route whose claim
+is already made in a shipped document: `README.md` says further providers are siblings of the same
+shape and that a consumer names a provider crate directly. It differs from the rejection route in
+not closing the set, and from the recipe route in asserting that the OpenAI-wire case is already
+served. Needs a dated ADR-0002 amendment and a date on the row; no new ADR.
+
+## anthropic-leg-outside-the-release-gate-trigger
+
+- **Type:** 2
+- **Verified:** yes — reopen verification 2026-09-13 first-hand: step 10's trigger diff names
+  `crates/transync-openai`, `crates/transync-core/src/llm`, `llm.rs`, `batch.rs` and `unit`/`unit.rs`
+  and does **not** name `crates/transync-anthropic`; step 11 names the two OpenAI legs by hand and
+  mentions the third only parenthetically
+- **Sources:** docs/project/release-checklist.md (step 10's trigger diff, step 11's parenthetical,
+  the authority note at the top of the file),
+  docs/project/design-change-records/archive/DCR-0015-prompt-lift-tokenizer-hint-rtl-live-smoke.md
+  (the gate's trigger set), docs/project/status.md (the standing-gap bullet that carries the
+  obligation instead), tickets `40b29a9d` and `342e028d` (both compose with this one; provenance,
+  not this entry's ticket)
+- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
+  selection gate had already run, so it was never offered there. No ticket is owed until a
+  human picks it at a gate
+- **First seen:** 2026-09-13
+- **Last seen:** 2026-09-13
+
+### Description
+
+The release checklist decides whether the DCR-0015 Part C live-endpoint gate fires by diffing the
+release range over five paths, and `crates/transync-anthropic` is not among them. Step 11 then
+names the two OpenAI legs by hand, mentioning the third only parenthetically ("if the third leg is
+ever run"). So no release range can ever make the `anthropic` leg due: it is outside the gate by
+rule, not repeatedly skipped by it — which is why the obligation lives in `status.md` as a standing
+gap instead of inside any release's checklist.
+
+### Background
+
+This is a defect in the ritual rather than in the adapter, and it is separable from whether a key
+exists: widening the trigger set, and saying per leg whether a run or a recorded skip discharges
+the gate, is one document edit that needs no credential. It also explains a pattern the project
+keeps re-recording — three consecutive releases cut with the gate triggered and unrun — because for
+the adapter the trigger arithmetic would never have fired at all. It is type 2 rather than type 1
+because of an authority question that has to be settled first: the checklist's own note makes
+editing it record-free, while changing a gate it names is a design change, and DCR-0015 (archived)
+records this gate's trigger set by name — so whether the widening needs a dated appended note on
+DCR-0015 Part C must be decided before the edit. It is filed apart from `40b29a9d` deliberately: it
+is the mechanism that makes that ticket perpetual rather than its content, it is blocked on no
+credential, it is wider than the Anthropic adapter, and it composes with whichever route the owner
+picks for either blocked ticket rather than belonging inside one of them.
+
+### Options
+
+Routes named, not compared — the comparison belongs to a ticket if one is filed. Add
+`crates/transync-anthropic` to step 10's trigger paths and make step 11 enumerate all three legs
+with a per-leg discharge rule *(proposed by reopen verification 2026-09-13)*. Leave the trigger set
+alone and move the obligation out of `status.md` into a dated checklist step that fires on adapter
+changes only *(proposed by reopen verification 2026-09-13)*. Record the leg as permanently
+out-of-gate, with the standing gap in `status.md` as its only home and a stated reason *(source:
+the status quo, made explicit)*.
+
+## oversize-tombstones-point-at-a-closed-oi-0008
+
+- **Type:** 2
+- **Verified:** yes — reopen verification 2026-09-13 first-hand: the tombstone in
+  `crates/transync-core/src/pipeline/retry.rs` routes consumer-side oversize handling to OI-0008,
+  STUB-029's note says the same, `docs/project/open-issues-archive.md` records OI-0008 as **RESOLVED
+  2026-08-05 (DCR-0019)**, `docs/project/open-issues.md` carries no successor entry, and
+  `docs/backlog.md` has zero OI-0008 hits
+- **Sources:** crates/transync-core/src/pipeline/retry.rs (the `oversize_split` tombstone's OI-0008
+  pointer), docs/project/stub-manifest.md (STUB-029's note),
+  docs/project/open-issues-archive.md (OI-0008's status line and the dated Related list in the
+  DCR-0018/OI-0027 entry), docs/project/open-issues.md (no successor entry),
+  ticket `2183fbbb` (which flags it as out of its own scope; provenance, not this entry's ticket)
+- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
+  selection gate had already run, so it was never offered there. No ticket is owed until a
+  human picks it at a gate
+- **First seen:** 2026-09-13
+- **Last seen:** 2026-09-13
+
+### Description
+
+Two live artifacts route future consumer-side oversize handling to an issue the register closed.
+The `retry.rs` tombstone says that if consumer-side oversize *handling* is ever wanted it belongs to
+"OI-0008's retry/fallback redesign, not to a resurrected empty hook", and STUB-029's note says the
+same in its own words — while the archive records OI-0008 as RESOLVED 2026-08-05 (DCR-0019). A
+reader or agent following either pointer lands on a closed register entry with no way to tell
+whether the redesign was abandoned, absorbed, or merely untracked.
+
+### Background
+
+The archive's one line calling the redesign "still open" sits inside DCR-0018/OI-0027's dated
+Related list, so it is correct as written rather than a live status — which means nothing anywhere
+tracks a retry/fallback redesign today, and the backlog has no entry for it either. This is type 2
+rather than type 1 because the repair is not transcription: somebody has to choose whether the
+forward pointer is deleted, re-aimed at ADR-0009 and `contracts.md` §5 as the standing policy, or
+replaced by a newly filed open issue — and that choice states whether a retry/fallback redesign is
+still wanted at all. It is filed apart from `2183fbbb` because that ticket declares it out of its
+own scope and warns it must not be copied forward unexamined; folding it in would widen a settled
+type-1 documentation fix into an owner question, and it touches different artifacts (a code comment
+and STUB-029, not the three carrier rows).
+
+### Options
+
+Routes named, not compared — the comparison belongs to a ticket if one is filed. Delete the forward
+pointer from both carriers and let ADR-0009 plus `contracts.md` §5 stand as the whole policy
+*(proposed by reopen verification 2026-09-13)*. Re-aim both pointers at ADR-0009 and `contracts.md`
+§5 explicitly, keeping the idea but naming a live record *(proposed by reopen verification
+2026-09-13)*. File a successor open issue for the retry/fallback redesign and re-aim both pointers
+at it *(source: the tombstone's own premise, that the redesign is a thing that may still be
+wanted)*.
 
 # Type 3 — Blocked
 
@@ -2202,7 +2879,7 @@ text inside a run whose markup the sanitizer then deletes.
   puts an attacker-chosen `data-sync-id` into a live DOM through a reconstructed formatting element.
 - **Sources:** ticgit:525bef96, `docs/architecture/contracts.md` §4b, DCR-0051
 - **First seen:** 2026-09-04
-- **Last seen:** 2026-09-09
+- **Last seen:** 2026-09-12
 
 ### Description
 
@@ -2233,7 +2910,7 @@ unnoticed. `open@input:order` is a divergence mechanism the census had never car
   so admitting it means giving the scanner a notion of context it deliberately does not have.
 - **Sources:** ticgit:16721e90, DCR-0050
 - **First seen:** 2026-09-04
-- **Last seen:** 2026-09-09
+- **Last seen:** 2026-09-12
 
 ### Description
 
@@ -2275,6 +2952,7 @@ honest answer requires either a context parameter or an exception to the name-on
   work someone means to start, and a 2027 deferral is the opposite; this entry is the
   tracker.
 - **Sources:** ticgit:bfe808e6-ab0b-4f32-8449-a70fdba217e7
+- **Last seen:** 2026-09-12
 
 ## oi-0016-active-block-scan-perf
 
@@ -2329,6 +3007,7 @@ honest answer requires either a context parameter or an exception to the name-on
   nested-editing time**, not before — the splice has no current consumer that needs it,
   so the item waits for a nested-editing feature to be commissioned.
 - **Sources:** ticgit:9b18ba45-c2f3-40de-b14d-b26097dca7b8
+- **Last seen:** 2026-09-12
 
 ## deep-blockquote-fingerprint-depth (R0001-0008 residual)
 
@@ -2346,6 +3025,7 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Blocked by:** OI-0022's own gate — "extend if drift is observed in practice"; no
   observed drift.
 - **Sources:** reviews/reviewed/0001.md#R0001-0008, ticgit:9fdf78fe-59dc-44a0-9f7c-59ce7de2d8fb
+- **Last seen:** 2026-09-12
 
 ## html-same-parent-segment-grouping
 
@@ -2361,6 +3041,7 @@ honest answer requires either a context parameter or an exception to the name-on
   segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
   more traffic to fire on.
 - **Sources:** ticgit:523b259e-60f7-4751-b946-63ac1a4e4b7f
+- **Last seen:** 2026-09-12
 
 ## html-native-array-wire-field
 
@@ -2376,6 +3057,7 @@ honest answer requires either a context parameter or an exception to the name-on
   segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
   more traffic to fire on.
 - **Sources:** ticgit:83816e44-73c1-45a7-808f-cc4c5c471822
+- **Last seen:** 2026-09-12
 
 ## html-br-normalization-guard
 
@@ -2390,6 +3072,7 @@ honest answer requires either a context parameter or an exception to the name-on
   segment engine, not just raw-HTML islands — the telemetry gate is unchanged but has far
   more traffic to fire on.
 - **Sources:** ticgit:594b3e21-72b1-443b-a76a-5993b1271064
+- **Last seen:** 2026-09-12
 
 ## per-kind-expansion-factors
 
@@ -2402,6 +3085,7 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Blocked by:** evidence gate — revisit only if code-heavy documents demonstrably
   over-split painfully.
 - **Sources:** ticgit:3ff89400-9b75-4514-96f4-010ea06d2b7a
+- **Last seen:** 2026-09-12
 
 ## intersection-observer-active-block
 
@@ -2413,6 +3097,7 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Background:** DCR-0008 open judgment call (OI-0006 third action).
 - **Blocked by:** deferred to a future performance pass — rode OI-0016's profiling gate, which **fired 2026-09-02**: `benchmark/scroll-frame/RESULTS.md` found no scroll-frame overrun (ti `dd21ad59` closed). Still deferred, now on that measurement rather than on a pending gate; the re-trigger is unchanged — a measured overrun on a large document.
 - **Sources:** ticgit:5676a268-9d91-4074-ad65-60c304fee169
+- **Last seen:** 2026-09-12
 
 ## dialect-trait
 
@@ -2431,6 +3116,7 @@ honest answer requires either a context parameter or an exception to the name-on
   against ADR-0025 at the next sweep rather than assumed still unmet; nothing in the
   HTML wave required core to branch on a dialect capability.
 - **Sources:** ticgit:8e383504-b95c-4471-9bec-6d8ed67726b7
+- **Last seen:** 2026-09-12
 
 ## nested-anchor-scheme
 
@@ -2445,6 +3131,7 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Blocked by:** the hierarchical-alignment revision has not been commissioned; no active
   demand.
 - **Sources:** ticgit:3ba61128-597e-4b2f-a10e-2d80b64a06e6
+- **Last seen:** 2026-09-12
 
 ## wasm-in-cli-bundle
 
@@ -2458,6 +3145,7 @@ honest answer requires either a context parameter or an exception to the name-on
   entire JS payload for capability the bundle already has; revisit only if that ratio
   changes dramatically.
 - **Sources:** ticgit:21b47815-6968-44ab-8198-cb07af829a1b
+- **Last seen:** 2026-09-12
 
 ## live-edit-reanchoring
 
@@ -2472,6 +3160,7 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Blocked by:** contradicts architectural invariant 8 ("document is assumed static") —
   needs a baseline-level design revision before any implementation.
 - **Sources:** ticgit:48cfcb19-b61b-46ef-a839-7241ad92b7bd
+- **Last seen:** 2026-09-12
 
 ## template-webcomponent-extraction
 
@@ -2488,6 +3177,7 @@ honest answer requires either a context parameter or an exception to the name-on
   honest `PreservedZeroSegment` row — so the exclusion now has an anchor-bearing
   spelling too. Gate unchanged.
 - **Sources:** ticgit:6a8dcca4-868a-4ea2-aefa-d5ba55e9d380
+- **Last seen:** 2026-09-12
 
 ## no-cli-surface-selects-the-second-provider
 
@@ -2570,6 +3260,7 @@ Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The t
   (a document's ids do not move within a minor line) forbids it in any 1.x window, so
   this is not a "when there is time" item — it needs the window first.
 - **Sources:** ticgit:cac88159-af11-45fa-8c79-56b28da4f51e
+- **Last seen:** 2026-09-12
 
 ## html-oversize-leaf-block-split
 
@@ -2585,6 +3276,7 @@ Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The t
 - **Blocked by:** demonstrated need. D9's `li` grouping removed the most common trigger
   (long lists), and no oversize-leaf abort has been observed on the corpus.
 - **Sources:** ticgit:4262bc4e-3c49-48a2-96f9-b802fa311aab
+- **Last seen:** 2026-09-12
 
 ## batch-payload-duplication (OI-0051)
 
@@ -2595,7 +3287,7 @@ Verified at HEAD: the type is not mentioned anywhere in the CLI's sources. The t
   v0.5.0 window closed at the `v0.5.0` tag on 2026-09-05.
 - **Sources:** docs/project/open-issues.md#OI-0051, reviews/reviewed/0010.md#R0010-0091,
   reviews/reviewed/0010.md#R0010-0092, ticgit:98b66817-0e55-4290-af6d-68aa2bb0e388
-- **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-12
 
 ### Description
 
@@ -2627,7 +3319,7 @@ cohorts are recomputed per batch, is wrong — DCR-0027 §5 memoizes them.
   `ConfigError` variant to an exhaustive-by-policy enum. Owner-deferred until the
   v0.6.0 window opens, and explicitly may be deferred again at that point.
 - **Sources:** docs/project/open-issues.md#OI-0052, reviews/reviewed/0011.md#R0011-0022, ticgit:72339140-8b70-4a25-848b-c05499036cd9
-- **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-12
 
 ### Description
 
@@ -2659,7 +3351,7 @@ failure with no construction-time signal.
   surface question and may make the rename non-breaking.
 - **Sources:** docs/project/open-issues.md#OI-0054, ticgit:cdadffea, DCR-0053, DCR-0035
 - **First seen:** 2026-09-08
-- **Last seen:** 2026-09-09
+- **Last seen:** 2026-09-12
 
 ### Description
 
@@ -2688,7 +3380,7 @@ invisible through the `transync` facade and breaking only for a direct `transync
   whether the shipped shells target narrow viewports at all.
 - **Sources:** docs/project/open-issues.md#OI-0053, reviews/reviewed/0011.md#R0011-0083,
   reviews/reviewed/0011.md#R0011-0084, reviews/reviewed/0011.md#R0011-0087, ticgit:463f5c8b-396f-4fed-8884-969aed7b5754
-- **First seen:** 2026-09-06 · **Last seen:** 2026-09-09
+- **First seen:** 2026-09-06 · **Last seen:** 2026-09-12
 
 ### Description
 
@@ -2707,3 +3399,223 @@ bundle shell and the demo shell to drift apart, which is the failure mode
 `sync_js_drift.rs` exists to prevent for the engine. A narrow-viewport commitment
 also implies a viewport dimension in the browser matrix, which is Desktop-Chrome-
 only under ADR-0026 — check that ADR's re-open conditions before the work starts.
+
+## v050-live-gate-unrun
+
+- **Type:** 3
+- **Type contested (reopen verification 2026-09-13):** the two lenses split on the same evidence.
+  Lens A keeps type 3 on the tie-break 3 > 2 with the blocker line corrected; lens B holds type 3
+  unestablished, because the key is present and credit plus network are merely *unverified* rather
+  than known unmet — which leaves the run half on the owner's spend decision (type 2) and the
+  checklist-preflight half ready today (type 1), giving type 2 by tie-break. This pass sides with
+  lens B; the field above is left at the filed value for the owner to settle, and the work is the
+  same either way. Full reasoning: the ticket's Verification (2026-09-13) section.
+- **Verified:** yes — reopen verified 2026-09-12 first-hand: the checklist's own trigger-path diff
+  `git diff --shortstat v0.4.0..v0.5.0` over the four trigger paths reports
+  "10 files changed, 1311 insertions(+), 84 deletions(-)", and no live-gate result line exists in
+  the `[0.5.0]` CHANGELOG section. **Re-verified 2026-09-13** by the adversarial reopen pass (two
+  lenses plus a completeness critic): every quoted record and all of the trigger arithmetic
+  reproduced, and three of the body's arguments were refuted and corrected — the consumer pins, the
+  type-3 premise, and OI-0030's unticked box as an open obligation.
+- **Blocked by:** the owner's decision to spend from the key this machine already holds, plus
+  confirmation that it still carries credit, plus network in the running session. A gitignored,
+  untracked `.openai.api_key` (165 bytes, mode 0600, mtime 2026-05-03) does sit at the repository
+  root and predates both recorded gate PASSes, so the key is **not** the missing piece; what is
+  missing is that no session exports it, `OPENAI_API_KEY` is unset in an agent session, and
+  `scripts/smoke-live-gate.sh` reads only the environment variable. Credit and network are
+  **unverified**, not known absent — which is what makes the type contested above.
+- **Sources:** ticgit:342e028d, docs/project/status.md, CHANGELOG.md `[0.5.0]` and `[0.2.0]`,
+  docs/project/phase-state.yaml, docs/project/release-checklist.md (steps 8 and 10-12),
+  docs/Developer_Guide.md, resp-translator/Cargo.toml, dynwebserver/Cargo.toml,
+  crates/transync-openai/src/client/dispatch.rs
+- **First seen:** 2026-09-12
+- **Last seen:** 2026-09-13
+
+### Description
+
+The released v0.5.0 tree carries no evidence that it can complete a single translation round-trip
+against a real provider. The gate that would produce it — `scripts/smoke-live-gate.sh`, created by
+DCR-0015 Part C and resolving OI-0030 — is triggered for this range and was never run. All three
+evidence carriers say so rather than hide it: the `[0.5.0]` CHANGELOG preamble reads **"Release
+gate (OI-0030 / DCR-0015 Part C): TRIGGERED and NOT RUN."**, `phase-state.yaml` says the same, and
+status.md still lists it among what remains after the tag. The second half is structural rather
+than per-release: nothing in the checklist establishes a usable key before the tag, so a release
+can only be gated in a session that happens to have one.
+
+### Background
+
+This repository has no continuous integration, and every other test in the tree talks to a stub, a
+loopback socket or a golden file — so the live gate is the only thing proving a genuine provider
+response survives the whole validation stack. The range is the wrong one to leave unchecked: it
+moved the prompt bytes the model reads, the unit payload and context assembly, and the OpenAI
+adapter itself — the three places a live provider can disagree with the stub standing in for it.
+v0.5.0 is the **third consecutive release cut** in this position after v0.3.0 and v0.4.0, and the
+one counter-example has to be stated precisely or it reads as an exoneration: v0.4.0 was also cut
+without the gate, but the gate ran and passed later the same day against a tree identical to the
+release-prep commit but for two CHANGELOG link lines, so that run does attest to the released code.
+v0.3.0's did not, and its remedy has since decayed — the `[0.3.0]` section still instructs running
+the gate "against this tag", but no `v0.3.0` tag exists in this object store after the 2026-08-17
+history restart, so that promise can no longer be kept. Three mechanical facts a picker needs, all
+measured 2026-09-12 and re-measured 2026-09-13: the working tree is **31 commits past the tag**
+(29 at filing; the two additions are docs-only) with the trigger paths moved again (11 files, 149
+insertions), so a run on the branch attests to a tree nobody released; the wrapper script itself
+gained 69 lines after the tag, so the tagged copy's key checks are two bare `-z` emptiness tests
+(lines 58 and 64) rather than `require_key`; but
+the tagged test file is behaviourally identical to the branch's, its only post-tag change being the
+`parser` → `intake::markdown` module rename, so a run at the tag asserts exactly what a branch run
+would. The filed reason for type 3 — that the missing thing is neither a decision nor code — did
+not survive verification: the key is on disk, so what is left is the owner's choice plus two
+unverified conditions, and the classification is contested between 3 and 2 (see the Type contested
+line above).
+
+### Options
+
+**Run the gate now against the tagged tree and record date and both model names in the `[0.5.0]`
+entry** *(source: `docs/project/release-checklist.md` step 12)* — the only route producing evidence
+about the released code. Effort is one command plus one dated CHANGELOG note; blast radius is a
+released section, which the record rules say keeps its words and takes an appended dated note
+rather than a rewrite. Costs real tokens against the owner's account.
+
+**Fold it into the next release cut and annotate `[0.5.0]` as permanently unrun** *(proposed by
+reopen)* — cheapest, and honest about what happened; it produces no evidence about v0.5.0 ever, and
+both consumers are already building against that tag — all **seven** dependency edges moved to
+`tag = "v0.5.0"` on 2026-09-05 (dynwebserver `9ea9711`) and 2026-09-06 (resp-translator `d104793`),
+recorded in release-checklist step 8 — so they inherit the unattested tree today rather than later.
+The filed body and this entry both said they still pinned `v0.4.0` on five edges, restating
+status.md's dated "(verified 2026-09-05)" sentence as current; refuted 2026-09-13 against both
+manifests.
+
+**Make a usable key a precondition of the tag, so the gate blocks the cut** *(proposed by reopen)* —
+the only route that changes the *next* release's behaviour and the only one addressing the pattern
+rather than the instance. Effort is an edit to one living document; the checklist's own note says
+editing it needs no DCR, and a new step must take a letter rather than a number because its numbers
+are cited from outside. Composes with the first route rather than replacing it.
+
+**Narrow the trigger paths so this range would not have fired** *(proposed by reopen)* — makes the
+problem go away by redefining it, and forecloses the evidence permanently; it is the only route
+that weakens a gate, and would amend DCR-0015 Part C.
+
+**Run the two OpenAI legs against an OpenAI-compatible endpoint via the base-URL override**
+*(proposed by reopen, research pass 2026-09-12)* — the script already validates
+`TRANSYNC_OPENAI_BASE_URL` as an absolute http/https URL, so the plumbing exists. Distinguishing
+point: it is the only route that can produce a real refusal without an OpenAI account, and the only
+one whose evidence is about a different provider than the one the release names. One mechanic added
+2026-09-13: `client::api_for_model` picks the surface from the model *name*, so the `responses` leg
+is a second Chat Completions run unless the override name matches its heuristic (`gpt-5*`, `o1*`,
+`o3*`, `o4*`, no `chat` substring) and the endpoint implements `/v1/responses`.
+
+**Name the existing local key source in the ritual, so a cut session can export the key the machine
+already has** *(proposed by reopen verification 2026-09-13)* — the cheapest route and the only one
+that treats "no API key was available in the release session" as a question the ritual never asked
+rather than a resource it never had, which is the same shape step 2a was inserted for. Effort is one
+edit to `release-checklist.md` step 11, which already shows `OPENAI_API_KEY=…` with a placeholder
+and never says where the value comes from; blast radius is one living document and no code, and
+`require_key` already rejects a padded or control-character-bearing value. It produces no evidence
+about v0.5.0 and no block on the next cut, and naming where a key lives establishes neither credit
+nor authorization to spend.
+
+
+## anthropic-live-leg-never-run
+
+- **Type:** 3
+- **Verified:** yes — reopen verified 2026-09-12 first-hand: the repository root holds
+  `.openai.api_key` (gitignored, untracked, mode 0600) and no Anthropic counterpart, and
+  `crates/transync-anthropic` sits on the `PUBLISHED_MEMBERS` roster in
+  `crates/transync/tests/workspace_publication.rs`. **Re-verified 2026-09-13** by a second
+  adversarial pass (two independent lenses plus a completeness critic): every code, record,
+  roster and ticket quote in ti `40b29a9d` reproduces, and the type-3 prerequisite is confirmed
+  unmet (no `ANTHROPIC_*` variable in the environment, no Anthropic key file, no Anthropic OAuth
+  profile, no `ant` CLI). Four facts were refuted and corrected in the ticket body: the first
+  recorded live run is 2026-08-05 (the `[0.2.0]` gate paragraph), not 2026-08-20; the crate has
+  been packaged by exactly **one** recorded publish dry run (2026-09-05, `--allow-dirty`), not by
+  every release's; v0.3.0 was cut 2026-08-07, three days before the crate existed, so the leg was
+  unrun at two cuts rather than three; and R0009-0086's `dependentSchemas` fix is latent
+  (`dependentSchemas` appears nowhere under `crates/transync-core/src/`), so no live call could
+  confirm or refute it and it is withdrawn as evidence of drift risk. A sixth route was added.
+  Still unverified: that the leg has never run *anywhere* (a universal negative), and that the
+  script and the offline suite are green at HEAD — no cargo command and no network call was made
+- **Blocked by:** a working `ANTHROPIC_API_KEY` for an account with credit, held by the owner or an
+  operator acting for them. None has ever existed in this environment.
+- **Sources:** ticgit:40b29a9d, ticket `342e028d` (coupled route; provenance, not this entry's
+  ticket), docs/project/status.md (standing
+  gap, open 2026-08-10), docs/project/release-checklist.md (step 10's trigger paths, steps 11-12),
+  docs/project/design-change-records/DCR-0029-transync-anthropic-second-provider.md,
+  docs/architecture/mvp-scope.md
+- **First seen:** 2026-09-12
+- **Last seen:** 2026-09-13
+
+### Description
+
+`crates/transync-anthropic` is a complete, rostered workspace member implementing `Translator` over
+the Anthropic Messages API, and no process in this repository has ever sent it a request to the
+real service. The machinery is written and double-gated — `tests/live_smoke.rs` holds one full
+round-trip behind `#[ignore]` plus a predicate demanding `TRANSYNC_LIVE_SMOKE=1` and a non-empty
+key, and `scripts/smoke-live-gate.sh anthropic` is the opt-in. What is missing is the credential,
+and it has been missing since the crate landed on 2026-08-10.
+
+### Background
+
+The offline suite is strong and should not be re-litigated: `tests/offline_end_to_end.rs` drives
+`transync::translate` through the adapter against a loopback server that parses the request the
+adapter actually sent and answers per unit, so request assembly, the schema-profile pass, the
+credential and protocol-version headers, transport, envelope reading and every validation layer are
+exercised with no key and no network. What that server cannot do is **refuse** — the only status
+line it ever writes is `200 OK`. So every assumption the adapter makes about the provider is
+attested only by this repository's own code checked against this repository's own server, and the
+one claim only a live call makes is that the provider accepts this request as written. DCR-0029
+anticipated exactly this, saying the offline suite "must carry the whole correctness burden"
+precisely because there is no key here — so the gap is designed around, not overlooked. The blast
+radius is bounded on one side and not the other: no `transync` CLI run can reach the adapter, since
+the CLI depends only on `transync` and `transync-openai` and the workspace table deliberately
+carries no entry for it — but the crate is on the publication roster at row 7, is packaged and
+verify-built by the one publish dry run recorded since it landed (2026-09-05, 14 files / 267.7 KiB,
+run with `--allow-dirty`; the `[0.4.0]` section records no publish dry run at all), and neither its
+rustdoc nor the README says anywhere that it has never spoken to its provider; the README presents it
+symmetrically with the OpenAI adapter, which has passed its live gate. Nothing in the workspace has
+been pushed to a registry yet, which is exactly the window in which this is still cheap to decide.
+Type 3: the prerequisite is external, concrete, and not an agent's to supply — both 2026-09-13
+lenses agreed on the type, noting a real type-2 component (the owner must still pick a route, and
+the documentation route is executable today) that the 3 > 2 > 1 tie-break absorbs. Two structural
+facts the first pass missed: `crates/transync-anthropic` is **not** in release-checklist step 10's
+trigger-path diff, so by the ritual's own rule this leg can never become *due* — it is outside the
+gate rather than skipped by it, which is why it lives in `status.md` as a standing gap; and ti
+`342e028d` (the v0.5.0 live gate, also blocked, same script) carries a route making a usable key a
+precondition of the tag, which against the script's default surface `all` would make an Anthropic
+key a cut-time requirement and decide this item with it.
+
+### Options
+
+**Run the leg by name once a key exists and record date and model in the CHANGELOG** *(source:
+`docs/project/status.md`'s standing-gap action)* — closes the gap outright. Must be run **by name**,
+because the script's default surface `all` demands both keys and refuses up front in this
+environment. One caveat priced honestly: the effort estimate holds only if it passes; a failure is
+adapter repair of unknown size in a rostered crate.
+
+**Mark the adapter unverified against its live provider in its own rustdoc and the README**
+*(proposed by reopen)* — needs no key at all, which is its distinguishing point. Effort is two doc
+edits; blast radius is prose plus the Korean mirrors that track it. It makes the record honest
+without making the adapter proven.
+
+**Replace the live leg with a contract test against captured real provider responses** *(proposed by
+reopen)* — gives a refusable server without a standing key, but the capture itself needs one live
+call, so it does not remove the prerequisite, it amortizes it. Needs a DCR, since it changes what
+the gate means.
+
+**Drop the adapter from the publication roster until it has spoken to its provider** *(proposed by
+reopen)* — the only route that removes the exposure rather than documenting it. Blast radius is the
+roster test and the release ritual; reversible, but it reverses DCR-0029's scope decision and would
+need that record amended.
+
+**Run the existing live test against an Anthropic-compatible endpoint via the base-URL override**
+*(proposed by reopen, research pass 2026-09-12)* — the plumbing is already there and validated. The
+distinguishing point is the same as its limit: a compatible gateway proves the request is
+well-formed, not that Anthropic accepts it, so it is evidence of a different and weaker claim.
+
+**Make the leg release-gated — add `crates/transync-anthropic` to release-checklist step 10's
+trigger paths** *(proposed by reopen verification 2026-09-13)* — the only route aimed at
+recurrence: the crate is absent from step 10's trigger diff today, so the leg can never become due
+and a seventh release can be cut in this position. One checklist edit, no code, no credential, and
+no provider evidence of its own; composes with any other route. Whether widening the trigger set
+DCR-0015 names is a record-free "when to run" edit or needs a dated note on that archived record is
+an owner reading, and should be settled before the edit.
+
