@@ -665,8 +665,9 @@ and `master` as `0.5.0-dev` with the window open. No step owned it either time.
 **20b. `docs/backlog.md`'s census and window sentence.** Step 2a names this file
 as "where the answer lives" and requires the counts to be **re-derived** against
 `ti list --all` and `open-issues.md`. Whatever that re-derivation produced is
-then written down here, as a **new dated census line** beneath the previous one —
-never by editing the previous one, which is that sweep's measurement. The header
+then written down here, as the census — **replacing** the previous one, because
+this file is a living document and a register's census states what is true now,
+not what every past sweep measured (DCR-0054). The header
 bullet that names the open breaking window moves in the same edit: at the cut it
 is the release that closes the window, so the sentence goes past tense and names
 the release that did it. Also a tracked, shipped-in-the-tag file; v0.5.0 found it
@@ -687,11 +688,16 @@ followed. A future insertion should do the same rather than shift anything.
     `crates/transync/tests/public_surface.rs`, so a table edit without the
     matching code edit fails the suite, and so does the reverse.
 
-23. **Snapshot documents get dated appended notes, never in-place rewrites.**
-    Any ADR or DCR whose decision the release amends (or whose follow-up it
-    closes) gains a dated note at the bottom of the relevant section. Living
+23. **Each document changes the way its kind changes** (DCR-0054). Living
     documents — this file, `status.md`, `contracts.md`, `mvp-scope.md`, the
-    Developer Guide — are edited in place.
+    Developer Guide, and an ADR's decision body — are **edited in place** to say
+    what the release made true, citing the record as `(DCR-00NN)`. Records — a
+    DCR, a released `CHANGELOG` section, a spec, an archived issue — are
+    **write-once**: the release appends nothing to them, and where its decision
+    supersedes one, the successor is a new DCR. Registers rotate: an entry the
+    release closes moves verbatim to its archive in the same commit, once its
+    resolution is verified against code or a shipped artifact rather than its
+    label. `crates/transync/tests/docs_lifecycle_drift.rs` is the gate.
 
 ## G. Commit and tag
 

@@ -59,12 +59,17 @@ false "mis-cited id" report before it was noticed.
    number. Only `R0002-0001`…`0086` and `R0003-0001`…`0086` genuinely overlap,
    and those are what the bare-means-2026-08 default is for.
 
-5. **Dated records are not rewritten to comply.** An ADR, a DCR, a released
-   `CHANGELOG` section or an archived issue keeps the words it was written
-   with; where its ids need a round, a dated note is appended saying so. The
-   older spelling `(review archived and removed)`, which several ADRs and
-   `docs/project/open-issues-archive.md` carry, means the same thing as rule 2
-   and is left in place.
+5. **Records are write-once; living documents are edited in place** (DCR-0054).
+   A DCR, a released `CHANGELOG` section, a spec or an archived issue keeps the
+   words it was written with, and **nothing is appended to it either** — not a
+   dated note, not a correction. Where a round's ids need saying, the successor
+   is a new DCR, and the reader finds it through `docs/index.md`. An ADR's
+   **decision body** is not a record but a living document: it is edited to
+   state the current rule, and one line under its `## History` records that the
+   round moved it. The older spelling `(review archived and removed)`, which
+   several ADRs and `docs/project/open-issues-archive.md` carry, means the same
+   thing as rule 2 and is left in place — those are archived records, and an
+   archive is verbatim.
 
 ## The rounds
 
