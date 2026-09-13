@@ -104,13 +104,15 @@
 ## Open Issues
 
 Issues are tracked in `docs/project/open-issues.md`; none block the shipped MVP.
-The register stands at **four open and one deferred**:
+The register stands at **four open, one deferred, and four resolved entries held back** because a 2026-09-13 clause-by-clause verification found each still owes something:
 
 - **OI-0051** — every translation batch clones its profile and carries a second copy of its glossary. Needs a breaking window.
 - **OI-0052** — the checked provider constructors accept header values that cannot become headers. Needs a breaking window.
 - **OI-0053** — the bundle and demo shells have no small-screen layout and their panes have no visible headings. One scope question registered as one entry rather than three defects.
 - **OI-0054** — the Markdown NUL/nesting guard is reachable as `intake::markdown::intake`.
 - **OI-0049** — *(deferred)* Review 0010's sixteen non-blocking survivors, with the deferral recorded.
+- **OI-0040**, **OI-0041**, **OI-0046** — *(resolved, held back)* each has one undischarged Required Action, tracked as ti `26238261`, `b3e8d80c` and `a736f3fd`.
+- **OI-0048** — *(resolved, held back)* its deferral's premise is contradicted by the code, so its Status line states something false; ti `830de884`.
 
 v0.5.0 closed the window OI-0051 and OI-0052 were waiting on; the owner has
 recorded that they may be deferred again when v0.6.0's opens. Each has a paired
