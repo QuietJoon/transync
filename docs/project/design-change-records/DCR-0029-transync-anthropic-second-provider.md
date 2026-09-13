@@ -520,3 +520,43 @@ schemas by construction; only the "one place" count was understated.
 stable code `provider_context_window_exceeded`), landing in SL-117 with its §1
 row and its `error_taxonomy.rs` weld rows, per the recommendation and the open
 v0.4.0 window.
+
+## The window was never what made the variant free — 2026-09-13 (appended note)
+
+`TranslatorError::ContextWindowExceeded` was not a breaking change, and no
+window had to be open for it to land. `docs/architecture/contracts.md` §1
+carries the rule: `TranslatorError`, `TransyncError` and `ParseError` are
+`#[non_exhaustive]` (OI-0027), so variant **additions** are non-breaking —
+removals and renames are what ride a window — and the §1 row this record's
+variant earned closes with exactly that, as does §1's standing instruction that
+a consumer MUST tolerate an unrecognized stable code as an opaque failure. All
+three attributes sit on the enums at HEAD (`crates/transync-core/src/llm.rs`,
+`crates/transync-core/src/error.rs`, `crates/transync-syntax/src/error.rs`),
+and OI-0027 is archived **RESOLVED 2026-08-04** (DCR-0018) — six days before
+this record, while DCR-0023, two days before it, already calls the enum
+`#[non_exhaustive]` in place — so the rule the fork was pricing against was on
+the books when the fork was written. The *Open fork*'s Option A, its
+recommendation ("the window is open now and will not be later"), the header
+bullet that calls the variant this record's one candidate breaking change, and
+the SL-115 resolution note above therefore all price a cost that was not being
+charged. So does the `[0.4.0]` CHANGELOG entry, which labels the change
+**BREAKING** in its heading and its bullet while that bullet's own body already
+calls it a variant addition on a `#[non_exhaustive]` enum, and whose release
+preamble counts three breaking changes without it — that is a dated record of
+its own and is amended separately, not here.
+
+Everything else the fork weighed stands. Option A's real costs — the §1
+vocabulary row, the `error_taxonomy.rs` weld rows and a **new** stable code
+(`provider_context_window_exceeded`; §1's mapping is append-only, so reuse was
+never available) — were all paid in SL-117. The migration note Option A also
+costed is not in that slice: what the two sibling consumers got is the
+`[0.4.0]` CHANGELOG bullet's instruction that a consumer with a stable-code
+table should add the row. What survives as the ground for the shape is
+DCR-0023's criterion — *a distinct cause with a distinct remediation gets a
+name* — rather than the release calendar. Only the deadline changes: the
+sanctioned v0.5.0 window closed with the tag on 2026-09-05 and a further
+breaking change needs a new one, but a further terminal cause — or a third
+adapter arriving with a vocabulary this taxonomy does not name — does not wait
+for it. §1 outranks this record in the baseline's authority hierarchy and is
+correct as written; the reasoning above is left as what this record reasoned
+from on 2026-08-10.
