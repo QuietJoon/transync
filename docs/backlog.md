@@ -1279,17 +1279,24 @@ before starting.
 
 ## status-step8-consumer-pins-expired
 
+> **RESOLVED 2026-09-13** (ti `e2ac70`, commit `79ca0b6`). The 2026-09-05 sentences are **struck**,
+> not rewritten — a dated observation stands as written under `reviews/README.md` rule 5, and this is
+> the file's own `~~old~~ **dated correction**` idiom. The correction names both moving commits, the
+> two later `transync-lang` edges, and the count as re-read on 2026-09-13: seven edges at `v0.5.0`,
+> none at `v0.4.0`. One correction to this entry's own framing — the expired claim was not confined to
+> the pin and the edge count; the present-tense `cargo check` consequence drawn from them had to fall
+> inside the same scoping clause, which a reviewer caught before the edit was applied. **Still open
+> elsewhere:** `docs/project/phase-state.yaml` carries the same expired claim and is now the only live
+> document making it — registered below as `phase-state-repeats-the-expired-consumer-pin`.
+
 - **Type:** 1
 - **Verified:** yes — reopen verification 2026-09-13 first-hand: both sibling manifests were read,
   and `grep 'tag ='` returns seven edges all at `tag = "v0.5.0"` (resp-translator 3, dynwebserver 4)
   with zero at `v0.4.0`; `docs/project/release-checklist.md` step 8 already carries the dated
   2026-09-06 correction naming both moving commits
-- **Sources:** docs/project/status.md (the "Action (v0.5.0 tag)" bullet and its step-8 paragraph),
+- **Sources:** ticgit:e2ac70ae, docs/project/status.md (the "Action (v0.5.0 tag)" bullet and its step-8 paragraph),
   docs/project/release-checklist.md (step 8's "Updated 2026-09-06" note),
   resp-translator/Cargo.toml, dynwebserver/Cargo.toml, reviews/README.md (rule 5)
-- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
-  selection gate had already run, so it was never offered there. No ticket is owed until a
-  human picks it at a gate
 - **First seen:** 2026-09-13
 - **Last seen:** 2026-09-13
 
@@ -1317,17 +1324,22 @@ manifests, which is exactly what happened.
 
 ## oi0030-verification-box-never-ticked
 
+> **RESOLVED 2026-09-13** (ti `1e1e74`, commit `8c5722a`). The box keeps its unticked form by design:
+> an archived issue is a dated record, amended by an appended dated note rather than re-ticked in
+> place. The note names the v0.2.0 PASS of 2026-08-05 and both model names. One correction to the
+> first draft, caught in review: naming only the `anthropic` leg as what remains would have read as an
+> exhaustive residual and hidden the v0.5.0 gate, which `[0.5.0]` and `status.md` both record as
+> TRIGGERED and NOT RUN — so the note says the per-release step is owed twice over and points at ti
+> `342e028d`.
+
 - **Type:** 1
 - **Verified:** yes — reopen verification 2026-09-13 first-hand: the unticked box exists in
   `docs/project/open-issues-archive.md`, and the `[0.2.0]` CHANGELOG section dated 2026-08-05
   records `scripts/smoke-live-gate.sh` **PASS** with 2/2 live round-trips, which is the next release
   after OI-0030 resolved on 2026-08-03
-- **Sources:** docs/project/open-issues-archive.md (OI-0030's verification block),
+- **Sources:** ticgit:1e1e743c, docs/project/open-issues-archive.md (OI-0030's verification block),
   CHANGELOG.md `[0.2.0]` and `[0.4.0]` (the two recorded gate PASSes), reviews/README.md (rule 5),
   ticket `342e028d` (which cited the stale box; provenance, not this entry's ticket)
-- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
-  selection gate had already run, so it was never offered there. No ticket is owed until a
-  human picks it at a gate
 - **First seen:** 2026-09-13
 - **Last seen:** 2026-09-13
 
@@ -1355,18 +1367,21 @@ evidence that discharges the box is already in the CHANGELOG, twice.
 
 ## emitted-diagnostics-carry-flattened-space-runs
 
+> **RESOLVED 2026-09-13** (ti `d8cb4f`, commit `a0ea7dc`). Both literals now end each continued line
+> with a backslash. Whitespace only: the placeholders and their order are byte-identical, so argument
+> binding cannot shift, and the two tests that assert these messages still pass. The grep for space
+> runs inside string literals found no third production site — the remaining matches are test fixtures
+> where the spacing *is* the fixture.
+
 - **Type:** 1
 - **Verified:** yes — reopen verification 2026-09-13 first-hand: the clamp warning in
   `crates/transync-core/src/cache/disk.rs` carries a run of fourteen spaces between "eviction" and
   "cannot reclaim" in both the working tree and at HEAD, and the staging-sweep note in
   `crates/transync-cli/src/output/publish.rs` carries runs of the same length; a repo-wide grep for
   space runs inside string literals found no third production site
-- **Sources:** crates/transync-core/src/cache/disk.rs (the `trim_to_budget` clamp warning),
+- **Sources:** ticgit:d8cb4f1a, crates/transync-core/src/cache/disk.rs (the `trim_to_budget` clamp warning),
   crates/transync-cli/src/output/publish.rs (the staging-sweep `notify` note),
   reopen verification 2026-09-13 of ticket `9c26d90c` (provenance, not this entry's ticket)
-- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
-  selection gate had already run, so it was never offered there. No ticket is owed until a
-  human picks it at a gate
 - **First seen:** 2026-09-13
 - **Last seen:** 2026-09-13
 
@@ -1396,19 +1411,25 @@ fixtures, where the spacing is the fixture.
 
 ## translator-error-variant-window-record-contradiction
 
+> **RESOLVED 2026-09-13** (ti `bcde64`, commit `ef7bf4e`). DCR-0029 carries a dated appended note:
+> variant **additions** are non-breaking under the `#[non_exhaustive]` rule (OI-0027, resolved
+> 2026-08-04), so the open v0.4.0 window was never the operative reason — removals and renames are
+> what ride a window. Appended, not rewritten, so the fork's original reasoning stays readable as what
+> was believed at the time; `contracts.md` §1 is untouched because it is tier 1 and already right. All
+> nine reviewer findings were accepted rather than argued, including the removal of an ordinal no
+> artifact supported and of a motive the owner decision does not carry. The attribute's own landing
+> date stays unestablishable: history restarts at `59ce8df` on 2026-08-17.
+
 - **Type:** 1
 - **Verified:** yes — reopen verification 2026-09-13 first-hand: DCR-0029's taxonomy fork presents
   the new variant as carried by the open v0.4.0 window, `docs/architecture/contracts.md` §1 states
   the `#[non_exhaustive]` rule that makes a variant addition non-breaking, the variant's own §1 row
   says exactly that, and `crates/transync-core/src/llm.rs` carries the attribute at HEAD
-- **Sources:** docs/project/design-change-records/DCR-0029-transync-anthropic-second-provider.md
+- **Sources:** ticgit:bcde64b3, docs/project/design-change-records/DCR-0029-transync-anthropic-second-provider.md
   (the taxonomy fork and its resolution), docs/architecture/contracts.md §1,
   docs/project/open-issues-archive.md (OI-0027, resolved 2026-08-04),
   crates/transync-core/src/llm.rs, ticket `3887f02e` (surfaced while verifying it; provenance, not
   this entry's ticket)
-- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
-  selection gate had already run, so it was never offered there. No ticket is owed until a
-  human picks it at a gate
 - **First seen:** 2026-09-13
 - **Last seen:** 2026-09-13
 
@@ -1436,6 +1457,44 @@ here: the attribute's own landing date, because this repository's git history re
 on 2026-08-17 and OI-0027 predates that. The ticket that surfaced it (`3887f02e`) quotes both sides
 deliberately rather than averaging them, which is right for a ticket whose subject is something
 else, and leaves the contradiction standing in the records themselves.
+
+## phase-state-repeats-the-expired-consumer-pin
+
+- **Type:** 1
+- **Verified:** yes — reopen verification 2026-09-13 first-hand, by the review lens that read
+  `status.md`'s correction: `docs/project/phase-state.yaml`'s dated log segment carries the same
+  "neither consumer is affected until it bumps" reading that `status.md` and
+  `docs/project/release-checklist.md` step 8 have both now corrected
+- **Sources:** docs/project/phase-state.yaml (the dated log segment preceding the 2026-09-07
+  segment), docs/project/status.md (corrected 2026-09-13, commit `79ca0b6`),
+  docs/project/release-checklist.md (step 8, corrected 2026-09-06),
+  ticket `e2ac70ae` (whose review surfaced it; provenance, not this entry's ticket)
+- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
+  selection gate had already run, so it was never offered there. No ticket is owed until a
+  human picks it at a gate
+- **First seen:** 2026-09-13
+- **Last seen:** 2026-09-13
+
+### Description
+
+`docs/project/phase-state.yaml` still carries the claim that both sibling consumers pin this
+workspace at `v0.4.0` and are unaffected until they bump. With `status.md` corrected on 2026-09-13
+and `release-checklist.md` step 8 corrected on 2026-09-06, it is now the **only** live document
+making that claim.
+
+### Background
+
+The claim expired on 2026-09-05 and 2026-09-06, when dynwebserver (`9ea9711`) and resp-translator
+(`d104793`) moved their pins; seven edges now read `tag = "v0.5.0"` and none reads `v0.4.0`. The
+file is a phase-state log, so the fix follows the same rule its siblings did: the dated segment is
+a record and stays as written, and a dated addition records the move rather than rewriting the old
+reading. The approach is settled by two precedents in this repository from this week, which is what
+makes this type 1 rather than a question. It is registered rather than folded into ti `e2ac70ae`
+because that ticket's Scope named `status.md` alone, and widening a claimed ticket's scope
+mid-flight is how a verified fix turns into an unverified one. The cost of leaving it is the cost
+the `status.md` copy already demonstrated: the 2026-09-12 sweep read that copy and filed an
+argument into ticket `342e028d` that both verification lenses then refuted against the manifests.
+One carrier is enough to do that again.
 
 # Type 2 — Needs decision
 
