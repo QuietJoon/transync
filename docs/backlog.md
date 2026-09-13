@@ -170,10 +170,23 @@ Types:
 
 ## adr-0014-anchors-without-their-successor
 
+> **RESOLVED 2026-09-13** (ti `772a36`, commit `a67e704`). All four anchors now name `DCR-0027`
+> beside `ADR-0014`, each in its own idiom — two prose doc comments, one `assert!` failure message,
+> one inline comment — with `ADR-0014` retained at every site, because it is the record that defines
+> what the scope meant. Re-censused after the edit: fourteen anchors, fourteen still citing
+> `ADR-0014`, **zero** now lacking `DCR-0027` in their own block, against four before. Nothing
+> asserted changed and `scn_09` passes. **Ticket `6f52db2d` stays open and blocked on purpose** —
+> it is `reconcile-docs`'s finding, carrying its own `Needs decision:` marker and the broader claim
+> the 2026-09-11 verdict refuted; only its filer may narrow or close it, and a comment there points
+> at this work. Two corrections to this entry's own wording, neither affecting the fix: the fourth
+> site is an inline comment rather than a `TRACE:` anchor, and the `llm.rs` site sits in
+> `Translator::extract_glossary`'s doc, not in the `GlossaryScope` enum doc — whose own text cites
+> neither record.
+
 - **Type:** 1
 - **Verified:** yes — reopen verified 2026-09-11 first-hand: `grep -rn 'ADR-0014' crates/` gives
   fourteen anchors, and reading twelve lines above each shows ten name DCR-0027 and four do not
-- **Sources:** ticgit:6f52db2d, docs/decisions/archive/0014-section-scoped-glossary-renders-globally.md
+- **Sources:** ticgit:772a36bb (the narrowed fix, resolved), ticgit:6f52db2d, docs/decisions/archive/0014-section-scoped-glossary-renders-globally.md
 - **First seen:** 2026-09-11
 - **Last seen:** 2026-09-12
 
@@ -1460,18 +1473,23 @@ else, and leaves the contradiction standing in the records themselves.
 
 ## phase-state-repeats-the-expired-consumer-pin
 
+> **RESOLVED 2026-09-13** (ti `925960`, commit `ef8a542`). Appended as a dated parenthetical in the
+> file's own past-tensing idiom — the shape the same block already uses for the breaking window that
+> was used and closed — so the dated observation stays as written. With this carrier corrected, no
+> live document says the consumers pin `v0.4.0`. `yq` re-parses the file with identical top-level
+> keys, and `crates/transync/tests/docs_index_drift.rs` (the one test that reads the path) is green.
+> One judgement recorded rather than taken: `project.last_updated` is left unbumped, because the
+> history shows record work bumping it and drift sweeps not bumping it, and this is a drift fix.
+
 - **Type:** 1
 - **Verified:** yes — reopen verification 2026-09-13 first-hand, by the review lens that read
   `status.md`'s correction: `docs/project/phase-state.yaml`'s dated log segment carries the same
   "neither consumer is affected until it bumps" reading that `status.md` and
   `docs/project/release-checklist.md` step 8 have both now corrected
-- **Sources:** docs/project/phase-state.yaml (the dated log segment preceding the 2026-09-07
+- **Sources:** ticgit:9259603f, docs/project/phase-state.yaml (the dated log segment preceding the 2026-09-07
   segment), docs/project/status.md (corrected 2026-09-13, commit `79ca0b6`),
   docs/project/release-checklist.md (step 8, corrected 2026-09-06),
   ticket `e2ac70ae` (whose review surfaced it; provenance, not this entry's ticket)
-- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
-  selection gate had already run, so it was never offered there. No ticket is owed until a
-  human picks it at a gate
 - **First seen:** 2026-09-13
 - **Last seen:** 2026-09-13
 
