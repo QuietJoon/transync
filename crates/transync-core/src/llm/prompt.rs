@@ -32,8 +32,9 @@
 //! [`build_extraction_user_prompt`] / [`extraction_schema_object`] /
 //! [`parse_extraction_output`] are one wire contract whose data-framing
 //! discipline (invariant 7) and forced
-//! [`crate::llm::GlossaryScope::GlobalAcrossDocument`] scope (ADR-0014)
-//! must not vary per provider.
+//! [`crate::llm::GlossaryScope::GlobalAcrossDocument`] scope (ADR-0014;
+//! DCR-0027 admits the section scope for *profiles* and keeps extraction
+//! out of it) must not vary per provider.
 //!
 //! **Prompt identity is pinned by goldens** (`golden/*.json`, generated
 //! from the pre-lift `transync-openai` output). Any intentional prompt or
@@ -2023,7 +2024,7 @@ mod tests {
         for e in &entries {
             assert!(
                 matches!(e.scope, GlossaryScope::GlobalAcrossDocument),
-                "extraction must force the global scope (ADR-0014)"
+                "extraction must force the global scope (ADR-0014 / DCR-0027)"
             );
         }
 

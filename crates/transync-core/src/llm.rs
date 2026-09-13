@@ -759,7 +759,9 @@ pub trait Translator: Send + Sync {
     /// Implementors: the request's `source_text` is untrusted document
     /// data (invariant 7) and must be framed as data, never instructions.
     /// The returned entries' `scope` is ignored — the merge forces
-    /// [`GlossaryScope::GlobalAcrossDocument`] (ADR-0014).
+    /// [`GlossaryScope::GlobalAcrossDocument`] (ADR-0014, and still so
+    /// under DCR-0027: the section scope it admits is a *profile*'s,
+    /// never an extracted entry's).
     ///
     /// `cancel` is the run's token, on exactly [`Translator::translate_batch`]'s
     /// terms. One asymmetry is worth stating: an extraction *error* degrades

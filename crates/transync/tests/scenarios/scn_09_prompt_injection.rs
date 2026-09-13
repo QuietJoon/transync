@@ -152,7 +152,7 @@ async fn a_section_scoped_glossary_entry_reaches_only_its_own_sections_prompt() 
     }
 
     // And the selectors themselves are never prompt text — filtering, not
-    // annotation (ADR-0014 as amended).
+    // annotation (ADR-0014 as amended, DCR-0027 G8).
     for b in &recorded {
         assert!(!b.profile.prompt_body.contains("Prisons"));
     }
