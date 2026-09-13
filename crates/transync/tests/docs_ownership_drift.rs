@@ -1,5 +1,6 @@
 //! Weld `docs/architecture/source-of-truth-table.md` to the code it claims to
-//! describe — its cache rows to the cache that ships, and its module
+//! describe — its cache rows to the cache that ships, its batching row to the
+//! packing-time splitter that owns the oversize split, and its module
 //! enumeration to the modules that exist.
 //!
 //! The table's job is to name one owner per piece of state. Its "Translation
@@ -38,8 +39,11 @@
 //!
 //! TRACE: ti d00367
 //! TRACE: ti 2d3b16
+//! TRACE: ti 2183fbbb
 //! TRACE: DCR-0028
 //! TRACE: ADR-0021
+//! TRACE: DCR-0026
+//! TRACE: ADR-0017
 
 use std::path::{Path, PathBuf};
 
@@ -105,8 +109,12 @@ fn every_guarded_document_names_every_shipped_cache_backend() {
     );
 }
 
-/// Claims these documents carried before `DiskCache` shipped, each false the
-/// moment it did. Paired with what a reader should be told instead, so a
+/// Claims these documents carried that the code contradicts. The cache ones
+/// went stale the day `DiskCache` shipped; the oversize-split one was born
+/// stale — written 2026-09-08 (`0d403b9`) by the architecture-bundle drift
+/// audit, a month after DCR-0026's packing-time splitter, by carrying
+/// `mvp-scope.md`'s stale bullet into this table with DCR-0026 cited in the
+/// same sentence. Paired with what a reader should be told instead, so a
 /// failure explains itself rather than just naming a forbidden string.
 ///
 /// Every entry is an **absolute** claim — one no qualifier can rescue, so
@@ -128,6 +136,10 @@ const RETIRED_CLAIMS: &[(&str, &str)] = &[
     (
         "process-lifetime in-memory only",
         "a `DiskCache` entry outlives the process that wrote it",
+    ),
+    (
+        "provider-side splitting stays deferred",
+        "the reactive, provider-signal form is rejected, not deferred (DCR-0026 / ADR-0017) — an oversize table splits core-side at packing time (`unit::split`)",
     ),
 ];
 
@@ -228,7 +240,7 @@ fn the_module_enumeration_names_every_module_both_crates_declare() {
 }
 
 #[test]
-fn no_guarded_document_still_says_the_cache_cannot_reach_disk() {
+fn no_guarded_document_still_makes_a_retired_claim() {
     let mut violations = Vec::new();
     for rel in GUARDED {
         let doc = read_doc(rel);
@@ -240,8 +252,7 @@ fn no_guarded_document_still_says_the_cache_cannot_reach_disk() {
     }
     assert!(
         violations.is_empty(),
-        "living documents describing the cache have drifted back behind the \
-         code:\n  {}",
+        "living documents have drifted back behind the code they describe:\n  {}",
         violations.join("\n  "),
     );
 }
