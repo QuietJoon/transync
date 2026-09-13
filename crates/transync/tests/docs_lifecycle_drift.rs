@@ -143,7 +143,7 @@ const BUDGETS: &[(&str, u64)] = &[
     ("docs/project/phase-state.yaml", 6_144), // wave 2 done
     ("docs/project/open-issues.md", 121_856), // wave 2
     ("docs/backlog.md", 261_120), // wave 2
-    ("CHANGELOG.md", 578_560), // wave 3 → 98_304
+    ("CHANGELOG.md", 96_256),  // wave 3 done
     ("docs/Developer_Guide.md", 84_992), // wave 3
     ("docs/Troubleshooting.md", 40_960), // wave 3
     ("docs/implementation/module-map.md", 39_936), // wave 3
