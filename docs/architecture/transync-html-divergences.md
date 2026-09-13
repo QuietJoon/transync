@@ -6,7 +6,7 @@ tags: [reference, architecture, transync-html, DCR-0032]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-09-13T00:00:00Z
-status: active
+status: stable
 ---
 
 # The nineteen divergences of `transync-html` from `htmlseg`

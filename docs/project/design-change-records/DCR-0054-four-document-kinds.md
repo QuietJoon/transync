@@ -6,7 +6,7 @@ tags: [change, project-control, documentation, DCR-0054]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-09-13T00:00:00Z
-status: active
+status: stable
 ---
 
 # DCR-0054: Four document kinds
