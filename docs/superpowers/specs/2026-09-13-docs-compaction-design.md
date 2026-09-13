@@ -44,7 +44,7 @@ Consequences:
 - Write-once is forward-looking: it stops the 64 blocks from becoming 80. It does not shrink them.
 - The derived current view that replaces them is the one that already exists: `docs/index.md` plus
   the `contracts.md` normative text. Nothing new is invented to hold it.
-- ADRs are the deliberate exception, by Fork 2: the authority hierarchy ranks ADR rationale as
+- ADRs are the deliberate exception, by decision (2): the authority hierarchy ranks ADR rationale as
   **current truth** ("the lower document must be fixed"), so an ADR decision body is a *living*
   document that happens to live in a record-shaped file. The override is exactly this and no wider.
 
@@ -239,7 +239,7 @@ Classes: **(i)** mechanical, assertion-neutral · **(ii)** judgement · **(iii)*
 |---|---|
 | Settle the remote | Push the 5 commits to `origin/master`. Confirm `origin/master` is authoritative and decide whether `origin/main` is fast-forwarded or retired; `branch.master.merge` currently points at the stale one. |
 | Working tree | Commit or stash `docs/backlog.md` and the two `manual/**/ko/` files; decide the fate of untracked `reviews/.claims/` and `reviews/.gating/`. |
-| `DCR-0054` | Records the four document kinds, the write-once rule for records, the Fork-2 ADR override, the destinations, and the rotation triggers. This is the DCR that authorizes waves 4–7. |
+| `DCR-0054` | Records the four document kinds, the write-once rule for records, the decision-(2) ADR override, the destinations, and the rotation triggers. This is the DCR that authorizes waves 4–7. |
 | `crates/transync/tests/docs_lifecycle_drift.rs` | Fifth member of the existing drift family. Fails on a new amendment construct in a living document, on a RESOLVED entry left in a live register, and on a living document exceeding its recorded byte budget. Seeded green with a shrink-only allowlist and a downward-only budget file. |
 | `release-checklist.md` | Step 23 rewritten to carry the "edit living docs in place" half; step 20b changed from "never by editing the previous one" to "the census replaces the previous census"; a sweep sub-step added to section F. |
 | `reviews/README.md` rule 5 | Replaced with the write-once text (§6 below). Note: this file is **untracked on this machine** yet holds the rule that disambiguates 1,720 `R000N-####` citations — it must be committed before anything depends on it. |
@@ -274,7 +274,7 @@ counts. `docs/backlog.md` and `open-issues.md` are the v0.5.0 release-gate input
 
 **Resurrection risk.** `/indy-review-cleanup` re-creates OI entries from `reviews/reviewed/`, and
 `/reopen` re-adds backlog entries whose source still holds them. After wave 2 the owner dry-runs
-both; `git diff --stat` must show zero re-adds. This is the concrete form of Fork 4.
+both; `git diff --stat` must show zero re-adds. This is the concrete form of decision (4).
 
 ### Wave 3 — CHANGELOG and reader docs · class (i) · 577,645 → ~95,700
 
@@ -310,7 +310,7 @@ every sentence containing `must|never|always|is contractual|is rejected` to a fi
 must be present verbatim (whitespace-normalized) either in the head or in the history sibling. One
 commit per section.
 
-### Wave 5 — ADRs · class (iii), authorized by Fork 2 · ≈ −59 K
+### Wave 5 — ADRs · class (iii), authorized by decision (2) · ≈ −59 K
 
 Eight ADRs (0006, 0002, 0009, 0013, 0003, 0012, 0016, 0015). The decision body is rewritten to state
 the current rule; the amendment sections (78,846 B) move verbatim to
@@ -334,7 +334,7 @@ because `manual/` `resource:` paths point at them on both English and Korean pag
 Where the owner is willing, this wave runs *through* `/indy-review-prune` rather than by hand, to
 satisfy its Phase 0a gate.
 
-### Wave 7 — executed plans · class (iii), authorized by Fork 3 · −1,505,956 B
+### Wave 7 — executed plans · class (iii), authorized by decision (3) · −1,505,956 B
 
 Order matters:
 
@@ -380,7 +380,7 @@ rule 5. Enforced by `crates/transync/tests/docs_lifecycle_drift.rs`, so it runs 
 > Text leaving a living document goes into an archive file or into a commit pushed to `origin` —
 > never "into git history".
 
-### Replacement wording for the owner's skills (Fork 4)
+### Replacement wording for the owner's skills (decision 4)
 
 Reported, not applied — nothing under `~/.claude` is edited.
 
