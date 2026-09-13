@@ -428,7 +428,9 @@ fn reclaim_own_staging(parent: &Path, name: &str, notify: Notify<'_>) {
             Ok(entry) => entry,
             Err(e) => {
                 notify(&format!(
-                    "note: could not read an entry of {} while looking for staging trees left                      by a crashed earlier run with this process's pid ({e}); any that are                      there stay where they are, inert, and the next run will try again",
+                    "note: could not read an entry of {} while looking for staging trees left \
+                     by a crashed earlier run with this process's pid ({e}); any that are \
+                     there stay where they are, inert, and the next run will try again",
                     parent.display(),
                 ));
                 continue;

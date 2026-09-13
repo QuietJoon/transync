@@ -617,7 +617,10 @@ fn trim_to_budget(replayed: &mut Replayed, opts: &DiskCacheOptions, path: &Path)
     {
         tracing::warn!(
             target: "transync::cache",
-            "cache log {}: max_bytes = {max} is at or below the {unreclaimable} bytes eviction              cannot reclaim ({} header + {} document-scoped records), so no set of entries could              ever satisfy it; ignoring the byte budget for this open and keeping the entries.              Raise max_bytes above {unreclaimable} to make it mean something.",
+            "cache log {}: max_bytes = {max} is at or below the {unreclaimable} bytes eviction \
+             cannot reclaim ({} header + {} document-scoped records), so no set of entries could \
+             ever satisfy it; ignoring the byte budget for this open and keeping the entries. \
+             Raise max_bytes above {unreclaimable} to make it mean something.",
             path.display(),
             header_bytes(),
             replayed.meta_bytes,
