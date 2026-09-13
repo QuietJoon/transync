@@ -293,9 +293,14 @@ fn budgeted_documents_stay_within_their_budget() {
 
     for (rel, budget) in BUDGETS {
         let path = repo_root().join(rel);
-        let actual = fs::metadata(&path)
-            .unwrap_or_else(|e| panic!("{rel} should be readable: {e}"))
-            .len();
+        // `CLAUDE.md` is budgeted but gitignored by owner decision, so it is
+        // absent from a fresh clone and from CI. An absent file is skipped
+        // rather than failed: this gate exists to stop documents growing, and a
+        // document that is not there cannot grow.
+        let Ok(meta) = fs::metadata(&path) else {
+            continue;
+        };
+        let actual = meta.len();
 
         if actual > *budget {
             over.push(format!("{rel}: {actual} bytes, budget {budget}"));
