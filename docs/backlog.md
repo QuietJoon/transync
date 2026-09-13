@@ -1194,6 +1194,22 @@ is how a developer reads this crate, and that is the reader the links are for.
 
 ## mvp-scope-lists-retired-oversize-deferral
 
+> **RESOLVED 2026-09-13** (ti `2183fb`, commit `2b5a650`). All three carriers now state the same
+> resolution in the same sentence, and the phrase is guarded: `docs_ownership_drift.rs` carries
+> `provider-side splitting stays deferred` as a retired claim paired with its replacement, traced to
+> this ticket, DCR-0026 and ADR-0017. Verified both ways — the workspace gate is green (1,606 passed,
+> 0 failed, `CARGO_EXIT=0`), and with the phrase re-inserted into a guarded document the test fails
+> and names the file, the phrase and its replacement. Three corrections the work made to this entry's
+> own reasoning. The splitter does not *halve*: `greedy_plan` sizes each window greedily against the
+> output target, so all three rows say it **replaces** an oversize table with header-carrying row
+> windows. The dated note reads as the deferral resolving rather than as a third `Closed 2026-08-09`,
+> because the manifest's preamble twice names STUB-017 and STUB-061 as the last two closures on that
+> date. And "deleting the rows would break the `TRACE:` anchors" does not hold — no `TRACE:` anchor
+> anywhere names STUB-045; what is real is STUB-029's cross-reference to it, and the manifest's own
+> rule that a closed row keeps its place with a dated note. `GUARDED` stays at its two documents by
+> choice, so `mvp-scope.md` and `stub-manifest.md` remain unwatched by the weld — widening it is a
+> decision to take deliberately, not a side effect of this repair.
+
 - **Type:** 1
 - **Verified:** yes — reopen verified 2026-09-12 first-hand against
   `crates/transync-core/src/pipeline/retry.rs`, which states the deferral is over, and against
