@@ -175,6 +175,18 @@ project:
     the published v0.4.0 tree and said nothing about this one. Neither is
     affected until it bumps; the migration items are recorded in status.md and
     step 8's premise was corrected in the same session per step 29.
+    (Past-tensed 2026-09-13: BOTH HAVE SINCE BUMPED. dynwebserver moved its
+    edges to tag = "v0.5.0" on 2026-09-05 (9ea9711) and resp-translator moved
+    its own on 2026-09-06 (d104793); each has added a transync-lang edge since
+    (a4b1acc on 2026-09-06, 4d55d64 on 2026-09-08). Re-read on 2026-09-13:
+    SEVEN edges read tag = "v0.5.0" and NONE reads v0.4.0 - three in
+    resp-translator, four in dynwebserver - with no [patch] override and no
+    path dependency in either manifest. The migration items step 8 owed them
+    for v0.5.0 are therefore SPENT rather than waiting, and what the step owes
+    now is the set the NEXT release hands them. The observation above was true
+    of the moment it describes, so it is dated rather than deleted;
+    release-checklist step 8 carries the same correction dated 2026-09-06 and
+    status.md's v0.5.0-tag action bullet carries it dated 2026-09-13.)
     2026-09-07 - THE LAST TYPE 1 ITEM IS DONE. The parser -> intake::markdown
     rename landed as 18c1ab4 (ticket b7e4cc70, DCR-0053), under its own
     acceptance condition - the diff is ONLY the rename. Eight files moved by git
