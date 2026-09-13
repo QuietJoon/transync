@@ -135,17 +135,17 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 /// decision that a document is allowed to be bigger, which is exactly the
 /// conversation this gate exists to force.
 const BUDGETS: &[(&str, u64)] = &[
-    ("CLAUDE.md", 29_696),                         // wave 1 → 14_336
-    ("docs/index.md", 41_984),                     // wave 1 → 22_528
-    ("docs/architecture/contracts.md", 307_200),   // wave 4 → 163_840
-    ("docs/project/status.md", 121_856),           // wave 2
+    ("CLAUDE.md", 22_528),     // wave 1 done; the rest is rules, not history
+    ("docs/index.md", 41_984), // wave 1 → 22_528
+    ("docs/architecture/contracts.md", 307_200), // wave 4 → 163_840
+    ("docs/project/status.md", 121_856), // wave 2
     ("docs/project/release-checklist.md", 47_104), // wave 2
-    ("docs/project/phase-state.yaml", 90_112),     // wave 2
-    ("docs/project/open-issues.md", 121_856),      // wave 2
-    ("docs/backlog.md", 261_120),                  // wave 2
-    ("CHANGELOG.md", 578_560),                     // wave 3 → 98_304
-    ("docs/Developer_Guide.md", 84_992),           // wave 3
-    ("docs/Troubleshooting.md", 40_960),           // wave 3
+    ("docs/project/phase-state.yaml", 90_112), // wave 2
+    ("docs/project/open-issues.md", 121_856), // wave 2
+    ("docs/backlog.md", 261_120), // wave 2
+    ("CHANGELOG.md", 578_560), // wave 3 → 98_304
+    ("docs/Developer_Guide.md", 84_992), // wave 3
+    ("docs/Troubleshooting.md", 40_960), // wave 3
     ("docs/implementation/module-map.md", 39_936), // wave 3
 ];
 
