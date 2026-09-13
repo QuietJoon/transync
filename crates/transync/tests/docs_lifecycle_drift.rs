@@ -138,7 +138,7 @@ const BUDGETS: &[(&str, u64)] = &[
     ("CLAUDE.md", 22_528),     // wave 1 done; the rest is rules, not history
     ("docs/index.md", 41_984), // wave 1 → 22_528
     ("docs/architecture/contracts.md", 307_200), // wave 4 → 163_840
-    ("docs/project/status.md", 121_856), // wave 2
+    ("docs/project/status.md", 30_720), // wave 2 done
     ("docs/project/release-checklist.md", 47_104), // wave 2
     ("docs/project/phase-state.yaml", 6_144), // wave 2 done
     ("docs/project/open-issues.md", 121_856), // wave 2

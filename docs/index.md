@@ -122,6 +122,7 @@ Three things sit outside the rule on purpose, because they are not this index's 
 ## Project state
 
 - [Status](project/status.md) — current phase and open actions.
+- [Status archive](project/status-archive.md) — *(archive)* the wave log and every completed action.
 - [Backlog](backlog.md) — the cross-source index of WIP / deferred / blocked items, maintained by the `/reopen` sweep; `status.md` names it as the index of open items, and the authoritative detail for `OI-`numbered entries stays in `open-issues.md`. Its header also carries the **owner's v0.5.0 release condition** — 0.5.0 proper ships only after every registered task and every open issue is resolved, excluding those explicitly deferred — and the census that answers it.
 - [Phase state](project/phase-state.yaml) — machine-readable phase tracker.
 - [Phase-state run log](project/phase-state-notes.md) — *(archive)* the narrated history of every wave and release.
