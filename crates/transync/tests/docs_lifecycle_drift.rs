@@ -140,7 +140,7 @@ const BUDGETS: &[(&str, u64)] = &[
     ("docs/architecture/contracts.md", 307_200), // wave 4 → 163_840
     ("docs/project/status.md", 121_856), // wave 2
     ("docs/project/release-checklist.md", 47_104), // wave 2
-    ("docs/project/phase-state.yaml", 90_112), // wave 2
+    ("docs/project/phase-state.yaml", 6_144), // wave 2 done
     ("docs/project/open-issues.md", 121_856), // wave 2
     ("docs/backlog.md", 261_120), // wave 2
     ("CHANGELOG.md", 578_560), // wave 3 → 98_304
