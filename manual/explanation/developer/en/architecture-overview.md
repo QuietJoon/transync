@@ -2,12 +2,12 @@
 type: Explanation
 title: Why block-ID sync, not scroll-percentage
 description: The reasoning behind transync's core design choice — one stable block ID as the only sync currency, end to end — how that choice shapes every other layer, and why a table split for the model is still one block for the reader.
-tags: [architecture, ADR-0001, ADR-0002, DCR-0026, DCR-0029]
+tags: [architecture, ADR-0001, ADR-0002, DCR-0026, DCR-0029, DCR-0058]
 audience: developer
 language: en
 generated:
-  by: claude-code/claude-opus-5
-  at: "2026-08-10T08:40:09Z"
+  by: codex/gpt-6
+  at: "2026-09-23T06:00:14Z"
 sources:
   - { id: arch-readme, resource: docs/architecture/README.md }
   - { id: contracts, resource: docs/architecture/contracts.md }
@@ -16,14 +16,16 @@ sources:
   - { id: adr-0019, resource: docs/decisions/0019-wasm-demo-layer.md }
   - { id: dcr-0026, resource: docs/project/design-change-records/DCR-0026-oversize-table-row-window-split.md }
   - { id: dcr-0029, resource: docs/project/design-change-records/DCR-0029-transync-anthropic-second-provider.md }
+  - { id: dcr-0058, resource: docs/project/design-change-records/DCR-0058-transync-google-gemini-provider.md }
   - { id: llm, resource: crates/transync-core/src/llm.rs }
   - { id: unit-split, resource: crates/transync-core/src/unit/split.rs }
   - { id: pipeline-merge, resource: crates/transync-core/src/pipeline/merge.rs }
   - { id: regen, resource: crates/transync-syntax/src/regen.rs }
   - { id: render, resource: crates/transync-syntax/src/render.rs }
   - { id: anthropic, resource: crates/transync-anthropic/src/lib.rs }
+  - { id: google, resource: crates/transync-google/src/lib.rs }
   - { id: cli-provider, resource: crates/transync-cli/src/translate_cmd/provider.rs }
-synced_hash: 1348d82f2cb0cd9348c92130bfea22d761b1a619a9ec3856613f75acf5275479
+synced_hash: 5043b7873f12616526842605281b1c002830aa7d9113a04e508e9d66dc6b2f66
 ---
 
 # Why block-ID sync, not scroll-percentage
@@ -176,26 +178,26 @@ any provider that implements the trait automatically inherits the
 ID-preservation contract without having to know why it matters.
 
 Since DCR-0029 that argument is demonstrated rather than asserted. There
-are two provider crates in the tree — the OpenAI adapter and an Anthropic
-one — implementing the same trait against genuinely different HTTP
-surfaces: a different auth header, a required protocol-version header, and
-an output ceiling the API demands on every request rather than accepting
-by omission. None of that reached the core. What a second implementation
+are three provider crates in the tree — OpenAI, Anthropic, and Google —
+implementing the same trait against genuinely different HTTP APIs.
+Anthropic brought a different auth header, a required protocol-version header,
+and an output ceiling the API demands on every request rather than accepting
+by omission. None of that reached the core. What that second implementation
 did change is worth more than the portability claim itself: it added one
 term to the shared error vocabulary. An over-long *request* and a
 truncated *answer* are both about tokens, both terminal, and point at
 opposite knobs, so collapsing them would have named a remedy that cannot
 help — the adapter that met the distinction first is the reason the trait
 now has a name for each. That is what a boundary drawn at roughly the
-right place looks like in practice: the second implementation costs a
-vocabulary addition, not a redesign.
+right place looks like in practice: Anthropic cost a vocabulary addition,
+not a redesign. The later Google adapter added Vertex AI and Developer API
+surfaces behind the same trait (DCR-0058).
 
-One honest limit: the reference CLI cannot select the second provider. It
-depends on the OpenAI crate alone and has no provider flag, because a
-`--provider` axis is real design work — an environment surface, key
-resolution, an argument-contract change — that DCR-0029 deliberately left
-out of its own scope. Reaching the Anthropic adapter today means calling
-the library and handing the pipeline your own `Translator`, exactly as
+The CLI now selects OpenAI (its default) or Google with `--provider`; Google
+selects Vertex AI by default and can use the Developer API explicitly. This
+provider axis was outside DCR-0029's scope and landed later in DCR-0058.
+Anthropic remains library-only: reaching it means calling the library and
+handing the pipeline your own `Translator`, exactly as
 [how to implement a custom Translator provider](../../../how-to/developer/en/implement-a-custom-translator.md)
 describes for a provider you write yourself.
 

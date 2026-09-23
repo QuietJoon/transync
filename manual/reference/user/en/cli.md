@@ -2,12 +2,12 @@
 type: Reference
 title: CLI reference
 description: Every flag, default, limit, exit code, environment variable, and stderr line for `transync translate` and `transync serve`.
-tags: [cli, reference, flags, exit-codes, serve, SCN-12, SCN-13, DCR-0026, DCR-0028]
+tags: [cli, reference, flags, exit-codes, serve, SCN-12, SCN-13, DCR-0026, DCR-0028, DCR-0058]
 audience: user
 language: en
 generated:
-  by: claude-code/claude-opus-5
-  at: "2026-08-10T08:40:09Z"
+  by: codex/gpt-6
+  at: "2026-09-23T05:11:59Z"
 sources:
   - { id: contracts, resource: docs/architecture/contracts.md }
   - { id: cli-main, resource: crates/transync-cli/src/main.rs }
@@ -39,8 +39,9 @@ sources:
   - { id: default-profile, resource: crates/transync-core/profiles/default.toml }
   - { id: openai-lib, resource: crates/transync-openai/src/lib.rs }
   - { id: openai-endpoint, resource: crates/transync-openai/src/client/endpoint.rs }
+  - { id: google-lib, resource: crates/transync-google/src/lib.rs }
   - { id: syntax-depth, resource: crates/transync-syntax/src/intake/markdown/depth.rs }
-synced_hash: 6d37d93a6707fba6675925d016493eb012fb486a98c51d292cd849561fdbef67
+synced_hash: b5573dc095604d5cf86306746209d8b8d0e51b3c5e822fbf2fa99a0393fd12fe
 ---
 
 # CLI reference
@@ -75,15 +76,20 @@ else: `serve` has no provider, no profile, and no verbosity flags.
 | `--profile <path>` | no | the embedded default profile | Custom Profile TOML. **Replaces** the embedded profile; it is not merged onto it. See [Profile TOML schema](./profile-toml-schema.md). |
 | `--system-prompt <text>` | mutually exclusive with `--system-prompt-file` | — | Replaces the active profile's `[system].prompt` body. Template variables are still substituted. |
 | `--system-prompt-file <path>` | mutually exclusive with `--system-prompt` | — | The same, read from a file (4 MiB cap). |
-| `--model <id>` | no | `$TRANSYNC_OPENAI_MODEL`, else `gpt-5-chat-latest` | Model ID passed to the provider. No parser default, because the environment variable resolves first. An explicitly blank value is exit `1`. |
-| `--base-url <url>` | no | `$TRANSYNC_OPENAI_BASE_URL`, else `https://api.openai.com` | Provider endpoint. No parser default, for the same reason. An unparsable URL is exit `1`. |
+| `--provider <openai\|google>` | no | `openai` | Choose the CLI adapter. The flag beats `TRANSYNC_PROVIDER`. Anthropic remains library-only. |
+| `--google-surface <vertex\|developer>` | no | `vertex` when Google is selected | Vertex uses a Google Cloud project and Application Default Credentials (ADC); Developer uses `GEMINI_API_KEY`. A key never selects the surface implicitly. |
+| `--google-project <id>` | Vertex only | `$GOOGLE_CLOUD_PROJECT` | Google Cloud project ID; required for a live Vertex run. |
+| `--google-location <global\|us\|eu>` | Vertex only | `$GOOGLE_CLOUD_LOCATION`, else `global` | Vertex processing location. |
+| `--google-thinking <low\|medium\|high>` | Google only | `$TRANSYNC_GOOGLE_THINKING`, else `low` | Thinking level; output tokens include thinking. |
+| `--model <id>` | no | selected provider's model environment variable; otherwise `gpt-5-chat-latest` (OpenAI) or `gemini-3.8-flash` (Google) | Model ID passed to the provider. An explicitly blank value is exit `1`. |
+| `--base-url <url>` | no | selected provider/surface URL environment variable, else its official endpoint | Provider endpoint. Google accepts an HTTPS origin or version-prefixed gateway URL (`/v1beta` for Developer, `/v1` for Vertex); HTTP is allowed for loopback tests only. Userinfo, query and fragment are refused. An unparsable or invalid URL is exit `1`. |
 | `--offline` | requires `--cache-dir` | off | Run with **no** provider credentials, serving every unit from the cache (DCR-0046). A miss stops the run at the miss with `no provider available for this run` and exit `6`. Refused at argument time without `--cache-dir` (exit `1`): a fresh in-memory cache misses its first lookup by construction, so the flag would have exactly one possible outcome. |
 | `--cache-dir <path>` | no | none — a fresh in-memory cache per run | Open (creating if absent) a disk-backed translation cache in this directory, logged to `transync-cache.jsonl`. A later run over the same document under the same profile, model and languages re-dispatches only what changed, and a fully-cache-hit `--source-language auto` run still reports the first run's detected language. One writer at a time. A directory that cannot be opened warns once and the run continues on a fresh in-memory cache. |
 | `--force` | no | off | Waive the foreign-file refusal when writing into an `--html-out` directory or replacing an `--out-dir` target that holds files transync did not write. Not needed to overwrite transync's own prior bundle or output set. |
-| `--target-output-tokens <n>` | no | `8000` (from the embedded default profile) | Per-batch output-token ceiling: sent to the provider as the response cap and used as the budget the batcher packs against. Overlays `[batching].target_output_tokens`. `0` disables the ceiling. See [Batching and concurrency](#batching-and-concurrency). |
+| `--target-output-tokens <n>` | no | `8000` for OpenAI; `65536` for Google without a custom profile | Per-batch output-token ceiling: sent to the provider as the response cap and used as the budget the batcher packs against. Overlays `[batching].target_output_tokens`. `0` disables the ceiling. See [Batching and concurrency](#batching-and-concurrency). |
 | `--output-expansion-factor <f>` | no | `2.0` | Assumed output-to-source token ratio used to size batches. Must be a finite number greater than zero; values below `1.0` are legal. |
-| `--target-input-tokens-per-batch <n>` | no | `6000` | Soft per-batch input-token budget; `n >= 1`. |
-| `--max-units-per-batch <n>` | no | `8` (from the embedded default profile) | Hard cap on units per batch; `n >= 1`. |
+| `--target-input-tokens-per-batch <n>` | no | `6000` for OpenAI; `20000` for Google without a custom profile | Soft per-batch input-token budget; `n >= 1`. |
+| `--max-units-per-batch <n>` | no | `8` for OpenAI; `32` for Google without a custom profile | Hard cap on units per batch; `n >= 1`. |
 | `--table-strategy <whole-block\|row-window-first>` | no | `row-window-first` (from the embedded default profile) | What happens to a table whose estimated response exceeds the output ceiling. `row-window-first` splits it into header-carrying row windows at packing time and reassembles one table afterwards; `whole-block` ships it whole. Overlays `[constraints].default_table_strategy`. Any other value is exit `1`. Inert when there is no ceiling. |
 | `--max-concurrent-batches <n>` | no | `6` | In-flight provider requests; `n >= 1`. The one batching knob with no profile home. |
 | `--auto-glossary` | mutually exclusive with `--no-auto-glossary` | off | Run the auto-extracted candidate-glossary preflight for this run — one extra provider call before batching. |
@@ -433,20 +439,36 @@ lines are prefixed `transync serve: ` — for example
 
 | Variable | Default | Effect |
 |---|---|---|
-| `OPENAI_API_KEY` | — | Required for the live provider. Read from the environment and never written anywhere. |
+| `TRANSYNC_PROVIDER` | `openai` | Selects `openai` or `google` when `--provider` is absent. |
+| `OPENAI_API_KEY` | — | Required for live OpenAI calls only. Read from the environment and never written anywhere. |
 | `TRANSYNC_OPENAI_MODEL` | `gpt-5-chat-latest` | Model ID when `--model` is absent. A blank or whitespace-only value is ignored and the default applies. |
 | `TRANSYNC_OPENAI_BASE_URL` | `https://api.openai.com` | Provider endpoint when `--base-url` is absent — an OpenAI-compatible proxy, gateway, or local server. An empty value is ignored. An unparsable one is exit `1`. |
 | `TRANSYNC_OPENAI_API` | model-driven | `chat` or `responses`; an explicit override of the endpoint-dispatch heuristic. Read once, at adapter construction. |
+| `TRANSYNC_GOOGLE_SURFACE` | `vertex` | Google surface when `--google-surface` is absent: `vertex` or `developer`. |
+| `TRANSYNC_GOOGLE_MODEL` | `gemini-3.8-flash` | Google model when `--model` is absent. |
+| `TRANSYNC_GOOGLE_THINKING` | `low` | Google thinking level when `--google-thinking` is absent. |
+| `GOOGLE_CLOUD_PROJECT` | — | Vertex project when `--google-project` is absent; required for a live Vertex run. |
+| `GOOGLE_CLOUD_LOCATION` | `global` | Vertex location when `--google-location` is absent: `global`, `us` or `eu`. |
+| `TRANSYNC_GOOGLE_VERTEX_BASE_URL` | official Vertex endpoint | Vertex URL when `--base-url` is absent. |
+| `TRANSYNC_GOOGLE_DEVELOPER_BASE_URL` | official Developer endpoint | Developer URL when `--base-url` is absent. |
+| `GEMINI_API_KEY` | — | Required for live Developer API calls; never selects Google or its surface on its own. |
 | `RUST_LOG` | unset | Layered **over** the flag-derived tracing floor rather than replacing it, so `RUST_LOG=transync::pipeline=trace` widens that one target and leaves everything else at its floor. Floors: `--quiet` is `off` and does not consult `RUST_LOG` at all; no flag is `warn`; `--verbose` is `debug`. An unparsable directive prints `transync: ignoring unparsable RUST_LOG directive {directive}: {e}` and is skipped; the rest of the variable still applies. |
 
 Library `tracing` records print as `LEVEL target: message` with no timestamp,
 on the same stderr as the command's own lines.
 
-A second provider crate, `transync-anthropic`, exists in the workspace and reads
-its own `ANTHROPIC_API_KEY`, `TRANSYNC_ANTHROPIC_MODEL` and
-`TRANSYNC_ANTHROPIC_BASE_URL` — but no CLI flag selects a provider and the
-binary depends only on the OpenAI adapter, so none of those three variables
-affects a `transync` invocation.
+`--provider google` uses Vertex by default so a Google Cloud project may use
+eligible trial credit. The published $300/90-day Cloud trial excludes Gemini
+Developer API / AI Studio charges; verify credit eligibility on your own
+project before a paid Vertex run. A Google run without a custom profile uses
+20,000 input tokens, a separate 65,536-token output ceiling, 32 units per
+batch and a 2.0 output expansion factor. See the
+[Developer Guide](../../../../docs/Developer_Guide.md#google-gemini-provider)
+for setup commands and dated pricing.
+
+`transync-anthropic` is a library-only adapter. Its `ANTHROPIC_API_KEY`,
+`TRANSYNC_ANTHROPIC_MODEL` and `TRANSYNC_ANTHROPIC_BASE_URL` do not affect a
+`transync` invocation.
 
 Four further variables exist only in a build carrying the `test-stub-provider`
 cargo feature and are absent from a release binary: `TRANSYNC_STUB_ECHO_PATH`,

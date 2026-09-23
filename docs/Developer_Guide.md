@@ -31,10 +31,11 @@ at it.
   `expected_blockquote_children`, `must_preserve_code_fence_info`,
   `must_preserve_heading_level`, …).
 - **Pluggable provider via the `Translator` trait.** HTTP-free,
-  async, object-safe. Default impl in `transync-openai` does
-  model-driven dispatch to the OpenAI Chat Completions and Responses
-  APIs with strict Structured Outputs; sibling crates can target
-  Anthropic, OpenRouter, local llama, or any LLM endpoint.
+  async, object-safe. `transync-openai` dispatches between the OpenAI Chat
+  Completions and Responses APIs; `transync-anthropic` uses Messages; and
+  `transync-google` uses the Gemini Developer or Vertex AI API. The CLI
+  selects OpenAI or Google explicitly; library consumers can construct any
+  adapter directly (DCR-0029 / DCR-0058).
 - **Layered validation.** Every batch result is checked at seven
   layers: schema, ID-set equality, per-kind shape (table column count,
   list topology, code-fence info, heading level, blockquote children),
@@ -187,7 +188,8 @@ transync/
 │   ├── transync-core/        pipeline on top (unit, batch, llm, validate, cache, profile, pipeline); no HTTP, no LLM dep
 │   ├── transync/             curated facade (semver firewall) — an EXPLICIT re-export list, not a glob; contracts.md §0 is its table of contents
 │   ├── transync-openai/      Translator impl; model-driven dispatch to Chat Completions + Responses
-│   ├── transync-anthropic/   Translator impl; Anthropic Messages API. In-tree but on NO run path — transync-cli depends only on transync + transync-openai (ADR-0002 / DCR-0029)
+│   ├── transync-anthropic/   Translator impl; Anthropic Messages API. Library-only (DCR-0029)
+│   ├── transync-google/      Translator impl; Gemini Developer API + Vertex AI, selectable by the CLI (DCR-0058)
 │   ├── transync-cli/         binary; embeds the demo shell + sync engine
 │   └── transync-wasm/        browser (wasm-bindgen) surface over transync-syntax; publish = false
 ├── web/                      vanilla-JS demo source-of-truth
@@ -219,7 +221,7 @@ cargo check -p transync-syntax -p transync-wasm \
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
   -p transync-lang -p transync-html -p transync-syntax -p transync-core \
   -p transync -p transync-openai -p transync-anthropic \
-  -p transync-wasm                          # rustdoc gate, library leg (8 crates)
+  -p transync-google -p transync-wasm       # rustdoc gate, library leg (9 crates)
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
   --document-private-items -p transync-cli  # rustdoc gate, bin-only leg
 ./scripts/build-wasm.sh                                # demo module + size budget
@@ -259,7 +261,7 @@ the value is already `scripts/hooks`, re-running is a one-line no-op.
 **The rustdoc gate** (DCR-0018, widened to `transync-openai` on
 2026-08-07) keeps `cargo doc` warning-free for **every workspace member
 that has a library target** — `transync-lang`, `transync-html`, `transync-syntax`,
-`transync-core`, `transync`, `transync-openai`, `transync-anthropic`, `transync-wasm`. Its usual
+`transync-core`, `transync`, `transync-openai`, `transync-anthropic`, `transync-google`, `transync-wasm`. Its usual
 failure is an intra-doc link from a public item to a private sibling:
 either widen the linked item or de-link the prose to plain backticks,
 whichever the curation calls for.
@@ -282,7 +284,7 @@ Two things run it, and neither owns the crate list. The list lives in
 `scripts/lib/rustdoc-gate.sh`, sourced by `scripts/smoke.sh` — which runs
 the gate after the test suites — and by `scripts/hooks/pre-commit`, which
 runs it on **every commit** (since 2026-08-07; a warm re-document of the
-eight crates costs about a second, next to the `--all-targets
+nine crates costs about a second, next to the `--all-targets
 --all-features` clippy run already there). Add a new library member to
 that one file and both callers pick it up. Keep the list total — a member
 left out is a member whose docs rot unobserved, which is exactly how
@@ -333,8 +335,8 @@ none of them is ever skipped. Any `wasm-opt` ≥ 121 on PATH works —
 the install channel is the host's business.
 
 The `test-stub-provider` Cargo feature on `transync-cli` swaps the
-live OpenAI client for an in-process `EchoTranslator` so smoke runs
-work without `OPENAI_API_KEY`.
+selected live provider for an in-process `EchoTranslator` so smoke runs
+work without a provider credential.
 
 **Repository integrity is not assumed here, it is checked.** This clone
 lost a git object once (2026-08-07, ticket `7a7feb`: the `docs/` subtree
@@ -473,10 +475,19 @@ transync translate
   [--profile <path>]             custom Profile TOML
   [--system-prompt <text>]       overrides profile [system].prompt
   [--system-prompt-file <path>]  same, read from a file
-  [--model <id>]                 default: $TRANSYNC_OPENAI_MODEL, else
-                                 gpt-5-chat-latest
-  [--base-url <url>]             default: $TRANSYNC_OPENAI_BASE_URL, else
-                                 https://api.openai.com
+  [--provider <openai|google>]   default: openai; explicit provider selector
+  [--google-surface <vertex|developer>]
+                                 Google only; default vertex
+  [--google-project <id>]        Vertex project; else $GOOGLE_CLOUD_PROJECT
+  [--google-location <global|us|eu>]
+                                 Vertex location; default global
+  [--google-thinking <low|medium|high>]
+                                 Google thinking level; default low
+  [--model <id>]                 default: selected provider's model env,
+                                 else gpt-5-chat-latest (OpenAI) or
+                                 gemini-3.8-flash (Google)
+  [--base-url <url>]             default: selected provider/surface URL env,
+                                 else that surface's official endpoint
   [--cache-dir <path>]           disk-backed translation cache in this
                                  directory (created if absent); absent, the
                                  run uses a fresh in-memory cache. One
@@ -722,10 +733,20 @@ Library callers get the finer split without exit codes at all, from
 
 | Variable                    | Default                       | Effect |
 |-----------------------------|-------------------------------|--------|
-| `OPENAI_API_KEY`            | —                             | Required for the live provider. |
+| `TRANSYNC_PROVIDER`         | `openai`                      | CLI provider when `--provider` is absent; `openai` or `google`. |
+| `OPENAI_API_KEY`            | —                             | Required for live OpenAI calls only. |
 | `TRANSYNC_OPENAI_MODEL`     | `gpt-5-chat-latest`           | Override default model. |
 | `TRANSYNC_OPENAI_BASE_URL`  | `https://api.openai.com`      | Point at OpenRouter, Azure, or a local proxy. |
 | `TRANSYNC_OPENAI_API`       | model-driven (see below)      | `chat` or `responses` — explicit override for the dispatch heuristic. Read once, when the adapter is constructed. |
+| `TRANSYNC_GOOGLE_SURFACE`   | `vertex`                      | Google surface when `--google-surface` is absent: `vertex` or `developer`. |
+| `TRANSYNC_GOOGLE_MODEL`     | `gemini-3.8-flash`            | Google model when `--model` is absent. |
+| `TRANSYNC_GOOGLE_THINKING`  | `low`                         | Google thinking level when `--google-thinking` is absent. |
+| `GOOGLE_CLOUD_PROJECT`      | —                             | Vertex project when `--google-project` is absent; required for Vertex. |
+| `GOOGLE_CLOUD_QUOTA_PROJECT` | selected Vertex project       | Optional ADC quota/billing project override; check its credit eligibility. |
+| `GOOGLE_CLOUD_LOCATION`     | `global`                      | Vertex location when `--google-location` is absent; `global`, `us` or `eu`. |
+| `TRANSYNC_GOOGLE_VERTEX_BASE_URL` | official Vertex endpoint | Vertex base URL when `--base-url` is absent. |
+| `TRANSYNC_GOOGLE_DEVELOPER_BASE_URL` | official Developer endpoint | Developer base URL when `--base-url` is absent. |
+| `GEMINI_API_KEY`            | —                             | Required for live Developer API calls only; never selects the provider or surface. |
 
 Keys are read from the environment and never written anywhere
 (`persistence-and-files.md`). If you keep yours in a file, the repo's
@@ -733,6 +754,72 @@ Keys are read from the environment and never written anywhere
 family, `.envrc`, `.direnv/`, `*.api_key` — so a local key file cannot be
 staged by accident. Only `.env.example` / `.env.sample` / `.env.*.example`
 are un-ignored; extend that allow-list rather than narrowing `.env.*`.
+
+### Google Gemini provider
+
+`--provider google` runs `gemini-3.8-flash` on **Vertex AI** by default. Set up
+a project with billing and the Vertex AI API enabled, then configure
+[Application Default Credentials](https://docs.cloud.google.com/docs/authentication/provide-credentials-adc).
+For local development, `gcloud auth application-default login` is one way to
+provide ADC. The project identifier is required; the location defaults to
+`global` and may be `us` or `eu`.
+Vertex sends the ADC authentication headers, including `x-goog-user-project`.
+The quota project defaults to the selected Vertex project; an explicit
+`GOOGLE_CLOUD_QUOTA_PROJECT` overrides it. The ADC principal needs
+`serviceusage.services.use` on that quota project.
+
+```bash
+gcloud auth application-default login
+export GOOGLE_CLOUD_PROJECT=your-project-id
+cargo run -p transync-cli -- translate \
+  --provider google \
+  --input samples/demo-complex.md --target-language ko --out-dir /tmp/transync-gemini
+```
+
+Pass `--google-surface developer` to use the Gemini Developer API with
+`GEMINI_API_KEY` instead. It does not read ADC or the Vertex project and
+location. The key's presence never selects the surface by itself.
+
+```bash
+export GEMINI_API_KEY=your-api-key
+cargo run -p transync-cli -- translate \
+  --provider google --google-surface developer \
+  --input samples/demo-complex.md --target-language ko --out-dir /tmp/transync-gemini
+```
+
+For either surface, `--model` overrides `TRANSYNC_GOOGLE_MODEL`, and
+`--base-url` overrides the selected surface's base-URL environment variable;
+it may be an HTTPS origin or an endpoint prefix ending in `/v1beta` for the
+Developer API or `/v1` for Vertex. HTTP is accepted only for loopback test
+servers; remote endpoints require HTTPS. The URL cannot contain userinfo,
+query or fragment components.
+`--google-thinking` overrides `TRANSYNC_GOOGLE_THINKING`; the default `low`
+spends fewer thinking tokens than the model's own `medium` default. The
+effective Google CLI batch defaults are 20,000 input tokens, a separate
+65,536-token output ceiling including thinking, 32 units per batch and a 2.0
+output expansion factor.
+An explicit profile or batching flag overrides each corresponding default.
+`--offline --cache-dir` uses the same selected surface, project, location,
+model, endpoint and thinking level without reading a key or ADC; a cache miss
+still exits 6.
+
+**Credit and price snapshot (2026-09-23):** Google's
+[Free Trial terms](https://docs.cloud.google.com/free/docs/free-cloud-features)
+offer $300 over 90 days for eligible Cloud services but exclude Gemini API /
+AI Studio charges. Vertex AI is the intended path for eligible Cloud credit;
+that follows from the published exclusion, not from any inspection of your
+account. Verify billing and trial-credit eligibility on your project before
+running a paid translation. Selecting the Developer surface changes the
+billing path. The
+[Cloud pricing table](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing)
+lists introductory Gemini 3.8 Flash global Standard prices through
+2026-12-31 of $0.75 per million input tokens and $3.75 per million output
+tokens (including thinking); `us`/`eu` are $0.825 and $4.125. The
+[Developer API pricing table](https://ai.google.dev/gemini-api/docs/pricing)
+lists its own paid Standard rate of $0.75 and $3.75 through that date.
+Check the current prices and your project's credit balance before a paid
+run. `gemini-3.8-live-extended-thinking` is a separate Live API model without
+structured outputs; use `gemini-3.8-flash` for this translation adapter.
 
 ### Batching + concurrency knobs
 
@@ -742,7 +829,7 @@ fast a long document gets translated:
 | Field                            | Default | What it does |
 |----------------------------------|---------|--------------|
 | `target_input_tokens_per_batch`  | 6000    | Soft cap on per-batch input tokens. The packer adds units to a batch until the next one would tip the running total over this number, then starts a new batch. Counted with the model's tiktoken encoding (`o200k_base` for gpt-4o / gpt-5 / o-series, `cl100k_base` otherwise). |
-| `max_units_per_batch`            | 32      | Hard cap on units per batch even if they're tiny. Keeps retry granularity reasonable on documents with many short blocks. **The number that governs a default run is 8, not 32** — see below. |
+| `max_units_per_batch`            | 32      | Hard cap on units per batch even if they're tiny. Keeps retry granularity reasonable on documents with many short blocks. The shipped profile makes an OpenAI CLI run use 8; Google CLI runs use 32 — see below. |
 | `max_concurrent_batches`         | 6       | How many batches the pipeline dispatches in parallel. Set to 1 for fully-sequential dispatch. |
 
 The `Default` column is `TranslateOptions::default()`, and for the first
@@ -755,11 +842,13 @@ profile wins in both cases (`unit::budget::caller_wins`, contracts.md
 §2). The shipped default profile
 (`crates/transync-core/profiles/default.toml`) sets
 `[batching].max_units_per_batch = 8` and leaves
-`target_input_tokens_per_batch` unset. So on a bare `transync translate`
+`target_input_tokens_per_batch` unset. So on a bare OpenAI `transync translate`
 — and on any library run that leaves `TranslateOptions::profile` at
 `None` — the packer runs at **6000 input tokens and 8 units**. To get 32
 back from the library, ask for it in the profile you pass, or set some
-*other* value on `TranslateOptions`. The CLI flags have no such blind
+*other* value on `TranslateOptions`. The Google CLI applies its provider
+defaults (20,000 input / 65,536 output / 32 units) before explicit overrides.
+The CLI flags have no such blind
 spot: `--max-units-per-batch` and `--target-input-tokens-per-batch`
 overlay the resolved profile rather than `TranslateOptions`, precisely so
 that an explicit `32` on the command line still beats a profile
@@ -883,17 +972,19 @@ implements `FromStr` over the same tokens the environment variable accepts —
 | `./scripts/build-wasm.sh`     | Builds the Track C demo module into `web/wasm/` (gitignored) and enforces its size budget (raw ≤ 1,840,000 B, gzip ≤ 760,000 B — the script's own comment carries the derivation). Publication is **staged**: the build, the `wasm-opt` pass and both budget checks all run in a per-run staging directory, and `web/wasm` is replaced as a whole by rename, so a build that fails a gate leaves the previous module in place and two concurrent builds do not collide. Same wasm-pack + binaryen prerequisites; wasm-pack's cached binaryen 117 is **not** a substitute. |
 | `./scripts/test-browser.sh`   | Headless Playwright suite: SCN-13 dual-pane sync (`web/tests/scn13.spec.js`), the SCN-16 HTML-run bundle driven through the shipped shell (`web/tests/scn16.spec.js`), `sync.js`'s mount contract driven directly over a bare two-pane rig (`web/tests/engine.spec.js`), and the wasm render+edit demo (`web/tests/wasm.spec.js`), plus headless Chromium as an *independent* oracle for `transync-html`'s walk and balancer over generated fragments (`web/tests/html-oracle.spec.js`, ti `ec235f`). The runner is the authority on coverage — `playwright.config.js` sets `testDir: "./tests"` and the script ends in a bare `pnpm exec playwright test`, so it runs every spec under `web/tests/`. Regenerates the CLI fixture and runs `build-wasm.sh`, so it inherits the same prerequisites plus Chromium. **A bare `pnpm exec playwright test` now refuses a bundle older than its inputs** (ti `ed2e73`): the script ends in that bare command, so running it directly skips the regeneration and would green a bundle that predates your edits. `playwright.config.js` compares the fixture's newest file against `crates/`, `web/js`, `web/vendor`, `web/wasm` and the two shell HTML files — deliberately **not** `web/tests`, so the documented spec-editing inner loop stays green. `TRANSYNC_ALLOW_STALE_FIXTURE=1` downgrades it to a warning. Two limits stated at the check: the input list is hand-maintained and will drift when a build leg is added, and mtime cannot see a `git checkout` that leaves sources older than the fixture. |
 | `./scripts/smoke-live.sh`     | Live OpenAI run, then `transync serve` for browsing the demo. Knobs documented at the top of the file. |
-| `./scripts/smoke-live-gate.sh`| **Machine-asserted** live round-trip against every provider surface (`chat` \| `responses` \| `anthropic` \| `all`, default `all`; ~3 tiny cheap-model calls). Wraps the double-gated tests in `crates/transync-openai/tests/live_smoke.rs` and `crates/transync-anthropic/tests/live_smoke.rs` — all are `#[ignore]`d *and* require `TRANSYNC_LIVE_SMOKE=1` plus the leg's own key, so they can never run by accident. Each leg demands its key **up front**, so `all` without one of them is refused rather than half-run. Model/endpoint overrides: `TRANSYNC_LIVE_SMOKE_CHAT_MODEL`, `TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL`, `TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL`, `TRANSYNC_OPENAI_BASE_URL`, `TRANSYNC_ANTHROPIC_BASE_URL`. |
+| `./scripts/smoke-live-gate.sh`| **Machine-asserted** live round-trip against each provider surface (`chat` \| `responses` \| `anthropic` \| `google-vertex` \| `google-developer` \| `all`, default `all`; five tiny paid calls). Wraps the ignored, `TRANSYNC_LIVE_SMOKE=1`-gated tests in each provider crate's `tests/live_smoke.rs`. Each requested leg checks its key or project up front; Vertex also needs ADC. Missing credentials refuse the run rather than silently skipping a leg. Model overrides: `TRANSYNC_LIVE_SMOKE_CHAT_MODEL`, `TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL`, `TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL`, `TRANSYNC_LIVE_SMOKE_GOOGLE_MODEL`. The OpenAI and Anthropic live tests also accept their provider base-URL variables; Google's tests use official endpoints. |
 | `./scripts/test.sh`           | Local one-shot wrapper for `smoke-live.sh` with a project-default system prompt. Edit to taste. |
 
-**Release gate (OI-0030 / DCR-0015; second provider added by DCR-0029).**
+**Release gate (OI-0030 / DCR-0015; additional providers in DCR-0029 and
+DCR-0058).**
 Before tagging a release that touches `transync-openai`,
-`transync-anthropic`, `llm::prompt`, the output schema, or batching, run
+`transync-anthropic`, `transync-google`, `llm::prompt`, the output schema, or batching, run
 `./scripts/smoke-live-gate.sh` and record the date and the models used in the
 CHANGELOG entry for that release. There is no `ANTHROPIC_API_KEY` in the
 development environment yet, so the `anthropic` leg has never been executed —
-run it as `./scripts/smoke-live-gate.sh anthropic` once a key exists, and
-until then read that crate's evidence off its offline end-to-end test, which
+run it as `./scripts/smoke-live-gate.sh anthropic` once a key exists. Run the
+two Google legs separately when their project/ADC or API key is configured;
+until then read those crates' evidence off their offline tests, which
 drives the whole stack over a loopback socket. The assertions are structural (validation
 summary, anchor counts, at least one genuinely translated unit), so a failure
 means real drift — transport, auth, schema, or model behavior — not model

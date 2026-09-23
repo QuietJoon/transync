@@ -2,15 +2,15 @@
 type: How-To Guide
 title: 사용자 지정 Translator 공급자를 구현하는 방법
 description: transync의 `Translator` 트레이트를 구현하는 자매 크레이트를 HEAD(취소 파라미터 포함)에 맞춰 작성하고, 실패를 오류 분류에 매핑하여 파이프라인에 전달합니다.
-tags: [providers, llm, extensibility, caching, cancellation, ADR-0002, ADR-0009, DCR-0024, DCR-0029]
+tags: [providers, llm, extensibility, caching, cancellation, ADR-0002, ADR-0009, DCR-0024, DCR-0029, DCR-0058]
 audience: developer
 language: ko
 sources:
   - { id: en-source, resource: manual/how-to/developer/en/implement-a-custom-translator.md }
 generated:
-  by: gemini/gemini-3.6-flash
-  at: 2026-08-12T11:12:01Z
-synced_hash: 8487153d8b0215c3ebcec5c7a913d496cc4f724fa9412cf48c7b774ca1b5c24c
+  by: codex/gpt-6
+  at: 2026-09-23T06:20:28Z
+synced_hash: f4897aba15934bc8b3f2466c0c13482f5c7a60b631e7f03663340ca22e58d46a
 ---
 # 사용자 지정 Translator 공급자를 구현하는 방법
 
@@ -20,14 +20,15 @@ transync가 아직 통신하지 않는 LLM 엔드포인트(게이트웨이, 로�
 
 ## 먼저 참조 구현 읽어보기
 
-이 워크스페이스의 두 공급자 크레이트가 해당 트레이트를 구현하며, 의도적으로 형태가 다릅니다:
+이 워크스페이스의 세 공급자 크레이트가 해당 트레이트를 구현합니다. 요청 형태가 서로 달라 참조 구현으로 유용합니다:
 
 - `crates/transync-openai` — 기본 어댑터, 두 개의 HTTP 표면(Chat Completions 및 Responses)과 이들 간의 모델 이름 디스패치.
 - `crates/transync-anthropic` — 두 번째 어댑터 (DCR-0029), 하나의 HTTP 표면, **필수** 출력 상한, 그리고 공유 Structured Output 스키마를 더 좁은 방언으로 렌더링하는 스키마 프로필 패스.
+- `crates/transync-google` — Gemini Developer/Vertex 어댑터(DCR-0058). 표면과 자격 증명을 명시적으로 선택하고 구조화된 JSON 출력을 사용합니다.
 
-그들은 코드를 공유하지 않으며 — 트레이트와 규율만 공유합니다 — 그렇기 때문에 둘 다 읽어볼 가치가 있습니다: 한 쪽에만 나타나고 다른 쪽에 없는 것은 공급자 고유의 것이고, 둘 다에 나타나는 것이 계약입니다.
+OpenAI와 Anthropic 구현을 비교하면 제공자 고유의 처리와 공유 트레이트 계약을 구별할 수 있습니다. Google 구현은 하나의 어댑터가 서로 다른 두 인증 표면을 처리하는 방법을 보여줍니다.
 
-**두 번째 어댑터도, 당신이 만든 어댑터도 CLI에서 도달할 수 없습니다.** `transync-cli`는 `transync-anthropic`에 대한 의존성이 없으며, `translate_cmd/provider.rs`는 정확히 두 가지 빌드 구성을 가집니다: 라이브 `TransyncOpenAI::from_env()` 경로와 `test-stub-provider` 기능 뒤의 인프로세스 스텁. 공급자 플래그도, 플러그인 조회도 없습니다. 사용자 지정 `Translator`는 이를 생성하고 `transync::translate`를 직접 호출하는 호스트 프로그램에 의해 소비됩니다 — 이는 `transync-anthropic`이 가진 상태와 동일합니다.
+**CLI는 `--provider`로 OpenAI 또는 Google을 선택하며, Anthropic과 사용자 지정 어댑터는 라이브러리 전용입니다.** `translate_cmd/provider.rs`는 선택된 라이브 어댑터, `--offline`일 때 자격 증명이 필요 없는 형태, 또는 `test-stub-provider` 기능 뒤의 인프로세스 스텁을 생성합니다. 임의의 `Translator` 구현을 찾는 플러그인 기능은 없습니다. 사용자 지정 어댑터는 `transync-anthropic`처럼 호스트 프로그램이 직접 생성하고 `transync::translate`에 전달합니다.
 
 ## 전제 조건
 

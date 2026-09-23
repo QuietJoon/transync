@@ -35,7 +35,8 @@ The application — not the LLM — owns block IDs, table shape, list topology, 
 | Facade crate             | `crates/transync`                 | Semver firewall: an **explicitly curated** re-export list over `transync-core`, enumerated in `contracts.md` §0 and pinned by `tests/public_surface.rs`. Engine internals are deliberately not reachable through it (DCR-0005 / DCR-0017 / DCR-0018) |
 | OpenAI Translator impl   | `crates/transync-openai`          | Default `Translator` impl: model-driven Chat/Responses dispatch + Structured Outputs |
 | Anthropic Translator impl | `crates/transync-anthropic`      | Second in-tree `Translator` impl: the Anthropic Messages API — one endpoint, so no `Api` axis — with structured outputs via `output_config.format` (DCR-0029, contracts.md §8). The facade re-exports neither provider; a consumer names a provider crate directly (ADR-0002) |
-| CLI                      | `crates/transync-cli`             | `transync translate` + `transync serve` |
+| Google Translator impl   | `crates/transync-google`         | Gemini Developer API and Vertex AI through one `Translator` impl; the CLI selects either surface explicitly (DCR-0058, contracts.md §9) |
+| CLI                      | `crates/transync-cli`             | `transync translate` with OpenAI or Google + `transync serve`; Anthropic remains library-only |
 | JS sync engine           | `web/js/sync.js`                  | Scroll-listener + reference-line active-block sync by block ID; smooth-lerp partner follow with a programmatic-scroll lock |
 
 ## Pipeline state machine

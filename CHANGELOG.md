@@ -57,6 +57,17 @@ explain.
   directly. It is listed here rather than under "Changed" because that is the
   same audience and the same unopened window.
 
+### Added
+
+- **`transync-google` adds Gemini 3.8 Flash translation** through the Gemini
+  Developer API and Google Cloud Vertex AI (DCR-0058). The CLI accepts
+  `--provider google` (Vertex by default), explicit surface/project/location/
+  thinking flags, and a larger Google batch profile. Both surfaces share the
+  core prompt and validation path; ignored live smoke gates are separate.
+  Google's model card lists 1,048,576 input and 65,536 output tokens. The
+  $300 Cloud Welcome credit excludes Developer API / AI Studio charges, so
+  Cloud-credit use requires the Vertex surface and account billing checks.
+
 ### Changed
 
 - **Glossary and section keys use Unicode full case folding** instead of

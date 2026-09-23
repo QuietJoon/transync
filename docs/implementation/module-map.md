@@ -146,7 +146,7 @@ crates/transync-openai/                 # default Translator impl
 
 crates/transync-anthropic/              # second Translator impl — in tree, on NO run path:
 │                                       #   transync-cli depends only on transync +
-│                                       #   transync-openai (ADR-0002 / DCR-0029)
+│                                       #   transync-openai + transync-google (DCR-0029 / DCR-0058)
 ├── Cargo.toml
 └── src/
     ├── lib.rs                          # public surface (TransyncAnthropic); reads
@@ -160,6 +160,11 @@ crates/transync-anthropic/              # second Translator impl — in tree, on
     │   ├── classify.rs                 # HTTP status / reqwest → ProviderError; Retry-After
     │   └── endpoint.rs                 # base-URL normalization
     └── error.rs                        # ProviderError → TranslatorError mapping
+
+crates/transync-google/                 # Gemini Translator impl — Vertex AI + Developer API
+├── Cargo.toml                           # third provider, reached by transync-cli
+├── src/lib.rs                           # public configuration + Translator implementation
+└── tests/                               # offline request/response and gated live smoke
 
 crates/transync-cli/                    # binary; no profiles/ dir — the default profile
 │                                       #   is transync-core's, reached via default_profile()
@@ -178,7 +183,7 @@ crates/transync-cli/                    # binary; no profiles/ dir — the defau
     ├── translate_cmd/
     │   ├── args.rs                     # flag validation/resolution + OutputTarget
     │   ├── input.rs                    # capped reads + profile resolution
-    │   ├── provider.rs                 # translator selection (incl. the cfg-gated stub)
+    │   ├── provider.rs                 # OpenAI/Google selection (incl. cfg-gated stub)
     │   ├── publish.rs                  # ONE output-set builder + commit
     │   └── report.rs                   # quiet gate, diagnostics, verbose tally
     ├── serve_cmd.rs                    # `transync serve` — args, bind, accept loop,

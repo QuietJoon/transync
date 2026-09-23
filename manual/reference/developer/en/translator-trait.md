@@ -2,12 +2,12 @@
 type: Reference
 title: The `Translator` trait
 description: Method signatures, the complete `TranslatorError` variant set with its stable codes, and the behavior contract every implementation must satisfy.
-tags: [providers, llm, reference, cancellation, DCR-0024, DCR-0029]
+tags: [providers, llm, reference, cancellation, DCR-0024, DCR-0029, DCR-0058]
 audience: developer
 language: en
 generated:
-  by: claude-code/claude-opus-5
-  at: "2026-08-10T08:40:09Z"
+  by: codex/gpt-6
+  at: "2026-09-23T06:07:06Z"
 sources:
   - { id: core-llm, resource: crates/transync-core/src/llm.rs }
   - { id: core-error, resource: crates/transync-core/src/error.rs }
@@ -20,10 +20,12 @@ sources:
   - { id: anthropic-lib, resource: crates/transync-anthropic/src/lib.rs }
   - { id: anthropic-messages, resource: crates/transync-anthropic/src/client/messages.rs }
   - { id: anthropic-classify, resource: crates/transync-anthropic/src/client/classify.rs }
+  - { id: google-lib, resource: crates/transync-google/src/lib.rs }
+  - { id: google-decision, resource: docs/project/design-change-records/DCR-0058-transync-google-gemini-provider.md }
   - { id: workspace-manifest, resource: Cargo.toml }
   - { id: taxonomy-tests, resource: crates/transync/tests/error_taxonomy.rs }
   - { id: contracts, resource: docs/architecture/contracts.md }
-synced_hash: 20fb31f5f9b7a54be78be13756ec373e8c27b7d3520110ad1deb01d325fbe77d
+synced_hash: cb89bbd2f2669c19ad05666c8c2f17806068f13c3aaa074240d1f2d1767656b9
 ---
 
 # The `Translator` trait
@@ -35,9 +37,10 @@ re-exported through the facade. It has been the provider boundary since
 `translate` / `translate_with_cache` take `T: Translator + ?Sized`, so a
 `&dyn Translator` and a concrete type are both accepted.
 
-Two implementations ship in this workspace: `transync-openai`
-(`TransyncOpenAI`) and `transync-anthropic` (`TransyncAnthropic`). Both are
-libraries; only the first is reachable from the bundled CLI.
+Three implementations ship in this workspace: `transync-openai`
+(`TransyncOpenAI`), `transync-anthropic` (`TransyncAnthropic`), and
+`transync-google` (`TransyncGoogle`). All are libraries; the bundled CLI
+selects OpenAI or Google, while Anthropic remains library-only.
 
 ## Methods
 
@@ -203,13 +206,13 @@ they name **opposite knobs**. They are separate variants for exactly that
 reason. Not every provider raises `ContextWindowExceeded` as its own
 signal — one that answers an over-long request with an HTTP 400 keeps the
 status-based `ProviderRejected` classification, which is honest there. Of
-the two bundled adapters, only `transync-anthropic` produces it, off the
-provider's `model_context_window_exceeded` stop reason;
-`transync-openai` has no signal that maps to it.
+the three bundled adapters, only `transync-anthropic` produces it, off the
+provider's `model_context_window_exceeded` stop reason; the OpenAI and
+Google adapters have no signal that maps to it.
 
 `RateLimited.retry_after` is `Option` because a hint is optional: `None`
 means the provider offered none the implementation could use, and the
-pipeline then falls back to its own exponential schedule. Both bundled
+pipeline then falls back to its own exponential schedule. All three bundled
 adapters parse the header the same way — delta-seconds, plus all three
 RFC 7231 date forms — and resolve a deadline already at or behind the
 system clock to `None` rather than to a zero delay, so a skewed clock

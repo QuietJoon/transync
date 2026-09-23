@@ -37,6 +37,15 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_transync")
 }
 
+#[cfg(feature = "test-stub-provider")]
+fn translate_command() -> Command {
+    let mut command = Command::new(bin());
+    // These legacy scenarios exercise the OpenAI-default CLI path. Keep a
+    // developer's Google provider preference from changing their fixtures.
+    command.env_remove("TRANSYNC_PROVIDER");
+    command
+}
+
 /// A minimal HTML *document* — the input shape ti `13e145` refuses. The blank
 /// lines are what makes it more than a single raw-HTML block: each run that
 /// does not open with a tag re-enters as Markdown. The indented run is the
@@ -55,7 +64,7 @@ fn cli_translate_smoke() {
     let out_json = workdir.join("out.json");
     let html_out = workdir.join("html");
 
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -162,7 +171,7 @@ fn cli_translate_smoke() {
 #[cfg(feature = "test-stub-provider")]
 #[test]
 fn cli_exit_1_argument_error() {
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--target-language")
         .arg("ko")
@@ -196,7 +205,7 @@ fn cli_offline_without_cache_dir_is_an_argument_error() {
     // output-target requirement is checked first, and the first draft of this
     // test tripped on that instead — which is the test discriminating, and the
     // reason it asserts the MESSAGE rather than only the code.
-    let out = Command::new(bin())
+    let out = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -227,7 +236,7 @@ fn cli_offline_without_cache_dir_is_an_argument_error() {
 #[test]
 fn cli_exit_2_input_read_failure() {
     let workdir = ScratchDir::new("transync-cli-exit2");
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(workdir.join("does-not-exist.md"))
@@ -257,7 +266,7 @@ fn cli_exit_2_input_read_failure() {
 #[test]
 fn cli_exit_3_all_units_fell_back() {
     let workdir = ScratchDir::new("transync-cli-exit3");
-    let status = Command::new(bin())
+    let status = translate_command()
         .env("TRANSYNC_STUB_MODE", "fail")
         .arg("translate")
         .arg("--input")
@@ -290,7 +299,7 @@ fn cli_exit_4_write_failure() {
     std::fs::write(&blocker, b"not a directory").unwrap();
     let bad_output = blocker.join("subdir").join("out.md");
 
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -326,7 +335,7 @@ fn cli_exit_4_write_failure() {
 #[cfg(feature = "test-stub-provider")]
 fn run_with_stub_mode(mode: &str) -> (Option<i32>, ScratchDir) {
     let workdir = ScratchDir::new(&format!("transync-cli-mode-{mode}"));
-    let status = Command::new(bin())
+    let status = translate_command()
         .env("TRANSYNC_STUB_MODE", mode)
         .arg("translate")
         .arg("--input")
@@ -453,7 +462,7 @@ fn cli_validation_report_output() {
     let out_json = workdir.join("out.json");
     let report = workdir.join("validation.json");
 
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -516,7 +525,7 @@ fn cli_max_input_bytes_rejects_oversized_input() {
     let out_json = workdir.join("out.json");
 
     // The SCN-14 fixture is comfortably larger than 32 bytes.
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -565,7 +574,7 @@ fn cli_html_document_input_is_refused() {
     let out_md = workdir.join("out.md");
     let out_json = workdir.join("out.json");
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -615,7 +624,7 @@ fn cli_allow_html_input_forces_the_previous_behavior() {
     let out_md = workdir.join("out.md");
     let out_json = workdir.join("out.json");
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -671,7 +680,7 @@ fn cli_html_input_re_emits_an_indented_run_as_a_fenced_block() {
     let out_md = workdir.join("out.md");
     let out_json = workdir.join("out.json");
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -746,7 +755,7 @@ fn cli_markdown_opening_with_an_html_island_is_not_refused() {
     let out_md = workdir.join("out.md");
     let out_json = workdir.join("out.json");
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -777,7 +786,7 @@ fn cli_out_dir_fresh_publish() {
     let workdir = ScratchDir::new("transync-cli-outdir-fresh");
     let out_dir = workdir.join("published");
 
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -818,7 +827,7 @@ fn cli_out_dir_republish_over_existing() {
     let out_dir = workdir.join("published");
 
     let run = || {
-        Command::new(bin())
+        translate_command()
             .arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -859,7 +868,7 @@ fn cli_out_dir_tolerates_a_top_level_staging_temp() {
     let out_dir = workdir.join("published");
 
     let run = || {
-        Command::new(bin())
+        translate_command()
             .arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -898,7 +907,7 @@ fn cli_out_dir_tolerates_a_top_level_staging_temp() {
 #[test]
 fn cli_out_dir_conflicts_with_output() {
     let workdir = ScratchDir::new("transync-cli-outdir-conflict");
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -929,7 +938,7 @@ fn cli_out_dir_refuses_foreign_file_nested_in_html() {
     let out_dir = workdir.join("published");
 
     let run = |force: bool| {
-        let mut cmd = Command::new(bin());
+        let mut cmd = translate_command();
         cmd.arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -992,7 +1001,7 @@ fn cli_html_out_force_overwrites_foreign_file() {
     std::fs::write(&foreign, b"keepme").unwrap();
 
     let run = |force: bool| {
-        let mut cmd = Command::new(bin());
+        let mut cmd = translate_command();
         cmd.arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -1071,7 +1080,7 @@ fn cli_model_and_base_url_reach_provider() {
     let workdir = ScratchDir::new("transync-cli-provider-wiring");
     let echo = workdir.join("provider.json");
 
-    let status = Command::new(bin())
+    let status = translate_command()
         .env("TRANSYNC_STUB_ECHO_PATH", &echo)
         .arg("translate")
         .arg("--input")
@@ -1122,7 +1131,7 @@ fn cli_concurrent_processes_publish_one_run_not_a_mixture() {
     let mut running = Vec::new();
     for language in ["ko", "de"] {
         running.push(
-            Command::new(bin())
+            translate_command()
                 .arg("translate")
                 .arg("--input")
                 .arg(fixture_path())
@@ -1226,7 +1235,7 @@ fn cli_output_budget_warning_flags_block() {
     let out_json = workdir.join("out.json");
     let report = workdir.join("r.json");
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -1297,7 +1306,7 @@ fn cli_target_output_tokens_zero_disables_warnings() {
     let out_json = workdir.join("out.json");
     let report = workdir.join("r.json");
 
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -1360,7 +1369,7 @@ fn bundle_index_html_for(
 ) -> String {
     let workdir = ScratchDir::new(prefix);
     let html_out = workdir.join("html");
-    let mut cmd = Command::new(bin());
+    let mut cmd = translate_command();
     cmd.arg("translate")
         .arg("--input")
         .arg(input)
@@ -1491,7 +1500,7 @@ fn cli_bundle_title_escapes_an_untrusted_heading() {
 #[test]
 fn cli_blank_title_is_an_argument_error() {
     let workdir = ScratchDir::new("transync-cli-title-blank");
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(workdir.join("never-read.md"))
@@ -1657,7 +1666,7 @@ fn cli_strict_csp_reaches_the_out_dir_bundle() {
     let workdir = ScratchDir::new("transync-cli-csp-outdir");
     let out_dir = workdir.join("published");
 
-    let status = Command::new(bin())
+    let status = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -1685,7 +1694,7 @@ fn cli_strict_csp_reaches_the_out_dir_bundle() {
 #[test]
 fn cli_strict_csp_without_a_bundle_says_it_did_nothing() {
     let workdir = ScratchDir::new("transync-cli-csp-no-bundle");
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -1727,7 +1736,7 @@ fn profile_with_unknown_key(workdir: &std::path::Path) -> std::path::PathBuf {
 #[cfg(feature = "test-stub-provider")]
 fn run_capturing(prefix: &str, extra: &[&std::ffi::OsStr]) -> std::process::Output {
     let workdir = ScratchDir::new(prefix);
-    let mut cmd = Command::new(bin());
+    let mut cmd = translate_command();
     cmd.env_remove("RUST_LOG")
         .arg("translate")
         .arg("--input")
@@ -1854,7 +1863,7 @@ fn cli_verbose_surfaces_info_records() {
 #[test]
 fn cli_rust_log_widens_one_target_without_lowering_the_floor() {
     let workdir = ScratchDir::new("transync-cli-rustlog");
-    let output = Command::new(bin())
+    let output = translate_command()
         .env("RUST_LOG", "transync::pipeline=info")
         .arg("translate")
         .arg("--input")
@@ -1891,7 +1900,7 @@ fn cli_rust_log_widens_one_target_without_lowering_the_floor() {
 #[test]
 fn cli_output_budget_warnings_are_not_printed_twice() {
     let workdir = ScratchDir::new("transync-cli-budget-dedup");
-    let output = Command::new(bin())
+    let output = translate_command()
         .env_remove("RUST_LOG")
         .arg("translate")
         .arg("--input")
@@ -1964,7 +1973,7 @@ fn cli_system_prompt_override_is_diagnosed() {
         let dir = workdir.join(format!("run{i}"));
         std::fs::create_dir_all(&dir).expect("run dir creatable");
 
-        let output = Command::new(bin())
+        let output = translate_command()
             // The subscriber's level is flag-derived; a stray RUST_LOG in the
             // developer's environment must not decide this assertion.
             .env_remove("RUST_LOG")
@@ -2037,7 +2046,7 @@ fn cli_prompt_template_warning_follows_the_effective_body() {
         let dir = workdir.join(format!("run{i}"));
         std::fs::create_dir_all(&dir).expect("run dir creatable");
 
-        let mut cmd = Command::new(bin());
+        let mut cmd = translate_command();
         // The subscriber's level is flag-derived; a stray RUST_LOG in the
         // developer's environment must not decide this assertion.
         cmd.env_remove("RUST_LOG")
@@ -2097,7 +2106,7 @@ fn cli_sentinel_source_language_is_canonical_however_typed() {
 
     for (i, label) in ["auto", "  auto\t", "AUTO", " Auto "].iter().enumerate() {
         let dir = workdir.join(format!("run{i}"));
-        let status = Command::new(bin())
+        let status = translate_command()
             .arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -2164,7 +2173,7 @@ fn cli_refuses_a_foreign_html_out_before_translating() {
     std::fs::create_dir_all(&html_out).unwrap();
     std::fs::write(html_out.join("USER_NOTES.txt"), b"keepme").unwrap();
 
-    let out = Command::new(bin())
+    let out = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -2212,7 +2221,7 @@ fn cli_refuses_a_foreign_html_out_before_translating() {
 fn cli_refuses_the_remaining_destination_faults_before_translating() {
     /// One refused invocation: extra args on top of `--input`/`--target-language`.
     fn refuse(label: &str, extra: &[&std::ffi::OsStr], expected: &str) {
-        let out = Command::new(bin())
+        let out = translate_command()
             .arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -2296,7 +2305,7 @@ fn cli_rejects_invalid_batching_flag_values() {
         ("--output-expansion-factor", "0"),
     ] {
         let workdir = ScratchDir::new("transync-cli-badflag");
-        let status = Command::new(bin())
+        let status = translate_command()
             .arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -2336,7 +2345,7 @@ fn cli_cache_dir_persists_progress_and_detected_language() {
     let cache_dir = workdir.join("cache");
 
     let run = |out_dir: &std::path::Path, detect: &str| {
-        let out = Command::new(bin())
+        let out = translate_command()
             .arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -2420,7 +2429,7 @@ fn cli_cache_dir_replays_the_auto_glossary_harvest() {
     let cache_dir = workdir.join("cache");
 
     let run = |out_dir: &std::path::Path, harvest: &str| {
-        let out = Command::new(bin())
+        let out = translate_command()
             .arg("translate")
             .arg("--input")
             .arg(fixture_path())
@@ -2492,7 +2501,7 @@ fn cli_unopenable_cache_dir_warns_and_completes() {
     let blocked = workdir.join("not-a-dir");
     std::fs::write(&blocked, b"occupied\n").expect("scratch file writable");
 
-    let out = Command::new(bin())
+    let out = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(fixture_path())
@@ -2537,7 +2546,7 @@ fn cli_input_format_conflict_is_an_argument_error() {
     let out_md = workdir.join("out.md");
     let out_json = workdir.join("out.json");
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -2579,7 +2588,7 @@ fn cli_explicit_markdown_still_trips_the_sniff() {
     let input = workdir.join("page.html");
     std::fs::write(&input, HTML_DOCUMENT).unwrap();
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -2613,7 +2622,7 @@ fn cli_markdown_declared_html_translates_without_a_reverse_sniff() {
     let out = workdir.join("out.html");
     let map = workdir.join("out.json");
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -2651,7 +2660,7 @@ fn cli_html_format_run_writes_out_html_and_a_syncing_bundle() {
         .expect("the SCN-16 fixture exists (wave 3)");
     let out_dir = workdir.join("published");
 
-    let output = Command::new(bin())
+    let output = translate_command()
         .arg("translate")
         .arg("--input")
         .arg(&input)
@@ -2746,7 +2755,7 @@ fn cli_html_out_dir_republishes_with_and_without_its_marker() {
         .expect("fixture exists");
     let out_dir = workdir.join("published");
     let run = || {
-        Command::new(bin())
+        translate_command()
             .arg("translate")
             .arg("--input")
             .arg(&input)

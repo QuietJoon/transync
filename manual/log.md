@@ -1,5 +1,21 @@
 # Manual Log
 
+## 2026-09-23
+
+* **Out-of-band CLI reference correction.** The English user reference and its
+  Korean mirror now name the Google Vertex/Developer selector, credentials,
+  environment variables and batch defaults (DCR-0058). No full manual Sync
+  was run.
+* **Provider explanation correction.** The English developer architecture page
+  and its Korean mirror now reflect the third provider crate and the CLI's
+  OpenAI/Google selector; Anthropic remains library-only (DCR-0058).
+* **Translator reference correction.** The English developer reference and its
+  Korean mirror now describe all three adapters and the CLI's OpenAI/Google
+  selector (DCR-0058).
+* **Custom-provider guide correction.** The English developer how-to and its
+  Korean mirror now list the Google adapter and describe the CLI's
+  OpenAI/Google selector (DCR-0058).
+
 ## 2026-09-07
 
 * **Out-of-band edits, not a Sync.** The bundle was changed twice by ordinary

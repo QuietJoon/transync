@@ -27,7 +27,7 @@
 # because smoke runs `set -euo pipefail`. The check therefore only records
 # what it found; each caller decides what a non-empty RUSTDOC_GATE_UNGATED
 # or RUSTDOC_GATE_UNGATED_BIN means and prints its own message.
-RUSTDOC_GATE_CRATES=(transync-lang transync-html transync-syntax transync-core transync transync-openai transync-anthropic transync-wasm)
+RUSTDOC_GATE_CRATES=(transync-lang transync-html transync-syntax transync-core transync transync-openai transync-anthropic transync-google transync-wasm)
 
 # The same list as `cargo doc` package arguments: -p a -p b … — built here so
 # neither caller repeats the loop.

@@ -1,15 +1,70 @@
-//! Provider construction for `transync translate` — the one seam with two
-//! cfg-gated implementations (in-process stub vs. live OpenAI client).
+//! Provider construction for `transync translate` — argument resolution is
+//! shared by the in-process stub and live OpenAI/Google adapters.
 //!
 //! TRACE: SCN-12
 
+use clap::ValueEnum;
 #[cfg(not(feature = "test-stub-provider"))]
 use secrecy::SecretString;
+#[cfg(not(feature = "test-stub-provider"))]
+use transync_google::GoogleCredentials;
+use transync_google::{
+    GoogleConfig, GoogleSurface, ModelId as GoogleModelId, ThinkingLevel, TransyncGoogle,
+    VertexLocation,
+};
 use transync_openai::ModelId;
 use url::Url;
 
-/// The provider configuration both builds resolve, before either one picks a
-/// transport (R0010-0029).
+use super::TranslateArgs;
+use super::args::resolve_model;
+
+const GOOGLE_DEFAULT_MODEL: &str = "gemini-3.8-flash";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ProviderArg {
+    Openai,
+    Google,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum GoogleSurfaceArg {
+    Vertex,
+    Developer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum GoogleLocationArg {
+    Global,
+    Us,
+    Eu,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum GoogleThinkingArg {
+    Low,
+    Medium,
+    High,
+}
+
+pub(crate) enum ProviderConfig {
+    OpenAi {
+        model: ModelId,
+        base_url: Option<Url>,
+    },
+    Google(GoogleConfig),
+}
+
+impl ProviderConfig {
+    pub(crate) fn model_id(&self) -> &str {
+        match self {
+            Self::OpenAi { model, .. } => &model.0,
+            Self::Google(config) => &config.model.0,
+        }
+    }
+}
+
+/// OpenAI model and base URL validation retained from R0010-0029. The selected
+/// provider is resolved by [`resolve_provider_config`] before choosing transport.
 ///
 /// The `test-stub-provider` feature exists so the smoke suites can drive **this
 /// CLI**; a stub arm that answers before the arguments are parsed tests a CLI
@@ -17,18 +72,17 @@ use url::Url;
 /// a URL, or a `--model` [`ModelId::parse`] refuses, used to reach the echo
 /// translator and exit 0 under the feature while the live build refused the
 /// same argv at exit 1. So everything that depends on the *arguments* rather
-/// than on the transport is answered here, where both arms run it — the stub
-/// discards the product, the live build passes it on.
+/// than on the transport is answered here, where both arms run it. The stub
+/// also constructs the Google offline adapter to keep its validation aligned
+/// with the live path.
 ///
 /// ti `30a744`: the base URL is resolved BEFORE the credential is demanded,
 /// because an offline run needs the former and must not be asked for the
 /// latter. The order is the whole fix — it used to be reversed, so a run that
 /// was going to make no provider call still could not start.
 ///
-/// What stays with the live arm is what needs a live adapter to answer:
-/// `TransyncOpenAI::{try_new, offline}` re-run [`ModelId::parse`] (idempotent)
-/// and additionally validate the URL's scheme, host and userinfo through a
-/// rule this crate cannot reach.
+/// The live adapter later validates scheme, host and userinfo through its
+/// constructor. The stub preserves the existing OpenAI argument checks here.
 fn provider_config(model: &str, base_url: Option<&str>) -> Result<(ModelId, Option<Url>), String> {
     let base_url = match base_url {
         Some(raw) => Some(Url::parse(raw).map_err(|e| format!("invalid --base-url: {e}"))?),
@@ -48,21 +102,120 @@ fn provider_config(model: &str, base_url: Option<&str>) -> Result<(ModelId, Opti
     Ok((model, base_url))
 }
 
-/// Pick the right `Translator` for the current build configuration.
-///
-/// With the `test-stub-provider` feature, an in-process echo translator
-/// is used (no network, no API key). Without it, `provider_config` resolves
-/// the model and base URL first, then this builds either
-/// `TransyncOpenAI::offline` (under `--offline`, credential-free) or
-/// `TransyncOpenAI::try_new` from `OPENAI_API_KEY` — not `from_env()`, which
-/// would re-read the environment this function has already resolved
-/// (ti `30a744`).
+fn env_value(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.is_empty())
+}
+
+fn env_choice<T: ValueEnum>(name: &str) -> Result<Option<T>, String> {
+    env_value(name)
+        .map(|value| T::from_str(&value, false).map_err(|e| format!("invalid {name}: {e}")))
+        .transpose()
+}
+
+fn resolved_base_url(flag: Option<&str>, env_name: &str) -> Result<Option<Url>, String> {
+    let (raw, source) = match flag {
+        Some(raw) => (Some(raw.to_string()), "--base-url"),
+        None => (env_value(env_name), env_name),
+    };
+    raw.map(|value| Url::parse(&value).map_err(|e| format!("invalid {source}: {e}")))
+        .transpose()
+}
+
+/// Resolve the selected provider before reading an input file or credential.
+/// The same path runs under `test-stub-provider`, so a test build cannot hide
+/// an invalid model, URL, project, location, or thinking value.
+pub(crate) fn resolve_provider_config(args: &TranslateArgs) -> Result<ProviderConfig, String> {
+    match args.provider {
+        ProviderArg::Openai => {
+            if args.google_surface.is_some()
+                || args.google_project.is_some()
+                || args.google_location.is_some()
+                || args.google_thinking.is_some()
+            {
+                return Err("--google-* flags require --provider google".to_string());
+            }
+            let model = resolve_model(args.model.as_deref());
+            let (model, base_url) = provider_config(&model, args.base_url.as_deref())?;
+            Ok(ProviderConfig::OpenAi { model, base_url })
+        }
+        ProviderArg::Google => {
+            let surface = match args.google_surface {
+                Some(surface) => surface,
+                None => env_choice("TRANSYNC_GOOGLE_SURFACE")?.unwrap_or(GoogleSurfaceArg::Vertex),
+            };
+            let model = args
+                .model
+                .clone()
+                .or_else(|| env_value("TRANSYNC_GOOGLE_MODEL"))
+                .unwrap_or_else(|| GOOGLE_DEFAULT_MODEL.to_string());
+            let model = GoogleModelId::parse(model).map_err(|e| e.to_string())?;
+            let thinking = match args.google_thinking {
+                Some(thinking) => thinking,
+                None => env_choice("TRANSYNC_GOOGLE_THINKING")?.unwrap_or(GoogleThinkingArg::Low),
+            };
+            let thinking_level = Some(match thinking {
+                GoogleThinkingArg::Low => ThinkingLevel::Low,
+                GoogleThinkingArg::Medium => ThinkingLevel::Medium,
+                GoogleThinkingArg::High => ThinkingLevel::High,
+            });
+            let (surface, base_env) = match surface {
+                GoogleSurfaceArg::Developer => {
+                    if args.google_project.is_some() || args.google_location.is_some() {
+                        return Err(
+                            "--google-project and --google-location require --google-surface vertex"
+                                .to_string(),
+                        );
+                    }
+                    (
+                        GoogleSurface::Developer,
+                        "TRANSYNC_GOOGLE_DEVELOPER_BASE_URL",
+                    )
+                }
+                GoogleSurfaceArg::Vertex => {
+                    let project = args
+                        .google_project
+                        .clone()
+                        .or_else(|| env_value("GOOGLE_CLOUD_PROJECT"))
+                        .ok_or_else(|| {
+                            "Vertex AI needs --google-project or GOOGLE_CLOUD_PROJECT".to_string()
+                        })?;
+                    if project.trim().is_empty() || project.trim() != project {
+                        return Err("Google project must be non-empty and unpadded".to_string());
+                    }
+                    let location = match args.google_location {
+                        Some(location) => location,
+                        None => env_choice("GOOGLE_CLOUD_LOCATION")?
+                            .unwrap_or(GoogleLocationArg::Global),
+                    };
+                    let location = match location {
+                        GoogleLocationArg::Global => VertexLocation::Global,
+                        GoogleLocationArg::Us => VertexLocation::Us,
+                        GoogleLocationArg::Eu => VertexLocation::Eu,
+                    };
+                    (
+                        GoogleSurface::Vertex { project, location },
+                        "TRANSYNC_GOOGLE_VERTEX_BASE_URL",
+                    )
+                }
+            };
+            let base_url = resolved_base_url(args.base_url.as_deref(), base_env)?;
+            Ok(ProviderConfig::Google(GoogleConfig {
+                surface,
+                model,
+                base_url,
+                thinking_level,
+            }))
+        }
+    }
+}
+
+/// Pick the in-process echo translator after validating the selected
+/// provider's configuration. No key or network is needed under this feature.
 ///
 /// TRACE: SCN-12
 #[cfg(feature = "test-stub-provider")]
 pub(crate) fn translator_for_run(
-    model: &str,
-    base_url: Option<&str>,
+    config: ProviderConfig,
     // ti `30a744`: accepted and unused. The stub needs no credential, so it is
     // already what `--offline` asks the live build to become; honouring the
     // flag by refusing to translate would make the stub useless for the smoke
@@ -71,19 +224,49 @@ pub(crate) fn translator_for_run(
     // both builds.
     _offline: bool,
 ) -> Result<Box<dyn transync::Translator + Send + Sync>, String> {
-    // R0010-0029: the argument-side half of provider construction runs here
-    // too, and its product is discarded — the stub configures no transport,
-    // but a `--model` or `--base-url` the shipped binary refuses must not go
-    // green under the feature that exists to test the shipped binary.
-    provider_config(model, base_url)?;
-    // OI-0023 item 2: with no live provider to inspect, record the model +
-    // base-url this stub provider was handed — the same pair the live build
-    // forwards to `TransyncOpenAI::try_new` — to the path in
-    // `TRANSYNC_STUB_ECHO_PATH`, so a subprocess smoke test can observe that
-    // the `--model` / `--base-url` CLI flags reached the provider. Test-only
-    // side channel, gated behind the `test-stub-provider` feature.
+    // Validate Google construction even under the stub; a malformed endpoint
+    // or project must be refused on the same argument path as the live build.
+    let record = match &config {
+        ProviderConfig::OpenAi { model, base_url } => serde_json::json!({
+            "provider": "openai",
+            "model": model.0.as_str(),
+            "base_url": base_url.as_ref().map(Url::as_str),
+        }),
+        ProviderConfig::Google(google) => {
+            let (surface, project, location) = match &google.surface {
+                GoogleSurface::Developer => ("developer", None, None),
+                GoogleSurface::Vertex { project, location } => {
+                    let location = match location {
+                        VertexLocation::Global => "global",
+                        VertexLocation::Us => "us",
+                        VertexLocation::Eu => "eu",
+                    };
+                    ("vertex", Some(project.as_str()), Some(location))
+                }
+            };
+            let thinking = google.thinking_level.as_ref().map(|level| match level {
+                ThinkingLevel::Low => "low",
+                ThinkingLevel::Medium => "medium",
+                ThinkingLevel::High => "high",
+            });
+            serde_json::json!({
+                "provider": "google",
+                "surface": surface,
+                "project": project,
+                "location": location,
+                "thinking": thinking,
+                "model": google.model.0.as_str(),
+                "base_url": google.base_url.as_ref().map(Url::as_str),
+            })
+        }
+    };
+    if let ProviderConfig::Google(google) = config {
+        TransyncGoogle::offline(google).map_err(|e| e.to_string())?;
+    }
+    // Test-only side channel: record the resolved provider axes so subprocess
+    // smoke tests can prove that flags and selected environment values reached
+    // this seam. The record never contains a credential.
     if let Ok(path) = std::env::var("TRANSYNC_STUB_ECHO_PATH") {
-        let record = serde_json::json!({ "model": model, "base_url": base_url });
         std::fs::write(
             &path,
             serde_json::to_vec_pretty(&record).unwrap_or_default(),
@@ -195,32 +378,49 @@ fn stub_for_mode(mode: &str) -> Result<Box<dyn transync::Translator + Send + Syn
 /// TRACE: SCN-12
 #[cfg(not(feature = "test-stub-provider"))]
 pub(crate) fn translator_for_run(
-    model: &str,
-    base_url: Option<&str>,
+    config: ProviderConfig,
     offline: bool,
 ) -> Result<Box<dyn transync::Translator + Send + Sync>, String> {
-    // R0010-0029: the base URL and the model id are parsed by the function
-    // both builds share, which is also where ti `30a744`'s "base URL before
-    // credential" ordering now lives.
-    let (model, base_url) = provider_config(model, base_url)?;
-    // The two instances differ in exactly one field, and deliberately not in
-    // any field `fingerprint()` reads: an offline run has to look in the
-    // namespace the warming run wrote, or it misses everything and reads as a
-    // corrupt cache. `TransyncOpenAI::offline` owns that guarantee and
-    // `an_offline_instance_fingerprints_identically_to_a_credentialed_one`
-    // pins it, so this seam cannot re-derive the composition and drift.
-    let openai = if offline {
-        transync_openai::TransyncOpenAI::offline(model, base_url)
-    } else {
-        let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
-            "OPENAI_API_KEY not set; set it, pass --offline to run from cache alone, \
-             or build --features test-stub-provider"
-                .to_string()
-        })?;
-        transync_openai::TransyncOpenAI::try_new(SecretString::new(key.into()), model, base_url)
+    match config {
+        ProviderConfig::OpenAi { model, base_url } => {
+            // Offline and credentialed instances must have the same cache
+            // fingerprint; the adapter constructors own that invariant.
+            let openai = if offline {
+                transync_openai::TransyncOpenAI::offline(model, base_url)
+            } else {
+                let key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+                    "OPENAI_API_KEY not set; set it, pass --offline to run from cache alone, \
+                     or build --features test-stub-provider"
+                        .to_string()
+                })?;
+                transync_openai::TransyncOpenAI::try_new(
+                    SecretString::new(key.into()),
+                    model,
+                    base_url,
+                )
+            }
+            .map_err(|e| e.to_string())?;
+            Ok(Box::new(openai))
+        }
+        ProviderConfig::Google(config) => {
+            let google = if offline {
+                TransyncGoogle::offline(config)
+            } else {
+                let credentials = match &config.surface {
+                    GoogleSurface::Developer => {
+                        let key = std::env::var("GEMINI_API_KEY").map_err(|_| {
+                            "GEMINI_API_KEY not set for Google Developer API".to_string()
+                        })?;
+                        GoogleCredentials::DeveloperApiKey(SecretString::new(key.into()))
+                    }
+                    GoogleSurface::Vertex { .. } => GoogleCredentials::VertexAdc,
+                };
+                TransyncGoogle::try_new(config, credentials)
+            }
+            .map_err(|e| e.to_string())?;
+            Ok(Box::new(google))
+        }
     }
-    .map_err(|e| e.to_string())?;
-    Ok(Box::new(openai) as Box<dyn transync::Translator + Send + Sync>)
 }
 
 #[cfg(test)]

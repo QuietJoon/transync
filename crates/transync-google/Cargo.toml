@@ -1,0 +1,27 @@
+[package]
+name = "transync-google"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Gemini Developer API and Vertex AI Translator implementation for transync."
+
+[dependencies]
+transync = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+# 1.16 and google-cloud-gax 1.14 require Rust 1.90; the library floor is 1.88.
+google-cloud-auth = "=1.15.0"
+google-cloud-gax = "=1.13.0"
+httpdate = "1"
+
+[dev-dependencies]
+http = "1"

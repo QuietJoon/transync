@@ -36,6 +36,7 @@ test-stub-provider = ["transync/test-stub"]
 # facade.
 transync           = { workspace = true }
 transync-openai    = { workspace = true }
+transync-google    = { workspace = true }
 serde_json         = { workspace = true }
 clap               = { workspace = true }
 # Four features on top of the workspace set (`macros`, `rt-multi-thread`,

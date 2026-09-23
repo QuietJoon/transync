@@ -2,12 +2,12 @@
 type: How-To Guide
 title: How to implement a custom Translator provider
 description: Write a sibling crate that implements transync's `Translator` trait against HEAD — cancellation parameter included — map its failures onto the error taxonomy, and hand it to the pipeline.
-tags: [providers, llm, extensibility, caching, cancellation, ADR-0002, ADR-0009, DCR-0024, DCR-0029]
+tags: [providers, llm, extensibility, caching, cancellation, ADR-0002, ADR-0009, DCR-0024, DCR-0029, DCR-0058]
 audience: developer
 language: en
 generated:
-  by: claude-code/claude-opus-5
-  at: "2026-08-10T08:40:09Z"
+  by: codex/gpt-6
+  at: "2026-09-23T06:20:28Z"
 sources:
   - { id: core-llm, resource: crates/transync-core/src/llm.rs }
   - { id: core-lib, resource: crates/transync-core/src/lib.rs }
@@ -26,12 +26,14 @@ sources:
   - { id: anthropic-error, resource: crates/transync-anthropic/src/error.rs }
   - { id: anthropic-messages, resource: crates/transync-anthropic/src/client/messages.rs }
   - { id: anthropic-cargo, resource: crates/transync-anthropic/Cargo.toml }
+  - { id: google-lib, resource: crates/transync-google/src/lib.rs }
+  - { id: google-decision, resource: docs/project/design-change-records/DCR-0058-transync-google-gemini-provider.md }
   - { id: cli-provider, resource: crates/transync-cli/src/translate_cmd/provider.rs }
   - { id: workspace-manifest, resource: Cargo.toml }
   - { id: changelog, resource: CHANGELOG.md }
   - { id: contracts, resource: docs/architecture/contracts.md }
   - { id: dev-guide, resource: docs/Developer_Guide.md }
-synced_hash: 0ba7506d2a500c2b6d27ff0cfaae96f541aa30545e5b4bf22168547ed0b4811f
+synced_hash: de9b18595a2ea36328a22924b7be1735b47600620548aef9c9bc98f937f062a5
 ---
 
 # How to implement a custom Translator provider
@@ -49,29 +51,28 @@ explanation.
 
 ## Read a reference implementation first
 
-Two provider crates in this workspace implement the trait, and they are
-deliberately different in shape:
+Three provider crates in this workspace implement the trait. These are useful
+references because their request shapes differ:
 
 - `crates/transync-openai` — the default adapter, two HTTP surfaces (Chat
   Completions and Responses) with model-name dispatch between them.
 - `crates/transync-anthropic` — the second adapter (DCR-0029), one HTTP
   surface, a **required** output ceiling, and a schema-profile pass that
   renders the shared Structured Output schema into a narrower dialect.
+- `crates/transync-google` — the Gemini Developer/Vertex adapter (DCR-0058),
+  with explicit surface and credential selection and structured JSON output.
 
-They share no code — only the trait and the discipline — which is exactly
-why reading both is worth the time: what appears in one and not the other
-is provider-specific, and what appears in both is the contract.
+Compare the OpenAI and Anthropic implementations to distinguish
+provider-specific mechanics from the shared trait contract. Google shows
+how one adapter handles two distinct authentication surfaces.
 
-**Neither the second adapter nor yours is reachable from the CLI.**
-`transync-cli` has no dependency on `transync-anthropic`, and
-`translate_cmd/provider.rs` has exactly two build configurations: the live
-path, which builds `TransyncOpenAI::try_new` from `OPENAI_API_KEY` — or the
-credential-free `TransyncOpenAI::offline` under `--offline` — and an
-in-process stub behind the `test-stub-provider` feature. There is no
-provider flag and no plugin
-lookup. A custom `Translator` is consumed by a host program that constructs
-it and calls `transync::translate` itself — the same status
-`transync-anthropic` has.
+**The CLI selects OpenAI or Google with `--provider`; Anthropic and your
+adapter remain library-only.** `translate_cmd/provider.rs` constructs the
+selected live adapter, its credential-free offline form under `--offline`, or
+the in-process stub behind the `test-stub-provider` feature. There is no
+plugin lookup for arbitrary `Translator` implementations. A custom adapter is
+consumed by a host program that constructs it and calls
+`transync::translate` itself, as with `transync-anthropic`.
 
 ## Preconditions
 

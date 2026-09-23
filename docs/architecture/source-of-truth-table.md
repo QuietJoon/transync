@@ -45,8 +45,9 @@ Owners are named by their **owning crate and module**. Since 2026-08-04 (DCR-001
 |------------------------------------------|----------------------------------------------|-------------------|
 | Profile TOML schema (top-level `slug`/`version`/`auto_glossary`, `[system].prompt` + `prompt_html`, `[constraints]`, `[batching]`, `[render]`, `[[glossary]]`) | `transync::profile` | Single parser; CLI and library both go through it. |
 | Canonical default profile                | `transync::profile` (embedded via `include_str!`) | Core embeds the canonical default (`crates/transync-core/profiles/default.toml`) and exposes it as `default_profile()`; the CLI resolves its default through core and carries no copy of its own (R0001-0041, 2026-08-06). |
-| Provider credential discovery (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) | The provider crate that needs it — `transync-openai`, and `transync-anthropic` since DCR-0029 | Provider-specific. Core does not know about API keys, and neither adapter knows about the other's: a second provider crate added a second environment variable and moved nothing. |
-| `--model` / `--base-url` flags           | `transync-cli` → `transync-openai`           | CLI passes them into the constructor; the OpenAI impl owns interpretation. |
+| CLI provider/surface and credential selection (`OPENAI_API_KEY`, `GEMINI_API_KEY`, Vertex ADC) | `transync-cli::translate_cmd::provider` | Resolves only the selected provider's flags and environment, then constructs its adapter; a key never selects a provider implicitly. Anthropic remains a library-only adapter (DCR-0058). |
+| Provider authentication on requests | The selected provider crate (`transync-openai`, `transync-anthropic`, or `transync-google`) | Each adapter owns its own HTTP authentication and transport; core remains unaware of credentials. |
+| `--model` / `--base-url` flags | `transync-cli::translate_cmd::provider` | Resolves the selected OpenAI or Google surface's model and endpoint settings; the chosen adapter composes the request URL. |
 
 ## Run state
 

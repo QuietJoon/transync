@@ -20,11 +20,14 @@ use crate::direction;
 use crate::error::ExitCode;
 use args::{
     InputFormatArg, apply_batching_overrides, resolve_auto_glossary_flag, resolve_bundle_title,
-    resolve_language_and_model_args, resolve_model, resolve_output_target, resolve_title_flag,
+    resolve_language_and_model_args, resolve_output_target, resolve_title_flag,
 };
 use clap::Args;
 use input::{CappedReadError, ProfileError, html_document_marker, read_capped, resolve_profile};
-use provider::translator_for_run;
+use provider::{
+    GoogleLocationArg, GoogleSurfaceArg, GoogleThinkingArg, ProviderArg, resolve_provider_config,
+    translator_for_run,
+};
 use publish::{PublishError, preflight_destinations, publish_outputs};
 use report::{
     Reporter, diagnostic_line, format_auto_glossary_summary, pipeline_diagnostics, verbose_tally,
@@ -205,11 +208,33 @@ pub struct TranslateArgs {
     /// exclusive with `--system-prompt`.
     #[arg(long = "system-prompt-file", conflicts_with = "system_prompt")]
     pub system_prompt_file: Option<PathBuf>,
-    /// Model ID sent to the provider. Resolution order: this flag when
-    /// given, else the `TRANSYNC_OPENAI_MODEL` environment variable,
-    /// else `gpt-5-chat-latest` (contracts.md §6).
+    /// Provider to use for translation. TRANSYNC_PROVIDER may set the default.
+    #[arg(
+        long = "provider",
+        value_enum,
+        env = "TRANSYNC_PROVIDER",
+        default_value = "openai"
+    )]
+    pub provider: ProviderArg,
+    /// Google API surface. For Google, defaults to Vertex AI.
+    #[arg(long = "google-surface", value_enum)]
+    pub google_surface: Option<GoogleSurfaceArg>,
+    /// Vertex AI project. Defaults to GOOGLE_CLOUD_PROJECT.
+    #[arg(long = "google-project")]
+    pub google_project: Option<String>,
+    /// Vertex AI location: global, us, or eu. Defaults to GOOGLE_CLOUD_LOCATION
+    /// when set, otherwise global.
+    #[arg(long = "google-location", value_enum)]
+    pub google_location: Option<GoogleLocationArg>,
+    /// Gemini thinking level: low, medium, or high. Defaults to low.
+    #[arg(long = "google-thinking", value_enum)]
+    pub google_thinking: Option<GoogleThinkingArg>,
+    /// Model ID sent to the selected provider. Resolution order: this flag,
+    /// provider-specific model environment variable, then provider default.
     #[arg(long)]
     pub model: Option<String>,
+    /// Base URL for the selected provider. Overrides its surface-specific
+    /// environment variable when provided.
     #[arg(long = "base-url")]
     pub base_url: Option<String>,
     /// Directory holding a **disk-backed translation cache** (DCR-0028).
@@ -502,11 +527,12 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
         ));
     }
 
-    let model = resolve_model(args.model.as_deref());
-
     // Configuration only: the adapter is built and its arguments validated, and
     // no request is issued until the pipeline runs it far below.
-    let translator = translator_for_run(&model, args.base_url.as_deref(), args.offline)
+    let provider_config = resolve_provider_config(args)
+        .map_err(|msg| CliFailure::new(ExitCode::ArgumentError, msg))?;
+    let model = provider_config.model_id().to_string();
+    let translator = translator_for_run(provider_config, args.offline)
         .map_err(|msg| CliFailure::new(ExitCode::ArgumentError, msg))?;
 
     // R0002-0029: the destination guards need no translated content, so they
@@ -586,6 +612,26 @@ async fn execute(args: &TranslateArgs, reporter: &Reporter) -> Result<RunSummary
         ProfileError::Arg(msg) => CliFailure::new(ExitCode::ArgumentError, msg),
         ProfileError::ReadTooLarge(msg) => CliFailure::new(ExitCode::InputReadFailure, msg),
     })?;
+    // The embedded profile has OpenAI-sized batching values, so replace those
+    // for Google. A caller's profile owns only the fields it actually sets;
+    // fill its absent batching fields with Google defaults. Explicit CLI flags
+    // still win in apply_batching_overrides below.
+    if args.provider == ProviderArg::Google {
+        let embedded_profile = args.profile.is_none();
+        let batching = &mut profile.batching;
+        if embedded_profile || batching.target_input_tokens_per_batch.is_none() {
+            batching.target_input_tokens_per_batch = Some(20_000);
+        }
+        if embedded_profile || batching.target_output_tokens.is_none() {
+            batching.target_output_tokens = Some(65_536);
+        }
+        if embedded_profile || batching.max_units_per_batch.is_none() {
+            batching.max_units_per_batch = Some(32);
+        }
+        if embedded_profile || batching.output_expansion_factor.is_none() {
+            batching.output_expansion_factor = Some(2.0);
+        }
+    }
     // contracts.md §2 (OI-0003): the loader's findings surface on stderr.
     // R0001-0032: they get there through the `transync::profile` tracing
     // target now, and `logging::init` gives that channel a destination.

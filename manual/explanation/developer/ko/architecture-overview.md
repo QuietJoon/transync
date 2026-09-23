@@ -2,15 +2,15 @@
 type: Explanation
 title: 스크롤 백분율이 아닌 블록 ID 동기화인 이유
 description: transync의 핵심 디자인 선택(엔드투엔드 단일 동기화 통화로서의 안정적인 블록 ID 하나) 뒤에 있는 이유, 이러한 선택이 다른 모든 레이어를 형성하는 방식, 그리고 모델을 위해 분할된 테이블이 독자에게는 여전히 하나의 블록인 이유.
-tags: [architecture, ADR-0001, ADR-0002, DCR-0026, DCR-0029]
+tags: [architecture, ADR-0001, ADR-0002, DCR-0026, DCR-0029, DCR-0058]
 audience: developer
 language: ko
 sources:
   - { id: en-source, resource: manual/explanation/developer/en/architecture-overview.md }
 generated:
-  by: gemini/gemini-3.6-flash
-  at: 2026-08-12T11:12:02Z
-synced_hash: cfb48a1fcf5715bfa753e5d0c6f2a9c051bb2500315e88e47d56efcf8b5ec140
+  by: codex/gpt-6
+  at: 2026-09-23T06:00:14Z
+synced_hash: 745f3dbb4867ce26f6d2308444ad238b287135e3ae037408c9e3b8303afabcbf
 ---
 # 스크롤 백분율이 아닌 블록 (Block) ID 동기화 (Sync)인 이유
 
@@ -56,9 +56,9 @@ ID 우선 디자인 (Design)은 브라우저뿐만 아니라 더 많은 부분�
 
 관련되면서 별도로 결정된 질문은 LLM에 대한 네트워크 호출을 누가 소유하는가입니다. ADR-0002는 코어 파이프라인을 HTTP-free 상태로 유지합니다: 구체적인 제공자가 아닌 `Translator` 트레이트에 의존합니다. 이는 동기화 (Sync) 통화와는 전혀 관련이 없는 별도로 내려진 이식성 및 테스트 가능성 결정이며, ID 우선 디자인 (Design)과 깔끔하게 합성됩니다: `TranslationUnit`이 이미 "하나의 블록 (Block), 하나의 ID, 하나의 페이로드"이기 때문에 트레이트를 구현하는 모든 제공자는 왜 그것이 중요한지 알 필요 없이 ID 보존 계약을 자동으로 상속받습니다.
 
-DCR-0029 이후 이 주장은 주장이 아닌 실증이 되었습니다. 트리에는 동일한 트레이트를 진정으로 다른 HTTP 표면(다른 인증 헤더, 필수 프로토콜 버전 헤더, 생략을 수용하는 대신 모든 요청에서 API (API)가 요구하는 출력 상한)을 대상으로 구현하는 두 개의 제공자 크레이트 (Crate)(OpenAI 어댑터 및 Anthropic 어댑터)가 존재합니다. 이러한 부분 중 그 무엇도 코어에 도달하지 않았습니다. 두 번째 구현이 변경한 사항은 이식성 주장 자체보다 더 큰 가치가 있습니다: 공유 오류 어휘 목록에 하나의 용어를 추가했습니다. 지나치게 긴 *요청*과 잘린 *응답*은 둘 다 토큰에 관한 것이며, 둘 다 최종적이고, 서로 반대되는 노브를 가리키므로, 이를 병합했다면 도움이 되지 않는 구제책을 명시했을 것입니다 — 그 구분을 가장 먼저 마주한 어댑터 덕분에 이제 트레이트가 각각에 대한 이름을 갖게 되었습니다. 대략 올바른 위치에 그려진 경계가 실전에서 보여주는 모습이 바로 이것입니다: 두 번째 구현에 필요한 비용은 재디자인 (Design)이 아닌 어휘의 추가뿐이었습니다.
+DCR-0029 이후 이 주장은 주장이 아닌 실증이 되었습니다. 현재 트리에는 OpenAI, Anthropic, Google의 세 제공자 크레이트가 있으며, 모두 같은 트레이트를 서로 다른 HTTP API에 구현합니다. Anthropic이 두 번째 구현으로 들어올 때는 다른 인증 헤더, 필수 프로토콜 버전 헤더, 매 요청에 필요한 출력 상한이 코어에 영향을 주지 않았습니다. 대신 공유 오류 어휘에 한 항목이 추가되었습니다. 지나치게 긴 *요청*과 잘린 *응답*은 둘 다 토큰에 관한 최종 오류이지만 서로 반대되는 설정을 가리키기 때문입니다. 이는 제공자 추가에 코어 재설계가 필요하지 않다는 근거입니다. 이후 Google 어댑터는 같은 트레이트 뒤에 Vertex AI와 Developer API 두 경로를 추가했습니다(DCR-0058).
 
-한 가지 솔직한 한계: 참조 CLI는 두 번째 제공자를 선택할 수 없습니다. CLI는 OpenAI 크레이트 (Crate)에만 의존하며 제공자 플래그가 없습니다. `--provider` 축은 실제 디자인 (Design) 작업(환경 표면, 키 해소, 인수 계약 변경)이기 때문이며 DCR-0029가 의도적으로 자체 범위에서 제외시켰습니다. 오늘날 Anthropic 어댑터에 도달하려면 [사용자 지정 번역기 (Translator) 제공자 구현 방법](../../../how-to/developer/ko/implement-a-custom-translator.md)에서 직접 작성하는 제공자에 대해 설명하는 방식 그대로 라이브러리를 호출하고 자체 `Translator`를 파이프라인에 전달해야 합니다.
+CLI는 이제 `--provider`로 OpenAI(기본값) 또는 Google을 선택합니다. Google을 선택하면 Vertex AI가 기본이며 Developer API도 명시적으로 고를 수 있습니다. 이 제공자 선택 기능은 DCR-0029의 범위 밖이었고 DCR-0058에서 추가되었습니다. Anthropic은 여전히 라이브러리 전용입니다. 사용하려면 [사용자 지정 번역기 (Translator) 제공자 구현 방법](../../../how-to/developer/ko/implement-a-custom-translator.md)에서 설명하듯 라이브러리를 호출하고 자체 `Translator`를 파이프라인에 전달해야 합니다.
 
 ## 관련 문서
 

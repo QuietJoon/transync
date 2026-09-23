@@ -2,21 +2,21 @@
 type: Reference
 title: "`Translator` 트레이트"
 description: 메서드 시그니처, 안정적인 코드를 포함한 완전한 `TranslatorError` 변체 세트, 그리고 모든 구현체가 충족해야 하는 동작 계약.
-tags: [providers, llm, reference, cancellation, DCR-0024, DCR-0029]
+tags: [providers, llm, reference, cancellation, DCR-0024, DCR-0029, DCR-0058]
 audience: developer
 language: ko
 sources:
   - { id: en-source, resource: manual/reference/developer/en/translator-trait.md }
 generated:
-  by: gemini/gemini-3.6-flash
-  at: 2026-08-12T11:12:02Z
-synced_hash: f06628d1b99a634dab7d1c3e8fa6c0a4d1a7edc7db13f3a12018cb5253316098
+  by: codex/gpt-6
+  at: 2026-09-23T06:07:06Z
+synced_hash: 35e47c1cb8131f11988866504402b7f480df02a0c360a4b440894bb3e228e943
 ---
 # `Translator` 트레이트
 
 `transync-core::llm`에 선언되어 있고 파사드를 통해 다시 내보내지는 `transync::llm::Translator`입니다. 이는 `0.1.0` 이후 제공자 경계 역할을 해왔으며 해당 진화는 동결되기보다는 관리됩니다 — [트레이트 안정성](#trait-stability)을 참조하십시오. 이 트레이트는 `Send + Sync`이며, `translate` / `translate_with_cache`는 `T: Translator + ?Sized`를 사용하므로 `&dyn Translator`와 구체적인 타입이 모두 수락됩니다.
 
-이 워크스페이스에는 두 가지 구현체가 출하됩니다: `transync-openai` (`TransyncOpenAI`) 및 `transync-anthropic` (`TransyncAnthropic`). 둘 다 라이브러리이며, 첫 번째만 번들로 제공되는 CLI에서 도달할 수 있습니다.
+이 워크스페이스에는 세 가지 구현체가 출하됩니다: `transync-openai` (`TransyncOpenAI`), `transync-anthropic` (`TransyncAnthropic`), `transync-google` (`TransyncGoogle`). 모두 라이브러리이며, 번들 CLI는 OpenAI 또는 Google을 선택할 수 있습니다. Anthropic은 라이브러리에서만 사용할 수 있습니다.
 
 ## 메서드
 
@@ -113,9 +113,9 @@ pub trait Translator: Send + Sync {
 | `Cancelled` | 호출이 취소되었기 때문에 중단됨: 실행 토큰이 발화되었거나 구현체가 자체 취소 소스를 가지고 있음. 의도적으로 메시지를 전달하지 않음. | 아니요 — 결코 다시 디스패치되지 않음; 그대로 재제출하는 것은 호출자가 중단하도록 요청한 바로 그 작업임. | `provider_cancelled` |
 | `Other(String)` | 이 분류 체계가 명시하지 않는 제공자 실패에 대한 기존 포괄 항목(catch-all). | 아니요 — 실행을 중단함. | `provider_error` |
 
-`OutputCeilingExhausted` 및 `ContextWindowExceeded`는 운영자가 혼동해서는 안 되는 쌍입니다: 둘 다 치명적이고 토큰에 관한 것이지만 **반대되는 노브(knob)**를 지정합니다. 정확히 그러한 이유로 개별 변체로 존재합니다. 모든 제공자가 `ContextWindowExceeded`를 자체 신호로 발생시키는 것은 아닙니다 — 너무 긴 요청에 HTTP 400으로 응답하는 제공자는 상태 기반의 `ProviderRejected` 분류를 유지하며 이는 거기서 솔직한 표현입니다. 두 개의 번들 어댑터 중 `transync-anthropic`만 제공자의 `model_context_window_exceeded` 정지 사유로부터 이를 생성하며, `transync-openai`에는 이에 매핑되는 신호가 없습니다.
+`OutputCeilingExhausted` 및 `ContextWindowExceeded`는 운영자가 혼동해서는 안 되는 쌍입니다: 둘 다 치명적이고 토큰에 관한 것이지만 **반대되는 노브(knob)**를 지정합니다. 정확히 그러한 이유로 개별 변체로 존재합니다. 모든 제공자가 `ContextWindowExceeded`를 자체 신호로 발생시키는 것은 아닙니다 — 너무 긴 요청에 HTTP 400으로 응답하는 제공자는 상태 기반의 `ProviderRejected` 분류를 유지하며 이는 거기서 솔직한 표현입니다. 세 개의 번들 어댑터 중 `transync-anthropic`만 제공자의 `model_context_window_exceeded` 정지 사유로부터 이를 생성하며, OpenAI와 Google 어댑터에는 이에 매핑되는 신호가 없습니다.
 
-`RateLimited.retry_after`는 `Option`입니다: `None`은 구현체가 사용할 수 있는 힌트를 제공자가 제공하지 않았음을 의미하며 파이프라인은 자체 지수 일정으로 폴백합니다. 번들로 제공되는 두 어댑터는 동일한 방식으로 헤더를 파싱합니다(델타-초, 및 세 가지 RFC 7231 날짜 형식 모두). 그리고 시스템 시계와 같거나 이전의 데드라인을 0 지연보다는 `None`으로 해소하므로, 뒤틀린 시계가 즉각적인 재디스패치로 이어지지 않습니다. 트리가 아닌 구현체가 전장에 배치하는 것은 자체 결정 사항입니다; 위의 30초 상한은 도착하는 무엇에나 적용됩니다.
+`RateLimited.retry_after`는 `Option`입니다: `None`은 구현체가 사용할 수 있는 힌트를 제공자가 제공하지 않았음을 의미하며 파이프라인은 자체 지수 일정으로 폴백합니다. 번들로 제공되는 세 어댑터는 동일한 방식으로 헤더를 파싱합니다(델타-초 및 세 가지 RFC 7231 날짜 형식 모두). 그리고 시스템 시계와 같거나 이전의 데드라인을 0 지연보다는 `None`으로 해소하므로, 뒤틀린 시계가 즉각적인 재디스패치로 이어지지 않습니다. 외부 구현체가 이 필드에 넣는 값은 자체 결정 사항입니다; 위의 30초 상한은 도착하는 무엇에나 적용됩니다.
 
 `Other`는 의미가 좁아졌습니다. v0.3.0까지는 콘텐츠 필터, 소진된 출력 상한, 모델 거부, 크기 초과 본문, 거부된 요청이라는 5가지 구별되는 치명적 사유를 전달했으며, 명시적으로 인터페이스가 아닌 메시지 문자열을 일치시킴으로써만 분리할 수 있었습니다. 이제 해당 5가지에는 이름이 부여되었으며 `Other`는 *분류되지 않은* 제공자 실패만을 의미합니다. 이는 의도적으로 유지되므로 새로운 제공자 특이점이 변체를 기다리기보다는 메시지로 착륙할 수 있습니다.
 

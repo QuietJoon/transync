@@ -72,6 +72,7 @@ const PUBLISHED_MEMBERS: &[&str] = &[
     "transync",
     "transync-openai",
     "transync-anthropic",
+    "transync-google",
     "transync-cli",
 ];
 

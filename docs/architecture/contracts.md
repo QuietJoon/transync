@@ -858,8 +858,17 @@ transync translate
   [--profile <path>]        (default: embedded "default" profile)
   [--system-prompt <text>]  (override active profile's [system].prompt body)
   [--system-prompt-file <path>] (same, but read body from a file; mutually exclusive with --system-prompt)
-  [--model <id>]            (default: gpt-5-chat-latest)
-  [--base-url <url>]        (default: https://api.openai.com)
+  [--provider <openai|google>] (default: openai; flag > TRANSYNC_PROVIDER)
+  [--google-surface <vertex|developer>] (Google only; default: vertex)
+  [--google-project <id>]  (Vertex only; flag > GOOGLE_CLOUD_PROJECT;
+                            a project is required for a live Vertex run)
+  [--google-location <global|us|eu>] (Vertex only; default: global)
+  [--google-thinking <low|medium|high>] (Google only; default: low)
+  [--model <id>]            (default: selected provider's model env, else
+                            gpt-5-chat-latest for OpenAI or gemini-3.8-flash
+                            for Google)
+  [--base-url <url>]        (default: selected provider/surface's URL env,
+                            else its official endpoint)
   [--offline]               (run with NO provider credentials, serving every unit
                              from the cache. REQUIRES --cache-dir: a fresh
                              in-memory cache misses its first lookup by
@@ -960,12 +969,25 @@ transync translate
                             overwritten in place without --force)
   [--quiet|--verbose]
 
-  Provider env (transync-openai):
-    OPENAI_API_KEY            (required for the live provider)
+  Provider selection env:
+    TRANSYNC_PROVIDER        (openai | google; used when --provider is absent)
+
+  OpenAI env (read only on its selected CLI path):
+    OPENAI_API_KEY            (required for live OpenAI calls)
     TRANSYNC_OPENAI_MODEL     (used when --model is not given; the documented default applies when neither is set)
     TRANSYNC_OPENAI_BASE_URL  (used when --base-url is not given; honors OpenAI-compatible proxies)
     TRANSYNC_OPENAI_API       (chat | responses; explicit override of the
                                model-driven dispatch heuristic)
+
+  Google env (read only on its selected CLI path):
+    TRANSYNC_GOOGLE_SURFACE   (vertex | developer; used when --google-surface is absent)
+    TRANSYNC_GOOGLE_MODEL     (used when --model is absent; default gemini-3.8-flash)
+    TRANSYNC_GOOGLE_THINKING  (low | medium | high; default low)
+    TRANSYNC_GOOGLE_VERTEX_BASE_URL    (used when Vertex --base-url is absent)
+    TRANSYNC_GOOGLE_DEVELOPER_BASE_URL (used when Developer --base-url is absent)
+    GOOGLE_CLOUD_PROJECT      (Vertex project when --google-project is absent)
+    GOOGLE_CLOUD_LOCATION     (Vertex location when --google-location is absent; default global)
+    GEMINI_API_KEY            (required for live Developer calls; never selects a surface)
 
 transync serve                (loopback static file server; see note below)
   --rendered <dir>          (required) the directory to serve, normally an
@@ -1048,7 +1070,11 @@ range is clap-enforced here, and the library path enforces the same range by
 reporting a `TranslateOptions::max_concurrent_batches = 0` on `tracing::warn`
 and resolving it as the built-in `6` (§2, R0001-0017). The
 `--target-output-tokens 0` sentinel is the only CLI way to express "no output
-ceiling," since the embedded default profile always sets `8000`.
+ceiling," since the embedded default profile sets `8000`. When no custom
+profile is given, Google CLI runs instead use provider defaults of 20,000
+input tokens, a distinct 65,536-token output ceiling, 32 units per batch and
+a 2.0 output-expansion factor (DCR-0058). An explicit profile or CLI flag
+keeps the precedence above.
 
 **Auto-glossary and direction precedence (DCR-0014 / DCR-0015).** Both follow
 **flag > profile > built-in default**, but neither is applied as a profile
@@ -1714,22 +1740,15 @@ seam is what it exercises, and nothing in `transync-core`, `transync-syntax`,
 `transync-wasm` or the facade moves for it. §0 is untouched — the facade does
 not re-export provider crates, so a consumer names this crate directly.
 
-**The `transync` binary does not reach it, and that is settled rather than
-pending** (ti `473dd1`, 2026-09-03). `transync-cli` depends on `transync` and
-`transync-openai` only, so the three environment variables this adapter reads
-change no CLI run; reaching it means depending on this crate from your own
-program. DCR-0029 parked a `--provider` axis as an owner call and twenty days
-of no consumer asking is the answer. It is also more expensive than DCR-0029
-priced it: since DCR-0046 the CLI's `--offline` is wired through
-`TransyncOpenAI::offline` specifically, because fingerprint identity with
-`try_new` is what makes the cache namespace match — a second provider on that
-flag needs the same credential-free constructor and its own identity pin, or a
-documented refusal. And a provider axis would give the CLI a second answer to
-"what is the default model, base URL and environment-variable set", once per
-provider. If it is ever wanted it wants its own ticket and its own record; the
-implicit variant — pick the provider whose key happens to be exported — is
-rejected outright, because it makes the credential environment a hidden
-selector of the cache namespace.
+**The `transync` binary does not reach Anthropic.** That library-only decision
+was taken in ti `473dd1` on 2026-09-03. The later DCR-0058 connects Google to
+the CLI through an explicit `--provider` axis but does not change Anthropic's
+status: its three environment variables still change no CLI run, and reaching
+it still means depending on this crate from your own program. Provider
+selection never follows whichever key happens to be exported; that would make
+the credential environment a hidden selector of the cache namespace. Each
+CLI provider's credential-free `--offline` constructor must fingerprint
+identically to its live constructor under the same non-secret configuration.
 
 **Deliberately §7's twin, and deliberately one axis smaller.** Every
 construction rule §7 records for the OpenAI adapter holds here verbatim and
@@ -1978,3 +1997,46 @@ would multiply core's budgets.
 the run's token with a **biased** `tokio::select!` — the token polled first, so
 an already-cancelled run never issues the request — returning
 `TranslatorError::Cancelled` on loss. The token is observed, never cancelled.
+
+## 9. Google Gemini provider contract (DCR-0058)
+
+`transync-google` implements the same `Translator` trait as the OpenAI and
+Anthropic adapters. A caller constructs `GoogleConfig` with a model, optional
+base URL, optional `ThinkingLevel`, and one explicit `GoogleSurface`:
+`Developer` or `Vertex { project, location }`. The public credential choice is
+`GoogleCredentials::DeveloperApiKey` or `GoogleCredentials::VertexAdc`.
+`TransyncGoogle::try_new` validates the surface/credential pair and builds a
+live adapter; `TransyncGoogle::offline` builds the same non-secret identity
+without inspecting either credential source. CLI selection and environment
+precedence are in §6. The facade does not re-export this adapter.
+
+The Developer surface sends a Gemini `generateContent` request with its API
+key. Vertex sends the corresponding publisher-model `generateContent` request
+under the selected project and `global`, `us` or `eu` location, authenticated
+by Application Default Credentials. Google request shaping and response
+classification remain inside this provider crate. Both surfaces use the shared
+prompt/schema/result parsers and ask Gemini for structured JSON. The
+`gemini-3.8-flash` default has a 65,536-token maximum output including thinking;
+an explicit larger output ceiling is `Unsupported` before any request. An
+absent or zero output ceiling omits `maxOutputTokens` from the request. The
+separate 20,000-token input target and 65,536-token output ceiling are CLI
+batching defaults, not one combined model budget; §6's explicit profile and
+flag values override them. The Google default expansion factor is 2.0 and
+the hard batch limit is 32 units.
+
+`fingerprint()` includes the chosen surface, model, effective endpoint and
+thinking level; Vertex additionally includes project and location. It excludes
+the API key and ADC token. A warm `--offline --cache-dir` run can therefore
+reuse the live run's entries without credentials, while a miss has the same
+`provider_unavailable` cause and exit 6 as §6. Base-URL overrides may be an
+origin or a version-prefixed URL such as `/v1beta` for Developer or `/v1` for
+Vertex; the adapter appends only the remaining model path. Remote URLs require
+HTTPS; HTTP is accepted only for loopback test servers.
+
+Transport classification follows the shared `TranslatorError` policy:
+`RESOURCE_EXHAUSTED` is `RateLimited` even on HTTP 403. Otherwise, 401/403 is
+`Authentication`, 429 is `RateLimited`, 408 and 5xx are `Network`, and another
+non-2xx response is `ProviderRejected`.
+Prompt/candidate safety feedback is `ContentFiltered`, `MAX_TOKENS` is
+`OutputCeilingExhausted`, and a missing or invalid response envelope is
+`MalformedResponse`. Core, not this adapter, owns retry and fallback.

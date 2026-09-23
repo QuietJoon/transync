@@ -2,15 +2,15 @@
 type: Reference
 title: CLI 레퍼런스
 description: "`transync translate` 및 `transync serve`에 대한 모든 플래그, 기본값, 제한, 종료 코드, 환경 변수 및 stderr 라인 설명."
-tags: [cli, reference, flags, exit-codes, serve, SCN-12, SCN-13, DCR-0026, DCR-0028]
+tags: [cli, reference, flags, exit-codes, serve, SCN-12, SCN-13, DCR-0026, DCR-0028, DCR-0058]
 audience: user
 language: ko
 sources:
   - { id: en-source, resource: manual/reference/user/en/cli.md }
 generated:
-  by: gemini/gemini-3.6-flash
-  at: 2026-08-12T11:16:57Z
-synced_hash: e34d158712425a957780688d456435769c1a3fb96eb1ada912750cbffc1c92b9
+  by: codex/gpt-6
+  at: 2026-09-23T05:37:42Z
+synced_hash: 87f80ddd7a4c193119acbf3fefe2ad9e960104a7673aadd899754080ae6e175c
 ---
 # CLI 레퍼런스
 
@@ -37,14 +37,19 @@ synced_hash: e34d158712425a957780688d456435769c1a3fb96eb1ada912750cbffc1c92b9
 | `--profile <path>` | 아니오 | 내장된 기본 프로필 | 사용자 지정 프로필 TOML. 내장된 프로필을 **대체**하며; 병합되지 않습니다. [프로필 TOML 스키마](./profile-toml-schema.md)를 참조하십시오. |
 | `--system-prompt <text>` | `--system-prompt-file`과 상호 배타적 | — | 활성 프로필의 `[system].prompt` 본문을 대체합니다. 템플릿 변수는 여전히 치환됩니다. |
 | `--system-prompt-file <path>` | `--system-prompt`와 상호 배타적 | — | 파일에서 읽어오는 동일한 기능 (4 MiB 제한). |
-| `--model <id>` | 아니오 | `$TRANSYNC_OPENAI_MODEL`, 없으면 `gpt-5-chat-latest` | 제공자에게 전달되는 모델 ID. 환경 변수가 먼저 해소되므로 파서 기본값이 없습니다. 명시적으로 빈 값은 종료 `1`입니다. |
-| `--base-url <url>` | 아니오 | `$TRANSYNC_OPENAI_BASE_URL`, 없으면 `https://api.openai.com` | 제공자 엔드포인트. 동일한 이유로 파서 기본값이 없습니다. 파싱할 수 없는 URL은 종료 `1`입니다. |
+| `--provider <openai\|google>` | 아니오 | `openai` | CLI 제공자를 선택합니다. 플래그가 `TRANSYNC_PROVIDER`보다 우선합니다. Anthropic은 라이브러리에서만 사용할 수 있습니다. |
+| `--google-surface <vertex\|developer>` | 아니오 | Google 선택 시 `vertex` | Vertex는 Google Cloud 프로젝트와 애플리케이션 기본 사용자 인증 정보(ADC)를 사용하고, Developer는 `GEMINI_API_KEY`를 사용합니다. 키가 있다고 API 경로가 자동 선택되지는 않습니다. |
+| `--google-project <id>` | Vertex 전용 | `$GOOGLE_CLOUD_PROJECT` | Google Cloud 프로젝트 ID. 실제 Vertex 호출에는 필수입니다. |
+| `--google-location <global\|us\|eu>` | Vertex 전용 | `$GOOGLE_CLOUD_LOCATION`, 없으면 `global` | Vertex 처리 위치를 지정합니다. |
+| `--google-thinking <low\|medium\|high>` | Google 전용 | `$TRANSYNC_GOOGLE_THINKING`, 없으면 `low` | 사고 수준을 지정합니다. 사고 토큰은 출력 토큰에 포함됩니다. |
+| `--model <id>` | 아니오 | 선택한 제공자의 모델 환경 변수, 없으면 OpenAI는 `gpt-5-chat-latest`, Google은 `gemini-3.8-flash` | 제공자에게 전달되는 모델 ID. 명시적으로 빈 값은 종료 `1`입니다. |
+| `--base-url <url>` | 아니오 | 선택한 제공자/API 경로의 URL 환경 변수, 없으면 공식 엔드포인트 | 제공자 엔드포인트. Google에서는 HTTPS 원점이나 버전 접두 경로(`/v1beta`: Developer, `/v1`: Vertex)를 사용할 수 있습니다. HTTP는 루프백 테스트 서버에만 허용됩니다. 사용자 정보, 쿼리, 프래그먼트는 허용되지 않습니다. 유효하지 않은 URL은 종료 `1`입니다. |
 | `--cache-dir <path>` | 아니오 | 없음 — 실행당 별도의 메모리 내 캐시 | 이 디렉터리에 디스크 기반 번역 캐시를 열고(없으면 생성) `transync-cache.jsonl`에 기록합니다. 동일한 프로필, 모델 및 언어 아래에서 동일한 문서에 대한 이후 실행은 변경된 내용만 다시 디스패치하며, 완전 캐시 히트 `--source-language auto` 실행은 첫 번째 실행의 감지된 언어를 여전히 보고합니다. 한 번에 하나의 작성자만 허용됩니다. 열 수 없는 디렉터리는 한 번 경고하고 실행은 새 메모리 내 캐시에서 속행됩니다. |
 | `--force` | 아니오 | off | `--html-out` 디렉터리에 쓰거나 transync가 작성하지 않은 파일을 보유한 `--out-dir` 대상을 대체할 때 외부 파일 거부를 무효화합니다. transync 자체의 이전 번들이나 출력 세트를 오버라이드하는 데는 필요하지 않습니다. |
-| `--target-output-tokens <n>` | 아니오 | `8000` (내장된 기본 프로필 제공) | 배치당 출력 토큰 상한: 제공자에게 응답 상한으로 전송되며 패커가 배치하는 예산으로 사용됩니다. `[batching].target_output_tokens`를 덮어씁니다. `0`은 상한을 비활성화합니다. [배치 처리 및 동시성](#batching-and-concurrency)을 참조하십시오. |
+| `--target-output-tokens <n>` | 아니오 | OpenAI는 `8000`, 사용자 지정 프로필이 없는 Google은 `65536` | 배치당 출력 토큰 상한: 제공자에게 응답 상한으로 전송되며 패커가 배치하는 예산으로 사용됩니다. `[batching].target_output_tokens`를 덮어씁니다. `0`은 상한을 비활성화합니다. [배치 처리 및 동시성](#batching-and-concurrency)을 참조하십시오. |
 | `--output-expansion-factor <f>` | 아니오 | `2.0` | 배치를 배치하는 데 사용되는 추정 출력 대 원문 토큰 비율. 0보다 큰 유한한 숫자여야 합니다; `1.0` 미만의 값도 합법적입니다. |
-| `--target-input-tokens-per-batch <n>` | 아니오 | `6000` | 소프트 배치당 입력 토큰 예산; `n >= 1`. |
-| `--max-units-per-batch <n>` | 아니오 | `8` (내장된 기본 프로필 제공) | 배치당 유닛 수에 대한 하드 캡; `n >= 1`. |
+| `--target-input-tokens-per-batch <n>` | 아니오 | OpenAI는 `6000`, 사용자 지정 프로필이 없는 Google은 `20000` | 소프트 배치당 입력 토큰 예산; `n >= 1`. |
+| `--max-units-per-batch <n>` | 아니오 | OpenAI는 `8`, 사용자 지정 프로필이 없는 Google은 `32` | 배치당 유닛 수에 대한 하드 캡; `n >= 1`. |
 | `--table-strategy <whole-block\|row-window-first>` | 아니오 | `row-window-first` (내장된 기본 프로필 제공) | 추정 응답이 출력 상한을 초과하는 테이블에 일어나는 일. `row-window-first`는 패킹 시점에 헤더를 전달하는 행 윈도우로 분할하고 나중에 하나의 테이블로 재조합합니다; `whole-block`은 전체를 전송합니다. `[constraints].default_table_strategy`를 덮어씁니다. 다른 모든 값은 종료 `1`입니다. 상한이 없을 때는 비활성입니다. |
 | `--max-concurrent-batches <n>` | 아니오 | `6` | 인플라이트(in-flight) 제공자 요청; `n >= 1`. 프로필 홈이 없는 유일한 배치 처리 노브. |
 | `--auto-glossary` | `--no-auto-glossary`와 상호 배타적 | off | 이 실행에 대해 자동 추출된 후보 용어집 프리플라이트를 실행합니다 — 배치 처리 전 1회의 추가 제공자 호출. |
@@ -278,15 +283,26 @@ keep-alive는 없습니다: 연결당 정확히 하나의 요청만 읽습니다
 
 | 변수 | 기본값 | 효과 |
 |---|---|---|
-| `OPENAI_API_KEY` | — | 라이브 제공자에 필요함. 환경에서 읽히며 어디에도 결코 작성되지 않음. |
+| `TRANSYNC_PROVIDER` | `openai` | `--provider`가 없을 때 `openai` 또는 `google`을 선택합니다. |
+| `OPENAI_API_KEY` | — | 실제 OpenAI 호출에만 필요합니다. 환경에서 읽으며 어디에도 기록하지 않습니다. |
 | `TRANSYNC_OPENAI_MODEL` | `gpt-5-chat-latest` | `--model`이 없을 때의 모델 ID. 빈 값 또는 공백만 있는 값은 무시되고 기본값이 적용됨. |
 | `TRANSYNC_OPENAI_BASE_URL` | `https://api.openai.com` | `--base-url`이 없을 때의 제공자 엔드포인트 — OpenAI 호환 프록시, 게이트웨이 또는 로컬 서버. 빈 값은 무시됨. 파싱 불가능한 값은 종료 `1`. |
 | `TRANSYNC_OPENAI_API` | 모델 주도 | `chat` 또는 `responses`; 엔드포인트 디스패치 휴리스틱의 명시적 오버라이드. 어댑터 생성 시 한 번 읽힘. |
+| `TRANSYNC_GOOGLE_SURFACE` | `vertex` | `--google-surface`가 없을 때의 Google API 경로: `vertex` 또는 `developer`. |
+| `TRANSYNC_GOOGLE_MODEL` | `gemini-3.8-flash` | `--model`이 없을 때의 Google 모델. |
+| `TRANSYNC_GOOGLE_THINKING` | `low` | `--google-thinking`이 없을 때의 사고 수준. |
+| `GOOGLE_CLOUD_PROJECT` | — | `--google-project`가 없을 때의 Vertex 프로젝트. 실제 Vertex 호출에 필수입니다. |
+| `GOOGLE_CLOUD_LOCATION` | `global` | `--google-location`이 없을 때의 Vertex 위치: `global`, `us`, `eu`. |
+| `TRANSYNC_GOOGLE_VERTEX_BASE_URL` | 공식 Vertex 엔드포인트 | `--base-url`이 없을 때의 Vertex URL. |
+| `TRANSYNC_GOOGLE_DEVELOPER_BASE_URL` | 공식 Developer 엔드포인트 | `--base-url`이 없을 때의 Developer URL. |
+| `GEMINI_API_KEY` | — | 실제 Developer API 호출에 필수입니다. 키만으로 Google 또는 API 경로가 자동 선택되지는 않습니다. |
 | `RUST_LOG` | 미설정 | 플래그 도출 트레이싱 바닥을 대체하기보다 그 **위에** 레이어링되므로 `RUST_LOG=transync::pipeline=trace`는 하나 대상을 넓히고 다른 모든 것은 바닥에 둡니다. 바닥: `--quiet`는 `off`이며 `RUST_LOG`를 전혀 참조하지 않음; 플래그 없음은 `warn`; `--verbose`는 `debug`. 파싱 불가능한 지시어는 `transync: ignoring unparsable RUST_LOG directive {directive}: {e}`를 출력하고 건너뜀; 변수의 나머지는 여전히 적용됨. |
 
 라이브러리 `tracing` 레코드는 타임스탬프 없이 명령 자체의 라인과 동일한 stderr에 `LEVEL target: message`로 출력됩니다.
 
-두 번째 제공자 크레이트인 `transync-anthropic`이 워크스페이스에 존재하며 자체 `ANTHROPIC_API_KEY`, `TRANSYNC_ANTHROPIC_MODEL` 및 `TRANSYNC_ANTHROPIC_BASE_URL`을 읽습니다 — 그러나 제공자를 선택하는 CLI 플래그가 없으며 바이너리는 OpenAI 어댑터에만 의존하므로 세 변수 중 어느 것도 `transync` 호출에 영향을 미치지 않습니다.
+`--provider google`은 기본적으로 Vertex를 선택하므로 Google Cloud 프로젝트에서 적용 가능한 체험 크레딧을 사용할 수 있습니다. 공개된 90일/$300 Cloud 체험 조건에서는 Gemini Developer API / AI Studio 요금을 제외합니다. 유료 Vertex 실행 전에는 자신의 프로젝트에서 크레딧 적용 여부를 확인하세요. 사용자 지정 프로필이 없는 Google 실행은 입력 20,000토큰, 별도의 출력 상한 65,536토큰, 배치당 32유닛, 출력 확장 계수 2.0을 기본값으로 사용합니다. 설정 명령과 기준일이 명시된 가격은 [개발자 안내서](../../../../docs/Developer_Guide.md#google-gemini-provider)를 참조하세요.
+
+`transync-anthropic`은 라이브러리 전용 어댑터입니다. `ANTHROPIC_API_KEY`, `TRANSYNC_ANTHROPIC_MODEL`, `TRANSYNC_ANTHROPIC_BASE_URL`은 `transync` CLI 호출에 영향을 미치지 않습니다.
 
 4개 추가 변수는 `test-stub-provider` cargo 기능을 탑재한 빌드에만 존재하며 릴리스 바이너리에는 없습니다: `TRANSYNC_STUB_ECHO_PATH`, `TRANSYNC_STUB_MODE`, `TRANSYNC_STUB_DETECT`, `TRANSYNC_STUB_GLOSSARY`.
 

@@ -264,7 +264,8 @@ Run all of them on the exact commit from step 1, and keep the output.
    -- --test-threads=4`, the CLI stub suite, the rustdoc gate
    (`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` over `transync-lang`,
    `transync-html`, `transync-syntax`, `transync-core`, `transync`,
-   `transync-openai`, `transync-anthropic` and `transync-wasm` — every member
+   `transync-openai`, `transync-anthropic`, `transync-google` and
+   `transync-wasm` — every member
    with a library target, the list owned by `scripts/lib/rustdoc-gate.sh`),
    plus a second leg over bin-only `transync-cli` with
    `--document-private-items` (`RUSTDOC_GATE_BIN_CRATES`, added 2026-09-06;
@@ -385,13 +386,14 @@ Run all of them on the exact commit from step 1, and keep the output.
 
 10. **Decide whether the gate is triggered — by inspection, not recall.** It
     is triggered if the release range touches `transync-openai`,
+    `transync-google`,
     `transync-core::llm::prompt`, the output schema (the Structured Output
     schema object and the `TranslationBatchResult` envelope the model has to
     fill), or batching:
 
     ```bash
     git diff --stat v<prev>..HEAD -- \
-      crates/transync-openai \
+      crates/transync-openai crates/transync-google \
       crates/transync-core/src/llm crates/transync-core/src/llm.rs \
       crates/transync-core/src/batch.rs \
       crates/transync-core/src/unit crates/transync-core/src/unit.rs
@@ -416,23 +418,25 @@ Run all of them on the exact commit from step 1, and keep the output.
 11. **Run it — by leg name, not by the bare default.**
     `OPENAI_API_KEY=… ./scripts/smoke-live-gate.sh chat`, then the same with
     `responses`: two tiny mini-model calls, one per OpenAI API surface. The
-    script takes `chat|responses|anthropic|all` and defaults to **`all`**,
-    which since DCR-0029 is *three* legs and demands **both** keys —
-    `require_key ANTHROPIC_API_KEY` refuses up front, before a test target
-    compiles — so the bare form refuses outright in this environment, where
-    there is no `ANTHROPIC_API_KEY` (`status.md` carries that as a standing
-    gap, and the `anthropic` leg has never been executed here). The script
-    supplies both gates the `#[ignore]`d tests require and refuses to run
-    without the key the requested leg needs. A failure means real
+    script takes `chat|responses|anthropic|google-vertex|google-developer|all`
+    and defaults to **`all`**, now five legs. It requires OpenAI and Anthropic
+    keys, a Google Cloud project with ADC for Vertex, and a Gemini API key for
+    Developer. Run `./scripts/smoke-live-gate.sh google-vertex` and
+    `./scripts/smoke-live-gate.sh google-developer` separately when those
+    credentials are configured. The bare form refuses without
+    `ANTHROPIC_API_KEY` in this environment (`status.md` carries that gap).
+    The script supplies both gates the `#[ignore]`d tests require and refuses
+    to run without a requested leg's key or project; the Vertex test loads ADC
+    at adapter construction. A failure means real
     drift — transport, auth, schema, or model behavior — because the
     assertions are structural (unit count, matching anchor counts,
     `fallback_source < total_units`, non-empty output differing from the
     source), not textual. If a default model identifier has been retired the
-    failure surfaces at the provider: use `TRANSYNC_LIVE_SMOKE_CHAT_MODEL` /
-    `TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL` (and
-    `TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL`, whose default is
-    `claude-haiku-4-5`, if the third leg is ever run) rather than reading it
-    as a code regression.
+    failure surfaces at the provider: use `TRANSYNC_LIVE_SMOKE_CHAT_MODEL`,
+    `TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL`,
+    `TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL` (default `claude-haiku-4-5`), or
+    `TRANSYNC_LIVE_SMOKE_GOOGLE_MODEL` (default `gemini-3.8-flash`) rather
+    than reading it as a code regression.
 
 12. **Record the outcome in the release's CHANGELOG section — date and every
     model name.** The v0.2.0 shape: “Release gate (OI-0030):
@@ -440,9 +444,10 @@ Run all of them on the exact commit from step 1, and keep the output.
     machine-asserted live round-trips against `<chat-model>` (Chat
     Completions) and `<responses-model>` (Responses).” Name the legs that
     ran **and** the legs that did not, so that `2/2` reads as the two OpenAI
-    surfaces rather than as the whole gate — the `anthropic` leg (DCR-0029)
-    is the one that has never been run here, and a release that skips it says
-    so. If the gate was *not* triggered, say so explicitly — an absent line
+    surfaces rather than as the whole gate. Record `anthropic`,
+    `google-vertex` and `google-developer` separately as passed, failed or
+    unrun; a release that skips a leg says so. If the gate was *not* triggered,
+    say so explicitly — an absent line
     is indistinguishable from a forgotten one.
 
 ## D. CHANGELOG
@@ -490,16 +495,16 @@ Run all of them on the exact commit from step 1, and keep the output.
 
 ## E. Version bump
 
-17. **Bump the version — and the five requirements that shadow it.** `version`
-    under `[workspace.package]` in the root `Cargo.toml`. All nine members
+17. **Bump the version — and the six requirements that shadow it.** `version`
+    under `[workspace.package]` in the root `Cargo.toml`. All ten members
     inherit it through `version.workspace = true`; there is no per-crate
     version to edit. (`crates/transync-wasm` additionally carries `publish =
     false`.)
 
-    The root `[workspace.dependencies]` table now also carries the five
+    The root `[workspace.dependencies]` table now also carries the six
     internal members as `{ version = "X.Y.Z", path = "crates/…" }`
     (`transync-html`, `transync-syntax`, `transync-core`, `transync`,
-    `transync-openai`) —
+    `transync-openai`, `transync-google`) —
     the version requirement `cargo publish` demands, per step 19. **Those do
     not inherit**, so they move in the same edit; they sit directly under
     `[workspace.package]` for exactly that reason. A minor or major bump that
@@ -523,18 +528,18 @@ Run all of them on the exact commit from step 1, and keep the output.
     `env!("CARGO_PKG_VERSION")` and `crates/transync/tests/public_surface.rs`
     pins the two together (DCR-0017 M6), so the bump has to stay green, not
     merely compile. `Cargo.lock` **is** committed (owner decision 2026-08-06,
-    `6cf4164`, reversing OI-0020's deferral), so the bump rewrites the **nine**
+    `6cf4164`, reversing OI-0020's deferral), so the bump rewrites the **ten**
     workspace entries in it — one per member, and `grep -c '^name = "transync'
     Cargo.lock` is how you check the number rather than remembering it; it read
     six when this line was written and grew with `transync-html`,
-    `transync-lang` and `transync-wasm` — and that diff belongs in the
+    `transync-lang`, `transync-wasm` and `transync-google` — and that diff belongs in the
     release-prep commit.
     The exact `wasm-bindgen = "=0.2.126"` pin in the root manifest is the
     control that does not depend on anyone honoring the lockfile, and must not
     be loosened as part of a release.
 
 19. **Which members publish — and why the release still does not publish
-    them.** Eight members are ordinary crates.io packages, and a first
+    them.** Nine members are ordinary crates.io packages, and a first
     publication has to walk them in dependency order:
 
     | # | Member | Publishes | Why |
@@ -546,11 +551,12 @@ Run all of them on the exact commit from step 1, and keep the output.
     | 5 | `transync` | yes | the facade — the crate downstreams are meant to name |
     | 6 | `transync-openai` | yes | the default provider |
     | 7 | `transync-anthropic` | yes | the second provider (DCR-0029); depends on `transync` only, so it may publish any time after #5 |
-    | 8 | `transync-cli` | yes | the reference binary (`cargo install transync-cli` installs `transync`) |
+    | 8 | `transync-google` | yes | the Gemini Developer/Vertex provider (DCR-0058); depends on `transync` only, so it may publish any time after #5 |
+    | 9 | `transync-cli` | yes | the reference binary (`cargo install transync-cli` installs `transync`) |
     | — | `transync-wasm` | **no** (`publish = false`) | a build target for the browser demo, not a library anyone depends on (ADR-0019) |
 
     That set is the reason the root `[workspace.dependencies]` table carries
-    the five internal members with a `version` beside their `path` (step 17):
+    the six internal members with a `version` beside their `path` (step 17):
     packaging strips `path` and resolves the requirement from the registry, so
     a path-only internal dependency makes its package unpublishable outright
     (R0001-0040). `transync-wasm` needs no requirement of its own — it is
@@ -558,8 +564,9 @@ Run all of them on the exact commit from step 1, and keep the output.
     one place the edge is written. **`transync-anthropic` has no entry either,
     and that one is not an accident**: the table declares the edges members
     take *on each other*, and nothing in the workspace depends on the
-    Anthropic adapter (the reference CLI stays OpenAI-backed by DCR-0029's
-    scope). Its own outgoing edges — `transync`, plus the two dev-only ones —
+    Anthropic adapter (the CLI now supports OpenAI and Google, while Anthropic
+    remains library-only). Its own outgoing edges — `transync`, plus the two
+    dev-only ones —
     take their `version` from this table via `workspace = true`, which is all
     packaging needs; an entry naming a member nothing depends on is a
     requirement that will never be exercised, and
@@ -589,7 +596,7 @@ Run all of them on the exact commit from step 1, and keep the output.
     cargo publish --dry-run --workspace
     ```
 
-    It packages and verify-builds all eight and skips the `publish = false`
+    It packages and verify-builds all nine and skips the `publish = false`
     member by itself. Budget for it: each package is verified in its **own**
     sandbox under `<target>/package/`, so the shared dependency graph is
     rebuilt from scratch once per package — 2m13s + 8m25s + 8m46s + 10m02s +
@@ -598,7 +605,8 @@ Run all of them on the exact commit from step 1, and keep the output.
     roughly `transync-openai`'s size on top of that, `transync-html`
     (added 2026-08-20, DCR-0032) a seventh, and `transync-lang`
     (added 2026-09-02, ti `e4f4b0`) an eighth — the smallest in the roster,
-    one dependency and no internal edge. This is why it is a
+    one dependency and no internal edge. `transync-google` adds a ninth
+    package sandbox. This is why it is a
     release step and not part of `scripts/smoke.sh`. Two more things to know
     before reading a failure:
 
@@ -611,7 +619,7 @@ Run all of them on the exact commit from step 1, and keep the output.
       (`<target>/package/tmp-registry`), which is what the log's `Unpacking
       transync-syntax v0.2.0 (registry …tmp-registry)` lines are. The same
       asymmetry applies to the real thing: the first publication is one
-      `--workspace` invocation, not eight `-p` ones.
+      `--workspace` invocation, not nine `-p` ones.
     - **Uncommitted or untracked files under a package fail it** ("N files in
       the working directory contain changes that were not yet committed into
       git"). On the release-prep commit from step 1 there is nothing dirty;
