@@ -84,13 +84,13 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "async-trait"
-version = "0.1.89"
+version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -2753,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "transync"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "async-trait",
  "comrak",
@@ -2765,7 +2765,7 @@ dependencies = [
 
 [[package]]
 name = "transync-anthropic"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "async-trait",
  "reqwest 0.12.28",
@@ -2783,12 +2783,13 @@ dependencies = [
 
 [[package]]
 name = "transync-cli"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "clap",
  "secrecy",
  "serde_json",
  "tokio",
+ "tracing",
  "tracing-subscriber",
  "transync",
  "transync-google",
@@ -2798,7 +2799,7 @@ dependencies = [
 
 [[package]]
 name = "transync-core"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "async-trait",
  "caseless",
@@ -2819,7 +2820,7 @@ dependencies = [
 
 [[package]]
 name = "transync-google"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "async-trait",
  "google-cloud-auth",
@@ -2839,7 +2840,7 @@ dependencies = [
 
 [[package]]
 name = "transync-html"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "htmlize",
  "lol_html",
@@ -2847,14 +2848,14 @@ dependencies = [
 
 [[package]]
 name = "transync-lang"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "whichlang",
 ]
 
 [[package]]
 name = "transync-openai"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "async-trait",
  "reqwest 0.12.28",
@@ -2872,7 +2873,7 @@ dependencies = [
 
 [[package]]
 name = "transync-syntax"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "comrak",
  "serde",
@@ -2885,7 +2886,7 @@ dependencies = [
 
 [[package]]
 name = "transync-wasm"
-version = "0.5.0"
+version = "0.6.0-dev"
 dependencies = [
  "serde",
  "serde_json",

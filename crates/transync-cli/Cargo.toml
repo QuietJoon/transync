@@ -53,4 +53,5 @@ clap               = { workspace = true }
 tokio              = { workspace = true, features = ["net", "io-util", "fs", "signal"] }
 url                = { workspace = true }
 secrecy            = { workspace = true }
+tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
