@@ -319,7 +319,7 @@ export function mountSync(sourcePane, targetPane, alignmentMap) {
     const pane = ctx.pane;
     return (event) => {
       const details = event.target;
-      if (!details || details.tagName !== "DETAILS") return;
+      if (details?.tagName !== "DETAILS") return;
       const anchor = details.closest("[data-sync-id]");
       if (!anchor || !pane.contains(anchor)) return;
       // R0004-0087: a disclosure opening or closing is a CONTENT reflow —
@@ -559,7 +559,7 @@ function wireReducedMotion(state) {
 // Tear down whichever controller this module last mounted on `pane`, if any.
 // R0008-0048.
 function destroyExisting(pane) {
-  const existing = pane && pane.__transyncController;
+  const existing = pane?.__transyncController;
   if (existing && typeof existing.destroy === "function") {
     existing.destroy();
   }
@@ -685,7 +685,7 @@ function collectAnchors(pane, label, rowIds, quiet) {
 // count because `validateRows` refuses a duplicate `source_block_id` before
 // either is asked.
 function synchronizableRowIds(alignmentMap) {
-  const rows = Array.isArray(alignmentMap && alignmentMap.blocks) ? alignmentMap.blocks : [];
+  const rows = Array.isArray(alignmentMap?.blocks) ? alignmentMap.blocks : [];
   const ids = new Set();
   for (const row of rows) {
     if (row && row.sync_role !== "non-sync") ids.add(row.source_block_id);
@@ -748,7 +748,7 @@ function verdictChanged(latch, key, verdict) {
 // anchor that disappears (or arrives) after mount is reported once, and a
 // resize drag over an unchanged pane prints nothing.
 function warnMapDomDrift(alignmentMap, sourceById, targetById, latch) {
-  const rows = Array.isArray(alignmentMap && alignmentMap.blocks) ? alignmentMap.blocks : [];
+  const rows = Array.isArray(alignmentMap?.blocks) ? alignmentMap.blocks : [];
   // Every finding is collected before anything is printed, because the latch
   // (OI-0047) turns on the WHOLE verdict: "p-2 missing in target" and "p-2
   // missing in target, p-7 missing in source" are different findings, and only
@@ -826,7 +826,7 @@ function warnOffsetParentDrift(pane, blocks, label, latch) {
   const key = `offset-parent:${label}`;
   const probe = blocks[0];
   if (!probe) return;
-  const view = pane.ownerDocument && pane.ownerDocument.defaultView;
+  const view = pane.ownerDocument?.defaultView;
   if (!view || typeof view.getComputedStyle !== "function") return;
   if (view.getComputedStyle(pane).position !== "static") {
     verdictChanged(latch, key, "ok");
@@ -878,7 +878,7 @@ function loadAlignment(alignmentMap) {
   // past any schema this project will publish and keeps every component a
   // safe integer by construction, so `Number` below cannot lose precision.
   const match = /^(\d{1,9})\.(\d{1,9})\.(\d{1,9})$/.exec(v);
-  if (!match || match[1] !== "1") {
+  if (match?.[1] !== "1") {
     console.warn(`transync: rejecting alignment map with unknown major schema_version=${v}`);
     return false;
   }
@@ -990,7 +990,7 @@ function validateRows(blocks, forwardDrift) {
     // type, so there is no forward-compat reading of this.
     if (targetId !== undefined && targetId !== null && typeof targetId !== "string") {
       console.warn(
-        `transync: rejecting alignment map — ${at} ("${id}") has a ` + `non-string target_block_id`,
+        `transync: rejecting alignment map — ${at} ("${id}") has a non-string target_block_id`,
       );
       return false;
     }
@@ -1340,7 +1340,7 @@ function ensureSmoothLoop(pane, label, state) {
     prevTs = ts;
     const factor = state.reduceMotion
       ? 1
-      : 1 - Math.pow(1 - SMOOTHING_FACTOR, elapsed / NOMINAL_FRAME_MS);
+      : 1 - (1 - SMOOTHING_FACTOR) ** (elapsed / NOMINAL_FRAME_MS);
     pane.scrollTop = current + delta * factor;
     if (pane.scrollTop === current) {
       // Integer-quantizing browsers can swallow sub-pixel lerp steps;
@@ -1557,7 +1557,7 @@ export async function fetchOk(path, parser, options) {
     if (timedOut) {
       throw new Error(`timed out loading ${path} after ${timeoutMs} ms`);
     }
-    if (signal && signal.aborted) {
+    if (signal?.aborted) {
       throw new Error(`cancelled loading ${path}`);
     }
     throw err;

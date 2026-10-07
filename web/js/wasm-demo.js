@@ -182,7 +182,7 @@ function parseSemver(value) {
  */
 function alignmentSchemaVerdict(map) {
   const known = parseSemver(KNOWN_SCHEMA);
-  const raw = map && map.schema_version;
+  const raw = map?.schema_version;
   const found = parseSemver(raw);
   if (!found || found.major !== known.major) {
     return {
@@ -216,7 +216,7 @@ function alignmentSchemaVerdict(map) {
  * later loop honest even if the order of the gates ever changes.
  */
 function mapRows(map) {
-  const rows = map && map.blocks;
+  const rows = map?.blocks;
   return Array.isArray(rows) ? rows : [];
 }
 
@@ -228,12 +228,11 @@ function mapRows(map) {
  * with an empty edit model.
  */
 function blocksVerdict(map) {
-  const rows = map && map.blocks;
+  const rows = map?.blocks;
   if (rows === undefined || rows === null || Array.isArray(rows)) return { ok: true };
   return {
     ok: false,
-    message:
-      `alignment map "blocks" is ${typeof rows}, not an array of rows ` + `— refusing to mount`,
+    message: `alignment map "blocks" is ${typeof rows}, not an array of rows — refusing to mount`,
   };
 }
 
@@ -257,7 +256,7 @@ function blocksVerdict(map) {
 function duplicateRowVerdict(map) {
   const seen = new Set();
   for (const row of mapRows(map)) {
-    const id = row && row.source_block_id;
+    const id = row?.source_block_id;
     // Anything else about the row is `render_pair`'s verdict to give.
     if (typeof id !== "string" || id === "") continue;
     if (seen.has(id)) {
@@ -304,7 +303,7 @@ function sliceBytes(bytes, range) {
  * reads.
  */
 function isEditableRow(row) {
-  const id = row && row.source_block_id;
+  const id = row?.source_block_id;
   if (typeof id !== "string" || id === "") return false;
   return row.block_kind !== "html" && row.block_kind !== "skipped" && row.sync_role !== "non-sync";
 }
@@ -349,8 +348,8 @@ function targetRangeVerdict(bytes, map) {
     if (!isEditableRow(row)) continue;
     const id = row.source_block_id;
     const range = row.target_range;
-    const start = range && range.start;
-    const end = range && range.end;
+    const start = range?.start;
+    const end = range?.end;
     const refuse = (why) => ({
       ok: false,
       message:
@@ -547,7 +546,7 @@ function mountPanes(srcHtml, tgtHtml, map, carry) {
     cleanSource = window.DOMPurify.sanitize(srcHtml);
     cleanTarget = window.DOMPurify.sanitize(tgtHtml);
   } catch (err) {
-    const why = `sanitizing the rendered HTML failed: ${err && err.message ? err.message : err}`;
+    const why = `sanitizing the rendered HTML failed: ${err?.message ? err.message : err}`;
     // Same presentation split as the refused-map branch below: with a render
     // to keep, this is a strip; at boot there is nothing to keep.
     if (previous.map) showError(`transync: ${why}, keeping the last good render`);
@@ -693,9 +692,9 @@ function wireEditing() {
     // Scoped with `contains` for the reason the anchor lookup below is:
     // `closest` walks past the pane, so an ancestor of the whole demo could
     // otherwise answer for a click inside it.
-    const control = node && node.closest ? node.closest(INTERACTIVE_SELECTOR) : null;
+    const control = node?.closest ? node.closest(INTERACTIVE_SELECTOR) : null;
     if (control && target.contains(control)) return;
-    const anchor = node && node.closest ? node.closest("[data-sync-id]") : null;
+    const anchor = node?.closest ? node.closest("[data-sync-id]") : null;
     if (!anchor || !target.contains(anchor)) return;
     const id = anchor.dataset.syncId;
     if (!state.editable.has(id)) {
@@ -713,7 +712,7 @@ function wireEditing() {
   target.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     const node = event.target;
-    const id = node && node.dataset ? node.dataset.syncId : undefined;
+    const id = node?.dataset ? node.dataset.syncId : undefined;
     if (id === undefined || !state.editable.has(id)) return;
     // Space scrolls the pane by default, which would carry the block that is
     // about to open out from under the reader.
@@ -827,7 +826,7 @@ function applyEdit() {
   } catch (err) {
     // Non-fatal by construction: nothing was mounted, so the previous
     // panes are still the last good render.
-    showError(`transync: rebuild failed: ${err && err.message ? err.message : err}`);
+    showError(`transync: rebuild failed: ${err?.message ? err.message : err}`);
     return;
   }
 
@@ -906,7 +905,7 @@ async function boot() {
           `after ${WASM_INIT_TIMEOUT_MS} ms`,
       );
     } else {
-      showFatal(`wasm init failed: ${err && err.message ? err.message : err}`);
+      showFatal(`wasm init failed: ${err?.message ? err.message : err}`);
     }
     return;
   } finally {
@@ -941,7 +940,7 @@ async function boot() {
     ]);
   } catch (err) {
     artifacts.abort();
-    showFatal(err && err.message ? err.message : String(err));
+    showFatal(err?.message ? err.message : String(err));
     return;
   }
 
@@ -949,7 +948,7 @@ async function boot() {
   try {
     map = JSON.parse(alignmentJson);
   } catch (err) {
-    showFatal(`alignment map is not JSON: ${err && err.message ? err.message : err}`);
+    showFatal(`alignment map is not JSON: ${err?.message ? err.message : err}`);
     return;
   }
 
@@ -999,7 +998,7 @@ async function boot() {
   try {
     pair = JSON.parse(render_pair(sourceMd, outMd, alignmentJson));
   } catch (err) {
-    showFatal(`render failed: ${err && err.message ? err.message : err}`);
+    showFatal(`render failed: ${err?.message ? err.message : err}`);
     return;
   }
 

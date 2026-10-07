@@ -863,7 +863,7 @@ test.describe("sync.js mount contract", () => {
   test("n — the SCN-16 HTML-run bundle's panes mount and sync by block id, direct-drive", async ({
     page,
   }) => {
-    const logs = collectConsole(page);
+    const _logs = collectConsole(page);
     const errors = collectPageErrors(page);
 
     // ti 490d97 wave 6 (spec §12's acceptance): the real bundle's pane

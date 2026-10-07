@@ -1,13 +1,19 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
-  // OI-0039 / DCR-0049, option A': biome is adopted FORMAT-ONLY.
+  // OI-0039 / DCR-0049 adopted biome FORMAT-ONLY; DCR-0056 turns the linter
+  // ON. The assist actions stay off.
   //
-  // The linter and the assist actions are off on purpose. Measurement over
-  // every JS blob version in the repository's reachable history produced 62
-  // lint diagnostics, 61 of which are one style preference
-  // (complexity/useOptionalChain) whose every fix rewrites a defensive guard
-  // inside the sync engine. Turning the linter on is a separate decision with
-  // its own record — do not flip it here as a drive-by.
+  // The lint half was deferred because 30 of the corpus's 36 diagnostics were
+  // one style preference (complexity/useOptionalChain) whose every fix
+  // rewrites a defensive guard inside the sync engine. Those rewrites are now
+  // applied: each is equivalent on a nullish receiver (`!a || a.b !== x` and
+  // `a?.b !== x` agree, and so do the `a && a.b` reads), and the Playwright
+  // suite covers the rewritten guards. The corpus lints clean, so the gate
+  // fails on the NEXT diagnostic rather than on a backlog.
+  //
+  // scripts/hooks/pre-commit runs `biome lint --error-on-warnings`, because
+  // biome exits 0 on warnings by default and a leg that exits 0 while
+  // reporting diagnostics is the exact defect OI-0039 was filed for.
   //
   // Scope: the authoritative file set is git's, not a directory walk.
   // scripts/hooks/pre-commit passes `git ls-files '*.js' '*.mjs' '*.cjs'`,
@@ -58,7 +64,7 @@
     "lineWidth": 100
   },
   "linter": {
-    "enabled": false
+    "enabled": true
   },
   "assist": {
     "enabled": false
