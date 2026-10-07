@@ -280,7 +280,32 @@ pub fn build_batches(
     // headings under one cohort has one finding to report, not fifty.
     let mut said_input_budget: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    let mut chunked: Vec<(Vec<TranslationUnit>, crate::profile::ProfileMetadata)> = Vec::new();
+    // DCR-0057: may adjacent whole sections share a batch? Unset is `true`,
+    // the shipped behavior; `false` restores DCR-0027 P2's strict confinement.
+    let coalesce = raw_profile.batching.coalesce_sections.unwrap_or(true);
+
+    // Pass 1 — resolve each section's two admission terms and emit the
+    // per-section glossary diagnostics.
+    //
+    // This stays exactly one iteration per section however the sections are
+    // grouped afterwards: `ever_applied` (G7) and `said_shadowings` (G5) are
+    // section-shaped, and a warning a section earned must not be merged away
+    // by coalescing.
+    //
+    // The two terms are what a *batch* — one provider request — cannot hold
+    // two answers to. The compiled system prompt follows the glossary cohort;
+    // the assembled instruction follows `DocumentFacts`, because
+    // `llm::prompt::build_user_prompt` asks `InstructionVariant::for_batch`,
+    // i.e. the batch's own membership. Coalescing sections that disagree on
+    // either would change the bytes a unit's request carries, and with them
+    // its `CacheKey` — so agreement on both is the admission test, and it is
+    // what keeps a coalesced batch's prompt byte-identical to the one its
+    // sections would have received alone.
+    let mut resolved: Vec<(
+        Vec<usize>,
+        crate::llm::prompt::DocumentFacts,
+        Vec<TranslationUnit>,
+    )> = Vec::with_capacity(sections.len());
     for sec in sections {
         for (i, e) in raw_profile.glossary.iter().enumerate() {
             if matches!(e.scope, crate::llm::GlossaryScope::ConditionalOnSection)
@@ -309,12 +334,35 @@ pub fn build_batches(
                 render_prompt_body(&cohort_raw, &opts.source_language, &opts.target_language);
             cohorts.insert(cohort_key.clone(), compiled);
         }
-        let cohort = &cohorts[&cohort_key];
-        // DCR-0027 §3: one budget per section, pricing the per-batch envelope
-        // reserve from THIS section's own compiled prompt. A section's cohort
-        // is knowable before packing — unlike the instruction's membership
-        // clauses, which is why those stay document-level — so the reserve gets
-        // more exact rather than more conservative.
+        let facts = crate::llm::prompt::DocumentFacts::of(&sec.units);
+        resolved.push((cohort_key, facts, sec.units));
+    }
+
+    // Pass 2 — pack each maximal run of admissible sections.
+    //
+    // With `coalesce` off a run is one section, which is DCR-0027 P2 exactly.
+    // With it on, consecutive sections agreeing on both terms pack together,
+    // whole sections at a time. Either way the packer is the same one: a
+    // single-section run yields precisely what the per-unit packer yielded
+    // before, because a section that fits its caps is one batch under both and
+    // an oversize section falls to the same P4 split under both.
+    let mut chunked: Vec<(Vec<TranslationUnit>, crate::profile::ProfileMetadata)> = Vec::new();
+    let mut start = 0usize;
+    while start < resolved.len() {
+        let mut end = start + 1;
+        if coalesce {
+            while end < resolved.len()
+                && resolved[end].0 == resolved[start].0
+                && resolved[end].1 == resolved[start].1
+            {
+                end += 1;
+            }
+        }
+        // DCR-0027 §3: the budget is priced from the run's own compiled
+        // prompt. Every section in the run shares one cohort by the admission
+        // test above, so this reserve is exact for all of them — the same
+        // property the per-section budget had, carried to the run.
+        let cohort = cohorts[&resolved[start].0].clone();
         let budget = budget::resolve(
             opts,
             &raw_profile,
@@ -328,17 +376,22 @@ pub fn build_batches(
         // the packer's `saturating_sub(...).max(1)` made that silent. Said
         // here rather than inside the packer because the packer also runs on
         // the retry path, where the finding is the same one and repeating it
-        // per round is noise; and deduped, because a heading-rich document
-        // resolves this budget once per section and the answer only varies
-        // with the cohort's compiled prompt.
+        // per round is noise; and deduped, because the answer only varies with
+        // the cohort's compiled prompt, so a document with fifty headings
+        // under one cohort has one finding to report.
         if let Some(w) = crate::batch::input_budget_warning(&budget, &bpe)
             && said_input_budget.insert(w.to_string())
         {
             tracing::warn!(target: "transync::profile", "{w}");
         }
-        for chunk in crate::batch::group_by_token_budget_with(sec.units, &budget, &bpe) {
+        let run: Vec<Vec<TranslationUnit>> = resolved[start..end]
+            .iter_mut()
+            .map(|(_, _, units)| std::mem::take(units))
+            .collect();
+        for chunk in crate::batch::group_sections_by_token_budget_with(run, &budget, &bpe) {
             chunked.push((chunk, cohort.clone()));
         }
+        start = end;
     }
 
     // G7: a section-scoped entry that matched no section of this document is
@@ -934,10 +987,21 @@ mod section_coherent_packing_tests {
         build_batches(&doc, &opts, None, &html_outcomes(&doc))
     }
 
-    /// A profile with `max_units_per_batch` set and nothing else touched.
+    /// A profile with `max_units_per_batch` set and nothing else touched —
+    /// so `coalesce_sections` is unset, i.e. the shipped default (DCR-0057).
     fn capped(max_units: u32) -> ProfileMetadata {
         let mut p = default_profile();
         p.batching.max_units_per_batch = Some(max_units);
+        p
+    }
+
+    /// [`capped`] with coalescing turned off: DCR-0027 P2's strict
+    /// confinement, where every batch's units come from exactly one section.
+    /// Still reachable, still specified, so still tested — the P1–P4 tests
+    /// below are its acceptance criteria and say so by taking this profile.
+    fn strict(max_units: u32) -> ProfileMetadata {
+        let mut p = capped(max_units);
+        p.batching.coalesce_sections = Some(false);
         p
     }
 
@@ -985,12 +1049,16 @@ mod section_coherent_packing_tests {
         src
     }
 
-    /// THE acceptance criterion: no batch holds units from two sections. The
-    /// cap here is *larger* than a section, so before DCR-0027 the packer
-    /// would have filled batches straight across the `##` boundaries.
+    /// THE acceptance criterion for strict confinement: no batch holds units
+    /// from two sections. The cap here is *larger* than a section, so only the
+    /// section rule can split — with coalescing off, that rule is absolute.
+    ///
+    /// DCR-0057 made this the opt-in shape rather than the only one, which is
+    /// why the profile is now [`strict`]; the property itself is unchanged and
+    /// is exactly what `coalesce_sections = false` buys.
     #[test]
     fn no_batch_straddles_a_section_boundary() {
-        let batches = batches_of(&sectioned_document(4, 2), capped(5));
+        let batches = batches_of(&sectioned_document(4, 2), strict(5));
         let section = section_of(&batches);
 
         assert!(batches.len() > 1, "the fixture produces several batches");
@@ -1020,7 +1088,10 @@ mod section_coherent_packing_tests {
         let batches = batches_of(
             "## Alpha\n\nalpha prose\n\n## Beta\n\nbeta prose\n",
             // A cap far above the unit count: only the section rule can split.
-            capped(64),
+            // Strict, because coalescing would merge these two sections into
+            // one batch and the merged order alone cannot tell "Beta rides
+            // with its own body" from "Beta rides with Alpha's".
+            strict(64),
         );
         assert_eq!(
             ids(&batches),
@@ -1029,11 +1100,13 @@ mod section_coherent_packing_tests {
         );
     }
 
-    /// P3: a section whose units fit the budget and the unit cap is exactly
-    /// one batch — one request per section, not one per unit.
+    /// P3: under strict confinement, a section whose units fit the budget and
+    /// the unit cap is exactly one batch — one request per section, not one
+    /// per unit. DCR-0057 relaxes the ceiling on this, never the floor: a
+    /// section that fits is still never split.
     #[test]
     fn a_section_that_fits_is_exactly_one_batch() {
-        let batches = batches_of(&sectioned_document(3, 3), capped(64));
+        let batches = batches_of(&sectioned_document(3, 3), strict(64));
         // Preamble + three sections, each whole.
         assert_eq!(batches.len(), 4, "{:?}", ids(&batches));
         assert_eq!(batches[0].units.len(), 1, "the preamble is its own section");
@@ -1065,6 +1138,113 @@ mod section_coherent_packing_tests {
         }
         // 1 preamble + two sections of 6 units each at a cap of 2 = 1 + 3 + 3.
         assert_eq!(batches.len(), 7, "{:?}", ids(&batches));
+    }
+
+    /// DCR-0057's headline: adjacent sections that fit share a batch. Same
+    /// fixture and same cap as [`no_batch_straddles_a_section_boundary`], so
+    /// the pair is a controlled comparison — only `coalesce_sections` differs.
+    #[test]
+    fn adjacent_sections_share_a_batch_when_they_fit() {
+        let src = sectioned_document(4, 2);
+        let coalesced = batches_of(&src, capped(5));
+        let confined = batches_of(&src, strict(5));
+
+        assert!(
+            coalesced.len() < confined.len(),
+            "coalescing buys requests back: {:?} vs {:?}",
+            ids(&coalesced),
+            ids(&confined)
+        );
+        // Preamble (1 unit) + section 0 (3) fit one batch of 5; each later
+        // section of 3 would take it to 6, so they pair off one per batch.
+        assert_eq!(
+            ids(&coalesced),
+            vec![
+                vec!["p-0001", "h2-0002", "p-0003", "p-0004"],
+                vec!["h2-0005", "p-0006", "p-0007"],
+                vec!["h2-0008", "p-0009", "p-0010"],
+                vec!["h2-0011", "p-0012", "p-0013"],
+            ],
+            "whole sections, packed to the cap"
+        );
+    }
+
+    /// The relaxation admits **whole** sections only: a batch is either N
+    /// whole sections or a fragment of one oversize section, never a whole
+    /// section plus the head of the next. Without this, a small section
+    /// sitting before an oversize one would have its batch topped up by the
+    /// big section's first units.
+    #[test]
+    fn a_coalesced_batch_never_ends_mid_section() {
+        let batches = batches_of(&sectioned_document(5, 2), capped(7));
+        let section = section_of(&batches);
+
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for b in &batches {
+            let sections: Vec<usize> = b
+                .units
+                .iter()
+                .map(|u| section[u.unit_id.0.as_str()])
+                .collect();
+            // No section this batch touches may already have been closed by an
+            // earlier batch — which is what a mid-section boundary would mean,
+            // since document order is preserved.
+            for s in &sections {
+                assert!(
+                    !seen.contains(s),
+                    "section {s} was split across batches: {:?}",
+                    ids(&batches)
+                );
+            }
+            seen.extend(sections);
+        }
+    }
+
+    /// An oversize section is DCR-0027 P4 under either setting, and it never
+    /// hosts a neighbor in either direction: it cannot join the batch before
+    /// it, and its trailing fragment cannot host the section after it — that
+    /// would put a boundary inside a fragment.
+    #[test]
+    fn an_oversize_section_does_not_coalesce_in_either_direction() {
+        // Preamble (1) · oversize section of 6 at cap 2 · small section (3).
+        let src = format!(
+            "{}\n## Small\n\nonly para\n",
+            sectioned_document(1, 5).trim_end()
+        );
+        let batches = batches_of(&src, capped(2));
+        let section = section_of(&batches);
+
+        for b in &batches {
+            let sections: std::collections::HashSet<usize> = b
+                .units
+                .iter()
+                .map(|u| section[u.unit_id.0.as_str()])
+                .collect();
+            assert_eq!(
+                sections.len(),
+                1,
+                "nothing merges around an oversize section: {:?}",
+                ids(&batches)
+            );
+        }
+    }
+
+    /// Coalescing is a packing relaxation and nothing else: it never reorders,
+    /// never drops, and never duplicates a unit. Asserted against the strict
+    /// packing of the same document, which is the same unit list.
+    #[test]
+    fn coalescing_changes_only_the_grouping() {
+        let src = sectioned_document(6, 3);
+        let flat = |bs: &[TranslationBatch]| -> Vec<String> {
+            bs.iter()
+                .flat_map(|b| b.units.iter().map(|u| u.unit_id.0.clone()))
+                .collect()
+        };
+        assert_eq!(
+            flat(&batches_of(&src, capped(64))),
+            flat(&batches_of(&src, strict(64))),
+            "same units, same order, different boxes"
+        );
     }
 
     /// Nothing is reordered: batching regroups requests, it never moves a unit
@@ -2083,9 +2263,16 @@ mod section_scoped_glossary_tests {
     /// The invisibility guarantee: a profile with no section-scoped entry
     /// compiles the byte-identical prompt it compiled before DCR-0027, for
     /// every batch — which is why no cache entry is orphaned (§6).
+    ///
+    /// Coalescing is turned off so the fixture still yields several batches:
+    /// the claim is "every batch reads the same bytes", and one batch cannot
+    /// witness it. DCR-0057 does not weaken the guarantee — see
+    /// `coalescing_moves_no_cache_key` — it just packs this fixture into one
+    /// request by default.
     #[test]
     fn a_glossary_without_section_scope_compiles_the_prompt_it_always_did() {
-        let profile = profile_with(vec![global("cell", "셀"), global("row", "행")]);
+        let mut profile = profile_with(vec![global("cell", "셀"), global("row", "행")]);
+        profile.batching.coalesce_sections = Some(false);
         let expected = render_prompt_body(&profile, "en", "ko");
         let (batches, said) = batch_and_capture(SOURCE, profile);
 

@@ -353,9 +353,8 @@ async fn abort_keeps_cached_progress() {
     );
 }
 
-/// DCR-0027, at scenario level: on a real 30-section document dispatched
-/// through `translate`, no batch the provider receives holds units from two
-/// sections.
+/// DCR-0027 P2, at scenario level: with `[batching].coalesce_sections =
+/// false`, no batch the provider receives holds units from two sections.
 ///
 /// The section a unit belongs to is re-derived here from the batches
 /// themselves — flatten them in dispatch order, start a new section at every
@@ -364,13 +363,21 @@ async fn abort_keeps_cached_progress() {
 /// paragraphs, well under the default caps, so the sanctioned oversize-section
 /// fallback never fires and the count is exactly one batch per section.
 ///
+/// DCR-0057 made this the opt-in shape; `sections_coalesce_into_fewer_batches`
+/// below is the scenario for the shipped default, and the two together are
+/// what SL-10 now means.
+///
 /// TRACE: DCR-0027
+/// TRACE: DCR-0057
 #[tokio::test]
 async fn no_batch_straddles_a_section_boundary() {
     let sections = 30usize;
     let source = generate_scn_10(sections);
     let translator = MockTranslator::recording();
-    let opts = crate::common::opts_for("ko");
+    let mut opts = crate::common::opts_for("ko");
+    let mut profile = transync::profile::default_profile();
+    profile.batching.coalesce_sections = Some(false);
+    opts.profile = Some(profile);
 
     translate(&source, &opts, &translator)
         .await
@@ -416,5 +423,68 @@ async fn no_batch_straddles_a_section_boundary() {
         sections,
         "every section of this fixture fits one batch, so there is exactly \
          one batch per section"
+    );
+}
+
+/// DCR-0057 at scenario level, and the reason it exists: the same 30-section
+/// document costs materially fewer provider requests under the shipped
+/// default, because its sections are small and nothing about them differs —
+/// one glossary cohort, one set of instruction clauses, so every section is
+/// admissible with its neighbors.
+///
+/// The assertion is a strict inequality against the confined count rather
+/// than a fixed number: what is being pinned is that coalescing happens and
+/// that it does not corrupt the unit set, not a particular packing arithmetic
+/// that the token budgets may legitimately move.
+///
+/// TRACE: DCR-0057
+/// TRACE: SCN-10
+#[tokio::test]
+async fn sections_coalesce_into_fewer_batches() {
+    let sections = 30usize;
+    let source = generate_scn_10(sections);
+
+    let run = |coalesce: bool| {
+        let source = source.clone();
+        async move {
+            let translator = MockTranslator::recording();
+            let mut opts = crate::common::opts_for("ko");
+            let mut profile = transync::profile::default_profile();
+            profile.batching.coalesce_sections = Some(coalesce);
+            opts.profile = Some(profile);
+            translate(&source, &opts, &translator)
+                .await
+                .expect("pipeline returns Ok against the SCN-10 30-section doc");
+            translator.recorded()
+        }
+    };
+
+    let coalesced = run(true).await;
+    let confined = run(false).await;
+
+    assert_eq!(
+        confined.len(),
+        sections,
+        "the confined baseline is still one batch per section"
+    );
+    assert!(
+        coalesced.len() < confined.len(),
+        "coalescing must buy requests back: {} vs {}",
+        coalesced.len(),
+        confined.len()
+    );
+
+    // Same units, same order, regrouped — a packing relaxation and nothing
+    // more. Both sides are sorted into document order first, as above.
+    let flatten = |mut bs: Vec<TranslationBatch>| -> Vec<String> {
+        bs.sort_by(|a, b| a.batch_id.0.cmp(&b.batch_id.0));
+        bs.iter()
+            .flat_map(|b| b.units.iter().map(|u| u.unit_id.0.clone()))
+            .collect()
+    };
+    assert_eq!(
+        flatten(coalesced),
+        flatten(confined),
+        "coalescing changed the grouping and nothing else"
     );
 }

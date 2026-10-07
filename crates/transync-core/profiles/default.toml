@@ -54,12 +54,17 @@ default_table_strategy    = "row-window-first"
 
 [batching]
 target_output_tokens = 8000
-max_units_per_batch  = 8
+max_units_per_batch  = 32
 # Assumed output-to-source token expansion when packing batches so a full
 # input batch cannot overrun the output ceiling above (D1). 2.0 covers the
 # worst legitimate case (KO/JA under o200k); lower it (e.g. 1.2) for Latin
 # targets to pack larger batches.
 output_expansion_factor = 2.0
+# DCR-0057: adjacent whole sections share a batch when they fit and agree on
+# their effective glossary and their instruction clauses. Stated here because
+# this profile is the documented example; unset means the same thing. Set
+# false to confine every batch to one section again (DCR-0027 P2).
+coalesce_sections = true
 
 # Presentation hints for the generated HTML bundle (OI-0032).
 # target_direction: "auto" (default — a small built-in table maps RTL primary

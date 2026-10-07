@@ -9,17 +9,27 @@
 //! heuristic over `model_id` (`o200k_base` for gpt-4o / gpt-5 / o-series,
 //! `cl100k_base` otherwise) when it declares none (OI-0029).
 //!
-//! The section logic is **one level up**, and it is real since DCR-0027:
+//! The section logic is **one level up**:
 //! `unit::section::partition_by_section` splits the unit list at every heading
-//! and `unit::build_batches` calls this packer once per section, so a batch's
-//! units always come from one section and no batch straddles a `##` / `###`
-//! boundary. What lives here is unchanged by that — this function packs the
-//! run of units it is handed, and it is the *caller* that decides those units
-//! are one section's. The one thing a section can still do is exceed the
-//! budget, and then it packs into several batches, all of them inside that
-//! section (DCR-0027 P4). Until DCR-0027 there was no section awareness
-//! anywhere, though this module was titled as if there were (EXT-2026-07 P2
-//! renamed it honestly; the grouping the name promised has now landed).
+//! (DCR-0027) and `unit::build_batches` decides how those sections reach a
+//! packer here. Two entry points answer that, and the caller picks:
+//!
+//! - [`group_by_token_budget_with`] packs the run of units it is handed and
+//!   holds no opinion about sections. Called once per section, it yields
+//!   DCR-0027 P2's strict confinement — every batch inside one section.
+//! - [`group_sections_by_token_budget_with`] packs a run of whole sections,
+//!   letting adjacent ones share a batch when they fit (DCR-0057, settling
+//!   DCR-0027's OQ-A). This is the shipped default.
+//!
+//! Either way the caller decides which units may legally meet: a batch is one
+//! provider request carrying one compiled system prompt and one assembled
+//! instruction, so sections may only be offered to the second entry point
+//! when they agree on their effective glossary cohort and their
+//! `llm::prompt::DocumentFacts`. Neither packer re-checks that.
+//!
+//! The one thing a section can still do is exceed the budget, and then it
+//! packs into several batches, all of them inside that section (DCR-0027 P4)
+//! — unchanged by coalescing, which admits whole sections only.
 //!
 //! Everything that ships once per batch rather than once per unit — the
 //! compiled system prompt, the assembled user-message instruction envelope,
@@ -240,31 +250,79 @@ pub(crate) fn group_by_token_budget_with(
     if units.is_empty() {
         return Vec::new();
     }
-    let max_units = budget.max_units.max(1);
-    // R0008-0029 / R0001-0013 / ti aa92d6: the system prompt (including any
-    // rendered glossary), the assembled instruction envelope, and the two
-    // language labels ship with EVERY batch. Reserve room for them so a large
-    // profile/glossary — or a long opaque language label, or an instruction
-    // carrying every conditional clause — can't push a batch past the provider
-    // context window even when the per-unit estimates fit the raw budget.
-    let envelope_tokens = envelope_input_tokens(budget, bpe);
-    let input_target = budget
-        .target_input_tokens
-        .saturating_sub(envelope_tokens)
-        .max(1);
-    // D1: reserve the top-level result framing off the raw output ceiling to
-    // get the effective per-batch output target. `None` leaves the output
-    // cap inert (input-only packing).
-    let output_target = budget.target_output_tokens.map(effective_output_target);
+    let caps = PackCaps::of(budget, bpe);
+    let factor = budget.output_expansion_factor;
+    let estimated = units
+        .into_iter()
+        .map(|u| {
+            let est = estimate_unit(&u, bpe, factor);
+            (u, est)
+        })
+        .collect();
+    pack_estimated(estimated, &caps)
+}
+
+/// The three resolved caps a packing pass measures against, derived from a
+/// [`BatchBudget`] exactly once.
+///
+/// Splitting them out of the packing loop is what lets the unit-at-a-time
+/// packer ([`group_by_token_budget_with`]) and the whole-section packer
+/// ([`group_sections_by_token_budget_with`]) share one definition of "does
+/// this fit" — DCR-0057 needs both, and two copies of the comparison is the
+/// way they drift.
+struct PackCaps {
+    max_units: usize,
+    input_target: usize,
+    output_target: Option<usize>,
+}
+
+impl PackCaps {
+    fn of(budget: &BatchBudget<'_>, bpe: &CoreBPE) -> Self {
+        // R0008-0029 / R0001-0013 / ti aa92d6: the system prompt (including
+        // any rendered glossary), the assembled instruction envelope, and the
+        // two language labels ship with EVERY batch. Reserve room for them so
+        // a large profile/glossary — or a long opaque language label, or an
+        // instruction carrying every conditional clause — can't push a batch
+        // past the provider context window even when the per-unit estimates
+        // fit the raw budget.
+        let envelope_tokens = envelope_input_tokens(budget, bpe);
+        Self {
+            max_units: budget.max_units.max(1),
+            input_target: budget
+                .target_input_tokens
+                .saturating_sub(envelope_tokens)
+                .max(1),
+            // D1: reserve the top-level result framing off the raw output
+            // ceiling to get the effective per-batch output target. `None`
+            // leaves the output cap inert (input-only packing).
+            output_target: budget.target_output_tokens.map(effective_output_target),
+        }
+    }
+}
+
+/// The greedy sequential packing loop, over units whose estimates are already
+/// computed.
+///
+/// Encoding is the hot cost, so both entry points estimate each unit exactly
+/// once and hand the results here; the whole-section packer needs a section's
+/// totals before it can decide whether the section fits, and re-encoding it
+/// afterwards would double that cost on every oversize section.
+fn pack_estimated(
+    estimated: Vec<(TranslationUnit, UnitEstimate)>,
+    caps: &PackCaps,
+) -> Vec<Vec<TranslationUnit>> {
+    let PackCaps {
+        max_units,
+        input_target,
+        output_target,
+    } = *caps;
 
     let mut batches: Vec<Vec<TranslationUnit>> = Vec::new();
     let mut current: Vec<TranslationUnit> = Vec::new();
     let mut in_sum: usize = 0;
     let mut out_sum: usize = 0;
 
-    for unit in units {
-        let est = estimate_unit(&unit, bpe, budget.output_expansion_factor);
-
+    for (unit, est) in estimated {
         let would_exceed_input = !current.is_empty() && in_sum + est.input > input_target;
         // R0003-0029: the output axis is the one carrying a caller-supplied
         // float multiplier, so unlike `in_sum` — bounded by the bytes of units
@@ -284,6 +342,104 @@ pub(crate) fn group_by_token_budget_with(
         current.push(unit);
         in_sum += est.input;
         out_sum = out_sum.saturating_add(est.output);
+    }
+
+    if !current.is_empty() {
+        batches.push(current);
+    }
+    batches
+}
+
+/// Pack a run of whole sections, letting adjacent ones share a batch when
+/// they fit (DCR-0057, settling DCR-0027's OQ-A).
+///
+/// The unit of admission here is a **whole section**, never part of one. A
+/// batch is therefore one of exactly two shapes:
+///
+/// - *N consecutive whole sections* whose combined estimates fit all three
+///   caps, or
+/// - *a fragment of one section* that could not fit a batch alone, split by
+///   the same greedy unit-at-a-time packer DCR-0027 P4 already used.
+///
+/// That is the shape OQ-A option (b) specified, and it is strictly weaker
+/// than concatenating the run and packing it as a flat list: a small section
+/// sitting immediately before an oversize one keeps its own units together
+/// here, where the flat reading would let the oversize section's first units
+/// trail into the small section's batch.
+///
+/// The caller owns the admission test — every section in `sections` must
+/// already agree on its effective glossary cohort AND its
+/// [`crate::llm::prompt::DocumentFacts`], because both decide prompt bytes
+/// that are per-batch, not per-unit. Sections that disagree belong to
+/// different calls.
+///
+/// TRACE: DCR-0057
+pub(crate) fn group_sections_by_token_budget_with(
+    sections: Vec<Vec<TranslationUnit>>,
+    budget: &BatchBudget<'_>,
+    bpe: &CoreBPE,
+) -> Vec<Vec<TranslationUnit>> {
+    let caps = PackCaps::of(budget, bpe);
+    let factor = budget.output_expansion_factor;
+
+    let mut batches: Vec<Vec<TranslationUnit>> = Vec::new();
+    let mut current: Vec<TranslationUnit> = Vec::new();
+    let mut in_sum: usize = 0;
+    let mut out_sum: usize = 0;
+
+    for section in sections {
+        if section.is_empty() {
+            continue;
+        }
+        let estimated: Vec<(TranslationUnit, UnitEstimate)> = section
+            .into_iter()
+            .map(|u| {
+                let est = estimate_unit(&u, bpe, factor);
+                (u, est)
+            })
+            .collect();
+        let sec_units = estimated.len();
+        let sec_in: usize = estimated
+            .iter()
+            .fold(0usize, |a, (_, e)| a.saturating_add(e.input));
+        let sec_out: usize = estimated
+            .iter()
+            .fold(0usize, |a, (_, e)| a.saturating_add(e.output));
+
+        // A section that cannot be one batch on its own is DCR-0027 P4's
+        // oversize case, untouched by this relaxation: close whatever is
+        // open, then split it inside itself. It never co-batches, in either
+        // direction — a section big enough to need splitting has no room to
+        // host a neighbor, and letting its tail host the *next* section
+        // would put a section boundary inside a fragment.
+        let fits_alone = sec_units <= caps.max_units
+            && sec_in <= caps.input_target
+            && caps.output_target.is_none_or(|t| sec_out <= t);
+        if !fits_alone {
+            if !current.is_empty() {
+                batches.push(std::mem::take(&mut current));
+                in_sum = 0;
+                out_sum = 0;
+            }
+            batches.extend(pack_estimated(estimated, &caps));
+            continue;
+        }
+
+        let would_exceed = !current.is_empty()
+            && (current.len() + sec_units > caps.max_units
+                || in_sum.saturating_add(sec_in) > caps.input_target
+                || caps
+                    .output_target
+                    .is_some_and(|t| out_sum.saturating_add(sec_out) > t));
+        if would_exceed {
+            batches.push(std::mem::take(&mut current));
+            in_sum = 0;
+            out_sum = 0;
+        }
+
+        current.extend(estimated.into_iter().map(|(u, _)| u));
+        in_sum = in_sum.saturating_add(sec_in);
+        out_sum = out_sum.saturating_add(sec_out);
     }
 
     if !current.is_empty() {
@@ -603,6 +759,28 @@ pub fn resolve_encoder(hint: Option<TokenizerHint>, model_id: &str) -> CoreBPE {
         .unwrap_or_else(|| encoder_for(model_id))
 }
 
+/// The first GPT generation encoded by `o200k_base`. A floor, not a roster:
+/// every later generation is o200k too. See [`encoder_for`] for why this is
+/// read as a number rather than matched as a prefix.
+const FIRST_O200K_GPT_GENERATION: u32 = 5;
+
+/// The generation number a model name declares right after `prefix`, when
+/// what follows is a digit run: `gpt-` in `gpt-5.6-terra` yields `5`, `o` in
+/// `o4-mini` yields `4`, and `gpt-` in `gpt-oss` yields `None`. Only the
+/// leading integer is read, so a point release rides its major generation.
+///
+/// A digit run too long for `u32` saturates rather than failing to parse: an
+/// absurd generation is still a *later* one, and falling back would send it to
+/// the older encoder — the wrong direction.
+fn generation_after(model: &str, prefix: &str) -> Option<u32> {
+    let rest = model.strip_prefix(prefix)?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    Some(digits.parse::<u32>().unwrap_or(u32::MAX))
+}
+
 /// Pick the right tiktoken encoder for the configured model. Falls
 /// back to `cl100k_base` (GPT-4 / GPT-3.5 era) for unknown identifiers.
 /// If both bundled encoders fail to load, panics with a clear
@@ -615,14 +793,25 @@ pub fn resolve_encoder(hint: Option<TokenizerHint>, model_id: &str) -> CoreBPE {
 /// rather than rely on this mapping, which silently resolves every
 /// unrecognized name to `cl100k_base`.
 ///
+/// The o200k side reads the **generation number** rather than listing
+/// families, so a GPT generation past [`FIRST_O200K_GPT_GENERATION`] is
+/// o200k here without an edit (DCR-0059). `gpt-4o` is the one earlier family
+/// on that side and is named separately: its `o` is a product suffix, not a
+/// generation.
+///
+/// This is a deliberate twin of `transync_openai::tokenizer`'s rule, not a
+/// shared one — core depends on no provider crate, and that absence is the
+/// layering. The two are kept in step by saying so in both places; if they
+/// ever disagree, the provider's `tokenizer_hint` wins at runtime anyway,
+/// because [`resolve_encoder`] consults it first.
+///
 /// TRACE: SCN-10
+/// TRACE: DCR-0059
 pub fn encoder_for(model: &str) -> CoreBPE {
     let m = model.to_ascii_lowercase();
     let is_o200k = m.starts_with("gpt-4o")
-        || m.starts_with("gpt-5")
-        || m.starts_with("o1")
-        || m.starts_with("o3")
-        || m.starts_with("o4");
+        || generation_after(&m, "o").is_some()
+        || generation_after(&m, "gpt-").is_some_and(|g| g >= FIRST_O200K_GPT_GENERATION);
     let primary = if is_o200k {
         tiktoken_rs::o200k_base().or_else(|_| tiktoken_rs::cl100k_base())
     } else {

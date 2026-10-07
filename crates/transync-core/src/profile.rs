@@ -253,6 +253,19 @@ pub struct ProfileBatching {
     /// `None`. Values `< 1.0` are legal (some targets compress).
     #[serde(default)]
     pub output_expansion_factor: Option<f64>,
+    /// May adjacent whole sections share one batch when they fit? (DCR-0057,
+    /// settling DCR-0027's OQ-A.) Unset means `true`, the shipped behavior:
+    /// a run of consecutive sections that agree on both admission terms —
+    /// effective glossary cohort and `crate::llm::prompt::DocumentFacts` —
+    /// packs as one population, so a document of many small sections no
+    /// longer pays one request per heading.
+    ///
+    /// `false` restores DCR-0027 P2's strict confinement, where every batch's
+    /// units come from exactly one section. Unlike the three sizing knobs
+    /// this one has no invalid value, so `normalize_batching` has no arm for
+    /// it: a non-boolean is a TOML *type* error the loader already reports.
+    #[serde(default)]
+    pub coalesce_sections: Option<bool>,
 }
 
 /// Drop every `[batching]` value that cannot be honored, naming each one in
@@ -1167,6 +1180,7 @@ fn collect_unknown_key_warnings(toml_text: &str) -> Vec<String> {
         "target_input_tokens_per_batch",
         "max_units_per_batch",
         "output_expansion_factor",
+        "coalesce_sections",
     ];
     const RENDER: &[&str] = &["target_direction"];
     // DCR-0027: `sections` selects where a `scope = "section"` entry applies.

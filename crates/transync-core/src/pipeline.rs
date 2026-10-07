@@ -2451,6 +2451,10 @@ mod run_level_tests {
             scope: GlossaryScope::GlobalAcrossDocument,
             sections: Vec::new(),
         }];
+        // The claim is "every batch digests as it did", so the fixture has to
+        // keep producing more than one. DCR-0057 would pack this two-section
+        // document into a single request by default.
+        profile.batching.coalesce_sections = Some(false);
         let opts = TranslateOptions {
             source_language: "en".to_string(),
             target_language: "ko".to_string(),
@@ -2483,6 +2487,62 @@ mod run_level_tests {
             let d = CohortDigest::for_batch(b);
             assert_eq!(d.profile_prompt_hash, expected_prompt);
             assert_eq!(d.glossary_hash, expected_glossary);
+        }
+    }
+
+    /// DCR-0057's safety property, stated as the only thing that could have
+    /// gone wrong: coalescing changes which units share a request, and a
+    /// `CacheKey` has exactly two batch-scoped axes — the cohort digest and
+    /// the instruction digest. Both are pinned to be identical whether a unit
+    /// was packed strictly or coalesced.
+    ///
+    /// This is what the admission rule buys. The cohort axis is safe because
+    /// only same-cohort sections may merge; the instruction axis needs the
+    /// second term, because `InstructionVariant::for_batch` reads
+    /// `DocumentFacts` off the batch's OWN units — merge a prose section with
+    /// one holding raw-HTML segments or a row window and the prose units'
+    /// instruction grows a clause it never had. The fixture carries a raw-HTML
+    /// block for exactly that reason: with facts ignored, it would coalesce
+    /// and this test would fail.
+    #[test]
+    fn coalescing_moves_no_cache_key() {
+        let src = "# Guide\n\nprose\n\n## Markup\n\n<div>\n  <p>raw html</p>\n</div>\n\n\
+                   ## Tables\n\nmore prose\n\n## Notes\n\nfinal prose\n";
+        let mut doc = parse(src).expect("parses");
+        crate::id::assign_block_ids(&mut doc);
+        let outcomes = crate::unit::html_outcomes(&doc);
+
+        let digests = |coalesce: bool| -> std::collections::BTreeMap<String, (CohortDigest, InstructionDigest)> {
+            let mut profile = default_profile();
+            profile.batching.coalesce_sections = Some(coalesce);
+            let opts = TranslateOptions {
+                source_language: "en".to_string(),
+                target_language: "ko".to_string(),
+                profile: Some(profile),
+                ..Default::default()
+            };
+            build_batches(&doc, &opts, None, &outcomes)
+                .iter()
+                .flat_map(|b| {
+                    let pair = (CohortDigest::for_batch(b), InstructionDigest::for_batch(b));
+                    b.units.iter().map(move |u| (u.unit_id.0.clone(), pair))
+                })
+                .collect()
+        };
+
+        let coalesced = digests(true);
+        let strict = digests(false);
+        assert_eq!(
+            coalesced.keys().collect::<Vec<_>>(),
+            strict.keys().collect::<Vec<_>>(),
+            "the same units are packed either way"
+        );
+        for (id, strict_pair) in &strict {
+            assert_eq!(
+                coalesced.get(id),
+                Some(strict_pair),
+                "unit {id} would re-key under coalescing"
+            );
         }
     }
 
