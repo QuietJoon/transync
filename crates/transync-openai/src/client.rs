@@ -95,8 +95,8 @@ use url::Url;
 use endpoint::{CHAT_COMPLETIONS_PATH, RESPONSES_PATH, build_endpoint};
 use transport::post_json;
 
-pub(crate) use dispatch::api_from_env_or_model;
 pub use dispatch::{Api, ParseApiError, api_for_model};
+pub(crate) use dispatch::{api_from_env_or_model, generation_after};
 
 // The base URL and the endpoint paths belong to `endpoint`, which owns every
 // rule about how a URL is built; re-exported here because `lib.rs` names the

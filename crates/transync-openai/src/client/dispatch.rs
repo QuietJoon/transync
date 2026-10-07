@@ -86,25 +86,62 @@ fn parse_api(value: &str) -> Option<Api> {
     }
 }
 
+/// The first GPT generation that speaks Responses rather than Chat
+/// Completions. Read as a floor, not a list: every generation from here up
+/// dispatches to Responses, so a model OpenAI has not shipped yet needs no
+/// edit to this crate.
+const FIRST_RESPONSES_GPT_GENERATION: u32 = 5;
+
+/// The generation number a model name declares right after `prefix`, when
+/// what follows the prefix is a digit run: `gpt-` in `gpt-5.6-terra` yields
+/// `5`, `o` in `o4-mini` yields `4`, and `gpt-` in `gpt-oss` yields `None`.
+///
+/// Only the leading integer is read, so a point release rides its major
+/// generation (`gpt-5.6` is a GPT-5). A digit run too long for `u32` saturates
+/// to `u32::MAX` instead of failing to parse: an absurd generation is still a
+/// *later* one, and the failure direction matters — see [`api_for_model`].
+pub(crate) fn generation_after(model: &str, prefix: &str) -> Option<u32> {
+    let rest = model.strip_prefix(prefix)?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    Some(digits.parse::<u32>().unwrap_or(u32::MAX))
+}
+
 /// Heuristic dispatch based on the model name. The rules:
 ///
 /// - Models whose name contains `chat` (e.g. `gpt-5-chat-latest`) ride
 ///   on Chat Completions even when the family otherwise uses Responses.
-/// - O-series reasoning models (`o1*`, `o3*`, `o4*`) are Responses-only.
-/// - Other GPT-5 snapshots default to Responses.
+///   This is checked first, so it holds for every generation.
+/// - O-series reasoning models (`o1*`, `o3*`, `o4*`, and any later `o<N>`)
+///   are Responses-only.
+/// - GPT generation `FIRST_RESPONSES_GPT_GENERATION` **and above** default
+///   to Responses — `gpt-5`, `gpt-5.6-terra`, `gpt-6`, `gpt-7`, `gpt-10`.
 /// - Everything else defaults to Chat Completions (most permissive,
-///   widest 3rd-party-proxy support).
+///   widest 3rd-party-proxy support): `gpt-4o`, `gpt-4.1`, `gpt-3.5-turbo`.
+///
+/// **Why the comparison is `>=` rather than a list of known families.** The
+/// rule used to name `gpt-5` by prefix, which silently routed every later
+/// family — `gpt-6`, `gpt-7` — back to Chat Completions, the surface those
+/// models are least likely to support. That failure is quiet: the request is
+/// well-formed, so the operator sees a provider-side rejection rather than a
+/// dispatch bug. Reading the generation number makes a newer family the
+/// *default-forward* case, and the direction of the remaining guess is the
+/// safer one. A model this gets wrong is still pinned by
+/// `TRANSYNC_OPENAI_API` or [`crate::TransyncOpenAI::with_api`].
 ///
 /// TRACE: SCN-12
+/// TRACE: DCR-0059
 pub fn api_for_model(model: &str) -> Api {
     let m = model.to_ascii_lowercase();
     if m.contains("chat") {
         return Api::ChatCompletions;
     }
-    if m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4") {
+    if generation_after(&m, "o").is_some() {
         return Api::Responses;
     }
-    if m.starts_with("gpt-5") {
+    if generation_after(&m, "gpt-").is_some_and(|g| g >= FIRST_RESPONSES_GPT_GENERATION) {
         return Api::Responses;
     }
     Api::ChatCompletions
@@ -185,6 +222,101 @@ mod tests {
         }
         assert_eq!(api_for_model("o3-mini"), Api::Responses);
         assert_eq!(api_for_model("gpt-4o"), Api::ChatCompletions);
+    }
+
+    /// DCR-0059: the rule is a floor, not a roster. Every GPT generation from
+    /// [`FIRST_RESPONSES_GPT_GENERATION`] up dispatches to Responses without
+    /// an edit to this crate — which is the whole point, since the previous
+    /// `starts_with("gpt-5")` sent `gpt-6` to Chat Completions, the surface a
+    /// newer family is least likely to accept.
+    #[test]
+    fn a_generation_past_gpt5_rides_responses_without_being_listed() {
+        for model in [
+            "gpt-6",
+            "gpt-6-mini",
+            "gpt-6.1",
+            "gpt-7",
+            "gpt-7.4-preview",
+            "gpt-10",
+            "gpt-12.0-something",
+        ] {
+            assert_eq!(
+                api_for_model(model),
+                Api::Responses,
+                "{model} is a generation past GPT-{FIRST_RESPONSES_GPT_GENERATION} and must use Responses"
+            );
+        }
+        // O-series, likewise: the rule reads the number, not a list of three.
+        for model in ["o1", "o1-preview", "o3-mini", "o4-mini", "o5", "o6-pro"] {
+            assert_eq!(
+                api_for_model(model),
+                Api::Responses,
+                "{model} is an O-series reasoning model and must use Responses"
+            );
+        }
+    }
+
+    /// The `chat` rule is checked before the generation rule, so it keeps
+    /// holding for families that do not exist yet — a future `gpt-6-chat-*`
+    /// snapshot is a chat-surface model exactly as `gpt-5-chat-latest` is.
+    #[test]
+    fn a_chat_snapshot_stays_on_chat_completions_in_every_generation() {
+        for model in [
+            "gpt-5-chat-latest",
+            "gpt-6-chat-latest",
+            "gpt-7-chat",
+            "gpt-10-chat-preview",
+        ] {
+            assert_eq!(
+                api_for_model(model),
+                Api::ChatCompletions,
+                "{model} names a chat snapshot and must stay on Chat Completions"
+            );
+        }
+    }
+
+    /// The other direction: older families, and names that only look like a
+    /// generation, must NOT be dragged onto Responses. `gpt-4o` ends in a
+    /// letter `o` and `gpt-oss` begins with one — neither declares a number
+    /// after its prefix, so neither parses as a generation.
+    #[test]
+    fn older_and_numberless_families_stay_on_chat_completions() {
+        for model in [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-4.1",
+            "gpt-4",
+            "gpt-3.5-turbo",
+            "gpt-oss-120b",
+            "omni-moderation-latest",
+            "text-embedding-3-large",
+        ] {
+            assert_eq!(
+                api_for_model(model),
+                Api::ChatCompletions,
+                "{model} must stay on Chat Completions"
+            );
+        }
+    }
+
+    /// A digit run too long for `u32` saturates rather than failing to parse.
+    /// Parsing failure would fall through to Chat Completions — the wrong
+    /// direction for something that is, whatever else it is, a later
+    /// generation than 5.
+    #[test]
+    fn an_absurd_generation_saturates_forward_rather_than_falling_back() {
+        assert_eq!(
+            generation_after("gpt-99999999999999999999", "gpt-"),
+            Some(u32::MAX)
+        );
+        assert_eq!(
+            api_for_model("gpt-99999999999999999999"),
+            Api::Responses,
+            "an unparseable-but-large generation is still a later one"
+        );
+        assert_eq!(generation_after("gpt-oss", "gpt-"), None);
+        assert_eq!(generation_after("o4-mini", "o"), Some(4));
+        assert_eq!(generation_after("gpt-5.6-terra", "gpt-"), Some(5));
     }
 
     /// Ticket `42c8e6d3`: a caller-supplied surface string parses exactly
