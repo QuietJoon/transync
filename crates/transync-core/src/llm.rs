@@ -652,7 +652,7 @@ fn push_framed(s: &mut String, part: &str) {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenizerHint {
-    /// tiktoken `o200k_base` (gpt-4o / gpt-5 / o-series generations).
+    /// tiktoken `o200k_base` (gpt-4o, GPT-5 and later, and the o-series).
     O200kBase,
     /// tiktoken `cl100k_base` (GPT-4 / 3.5 era; also the documented
     /// approximation default for non-OpenAI providers).

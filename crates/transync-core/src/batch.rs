@@ -6,8 +6,9 @@
 //! reasonable when a document is full of tiny blocks. Each unit's token
 //! count is estimated with the encoder the provider declares via
 //! `Translator::tokenizer_hint`, falling back to the OpenAI-model-name
-//! heuristic over `model_id` (`o200k_base` for gpt-4o / gpt-5 / o-series,
-//! `cl100k_base` otherwise) when it declares none (OI-0029).
+//! heuristic over `model_id` (`o200k_base` for gpt-4o, GPT-5 and later, and
+//! any o-series model, `cl100k_base` otherwise — DCR-0059) when it declares
+//! none (OI-0029).
 //!
 //! The section logic is **one level up**:
 //! `unit::section::partition_by_section` splits the unit list at every heading
@@ -1915,6 +1916,30 @@ mod tokenizer_hint_tests {
                 count(&resolve_encoder(None, model)),
                 count(&encoder_for(model)),
                 "no hint must reproduce encoder_for({model:?})"
+            );
+        }
+    }
+
+    /// DCR-0059: the core twin reads the generation number exactly as
+    /// `transync_openai::tokenizer` does — a floor, not a roster — so a GPT
+    /// generation past 5, or any `o<N>`, is `o200k_base` without being listed,
+    /// and older or numberless families stay `cl100k_base`.
+    #[test]
+    fn encoder_for_reads_the_generation_floor() {
+        let o200k = count(&encoder_for("gpt-4o"));
+        let cl100k = count(&encoder_for("gpt-4-turbo"));
+        for model in ["gpt-5.6-terra", "gpt-6", "gpt-10", "o5", "o6-pro"] {
+            assert_eq!(
+                count(&encoder_for(model)),
+                o200k,
+                "{model} is an o200k-era model"
+            );
+        }
+        for model in ["gpt-4.1", "gpt-oss-120b"] {
+            assert_eq!(
+                count(&encoder_for(model)),
+                cl100k,
+                "{model} is not an o200k-era model"
             );
         }
     }

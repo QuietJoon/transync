@@ -246,9 +246,9 @@ pub struct TranslateOptions {
     /// Soft cap on per-batch input tokens. Units are packed into a
     /// batch until adding the next unit would push the running token
     /// count over this value, after which a new batch starts. Counted
-    /// with the model's tiktoken encoding (`o200k_base` for gpt-4o /
-    /// gpt-5 / o-series, `cl100k_base` otherwise) plus a small per-unit
-    /// JSON overhead. Default 6000 leaves headroom for the model's own
+    /// with the model's tiktoken encoding (`o200k_base` for gpt-4o, GPT-5
+    /// and later, and the o-series; `cl100k_base` otherwise) plus a small
+    /// per-unit JSON overhead. Default 6000 leaves headroom for the model's own
     /// output within a typical 8K input context.
     pub target_input_tokens_per_batch: u32,
     /// Hard cap on units per batch regardless of token count, so retry
