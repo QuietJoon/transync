@@ -7,7 +7,7 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-09-08-documentation-drift-audit
+  last_updated: 2026-10-10-dcr-roster-0054-0060
   notes: |
     v0.5.0 released 2026-09-05 (annotated tag `v0.5.0`), which closed the
     sanctioned v0.5.0 breaking window. Seven breaking-by-policy changes rode
@@ -90,6 +90,13 @@ design:
     - DCR-0051-one-open-element-stack
     - DCR-0052-the-bottom-clamp-is-the-contract
     - DCR-0053-the-format-seam-becomes-symmetric
+    - DCR-0054-four-document-kinds
+    - DCR-0055-docs-becomes-an-okf-bundle
+    - DCR-0056-javascript-lint-half-adopted
+    - DCR-0057-sections-coalesce-into-batches
+    - DCR-0058-transync-google-gemini-provider
+    - DCR-0059-model-generation-is-a-floor
+    - DCR-0060-vertex-express-mode
   rewind_required_to_phase: null
   status: handoff_complete
 
