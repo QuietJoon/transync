@@ -1,3 +1,12 @@
+---
+type: "Design Baseline"
+title: "Design Baseline BL-2026-07-B"
+description: "The steady-state baseline: the document authority hierarchy that settles conflicts, the contract inventory live at issue, and the pipeline shape with its later amendments"
+tags: ["project", "process", "DCR-0027"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Design Baseline `BL-2026-07-B`
 
 This is the steady-state baseline for `transync` v0.2.0, issued at the close of the 2026-07 external-review wave (EXT-2026-07). It declares the current system: which documents are authoritative for what, and which contract surfaces are live. A change to any artifact named below is a Design Change Record under `docs/project/design-change-records/`, not an in-place edit.
@@ -57,7 +66,7 @@ External-review items P0-1 (single architectural baseline) and P0-2 (current pip
 
 Two sentences of this record stopped being true. It is a dated snapshot, so they stay as written and this note carries what replaced them:
 
-- **Pipeline shape.** "sequential token-budget packing; section-awareness deferred" is now *partition at every heading, then sequential token-budget packing WITHIN each section*. A batch never straddles a section boundary; a section too large for one batch splits inside itself, and that is the only thing that separates one section's units. A document with no heading packs bit-identically to this baseline. `contracts.md` §5 carries the policy.
+- **Pipeline shape.** "sequential token-budget packing; section-awareness deferred" is now *partition at every heading, then token-budget packing over whole sections* (DCR-0057 settles DCR-0027's OQ-A). A batch holds either N consecutive whole sections that fit the caps and agree on glossary cohort and `DocumentFacts`, or a fragment of one oversize section; a section boundary never falls inside a fragment, and `[batching].coalesce_sections = false` confines every batch to one section as DCR-0027 did. A document with no heading packs bit-identically to this baseline. `contracts.md` §5 carries the policy.
 - **Profile TOML.** The glossary-scope note — "`conditional-on-section` is rejected at load until section-aware batching lands (ADR-0014, amended 2026-07-13)" — has been discharged: that batching landed, the scope loads and is filtered per section against a `sections` selector matched on the heading stack, and the `ProfileError::Unsupported` all three gates raised was **removed** in v0.4.0. `contracts.md` §2 carries the semantics; ADR-0014 carries its own 2026-08-09 note.
 
 Two knock-on facts worth recording beside them: `CacheKey`'s `profile_prompt_hash` and `glossary_hash` moved from run scope to **batch** scope (per-section prompts mean the prompt bytes vary within a run; the axes are derived from what the batch carries), and `unit::build_batches` became infallible — it was fallible only to raise the retired refusal. EXT-2026-07 P0-3 and P2 are both closed by this: P0-3's rejection was always the time-boxed half of the deferral, and P2's honest label ("this module has no section logic") is no longer the honest one.
