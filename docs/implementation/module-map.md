@@ -1,3 +1,12 @@
+---
+type: "Module Map"
+title: "Module Map"
+description: "Maps each scenario to the crates, modules, fixtures, file touches and integrations that implement it, with the full workspace tree and the essential internal interfaces"
+tags: ["implementation", "architecture", "DCR-0017", "DCR-0018"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Module Map
 
 Every mandatory scenario from `docs/architecture/scenario-matrix.md` mapped to the binaries / modules / persistence / files / integrations that implement it. This is the Phase 2 → Phase 3 hand-off table.
@@ -73,9 +82,10 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     │                                   #   unit AND validate::per_kind (DCR-0019)
     ├── structure/
     │   └── labels.rs                   # node-kind / item-child / blockquote-child labels
-    ├── batch.rs                        # sequential grouping by input + output token budget,
-    │                                   #   run once per section by `unit` (DCR-0027) — the
-    │                                   #   partition is one level up; packs retry rounds too
+    ├── batch.rs                        # sequential grouping by input + output token budget;
+    │                                   #   packs a run of whole sections chosen by `unit`
+    │                                   #   (DCR-0027, DCR-0057) — admission is one level up;
+    │                                   #   packs retry rounds too
     ├── llm.rs                          # Translator trait + types
     ├── llm/
     │   ├── prompt.rs                   # provider-neutral prompt assembly + schema (DCR-0015)
@@ -112,7 +122,7 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     ├── cache.rs                        # Cache trait + CacheKey identity + InMemoryCache
     ├── cache/
     │   └── disk.rs                     # DiskCache — the disk-backed store (DCR-0028);
-    │                                   #   a §0 tier-(a) export since v0.4.0
+    │                                   #   a §0 tier-(a) export
     ├── profile.rs                      # TOML loader + ProfileMetadata builder
     ├── error.rs                        # TransyncError + sub-errors (Parse wraps syntax's ParseError)
     ├── test_stub.rs                    # cfg(feature = "test-stub"): the echo Translator that
@@ -161,7 +171,7 @@ crates/transync-anthropic/              # second Translator impl — in tree, on
     │   └── endpoint.rs                 # base-URL normalization
     └── error.rs                        # ProviderError → TranslatorError mapping
 
-crates/transync-google/                 # Gemini Translator impl — Vertex AI + Developer API
+crates/transync-google/                 # Gemini Translator impl — Vertex AI (ADC or express key) + Developer API
 ├── Cargo.toml                           # third provider, reached by transync-cli
 ├── src/lib.rs                           # public configuration + Translator implementation
 └── tests/                               # offline request/response and gated live smoke
@@ -206,7 +216,7 @@ crates/transync-cli/                    # binary; no profiles/ dir — the defau
     │   ├── fileset.rs                  # write_fileset_atomic: the staged fileset commit
     │   │                               #   for --output / --map / --html-out
     │   ├── lock.rs                     # cross-process exclusion for publication
-    │   │                               #   (R0001-0034) — staging alone did not cover
+    │   │                               #   (R0001-0034) — staging alone does not cover
     │   │                               #   the rename pass
     │   ├── preflight.rs                # preflight_html_out / preflight_out_dir;
     │   │                               #   HTML_BUNDLE_ENTRIES
@@ -293,8 +303,8 @@ Module names in the "Crates / modules touched" column are **engine** modules —
 (+`payload`/`budget`/`context`/`split`/`section`), `structure` (+`labels`),
 `batch`, `llm` (+`prompt`), `validate` (+ its seven layers), `pipeline`
 (+`policy`/`dispatch`/`finalize`/`report`/`retry`/`merge`), `cache` (+`disk`),
-`profile`. Since DCR-0018 they are **not**
-reachable through the `transync` facade (only `cache`, `llm`, and `profile`
+`profile`. They are **not**
+reachable through the `transync` facade (DCR-0018; only `cache`, `llm`, and `profile`
 are), so they are written bare rather than as `transync::…` paths.
 
 `transync-wasm` owns no engine module: it is a **consumer** that composes
@@ -340,7 +350,7 @@ column below.
 
 ## Internal interfaces (essentials)
 
-These are the shapes other modules call into — live signatures, named by their **owning crate**. Most are engine-internal since DCR-0018: `transync-core` re-exports the `transync-syntax` modules `pub(crate)`, and the `transync` facade exposes none of them. Only `cache` and `profile` below are curated API (`transync::cache`, `transync::profile`); the pipeline is reached through `transync::translate` / `transync::translate_with_cache`. A consumer that needs an engine internal depends on `transync-core` / `transync-syntax` directly — see `contracts.md` §0.
+These are the shapes other modules call into — live signatures, named by their **owning crate**. Most are engine-internal (DCR-0018): `transync-core` re-exports the `transync-syntax` modules `pub(crate)`, and the `transync` facade exposes none of them. Only `cache` and `profile` below are curated API (`transync::cache`, `transync::profile`); the pipeline is reached through `transync::translate` / `transync::translate_with_cache`. A consumer that needs an engine internal depends on `transync-core` / `transync-syntax` directly — see `contracts.md` §0.
 
 ```rust
 // transync-syntax::intake::markdown
@@ -358,13 +368,10 @@ pub fn assign_block_ids(doc: &mut Document);
 pub fn source_hash_block(doc: &Document, block_index: usize) -> Option<u64>;
 
 // transync-core::unit (#[doc(hidden)] pub — engine-internal)
-// Infallible again since DCR-0027: it was fallible only to raise the reserved
-// `scope = "section"` refusal (ti 0ed6eb), and that refusal —
-// `ProfileMetadata::ensure_supported` and `ProfileError::Unsupported` with it —
-// retired when the scope became effective. The profile gates it still applies
-// for callers who batch without crossing the translate boundary (glossary
-// normalization, the `[batching]` ranges) are warn-only, like every profile
-// check past the loader.
+// Infallible (DCR-0027, which removed the ti 0ed6eb refusal). The profile
+// gates it applies for callers who batch without crossing the translate
+// boundary (glossary normalization, the `[batching]` ranges) are warn-only,
+// like every profile check past the loader.
 pub fn build_batches(
     doc: &Document,
     opts: &TranslateOptions,
@@ -417,13 +424,13 @@ pub fn build_alignment_map(
 // intake::markdown::intake, so a pane meets the same nesting ceiling and NUL rule a
 // source document meets (R0002-0059).
 //
-// Fallible since R0002-0010 / R0002-0011: the map must describe the doc —
+// Fallible (R0002-0010 / R0002-0011): the map must describe the doc —
 // one row per block, no repeated source_block_id — or the pane is refused.
-// A duplicate used to let the last row win; an uncovered block used to
-// vanish from both panes with no anchor, placeholder or warning.
+// The refusal keeps a duplicate's last row from winning and an uncovered
+// block from vanishing from both panes with no anchor, placeholder or warning.
 // R0003-0060 extends the refusal from map SHAPE to range VALUES: a range
 // that runs backwards, past the pane's end, or into the middle of a UTF-8
-// character used to be clamped and snapped into an empty / truncated /
+// character is refused, not clamped and snapped into an empty / truncated /
 // character-short block under a correct anchor. Each pane checks what it
 // slices (source_range vs source_text, target_range vs translated_md); an
 // empty in-bounds range is fine (build_alignment_map's 0..0, R0003-0055).
