@@ -69,6 +69,27 @@ async fn developer_live_smoke() {
 }
 
 #[tokio::test]
+#[ignore = "billable live Vertex AI express-mode request"]
+async fn vertex_express_live_smoke() {
+    if !enabled() {
+        return;
+    }
+    let key = std::env::var("GOOGLE_API_KEY").expect("GOOGLE_API_KEY is required");
+    let model = model();
+    let adapter = TransyncGoogle::try_new(
+        GoogleConfig {
+            surface: GoogleSurface::VertexExpress,
+            model: model.clone(),
+            base_url: None,
+            thinking_level: None,
+        },
+        GoogleCredentials::VertexApiKey(SecretString::new(key.into())),
+    )
+    .unwrap();
+    run(adapter, &model).await;
+}
+
+#[tokio::test]
 #[ignore = "billable live Vertex AI request"]
 async fn vertex_live_smoke() {
     if !enabled() {
