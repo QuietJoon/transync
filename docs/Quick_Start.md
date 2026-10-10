@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Quick Start"
+description: "Five-minute first run: prerequisites and toolchain floors, clone and build, the test suite, a no-API-key stub bundle, a live translation with a key, and manual scroll-sync verification"
+tags: ["process", "cli", "reference"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Quick Start
 
 Get transync running locally and produce your first translated demo
@@ -110,7 +119,7 @@ two Prerequisites rows come from. In order, it runs:
    --test-threads=4`
 5. a completeness check that every library member is named in the
    rustdoc gate's crate list, then `RUSTDOCFLAGS="-D warnings" cargo
-   doc --no-deps` over those eight crates
+   doc --no-deps` over those nine crates
 6. the same completeness check for bin-only members, then a **second**
    `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
    --document-private-items -p transync-cli` — a separate leg rather
@@ -151,10 +160,11 @@ export OPENAI_API_KEY=sk-...
 
 The script builds, then calls the OpenAI API against
 `samples/demo-complex.md` (64 blocks → 63 translation units — the one
-thematic break carries no text — packed into 12 batches). The endpoint is chosen per model name
+thematic break carries no text — packed into batches by the default
+profile's token budgets and its 32-unit cap). The endpoint is chosen per model name
 (model-driven dispatch): the
 default model `gpt-5-chat-latest` routes to Chat Completions
-(`/v1/chat/completions`), while o-series and non-chat GPT-5 models
+(`/v1/chat/completions`), while o-series and non-chat GPT-5-or-later models
 route to Responses (`/v1/responses`); set
 `TRANSYNC_OPENAI_API=chat|responses` to override. The script then
 verifies all output files exist and `exec`s `transync serve --rendered

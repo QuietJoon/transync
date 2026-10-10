@@ -226,13 +226,14 @@ Suppose your source document is 1024 lines long, contains 230
 sync-relevant blocks (counting headings, paragraphs, table rows,
 fenced code blocks, list items, blockquotes), and translates from
 English into Korean. With the documented defaults — `target_output_tokens = 8000`,
-`max_units_per_batch = 8` — the pipeline emits roughly 30 batches.
+`max_units_per_batch = 32` — the unit cap alone needs at least 8 batches
+(230 ÷ 32, rounded up), and the token budgets add more wherever they bind first.
 
 | Stage            | Wall-clock (typical) | Notes                                                  |
 |:-----------------|---------------------:|:-------------------------------------------------------|
 | Parse + IR       |        20 ms         | Comrak, single allocation                              |
 | Build batches    |        35 ms         | Includes context-snippet construction                  |
-| Translate (live) |   45 s – 2 min       | 30 batches × ~1.5 s round-trip — provider-dominated    |
+| Translate (live) |   45 s – 2 min       | 8+ batches, up to 6 at once — provider-dominated       |
 | Validate         |       100 ms         | Per-batch, per-unit; reparse uses Comrak again         |
 | Regenerate       |        45 ms         | Top-level splice, code-fence regeneration              |
 | Render           |        80 ms         | Per-block Comrak inline render + HTML escaping         |
