@@ -169,6 +169,7 @@ fn run(workdir: &ScratchDir, flags: &[&str], env: &[(&str, &str)]) -> Output {
         "GOOGLE_CLOUD_PROJECT",
         "GOOGLE_CLOUD_LOCATION",
         "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
     ] {
         command.env_remove(name);
     }
@@ -317,6 +318,137 @@ fn google_stub_rejects_unsafe_base_urls_without_credentials() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+}
+
+/// DCR-0060: `--google-auth api-key` selects Vertex express mode, which carries
+/// no project and no location. An ambient `GOOGLE_CLOUD_PROJECT` is ignored,
+/// not refused, because it is environment rather than a request.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn google_auth_api_key_selects_vertex_express_without_project_or_location() {
+    let workdir = ScratchDir::new("google-cli-express");
+    let output = run(
+        &workdir,
+        &["--provider", "google", "--google-auth", "api-key"],
+        &[("GOOGLE_CLOUD_PROJECT", "ambient-project")],
+    );
+    assert!(
+        output.status.success(),
+        "Vertex express stub run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let record = provider_record(&workdir);
+    assert_eq!(record["provider"], "google");
+    assert_eq!(record["surface"], "vertex-express");
+    assert!(record["project"].is_null());
+    assert!(record["location"].is_null());
+}
+
+/// An explicit project or location beside `--google-auth api-key` would be
+/// dropped silently by express mode's URL, so each is an argument error.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn google_auth_api_key_refuses_a_project_or_location() {
+    for (kind, flag, value) in [
+        ("project", "--google-project", "p"),
+        ("location", "--google-location", "us"),
+    ] {
+        let workdir = ScratchDir::new(&format!("google-cli-express-{kind}"));
+        let output = run(
+            &workdir,
+            &[
+                "--provider",
+                "google",
+                "--google-auth",
+                "api-key",
+                flag,
+                value,
+            ],
+            &[],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{kind} beside express mode should fail"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("do not apply to --google-auth api-key"),
+            "{kind} beside express mode should be an argument error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+/// `--google-auth` chooses how Vertex authenticates. The Developer API always
+/// uses `GEMINI_API_KEY`, so naming the flag there is an argument error.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn google_auth_applies_to_the_vertex_surface_only() {
+    let workdir = ScratchDir::new("google-cli-auth-developer");
+    let output = run(
+        &workdir,
+        &[
+            "--provider",
+            "google",
+            "--google-surface",
+            "developer",
+            "--google-auth",
+            "adc",
+        ],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("--google-auth applies to --google-surface vertex only"),
+        "--google-auth with the Developer surface should fail: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Like every other Google-only flag (DCR-0058), `--google-auth` without
+/// `--provider google` is an argument error rather than silently ignored.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn google_auth_requires_the_google_provider() {
+    let workdir = ScratchDir::new("google-cli-auth-openai");
+    let output = run(
+        &workdir,
+        &["--provider", "openai", "--google-auth", "api-key"],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("require --provider google"),
+        "--google-auth with OpenAI should fail: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// An API key in the environment never selects a surface or an auth mode
+/// (DCR-0058, DCR-0060): with `GOOGLE_API_KEY` set and no `--google-auth`, a
+/// Google run is still ADC Vertex.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn an_ambient_google_api_key_never_selects_express_mode() {
+    let workdir = ScratchDir::new("google-cli-ambient-key");
+    let output = run(
+        &workdir,
+        &["--provider", "google"],
+        &[
+            ("GOOGLE_API_KEY", "ambient-key"),
+            ("GOOGLE_CLOUD_PROJECT", "test-project"),
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "Vertex stub run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let record = provider_record(&workdir);
+    assert_eq!(record["surface"], "vertex");
+    assert_eq!(record["project"], "test-project");
 }
 
 #[cfg(not(feature = "test-stub-provider"))]
