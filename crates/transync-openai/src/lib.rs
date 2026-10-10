@@ -1,7 +1,8 @@
 //! `transync-openai` — default `Translator` implementation with
 //! model-driven dual dispatch: Chat Completions for `*chat*` models
 //! (including the default `gpt-5-chat-latest`), the Responses API for
-//! o-series and non-chat GPT-5 snapshots. Set
+//! o-series models and non-chat GPT snapshots from generation 5 up
+//! (DCR-0059). Set
 //! `TRANSYNC_OPENAI_API=chat|responses` to override the heuristic —
 //! it is read **once, when the adapter is constructed** (R0001-0031) — or
 //! pin one instance with [`TransyncOpenAI::with_api`], which needs no

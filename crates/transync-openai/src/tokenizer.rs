@@ -41,6 +41,10 @@ const FIRST_O200K_GPT_GENERATION: u32 = 5;
 /// a `*-chat-*` alias rides on Chat Completions but is still an o200k-era
 /// model, so the `chat` rule is not repeated here.
 ///
+/// `transync_core::batch::encoder_for` carries a deliberate twin of this rule
+/// for a provider that declares no hint, because core depends on no provider
+/// crate; change both together (DCR-0059).
+///
 /// TRACE: SCN-10
 /// TRACE: OI-0029
 /// TRACE: DCR-0059

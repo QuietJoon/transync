@@ -4,10 +4,11 @@
 //! - Chat Completions (`POST {base_url}/v1/chat/completions`) is used
 //!   for everything by default and is required for `*-chat-*` aliases
 //!   like `gpt-5-chat-latest`.
-//! - Responses (`POST {base_url}/v1/responses`) is used for the
-//!   o-series reasoning models (`o1*`, `o3*`, `o4*`) and for non-chat
-//!   GPT-5 snapshots. Set `TRANSYNC_OPENAI_API=chat|responses` to
-//!   override the heuristic explicitly.
+//! - Responses (`POST {base_url}/v1/responses`) is used for every
+//!   o-series reasoning model (`o<N>`) and for non-chat GPT snapshots from
+//!   generation 5 up — a floor, not a list (DCR-0059). Set
+//!   `TRANSYNC_OPENAI_API=chat|responses` to override the heuristic
+//!   explicitly.
 //!
 //! Both transports send the **same** strict JSON schema
 //! describing `TranslationBatchResult`; the wrapping field name differs
