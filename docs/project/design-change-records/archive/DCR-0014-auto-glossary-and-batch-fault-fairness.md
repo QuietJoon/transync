@@ -1,12 +1,14 @@
 ---
 type: DCR
 title: Auto-extracted candidate glossary and per-batch schema-fault fairness
-description: Two pipeline-quality mechanisms. (A) An opt-in preflight provider call harvests recurring source terminology and merges it into the run's glossary (static entries win, scope forced Global per ADR-0014), reaching every batch's prompt and both glossary-sensitive cache-key components through one effective profile — no CacheKey change. (B) A batch-envelope schema fault is decomposed per unit: innocent batch-mates validate and accept in the round they arrived, and the implicated units are re-dispatched on a new bounded per-batch budget instead of spending their neighbours' content-retry budgets. Amends ADR-0009's retry policy additively.
+description: "Two pipeline-quality mechanisms. (A) An opt-in preflight provider call harvests recurring source terminology and merges it into the run's glossary (static entries win, scope forced Global per ADR-0014), reaching every batch's prompt and both glossary-sensitive cache-key components through one effective profile — no CacheKey change. (B) A batch-envelope schema fault is decomposed per unit: innocent batch-mates validate and accept in the round they arrived, and the implicated units are re-dispatched on a new bounded per-batch budget instead of spending their neighbours' content-retry budgets. Amends ADR-0009's retry policy additively."
 tags: [change, project-control, DCR-0014]
-status: active
+status: deprecated
 ---
 
 # DCR-0014: Auto-glossary preflight + batch-fault fairness
+
+> Archived 2026-10-10. Reason: change fully absorbed — OI-0026 and OI-0031 resolved and archived, the auto-glossary and batch-fault rules stated in contracts.md; kept for audit.
 
 - **Date:** 2026-08-03
 - **Source:** OI-resolution wave **OI-2026-08**; design D1 (`Pipeline Quality: OI-0026 + OI-0031`); resolves OI-0026 and OI-0031

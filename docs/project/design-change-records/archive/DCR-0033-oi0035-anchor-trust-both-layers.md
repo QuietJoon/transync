@@ -6,10 +6,12 @@ tags: [change, project-control, DCR-0033]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-08-23T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0033: An anchor is trusted because the map claims it, and because we put it there
+
+> Archived 2026-10-10. Reason: change fully absorbed — OI-0035 resolved at both layers and archived, its accepted residual stated in contracts.md §4a; kept for audit.
 
 - **Date:** 2026-08-23 — this record. The two code commits landed **2026-08-22**:
   `eedc9e3` (the render half) and `0972fa2` (the engine half, both `sync.js`

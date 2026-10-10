@@ -3,10 +3,12 @@ type: DCR
 title: Grouped list rendering with <li> sync anchors
 description: Consecutive items of one source list now share a single unattributed <ul>/<ol>; sync attributes moved from per-item <div> wrappers onto real <li> elements, and list items' sync_role became anchor.
 tags: [change, project-control, DCR-0007]
-status: active
+status: deprecated
 ---
 
 # DCR-0007: Grouped list rendering with `<li>` sync anchors
+
+> Archived 2026-10-10. Reason: change fully absorbed — contracts.md §4/§4a state the grouped-list shape, the start-offset limitation was resolved and the nested task-list gap accepted (ticket `cfeb5df5`); kept for audit.
 
 - **Date:** 2026-07-10
 - **Source:** OI-0010 [archived] (R0003-0027, the **2026-05** round — ti `bdf8d981`, 2026-09-03: a bare `R0003` id written after 2026-08-07 means the gated round that reused the number) + folded R0006-0042; user-approved resolution session (review archived and removed)

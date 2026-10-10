@@ -6,10 +6,12 @@ tags: [change, project-control, DCR-0037]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-09-03T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0037: HTML→HTML translation works at the library surface, and the records say what deliberately did not move
+
+> Archived 2026-10-10. Reason: change fully absorbed — ti `490d97` closed, its hand-forwards discharged per DCR-0039's ledger, its filed finding `c887bc` resolved by DCR-0048, and its owed spec erratum carried by DCR-0039; kept for audit.
 
 - **Date:** 2026-09-03 — this record, and the code, which landed the same day
   across eight commits: `0fa8a08` (the §6 unit-layer pins through the real

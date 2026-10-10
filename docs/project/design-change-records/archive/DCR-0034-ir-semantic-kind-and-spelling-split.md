@@ -1,15 +1,17 @@
 ---
 type: DCR
 title: Semantic kind and source spelling become separate axes in the block IR
-description: Wave 2 of the HTML→HTML feature opens the sanctioned v0.5.0 window and lands four breaking-by-policy IR changes batched — Spelling and SourceFormat join BlockKind, BlockKind::Html narrows to a unit variant, BlockKind::Title is added anchor-less, and every html dispatch site is re-keyed onto the axis it actually meant. Breaking by policy, behaviour-preserving in fact: zero fixture edits.
+description: "Wave 2 of the HTML→HTML feature opens the sanctioned v0.5.0 window and lands four breaking-by-policy IR changes batched — Spelling and SourceFormat join BlockKind, BlockKind::Html narrows to a unit variant, BlockKind::Title is added anchor-less, and every html dispatch site is re-keyed onto the axis it actually meant. Breaking by policy, behaviour-preserving in fact: zero fixture edits."
 tags: [change, project-control, DCR-0034]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-09-01T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0034: Semantic kind and source spelling become separate axes in the block IR
+
+> Archived 2026-10-10. Reason: change fully absorbed — ADR-0025 records the split, its hand-forwards landed in waves 4–6, and the oversize-leaf splitter has its own backlog entry; kept for audit.
 
 - **Date:** 2026-09-01 — this record. The **code landed 2026-08-24**, in one
   day: `20b78b7` (the two vocabularies), `258ba01` (the IR stamps), `954711a`

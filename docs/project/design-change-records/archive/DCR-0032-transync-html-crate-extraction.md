@@ -6,10 +6,12 @@ tags: [change, project-control, DCR-0032]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-08-20T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0032: The HTML mechanics become a workspace member
+
+> Archived 2026-10-10. Reason: change fully absorbed — `transync-html` is a workspace member, its divergences are enumerated in `docs/architecture/transync-html-divergences.md`, its hand-forwards are discharged (DCR-0039's ledger; the module split by OI-0043), and its two owed spec amendments are carried by DCR-0039; kept for audit.
 
 - **Date:** 2026-08-20.
 - **Source:** ticket `490d97`, **wave 0** of the eight in

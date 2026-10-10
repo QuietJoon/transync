@@ -1,15 +1,17 @@
 ---
 type: DCR
 title: The bottom clamp is the contract — a browser test that asserted the dead zone is corrected, not the engine
-description: engine.spec.js test l went red at 2ca092f and was filed as a priority-1 anchor capture — a duplicate of a listed id resolving to its second occurrence after a reflow recompute. Three measurements say otherwise: with the duplicate removed entirely the follower still lands on the same pixel, with the pre-clamp sync.js served under the unchanged test it lands at 0, and a duplicate appended after mount still pairs with its first occurrence. The mechanism is OI-0047's new bottom clamp, whose destination coincided with the planted duplicate's top. The clamp stands, the assertion is rewritten out of the pane's geometry, and test l gains the two recompute legs the suite never had.
+description: "engine.spec.js test l went red at 2ca092f and was filed as a priority-1 anchor capture — a duplicate of a listed id resolving to its second occurrence after a reflow recompute. Three measurements say otherwise: with the duplicate removed entirely the follower still lands on the same pixel, with the pre-clamp sync.js served under the unchanged test it lands at 0, and a duplicate appended after mount still pairs with its first occurrence. The mechanism is OI-0047's new bottom clamp, whose destination coincided with the planted duplicate's top. The clamp stands, the assertion is rewritten out of the pane's geometry, and test l gains the two recompute legs the suite never had."
 tags: [change, project-control, DCR-0052]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-09-05T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0052: The bottom clamp is the contract
+
+> Archived 2026-10-10. Reason: change fully absorbed — contracts.md states the bottom clamp, and the record leaves nothing open; kept for audit.
 
 - **Date:** 2026-09-05
 - **Source:** ticket `8cd7ba` (P1, filed as an OI-0035 impostor surface)

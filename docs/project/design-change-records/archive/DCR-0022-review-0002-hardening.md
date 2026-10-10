@@ -6,10 +6,12 @@ tags: [change, project-control, DCR-0022]
 generated:
   by: claude-code/claude-opus-5[1m]
   at: 2026-08-08T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0022: Review 0002 hardening — the render seam becomes fallible, and three guards stop trusting their input
+
+> Archived 2026-10-10. Reason: change fully absorbed — ADR-0006 and DCR-0020 updated, and both findings routed to tracking (R0002-0018 via OI-0035, R0002-0028) resolved and archived; kept for audit.
 
 - **Date:** 2026-08-08
 - **Source:** Review 0002, issues R0002-0010, R0002-0011, R0002-0014, R0002-0002, R0002-0029 (review archived and removed)

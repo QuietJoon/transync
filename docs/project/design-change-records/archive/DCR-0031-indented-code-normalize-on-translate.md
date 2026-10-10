@@ -6,10 +6,12 @@ tags: [change, project-control, DCR-0031]
 generated:
   by: claude-code/claude-opus-5[1m]
   at: 2026-08-16T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0031: An indented code block is normalized on translate
+
+> Archived 2026-10-10. Reason: change fully absorbed — contracts.md carries the normalize-on-translate rule; kept for audit.
 
 - **Date:** 2026-08-16
 - **Source:** ticket `457e51` — *Every indented code block burns three provider

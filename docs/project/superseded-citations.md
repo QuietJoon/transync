@@ -91,3 +91,26 @@ current truth about anything.
 The design **specs** beside them under `docs/superpowers/specs/` are **not**
 retired — they hold live design content, and two of them are cited from Rust
 source.
+
+## Moved records
+
+Fourteen design change records are archived under
+`docs/project/design-change-records/archive/` (wave 6 of the documentation
+compaction, DCR-0054): DCR-0007, 0014, 0021–0023, 0030–0034, 0036–0038 and
+0052. Each keeps its file name, so a citation of
+`docs/project/design-change-records/<file>` resolves to
+`docs/project/design-change-records/archive/<file>`.
+
+**Four write-once files cite one of the fourteen at its old path, five times
+in all, and cannot be corrected:**
+
+| cited in | cited as | resolves to |
+|---|---|---|
+| `DCR-0040` | `docs/project/design-change-records/DCR-0023-provider-error-taxonomy.md` | `docs/project/design-change-records/archive/DCR-0023-provider-error-taxonomy.md` |
+| `archive/DCR-0022` | `docs/project/design-change-records/DCR-0021-publication-lock-and-honest-replacement.md` | `docs/project/design-change-records/archive/DCR-0021-publication-lock-and-honest-replacement.md` |
+| `CHANGELOG-archive.md`, `[0.4.0]` | `docs/project/design-change-records/DCR-0031-indented-code-normalize-on-translate.md` | `docs/project/design-change-records/archive/DCR-0031-indented-code-normalize-on-translate.md` |
+| `docs/backlog-archive.md`, entry `html-walk-foreign-content-breakout` | `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md` | `docs/project/design-change-records/archive/DCR-0032-transync-html-crate-extraction.md` |
+| `docs/backlog-archive.md`, entry `dcr-0032-divergence-tally-not-reconstructible` | `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md` | `docs/project/design-change-records/archive/DCR-0032-transync-html-crate-extraction.md` |
+
+A citation by file name alone finds the same file under `archive/`: `DCR-0041`
+cites DCR-0032 that way, and `CHANGELOG-archive.md` cites DCR-0022.

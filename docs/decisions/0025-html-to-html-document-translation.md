@@ -344,12 +344,12 @@ Two notes, because the confusion runs in both directions.
 
 - `docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md` — the
   ratified design spec this ADR records.
-- `docs/project/design-change-records/DCR-0032-transync-html-crate-extraction.md`
+- `docs/project/design-change-records/archive/DCR-0032-transync-html-crate-extraction.md`
   — D3/D10 as landed (wave 0).
-- `docs/project/design-change-records/DCR-0033-oi0035-anchor-trust-both-layers.md`
+- `docs/project/design-change-records/archive/DCR-0033-oi0035-anchor-trust-both-layers.md`
   — OI-0035 closed at both layers (wave 1), the precondition D6's pane ruling
   leans on.
-- `docs/project/design-change-records/DCR-0034-ir-semantic-kind-and-spelling-split.md`
+- `docs/project/design-change-records/archive/DCR-0034-ir-semantic-kind-and-spelling-split.md`
   — D2/D5/D12 as landed (wave 2).
 - `docs/decisions/0018-html-content-translation-via-segment-extraction.md` — the
   multi-decision precedent, and the origin of the segment-extraction contract.

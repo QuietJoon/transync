@@ -6,10 +6,12 @@ tags: [change, project-control, DCR-0030]
 generated:
   by: claude-code/claude-opus-5[1m]
   at: 2026-08-13T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0030: Review 0004 hardening — a credential stops crossing origins, a server names the authority it answers for, and section identity becomes canonical
+
+> Archived 2026-10-10. Reason: change fully absorbed — ADR-0022 and ADR-0023 carry the reasoning, and the one finding routed to tracking (OI-0038) was resolved by DCR-0046; kept for audit.
 
 - **Date:** 2026-08-13
 - **Source:** Review 0004, issues R0004-0001, R0004-0002, R0004-0022, R0004-0023, R0004-0028, R0004-0080 (review archived and removed)

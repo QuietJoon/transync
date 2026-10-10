@@ -6,10 +6,12 @@ tags: [change, project-control, DCR-0038]
 generated:
   by: claude-code/claude-opus-5
   at: 2026-09-03T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0038: HTML panes, alignment wire 1.3.0, and the CLI surface — the operator-visible feature
+
+> Archived 2026-10-10. Reason: change fully absorbed — ti `490d97` closed, its hand-forwards discharged per DCR-0039's ledger, and its owed spec amendments carried there; kept for audit.
 
 - **Date:** 2026-09-03 — this record, and the code, which landed the same day
   across five commits: `5ba9783` (schema 1.3.0 and its mirrors), `0d2f807`

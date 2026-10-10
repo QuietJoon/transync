@@ -74,34 +74,21 @@ Four things sit outside the rule on purpose, because they are not this index's t
 
 ## Design change records (DCRs)
 
-Archived records — DCR-0001–0004, 0006, 0010, 0011, 0013, 0015 and 0017–0019 — are under [Archive](#archive).
+Archived records — DCR-0001–0004, 0006, 0007, 0010, 0011, 0013–0015, 0017–0019, 0021–0023, 0030–0034, 0036–0038 and 0052 — are under [Archive](#archive).
 
 - [DCR-0005 — Facade crate + `transync-core` split](project/design-change-records/DCR-0005-facade-and-core-crate-split.md)
-- [DCR-0007 — Grouped list rendering with `<li>` sync anchors](project/design-change-records/DCR-0007-grouped-list-rendering.md)
 - [DCR-0008 — Scroll-listener sync engine replaces the IntersectionObserver design](project/design-change-records/DCR-0008-scroll-listener-sync-engine.md)
 - [DCR-0009 — v0.2 provider/cache boundary (fingerprint, fallible Cache + evict, RetryContext)](project/design-change-records/DCR-0009-v02-provider-cache-boundary.md)
 - [DCR-0012 — Output-aware batch packing + CLI batching knobs](project/design-change-records/DCR-0012-output-aware-batching-and-cli-knobs.md)
-- [DCR-0014 — Auto-glossary preflight + per-batch schema-fault fairness](project/design-change-records/DCR-0014-auto-glossary-and-batch-fault-fairness.md)
 - [DCR-0016 — HTML-content translation via segment extraction (alignment schema 1.2.0)](project/design-change-records/DCR-0016-html-content-translation.md)
 - [DCR-0020 — Track C wasm render+edit demo (`transync-wasm`, build pipeline, browser demo, parity gates)](project/design-change-records/DCR-0020-track-c-wasm-demo.md)
-- [DCR-0021 — Publication lock over output directories, honest `--out-dir` replacement wording, non-reclaimed staging temps](project/design-change-records/DCR-0021-publication-lock-and-honest-replacement.md)
-- [DCR-0022 — Review 0002 hardening (the render seam becomes fallible, and three guards stop trusting their input)](project/design-change-records/DCR-0022-review-0002-hardening.md)
-- [DCR-0023 — Provider error taxonomy (five terminal causes named, `stable_code()` reaches them)](project/design-change-records/DCR-0023-provider-error-taxonomy.md)
 - [DCR-0024 — Run cancellation (supersedes DCR-0009's YAGNI deferral; a cancelled run answers `Err`)](project/design-change-records/DCR-0024-run-cancellation.md)
 - [DCR-0025 — Review 0003 hardening (content loss closed at four seams; a refusal outranks the text beside it)](project/design-change-records/DCR-0025-review-0003-content-loss-and-refusal-precedence.md)
 - [DCR-0026 — Oversize tables split into header-carrying row windows at packing time (STUB-017 commissioned; slices SL-100..SL-105)](project/design-change-records/DCR-0026-oversize-table-row-window-split.md)
 - [DCR-0027 — Batches become section-coherent, and the glossary section scope becomes real (ticket 43cfb4; slices SL-106..SL-109)](project/design-change-records/DCR-0027-section-coherent-batching-and-glossary-section-scope.md)
 - [DCR-0028 — Disk-backed cache + document-level metadata (ticket f12b8b commissioned; slices SL-110..SL-114)](project/design-change-records/DCR-0028-disk-backed-cache-and-document-metadata.md)
 - [DCR-0029 — `transync-anthropic`, the second provider crate (ticket bda471; slices SL-115..SL-119)](project/design-change-records/DCR-0029-transync-anthropic-second-provider.md)
-- [DCR-0030 — Review 0004 hardening: a credential stops crossing origins, a server names the authority it answers for, and section identity becomes canonical](project/design-change-records/DCR-0030-review-0004-credential-and-origin-hardening.md)
-- [DCR-0031 — An indented code block is normalized on translate: re-fenced for the wire, re-emitted fenced in the output (ticket 457e51)](project/design-change-records/DCR-0031-indented-code-normalize-on-translate.md)
-- [DCR-0032 — The HTML mechanics become a workspace member, and the record names what stopped being called htmlseg (ticket 490d97)](project/design-change-records/DCR-0032-transync-html-crate-extraction.md) — the scanner grows `Open.span` and `TagToken::Skip`; the walk becomes `element_extents`.
-- [DCR-0033 — An anchor is trusted because the map claims it, and because we put it there: OI-0035 closed at both layers (ti 490d97 wave 1)](project/design-change-records/DCR-0033-oi0035-anchor-trust-both-layers.md)
-- [DCR-0034 — Semantic kind and source spelling become separate axes in the block IR](project/design-change-records/DCR-0034-ir-semantic-kind-and-spelling-split.md) — ti `490d97` wave 2: `Spelling` and `SourceFormat` join `BlockKind`; the v0.5.0 window opens here.
 - [DCR-0035 — HTML intake + identity round-trip (ti 490d97 wave 3): `transync-syntax::intake::html` lands beside `parser`, and `regenerate(parse, &empty)` is byte-identical](project/design-change-records/DCR-0035-html-intake-identity-round-trip.md) — five-class classification, default STOP; its deferred `parser` rename is paid by DCR-0053.
-- [DCR-0036 — The HTML layer-6 twin (ti 490d97 wave 4): `full_rescan_html` gates HTML regen output, and `finalize` dispatches on `Document.format`](project/design-change-records/DCR-0036-html-layer6-twin.md)
-- [DCR-0037 — HTML→HTML works at the library surface (ti 490d97 wave 5): `TranslateOptions.input_format`, `[system].prompt_html`, the run-level instruction clause, extract-projected context, and the no-new-cache-axis verdict](project/design-change-records/DCR-0037-html-translation-entry-units-context-prompt.md)
-- [DCR-0038 — HTML panes, alignment wire 1.3.0, and the CLI surface (2026-09-03)](project/design-change-records/DCR-0038-html-panes-wire-cli.md) — ti `490d97` wave 6; `--input-format`, with the sniff kept a refusal.
 - [DCR-0039 — the browser gate closes the HTML→HTML feature, and the ledger says what stayed open (2026-09-04)](project/design-change-records/DCR-0039-html-browser-gate-and-closure.md) — ti `490d97` wave 7, the last: `scn16.spec.js`, proven able to fail, and the deferred-item ledger.
 - [DCR-0040 — Review 0009's fix pass changes three shipped behaviours, one of them a breaking API removal](project/design-change-records/DCR-0040-review-0009-fix-pass.md) — the splice's agreement check becomes an error, `serve` gains a deadline, `RateLimited` is removed.
 - [DCR-0041 — The element walk models HTML integration points and foreign-content breakout](project/design-change-records/DCR-0041-foreign-content-islands-and-breakout.md) — closes a live `contracts.md` §4a break reachable from untrusted Markdown (ticket `e77173`).
@@ -115,7 +102,6 @@ Archived records — DCR-0001–0004, 0006, 0010, 0011, 0013, 0015 and 0017–00
 - [DCR-0049 — The v0.5.0 blocker clearance, and why the arc does not reach a tag](project/design-change-records/DCR-0049-v050-blocker-clearance.md) — OI-0039..OI-0048 dispositioned; biome **format-only** (its lint half: DCR-0056).
 - [DCR-0050 — Four `transync-html` tokenizer divergences close, and PLAINTEXT gets the arm ti `c1f9a8`'s rule never had](project/design-change-records/DCR-0050-four-tokenizer-divergences-and-the-plaintext-decision.md) — PLAINTEXT is deleted, start tag and all (ticket `bebebe`; R0010-0031/-0032/-0034/-0049).
 - [DCR-0051 — One open-element stack: `transync-html`'s tree construction becomes browser-faithful](project/design-change-records/DCR-0051-one-open-element-stack.md) — adoption agency deliberately absent; residual in `contracts.md` §4b, owned by ti `525bef`.
-- [DCR-0052 — The bottom clamp is the contract; a browser test that asserted the dead zone is corrected, not the engine](project/design-change-records/DCR-0052-the-bottom-clamp-is-the-contract.md) — the mechanism is OI-0047's bottom clamp; test `l` is corrected (ticket `8cd7ba`).
 - [DCR-0053 — The format seam becomes symmetric: the Markdown intake is `intake::markdown`](project/design-change-records/DCR-0053-the-format-seam-becomes-symmetric.md) — pays DCR-0035's deferred rename, no behaviour change; collision left to OI-0034 (`b7e4cc70`).
 - [DCR-0054 — Four document kinds: a document's kind decides how it changes](project/design-change-records/DCR-0054-four-document-kinds.md) — living, register, record, archive; records become write-once, ADR decision bodies become living.
 - [DCR-0055 — The docs bundle adopts OKF v0.2](project/design-change-records/DCR-0055-docs-becomes-an-okf-bundle.md) — write-once governs a Record's words, not its metadata header; `index.md` becomes the bundle root.
@@ -170,13 +156,27 @@ Verbatim and append-only; kept linked so nothing is orphaned, never read for cur
 - [DCR-0003 — Annotated-HTML wrapper positioning contract](project/design-change-records/archive/DCR-0003-wrapper-positioning-contract.md) *(archived)*
 - [DCR-0004 — `FallbackPerBlock` widens to neighbors and auto-escalates](project/design-change-records/archive/DCR-0004-fallback-per-block-widens-and-escalates.md) *(archived)*
 - [DCR-0006 — CLI outputs commit all-or-nothing](project/design-change-records/archive/DCR-0006-all-or-nothing-output-staging.md) *(archived)*
+- [DCR-0007 — Grouped list rendering with `<li>` sync anchors](project/design-change-records/archive/DCR-0007-grouped-list-rendering.md) *(archived)*
 - [DCR-0010 — Inline-protection validation layer (destinations + pledged code spans)](project/design-change-records/archive/DCR-0010-inline-protection-layer.md) *(archived)*
 - [DCR-0011 — Staged fileset commit, `--out-dir` publish, CLI admission limits](project/design-change-records/archive/DCR-0011-staged-commit-out-dir-and-limits.md) *(archived)*
 - [DCR-0013 — Reader-honesty placeholders + reference-link (refmap) resolution](project/design-change-records/archive/DCR-0013-reader-honesty-placeholders-and-refmap.md) *(archived)*
+- [DCR-0014 — Auto-glossary preflight + per-batch schema-fault fairness](project/design-change-records/archive/DCR-0014-auto-glossary-and-batch-fault-fairness.md) *(archived)*
 - [DCR-0015 — Prompt lift into core, tokenizer hint, RTL pane direction, gated live smoke](project/design-change-records/archive/DCR-0015-prompt-lift-tokenizer-hint-rtl-live-smoke.md) *(archived)*
 - [DCR-0017 — `transync-syntax` crate split + AST-direct renderer (wasm32 gate)](project/design-change-records/archive/DCR-0017-transync-syntax-split.md) *(archived)*
 - [DCR-0018 — Public-surface curation (explicit facade, compiler-enforced tiers, `#[non_exhaustive]`)](project/design-change-records/archive/DCR-0018-public-surface-curation.md) *(archived)*
 - [DCR-0019 — OI-0008 + OI-0033 internal-quality wave (CR-aware line table, pure policy module, six concern splits)](project/design-change-records/archive/DCR-0019-internal-quality-wave.md) *(archived)*
+- [DCR-0021 — Publication lock over output directories, honest `--out-dir` replacement wording, non-reclaimed staging temps](project/design-change-records/archive/DCR-0021-publication-lock-and-honest-replacement.md) *(archived)*
+- [DCR-0022 — Review 0002 hardening (the render seam becomes fallible, and three guards stop trusting their input)](project/design-change-records/archive/DCR-0022-review-0002-hardening.md) *(archived)*
+- [DCR-0023 — Provider error taxonomy (five terminal causes named, `stable_code()` reaches them)](project/design-change-records/archive/DCR-0023-provider-error-taxonomy.md) *(archived)*
+- [DCR-0030 — Review 0004 hardening: a credential stops crossing origins, a server names the authority it answers for, and section identity becomes canonical](project/design-change-records/archive/DCR-0030-review-0004-credential-and-origin-hardening.md) *(archived)*
+- [DCR-0031 — An indented code block is normalized on translate: re-fenced for the wire, re-emitted fenced in the output (ticket 457e51)](project/design-change-records/archive/DCR-0031-indented-code-normalize-on-translate.md) *(archived)*
+- [DCR-0032 — The HTML mechanics become a workspace member, and the record names what stopped being called htmlseg (ticket 490d97)](project/design-change-records/archive/DCR-0032-transync-html-crate-extraction.md) *(archived)*
+- [DCR-0033 — An anchor is trusted because the map claims it, and because we put it there: OI-0035 closed at both layers (ti 490d97 wave 1)](project/design-change-records/archive/DCR-0033-oi0035-anchor-trust-both-layers.md) *(archived)*
+- [DCR-0034 — Semantic kind and source spelling become separate axes in the block IR](project/design-change-records/archive/DCR-0034-ir-semantic-kind-and-spelling-split.md) *(archived)*
+- [DCR-0036 — The HTML layer-6 twin (ti 490d97 wave 4): `full_rescan_html` gates HTML regen output, and `finalize` dispatches on `Document.format`](project/design-change-records/archive/DCR-0036-html-layer6-twin.md) *(archived)*
+- [DCR-0037 — HTML→HTML works at the library surface (ti 490d97 wave 5): `TranslateOptions.input_format`, `[system].prompt_html`, the run-level instruction clause, extract-projected context, and the no-new-cache-axis verdict](project/design-change-records/archive/DCR-0037-html-translation-entry-units-context-prompt.md) *(archived)*
+- [DCR-0038 — HTML panes, alignment wire 1.3.0, and the CLI surface (2026-09-03)](project/design-change-records/archive/DCR-0038-html-panes-wire-cli.md) *(archived)*
+- [DCR-0052 — The bottom clamp is the contract; a browser test that asserted the dead zone is corrected, not the engine](project/design-change-records/archive/DCR-0052-the-bottom-clamp-is-the-contract.md) *(archived)*
 - [Status archive](project/status-archive.md) — *(archive)* the wave log and every completed action.
 - [Phase-state run log](project/phase-state-notes.md) — *(archive)* the narrated history of every wave and release.
 - [Backlog — Archive](backlog-archive.md) — *(archive)* entries moved out of `backlog.md` by the commit that closed them, verbatim.

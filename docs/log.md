@@ -9,6 +9,16 @@ bundle — files added, removed, retired, or re-typed.
 * **DCR-0059 and DCR-0060 added** under `project/design-change-records/`: the
   OpenAI model-generation floor and Vertex AI express mode. The bundle index
   links both.
+* **Fourteen DCRs retired** to `project/design-change-records/archive/` by
+  wave 6 of the documentation compaction (DCR-0054, ti `d4b142dd`): DCR-0007,
+  0014, 0021–0023, 0030–0034, 0036–0038 and 0052. Each change is fully
+  absorbed; where one left a follow-up, its banner says what carries it
+  (DCR-0039's ledger for the spec amendments DCR-0032, 0036, 0037 and 0038
+  still owe, a backlog entry for DCR-0034's oversize-leaf splitter). Each
+  file moved whole: its frontmatter gained `status: deprecated` (and, for
+  DCR-0014, 0034 and 0052, a quoted `description:`), its body an `> Archived`
+  banner under the title, and nothing else changed. The bundle index links
+  each under *Archive*.
 
 ## 2026-10-06
 

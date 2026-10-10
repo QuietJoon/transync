@@ -136,7 +136,7 @@ R0004-0064, R0004-0065.
 **Governing record:**
 [ADR-0024](../decisions/0024-output-publication-protocol.md) (the reasoning),
 [`contracts.md` §6](contracts.md) (the observable contract),
-[DCR-0021](../project/design-change-records/DCR-0021-publication-lock-and-honest-replacement.md)
+[DCR-0021](../project/design-change-records/archive/DCR-0021-publication-lock-and-honest-replacement.md)
 (the change history and its appended notes).
 
 ## 2. The wasm engine validates neither the map nor the source

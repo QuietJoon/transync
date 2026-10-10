@@ -6,10 +6,12 @@ tags: [change, project-control, DCR-0023]
 generated:
   by: claude-code/claude-opus-5[1m]
   at: 2026-08-08T00:00:00Z
-status: stable
+status: deprecated
 ---
 
 # DCR-0023: Provider error taxonomy — five terminal causes get names, and `stable_code()` reaches them
+
+> Archived 2026-10-10. Reason: change fully absorbed — contracts.md carries the five terminal causes and their stable codes, narrowed by DCR-0040; kept for audit.
 
 - **Date:** 2026-08-08
 - **Source:** ticket `1a85f3`, filed by the dynwebserver maintainer after integrating transync 0.3.0

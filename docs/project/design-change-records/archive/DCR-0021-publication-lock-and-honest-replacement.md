@@ -3,10 +3,12 @@ type: DCR
 title: Publication lock over output directories, honest --out-dir replacement wording, and non-reclaimed staging temps
 description: Output publication takes an exclusive OS file lock on every directory it writes into, so two concurrent runs serialize instead of interleaving their rename passes; the --out-dir help text stops calling an existing-target replacement atomic; and the contract stops promising automatic reclamation of foreign-pid staging temps.
 tags: [change, project-control, DCR-0021]
-status: active
+status: deprecated
 ---
 
 # DCR-0021: Publication lock, honest replacement wording, non-reclaimed temps
+
+> Archived 2026-10-10. Reason: change fully absorbed — ADR-0024 carries the protocol's decisions and contracts.md §6 its scope; residual tickets `8792b7` and `cbbc4e` resolved; kept for audit.
 
 - **Date:** 2026-08-06
 - **Source:** Review-0001 findings R0001-0034, R0001-0035, R0001-0036 (ticket `f41f1652`)
