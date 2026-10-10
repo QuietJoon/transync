@@ -29,7 +29,9 @@
 //!   carry. The exclusion is **read out of `.gitignore`**, not hardcoded, so
 //!   it cannot outlive the decision that created it: re-track the bundle and
 //!   its files are required again in the same edit;
-//! - `docs/index.md` itself, which needs no self-link;
+//! - the two OKF reserved files, `docs/index.md` (which needs no self-link)
+//!   and `docs/log.md` (the bundle change journal, DCR-0055) — neither is a
+//!   concept document;
 //! - non-Markdown files. `docs/project/phase-state.yaml` is linked because a
 //!   reader wants it, not because this test demands it — the index is an index
 //!   of documents, and requiring every data file under `docs/` would fire on
@@ -110,8 +112,12 @@ fn is_external(target: &str) -> bool {
     lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:")
 }
 
-/// The index's own path, relative to `docs/`. It needs no self-link.
-const INDEX_SELF: &str = "index.md";
+/// OKF's two reserved filenames, relative to `docs/`. Neither is a concept
+/// document, so neither is the index's to link: `index.md` is the index itself
+/// and needs no self-link, and `log.md` is the bundle's change journal
+/// (DCR-0055). Both are reserved by the format — a concept document may never
+/// take either name, which is why matching on the name is sound.
+const OKF_RESERVED: &[&str] = &["index.md", "log.md"];
 
 /// The exclusions this repository's `.gitignore` implies for the docs tree,
 /// read from the file rather than restated here.
@@ -201,7 +207,7 @@ fn required_linked_docs() -> Vec<String> {
                 && name.ends_with(".md")
                 && !is_ko(&name)
                 && !ignored.ignores_file_name(&name)
-                && child != INDEX_SELF
+                && !OKF_RESERVED.contains(&child.as_str())
             {
                 required.push(child);
             }
@@ -285,9 +291,10 @@ fn the_stated_exclusions_are_the_only_exclusions() {
             !is_ko(path),
             "{path}: Korean siblings are out of scope and must not be required",
         );
-        assert_ne!(
-            path, INDEX_SELF,
-            "the index must not be required to link itself",
+        assert!(
+            !OKF_RESERVED.contains(&path.as_str()),
+            "{path}: an OKF reserved file is not a concept document and must \
+             not be required — the index never links itself or the log",
         );
         assert!(
             path.ends_with(".md"),
