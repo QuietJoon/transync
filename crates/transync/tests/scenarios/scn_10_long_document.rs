@@ -1,7 +1,8 @@
 //! SCN-10 — Long document → many batches; partial-resume.
 //!
 //! Done-gate criteria from `docs/project/implementation-slice-checklists.md` SL-10:
-//! - The fixture splits into ≥ 4 batches at the default `max_units_per_batch = 8`.
+//! - The fixture splits into ≥ 4 batches at the default caps
+//!   (`max_units_per_batch = 32`, sections coalescing).
 //! - Partial-resume (same in-memory cache reused across runs) produces
 //!   byte-identical final output.
 //!
