@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Profile Cookbook"
+description: "Six complete, copy-ready profile TOMLs for technical, literary, marketing, tutorial and strict-preserve translation styles, with the rules governing prompt substitution, glossary scoping and section-scoped term overrides"
+tags: ["reference", "translation", "cli"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Profile Cookbook
 
 Concrete profile recipes for common translation styles. Each recipe
@@ -47,9 +56,17 @@ A profile contributes four things to a translation run:
    caller-then-profile-then-built-in-default, where "caller" means a
    `TranslateOptions` value that *differs* from the built-in default —
    so the profile wins on every run that leaves those fields alone.
-   `target_output_tokens` and `output_expansion_factor` have no
-   `TranslateOptions` counterpart at all: the profile is their only home.
-   Of the three sizing knobs,
+   `target_output_tokens`, `output_expansion_factor` and
+   `coalesce_sections` have no `TranslateOptions` counterpart at all: the
+   profile is their only home. `coalesce_sections` is a boolean rather
+   than a budget — leave it out or set it `true` and adjacent whole
+   sections share a batch whenever they fit and agree on their effective
+   glossary and their instruction clauses (DCR-0057); set it `false` and
+   every batch's units come from exactly one section, which costs one
+   request per heading. The CLI flags `--coalesce-sections` /
+   `--no-coalesce-sections` override the key. It has no invalid value:
+   anything but a boolean is a TOML type error the loader reports when it
+   reads the file. Of the three sizing knobs,
    `target_input_tokens_per_batch` and `max_units_per_batch` take an
    integer `>= 1`, and `target_output_tokens` takes one `>= 65` — a
    ceiling at or below the 64 tokens the response envelope alone needs
@@ -91,7 +108,7 @@ falls back to your `prompt` verbatim and warns once (DCR-0037). The recipes
 below are Markdown-flavored and omit it deliberately. It is
 consequential for `[batching]`, where the shipped default
 (`crates/transync-core/profiles/default.toml`) carries
-`target_output_tokens = 8000` and `max_units_per_batch = 8`. A profile
+`target_output_tokens = 8000` and `max_units_per_batch = 32`. A profile
 with no `[batching]` section runs with **no output ceiling**, and three
 things ride on that ceiling:
 
@@ -106,9 +123,10 @@ things ride on that ceiling:
   "row-window-first"`; either key missing and the split declines.
 
 Without the ceiling the run packs on input tokens alone and takes the
-abort. (`output_expansion_factor` is the one `[batching]` key you lose
-nothing by omitting — its built-in fallback is the same `2.0` the default
-profile states.)
+abort. (`output_expansion_factor` and `coalesce_sections` are the two
+`[batching]` keys you lose nothing by omitting — the first falls back to
+the same `2.0` the default profile states, and the second to the same
+`true`.)
 
 **None of the recipes below carries a `[batching]` section**, and each of
 them states `default_table_strategy = "whole-block"`, so as written they
@@ -119,12 +137,20 @@ wide tables or long sections, add the ceiling
 ```toml
 [batching]
 target_output_tokens = 8000
-max_units_per_batch  = 8
+max_units_per_batch  = 32
+coalesce_sections    = true
 ```
 
 and, to get the row-window split as well, change the recipe's
 `default_table_strategy` to `"row-window-first"` — the value the shipped
 default profile carries.
+
+That `coalesce_sections` line states the default rather than changing
+anything; omitting it means the same thing. Write `false` when a short,
+heading-dense document is being tuned for wall clock: coalescing can
+pack such a document below `max_concurrent_batches` (6), at which point
+the run stops filling the dispatch slots, and the parallelism it gives
+up can cost more than the round-trips it saves.
 
 ## Recipe 1 — Technical / engineering documentation (default)
 

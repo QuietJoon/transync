@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Performance Tuning"
+description: "The latency model behind a translate run and dial-by-dial recipes for batching, concurrency, caching and memory across small, medium, large and code-heavy documents, plus how to tell when you have hit the provider's floor"
+tags: ["reference", "translation", "process"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Performance Tuning
 
 How to make transync faster — or, when faster isn't possible, how
@@ -23,8 +32,10 @@ middle term rather than raising it. For most non-trivial documents that
 term dominates. Three levers move it:
 
 1. **Number of batches** — controlled by
-   `target_input_tokens_per_batch` and `max_units_per_batch`. Fewer,
-   bigger batches → fewer round-trips.
+   `target_input_tokens_per_batch`, `max_units_per_batch` and
+   `[batching].coalesce_sections`. Fewer, bigger batches → fewer
+   round-trips, and coalescing is the knob that lets a batch span a
+   heading at all (DCR-0057).
 2. **Concurrency cap** — `max_concurrent_batches`. More in-flight
    requests → batches run in parallel, not series. Limited by
    provider rate limits and your account's TPM/RPM tier.
@@ -41,38 +52,82 @@ Parse, validation, regeneration and rendering together are typically
 |---|---|---|
 | `max_concurrent_batches` | `6` | More parallelism → faster, until rate-limited |
 | `target_input_tokens_per_batch` | `6000` | Bigger batches → fewer round-trips, more risk per failure |
-| `max_units_per_batch` | `32` (profile: `8`) | Hard cap; bigger → less granular retries |
+| `max_units_per_batch` | `32` | Hard cap; bigger → less granular retries |
+| `coalesce_sections` | profile-only; unset means `true` | Not a size but a shape: `true` lets adjacent admissible **whole** sections share one batch → fewer round-trips |
 | `max_per_unit_validation_retries` | `2` | More forgiving on flaky models; slower on bad runs |
 | `max_per_batch_schema_retries` | `2` | Survives a provider that drops or duplicates result rows; slower when it does |
 | `max_per_batch_provider_retries` | `1` | Survives transient 5xx; doesn't help on permanent errors |
 
 Each batching dial in this table is also a CLI flag
-(`--max-concurrent-batches`, `--target-input-tokens-per-batch`,
-`--max-units-per-batch`), as are the two output-side knobs that have no
+(`--max-concurrent-batches`, `--target-input-tokens-per-batch` and
+`--max-units-per-batch`), as are the three knobs that have no
 `TranslateOptions` field at all and live only in the profile's
-`[batching]` section (`--target-output-tokens`,
-`--output-expansion-factor`). The three retry budgets are library-only:
-set them on `TranslateOptions`.
+`[batching]` section: `--target-output-tokens`,
+`--output-expansion-factor`, and the mutually exclusive pair
+`--coalesce-sections` / `--no-coalesce-sections` (clap rejects both at
+once). `--no-coalesce-sections` is the one that usually has work to do;
+`--coalesce-sections` exists to beat a profile that sets the key
+`false`. The three retry budgets are library-only: set them on
+`TranslateOptions`.
 
-**`max_units_per_batch` is 8 on a default run, not 32.** The `Default`
-column is `TranslateOptions::default()`; what the packer runs with is
-resolved caller-then-profile-then-that-default, and "caller" means a
-value *differing* from the built-in one — there is no `Option` in which
-to say "unset", so passing `32` is read as leaving the field alone. The
-shipped default profile sets `[batching].max_units_per_batch = 8`
-(alongside `target_output_tokens = 8000`) and wins on every run that
-leaves the field alone. Every Rust recipe below that wants bigger
-batches therefore has to name a value other than 32 — the ones that
-raise the cap already do. The CLI flags are exempt: they overlay the
-resolved profile rather than `TranslateOptions`, so
-`--max-units-per-batch 32` really does mean 32.
+**Passing a `TranslateOptions` field its own default value reads as
+leaving it alone.** The `Default` column is
+`TranslateOptions::default()`; what the packer runs with is resolved
+caller-then-profile-then-that-default, and "caller" means a value
+*differing* from the built-in one — there is no `Option` in which to say
+"unset". So a profile key beats a caller who passes the built-in value,
+and a Rust recipe that wants a different cap has to name a number the
+default is not. The CLI flags are exempt: they overlay the resolved
+profile rather than `TranslateOptions`, so `--max-units-per-batch 32`
+really does mean 32.
 
-Two things bound the batch count that no dial in this table touches.
-Batches never straddle a heading (DCR-0027: the units are partitioned by
-section and each section packed on its own), so a document with *N*
-headings costs at least *N* batches — *N*+1 when it opens with prose
-before the first heading. The fastest way to fewer round-trips is often
-a flatter document, not a bigger budget. And `target_output_tokens`,
+On `max_units_per_batch` the two layers agree: the shipped default
+profile names `[batching].max_units_per_batch = 32` (alongside
+`target_output_tokens = 8000`), the same value `TranslateOptions`
+carries, so a default run packs at 32 whichever layer you credit. The
+cap and the coalescing default are one dial, not two — coalescing
+(DCR-0057) lets a batch span headings, which makes the unit cap rather
+than the section partition the limit that usually binds, and the
+profile sets it where the built-in default already sits (ti `f17fc9`).
+
+Sectioning still shapes the batch count, but under the default it no
+longer floors it. The units are partitioned at every heading of any
+level (DCR-0027 P1), and a batch is then one of exactly two shapes
+(DCR-0057): *N* consecutive whole sections whose combined estimates fit
+all three caps, or a fragment of one oversize section. So the floor is
+the number of maximal runs of sections a batch may legally span, not
+the number of headings. Two consecutive sections may share a batch only
+when they agree on their effective glossary cohort and on the
+membership facts that assemble the instruction (whether the batch holds
+a raw-HTML unit, a DCR-0026 row window, or belongs to an HTML
+document) — a disagreement on either ends the run and starts the next.
+An oversize section coalesces in neither direction: it cannot join the
+batch before it, and its trailing fragment cannot host the section
+after it.
+
+With `[batching].coalesce_sections = false` you get DCR-0027 P2 back
+exactly: every batch's units come from one section, so a document with
+*N* headings costs at least *N* batches — *N*+1 when it opens with
+prose before the first heading — and no token budget buys that back.
+Under that setting the fastest way to fewer round-trips is often a
+flatter document, not a bigger budget.
+
+Coalescing costs nothing in the output. The two things a batch carries
+beyond its own units — the compiled system prompt and the assembled
+instruction — are byte-identical to what each of its sections would have
+read alone, because that is exactly what the two admission terms pin. So
+no cache key moves, and batch ids reach neither the alignment map nor the
+validation report. What it does trade is elsewhere. Two
+run-wide ceilings — the validation report's `provider_retries` and
+`batch_schema_faults` — are multiples of the *input batch count*, so
+fewer batches means a tighter run-wide allowance even though
+`max_per_batch_provider_retries` and `max_per_batch_schema_retries`
+are unchanged. And `max_concurrent_batches` is 6: a document that
+coalesces below six batches stops filling the dispatch slots, which is
+the one case where `--no-coalesce-sections` is the faster setting — a
+short, heading-dense document tuned for wall clock.
+
+One more bound no dial in the table touches: `target_output_tokens`,
 which lives only in the profile, breaks a batch on the estimated
 *response* size when the input target has not bound yet.
 
@@ -83,29 +138,42 @@ constructs it by default-then-assign. A struct literal — even with
 ## Recipe — Small documents (≤50 blocks)
 
 The defaults are already overkill on the *token* axis: 50 short blocks
-are nowhere near one 6000-token batch. It is the other two bounds that
-set the batch count — the profile's 8-unit cap, and one batch per
-section. Measured on synthetic 50-block documents under the shipped
-defaults: 50 headingless paragraphs pack into **7** batches
-(`8×6 + 2`), and the same 50 blocks arranged as ten `##` sections of
-five pack into **10**, one per section. Concurrency=6 is not wasted on
-either shape; it is what makes them cheap.
+are nowhere near one 6000-token batch. What sets the batch count here
+is `max_units_per_batch`, and how hard it bites depends on the shape.
+Measured on synthetic 50-block documents with that cap at **8**: 50
+headingless paragraphs pack into **7** batches (`8×6 + 2`), and the same
+50 blocks arranged as ten `##` sections of five pack into **10** — at
+that cap coalescing cannot help the second shape, because two five-unit
+sections are ten units and over it, so it lands where confinement would
+land it, one batch per section. Those two counts are the 8-unit cap's
+shape, not the shipped one's: at `32` the cap stops cutting the
+headingless document every eight paragraphs, and consecutive admissible
+five-unit sections are free to share a batch instead of each taking
+one. That also changes what the concurrency cap buys: at the 8-unit cap
+both shapes packed into more batches than the six-way dispatch could run
+at once, so every slot was busy. At `32` a document this small can fall
+below six batches, and the spare slots simply go unused — fewer, larger
+round-trips rather than more parallel ones.
 
 If you want to minimize latency further, raise the unit cap as well.
-The token target alone cannot merge batches the unit cap is splitting —
-adding only the `target_input_tokens_per_batch` line below leaves the
-headingless document at the same 7 batches:
+The token target alone cannot merge batches the unit cap is splitting:
+at the 8-unit cap measured above, adding only the
+`target_input_tokens_per_batch` line below leaves the headingless
+document at the same 7 batches.
 
 ```rust
 let mut opts = TranslateOptions::default();
 opts.max_concurrent_batches = 2;           // enough for a one- or two-batch doc
 opts.target_input_tokens_per_batch = 8000; // room for the whole doc, token-wise
-opts.max_units_per_batch = 64;             // must differ from 32, or the profile's 8 stands
+opts.max_units_per_batch = 64;             // lifts the 32-unit cap off a 50-unit document
 ```
 
 All three together collapse the headingless document to a single batch.
-Nothing collapses the sectioned one below one batch per heading: it
-stays at 10.
+They also give the sectioned one the room coalescing needs: its ten
+sections agree on cohort and on membership facts, so once the caps stop
+binding they pack as consecutive whole sections rather than one batch
+each. Add `coalesce_sections = false` to the profile and the sectioned
+document stays at 10 however the budget is set.
 
 ## Recipe — Medium documents (50–500 blocks)
 
@@ -173,7 +241,10 @@ transient error is terminal: the run exits with `transync: translation
 failed: translator error: rate limited …` and writes no outputs at all.
 Drop concurrency rather than raising that budget — the budget is
 charged per input batch, so raising it just multiplies the requests the
-provider is refusing.
+provider is refusing. Coalescing moves the other side of that
+arithmetic: the run-wide `provider_retries` ceiling is the per-batch
+budget times the input batch count, so a document that packs into fewer
+batches has a smaller run-wide allowance to spend.
 
 ## Recipe — Stopping a run you no longer want
 
@@ -426,6 +497,10 @@ it.
 - Default values: `crates/transync-core/src/lib.rs::TranslateOptions::default`.
 - Token estimation: `crates/transync-core/src/batch.rs::estimate_unit_tokens`;
   the once-per-batch reserve is `batch.rs::envelope_input_tokens`.
+- Section partition and coalescing:
+  `crates/transync-core/src/unit/section.rs::partition_by_section` and
+  `crates/transync-core/src/unit.rs::build_batches`, which walks maximal
+  runs of admissible sections and calls the packer per run.
 - Budget resolution (caller value > profile > built-in default):
   `crates/transync-core/src/unit/budget.rs::resolve`.
 - Concurrent dispatch: `crates/transync-core/src/pipeline.rs::run_pipeline`
