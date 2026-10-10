@@ -19,13 +19,14 @@
 //! # The `transync` binary does not reach this crate
 //!
 //! **Setting those three variables changes no `transync` CLI run.** The binary
-//! depends on `transync` and `transync-openai` only, so reaching this adapter
+//! depends on `transync`, `transync-openai` and `transync-google`, and its
+//! `--provider` takes `openai` or `google` (DCR-0058), so reaching this adapter
 //! means depending on this crate from your own program. That is DCR-0029's
-//! scope, re-affirmed as a standing decision by ti `473dd1` on 2026-09-03: a
-//! `--provider` axis is real design work — provider-keyed default model, base
-//! URL and environment-variable set, two `ModelId` types to route, and a
-//! credential-free constructor to match `--offline` (DCR-0046) — and it wants
-//! its own ticket if it is ever wanted.
+//! scope, which ti `473dd1` re-affirmed. An Anthropic arm on `--provider` would
+//! need the same design work DCR-0058 did for Google — provider-keyed default
+//! model, base URL and environment-variable set, two `ModelId` types to route,
+//! and a credential-free constructor to match `--offline` (DCR-0046) — and it
+//! wants its own ticket if it is ever wanted.
 //!
 //! This paragraph exists because this file was the last place still silent
 //! about it. The fact is stated in eight others — `README.md`, `CLAUDE.md`,
