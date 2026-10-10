@@ -245,6 +245,6 @@ scratch and rebuilds it.
   [how to diagnose a translation run](./diagnose-a-translation-run.md).
 - Where the harvested glossary comes from and which entry wins:
   [how glossary entries are resolved](../../../explanation/user/en/how-glossary-entries-are-resolved.md).
-- Why co-batching is bounded by headings, which is what keeps a batch's
-  assembled instruction stable across runs:
-  [why batches stop at section boundaries](../../../explanation/user/en/why-batches-stop-at-section-boundaries.md).
+- What bounds co-batching, and why the `DocumentFacts` admission test is
+  what keeps a batch's assembled instruction stable across runs:
+  [where batches stop](../../../explanation/user/en/why-batches-stop-at-section-boundaries.md).

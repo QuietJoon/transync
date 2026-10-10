@@ -124,7 +124,7 @@ narrower, and two risk classes have now both occurred:
   to the old method — was rejected: it leaves two methods for one job, and
   an implementor that overrides only the old one is silently uncancellable.
 
-The workspace version is `0.5.0`, and the `cancel` parameter shipped in
+The last release is `0.5.0`, and the `cancel` parameter shipped in
 v0.4.0 (2026-08-20) — the window `contracts.md` calls the v0.4.0 break, now
 used and closed.
 

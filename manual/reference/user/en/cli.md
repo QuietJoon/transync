@@ -2,7 +2,7 @@
 type: Reference
 title: CLI reference
 description: Every flag, default, limit, exit code, environment variable, and stderr line for `transync translate` and `transync serve`.
-tags: [cli, reference, flags, exit-codes, serve, SCN-12, SCN-13, DCR-0026, DCR-0028, DCR-0058]
+tags: [cli, reference, flags, exit-codes, serve, SCN-12, SCN-13, DCR-0026, DCR-0028, DCR-0057, DCR-0058]
 audience: user
 language: en
 generated:
@@ -41,7 +41,7 @@ sources:
   - { id: openai-endpoint, resource: crates/transync-openai/src/client/endpoint.rs }
   - { id: google-lib, resource: crates/transync-google/src/lib.rs }
   - { id: syntax-depth, resource: crates/transync-syntax/src/intake/markdown/depth.rs }
-synced_hash: b5573dc095604d5cf86306746209d8b8d0e51b3c5e822fbf2fa99a0393fd12fe
+synced_hash: 8162d6f967d42e3fab284653261b4cec5ce743863e7365d490f23f3cd5953f2f
 ---
 
 # CLI reference
@@ -78,6 +78,7 @@ else: `serve` has no provider, no profile, and no verbosity flags.
 | `--system-prompt-file <path>` | mutually exclusive with `--system-prompt` | — | The same, read from a file (4 MiB cap). |
 | `--provider <openai\|google>` | no | `openai` | Choose the CLI adapter. The flag beats `TRANSYNC_PROVIDER`. Anthropic remains library-only. |
 | `--google-surface <vertex\|developer>` | no | `vertex` when Google is selected | Vertex uses a Google Cloud project and Application Default Credentials (ADC); Developer uses `GEMINI_API_KEY`. A key never selects the surface implicitly. |
+| `--google-auth <adc\|api-key>` | Vertex only | `adc` | How Vertex authenticates: `adc` uses Application Default Credentials; `api-key` is Vertex express mode, keyed from `GOOGLE_API_KEY`, with no project or location (naming either beside it is exit `1`). A key in the environment never selects express mode; this flag does. |
 | `--google-project <id>` | Vertex only | `$GOOGLE_CLOUD_PROJECT` | Google Cloud project ID; required for a live Vertex run. |
 | `--google-location <global\|us\|eu>` | Vertex only | `$GOOGLE_CLOUD_LOCATION`, else `global` | Vertex processing location. |
 | `--google-thinking <low\|medium\|high>` | Google only | `$TRANSYNC_GOOGLE_THINKING`, else `low` | Thinking level; output tokens include thinking. |
@@ -89,7 +90,9 @@ else: `serve` has no provider, no profile, and no verbosity flags.
 | `--target-output-tokens <n>` | no | `8000` for OpenAI; `65536` for Google without a custom profile | Per-batch output-token ceiling: sent to the provider as the response cap and used as the budget the batcher packs against. Overlays `[batching].target_output_tokens`. `0` disables the ceiling. See [Batching and concurrency](#batching-and-concurrency). |
 | `--output-expansion-factor <f>` | no | `2.0` | Assumed output-to-source token ratio used to size batches. Must be a finite number greater than zero; values below `1.0` are legal. |
 | `--target-input-tokens-per-batch <n>` | no | `6000` for OpenAI; `20000` for Google without a custom profile | Soft per-batch input-token budget; `n >= 1`. |
-| `--max-units-per-batch <n>` | no | `8` for OpenAI; `32` for Google without a custom profile | Hard cap on units per batch; `n >= 1`. |
+| `--max-units-per-batch <n>` | no | `32` | Hard cap on units per batch; `n >= 1`. |
+| `--coalesce-sections` | mutually exclusive with `--no-coalesce-sections` | coalescing is on either way — the embedded default profile sets `coalesce_sections = true`, and an unset key resolves there too | Let adjacent whole sections share a batch when they fit and agree on both admission terms (DCR-0057). Overlays `[batching].coalesce_sections`; the work it has to do is beating a profile that sets `false`. |
+| `--no-coalesce-sections` | mutually exclusive with `--coalesce-sections` | off | Pack every section into batches of its own, never sharing one with a neighbor — DCR-0027's strict confinement. Costs one provider request per heading on a heading-dense document. |
 | `--table-strategy <whole-block\|row-window-first>` | no | `row-window-first` (from the embedded default profile) | What happens to a table whose estimated response exceeds the output ceiling. `row-window-first` splits it into header-carrying row windows at packing time and reassembles one table afterwards; `whole-block` ships it whole. Overlays `[constraints].default_table_strategy`. Any other value is exit `1`. Inert when there is no ceiling. |
 | `--max-concurrent-batches <n>` | no | `6` | In-flight provider requests; `n >= 1`. The one batching knob with no profile home. |
 | `--auto-glossary` | mutually exclusive with `--no-auto-glossary` | off | Run the auto-extracted candidate-glossary preflight for this run — one extra provider call before batching. |
@@ -171,7 +174,8 @@ them.
 
 - Mutually exclusive pairs: `--out-dir` against each of `--output`, `--map`,
   `--html-out`; `--system-prompt` against `--system-prompt-file`;
-  `--auto-glossary` against `--no-auto-glossary`; `--quiet` against `--verbose`.
+  `--auto-glossary` against `--no-auto-glossary`; `--coalesce-sections`
+  against `--no-coalesce-sections`; `--quiet` against `--verbose`.
 - Range `n >= 1`: `--target-input-tokens-per-batch`, `--max-units-per-batch`,
   `--max-concurrent-batches`. `--target-output-tokens` carries no range check.
 - Fixed value list: `--table-strategy` accepts `whole-block` and
@@ -192,7 +196,8 @@ wins.
 | `target_output_tokens` | unset — no ceiling | `8000` | `8000` |
 | `output_expansion_factor` | `2.0` | `2.0` | `2.0` |
 | `target_input_tokens_per_batch` | `6000` | not set | `6000` |
-| `max_units_per_batch` | `32` | `8` | `8` |
+| `max_units_per_batch` | `32` | `32` | `32` |
+| `coalesce_sections` | `true` (an absent key resolves here) | `true` | `true` |
 | `max_concurrent_batches` | `6` | no profile key exists | `6` |
 | `default_table_strategy` | `whole-block` (an absent key resolves here) | `row-window-first` | `row-window-first` |
 
@@ -203,7 +208,7 @@ no `--table-strategy` therefore does not split oversize tables.
 
 ## Batching and concurrency
 
-Five knobs are applied as a single overlay onto the resolved profile, under
+Six knobs are applied as a single overlay onto the resolved profile, under
 **flag > profile > built-in default**. Because the overlay is unconditional, a
 flag value that happens to equal a built-in default still beats the profile.
 
@@ -213,10 +218,24 @@ flag value that happens to equal a built-in default still beats the profile.
 | `--output-expansion-factor` | `[batching].output_expansion_factor` |
 | `--target-input-tokens-per-batch` | `[batching].target_input_tokens_per_batch` |
 | `--max-units-per-batch` | `[batching].max_units_per_batch` |
+| `--coalesce-sections` / `--no-coalesce-sections` | `[batching].coalesce_sections` |
 | `--table-strategy` | `[constraints].default_table_strategy` |
 
+The coalescing knob is a flag **pair** rather than a value flag, because the
+profile key defaults to `true`: `--no-coalesce-sections` is the one that
+usually has work to do, and `--coalesce-sections` exists to beat a profile that
+sets `false`. Passing neither leaves the profile's answer alone — the same thing an
+omitted `--max-units-per-batch` or `--target-output-tokens` does, since
+every batching flag overlays only when it is given.
+
 `--max-concurrent-batches` is the exception: it has no profile home and is
-written directly onto the run's options.
+written directly onto the run's options. It also interacts with the knob above
+— a document whose sections coalesce into fewer batches than the concurrency
+limit no longer fills the dispatch slots, which is the case where
+`--no-coalesce-sections` buys wall-clock time back. The unit cap is the
+other half of that same dial: while adjacent whole sections share a batch
+(DCR-0057), `--max-units-per-batch` rather than the section boundary is
+what usually ends one.
 
 **`--target-output-tokens` and zero.** The flag carries no range validator, so
 `0` parses and is the documented sentinel for "no ceiling": no cap is sent to
@@ -452,6 +471,7 @@ lines are prefixed `transync serve: ` — for example
 | `TRANSYNC_GOOGLE_VERTEX_BASE_URL` | official Vertex endpoint | Vertex URL when `--base-url` is absent. |
 | `TRANSYNC_GOOGLE_DEVELOPER_BASE_URL` | official Developer endpoint | Developer URL when `--base-url` is absent. |
 | `GEMINI_API_KEY` | — | Required for live Developer API calls; never selects Google or its surface on its own. |
+| `GOOGLE_API_KEY` | — | Vertex express-mode key, read only under `--google-auth api-key`; never selects Google, its surface or express mode on its own. |
 | `RUST_LOG` | unset | Layered **over** the flag-derived tracing floor rather than replacing it, so `RUST_LOG=transync::pipeline=trace` widens that one target and leaves everything else at its floor. Floors: `--quiet` is `off` and does not consult `RUST_LOG` at all; no flag is `warn`; `--verbose` is `debug`. An unparsable directive prints `transync: ignoring unparsable RUST_LOG directive {directive}: {e}` and is skipped; the rest of the variable still applies. |
 
 Library `tracing` records print as `LEVEL target: message` with no timestamp,
@@ -525,4 +545,4 @@ through the `transync::profile` tracing target, at the default `warn` floor.
 - [How to build the wasm demo](../../../how-to/operator/en/build-the-wasm-demo.md)
 - [Profile TOML schema](./profile-toml-schema.md)
 - [Alignment map schema](../../developer/en/alignment-map-schema.md)
-- [Why batches stop at section boundaries](../../../explanation/user/en/why-batches-stop-at-section-boundaries.md)
+- [Where batches stop](../../../explanation/user/en/why-batches-stop-at-section-boundaries.md)

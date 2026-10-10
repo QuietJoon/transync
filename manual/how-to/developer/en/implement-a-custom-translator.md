@@ -494,7 +494,7 @@ stored string is simultaneously the wire value and a `fingerprint()` axis.
 
 ## What is already done for you, and the one thing that is not
 
-The workspace is at `0.5.0`. The v0.4.0 and v0.5.0 breaking windows are both
+The last release is `0.5.0`. The v0.4.0 and v0.5.0 breaking windows are both
 used and closed, so everything below is shipped rather than staged. Starting
 fresh today, these are simply the shape of the contracts and cost you no
 migration:

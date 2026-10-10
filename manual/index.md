@@ -42,5 +42,5 @@ okf_version: "0.2"
     * [ko](explanation/developer/ko/validation-retry-fallback-model.md)
 * [How glossary entries are resolved](explanation/user/en/how-glossary-entries-are-resolved.md) - Why a glossary term can come from your profile or from the auto-glossary preflight, how a section-scoped entry is matched to a heading, and which entry wins when several could apply to the same term. (user)
     * [ko](explanation/user/ko/how-glossary-entries-are-resolved.md)
-* [Why batches stop at section boundaries](explanation/user/en/why-batches-stop-at-section-boundaries.md) - Why no request ever mixes units from two headings, what that buys in glossary exactness and context coherence, and what it costs in request count on heading-rich documents. (user)
+* [Where batches stop — whole sections, budgets and coalescing](explanation/user/en/why-batches-stop-at-section-boundaries.md) - What decides where one request ends and the next begins: whole sections as the unit of packing, the two admission tests that keep every batch's prompt exact, and the `coalesce_sections` knob that trades request count for boundaries that line up with headings. (user)
     * [ko](explanation/user/ko/why-batches-stop-at-section-boundaries.md)

@@ -103,7 +103,7 @@ are never rendered as prompt text and never become part of a cache key, because
 they change no byte the model reads. They decide which bullets exist in a given
 request, and that is the whole of their effect.
 
-See [why batches stop at section boundaries](./why-batches-stop-at-section-boundaries.md)
+See [where batches stop](./why-batches-stop-at-section-boundaries.md)
 for the batching half of that story, including what it costs.
 
 ## How a section is matched: by name, at any depth
@@ -210,9 +210,8 @@ malformed — and no glossary problem is either of them.
 
 ## Related
 
-- [Why batches stop at section boundaries](./why-batches-stop-at-section-boundaries.md) —
-  the batching rule that makes section scope possible, and the request-count
-  cost it carries.
+- [Where batches stop](./why-batches-stop-at-section-boundaries.md) —
+  the batching rule that makes section scope possible, and what it costs.
 - [How to write a Profile TOML for a translation style](../../../how-to/user/en/write-a-translation-profile.md) —
   the authoring steps, including where the `[[glossary]]` tables go.
 - [Profile TOML schema](../../../reference/user/en/profile-toml-schema.md) —

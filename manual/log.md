@@ -1,5 +1,24 @@
 # Manual Log
 
+## 2026-10-10
+
+* **Out-of-band edits, not a Sync.** No page was regenerated, added or
+  removed, and no `synced_hash` was recomputed for these edits, so each
+  edited page's body differs from its `synced_hash` and the next Sync
+  classifies it as hand-edited.
+  * The batching explanation page is retitled "Where batches stop — whole
+    sections, budgets and coalescing" (DCR-0057 made section coalescing the
+    default, so a batch no longer stops at every boundary). Its filename is
+    kept so no inbound path moves, its inbound link texts under `en/` follow
+    the title, and its `backlog` source names `docs/backlog-archive.md`,
+    where the coalescing entry now lives.
+  * The CLI reference (`reference/user/en/cli.md`) gains the `--google-auth`
+    flag row and the `GOOGLE_API_KEY` variable row (DCR-0060).
+  * Two developer pages name `0.5.0` as the last release instead of as the
+    workspace version:
+    `how-to/developer/en/implement-a-custom-translator.md` and
+    `reference/developer/en/translator-trait.md`.
+
 ## 2026-09-23
 
 * **Out-of-band CLI reference correction.** The English user reference and its

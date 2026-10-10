@@ -2,7 +2,7 @@
 type: Reference
 title: Profile TOML schema
 description: Every key a Profile TOML accepts — type, default, valid range, how a CLI flag overlays it, and what the loader warns about.
-tags: [profile, cli, glossary, batching, DCR-0026, DCR-0027]
+tags: [profile, cli, glossary, batching, DCR-0026, DCR-0027, DCR-0057]
 audience: user
 language: en
 generated:
@@ -82,7 +82,8 @@ target_direction = "auto"                        # or "ltr" / "rtl"
 target_output_tokens          = 8000
 output_expansion_factor       = 2.0
 target_input_tokens_per_batch = 6000
-max_units_per_batch           = 8
+max_units_per_batch           = 32
+coalesce_sections             = true
 
 # Optional, zero or more
 [[glossary]]
@@ -166,16 +167,30 @@ is what turns it back on.
 | `output_expansion_factor` | float | finite, `> 0` | `2.0` | Estimated output/source token ratio used to size batches against `target_output_tokens`. Values below `1.0` are legal. Only has effect when `target_output_tokens` is set. |
 | `target_input_tokens_per_batch` | integer | `>= 1` | `6000` | Per-batch input-token budget. |
 | `max_units_per_batch` | integer | `>= 1` | `32` | Hard cap on units per batch. |
+| `coalesce_sections` | bool | `true` \| `false` | `true` | Under `true`, adjacent **whole** sections share a batch when their combined estimates fit all three budgets above and they pass both admission terms below. `false` restores DCR-0027's strict confinement, where every batch's units come from exactly one section. Overlaid by the `--coalesce-sections` / `--no-coalesce-sections` flag pair. |
 
 The shipped default profile sets `target_output_tokens = 8000`,
-`max_units_per_batch = 8` and `output_expansion_factor = 2.0`, and leaves
-`target_input_tokens_per_batch` unset — so a run with no `--profile` packs
-to at most 8 units per batch, not 32, and takes the built-in `6000` input
-budget.
+`max_units_per_batch = 32`, `output_expansion_factor = 2.0` and
+`coalesce_sections = true`, and leaves `target_input_tokens_per_batch`
+unset — so a run with no `--profile` takes the built-in `6000` input
+budget. Three of those four are written there as documentation:
+`max_units_per_batch`, `output_expansion_factor` and `coalesce_sections`
+each restate the value an absent key resolves to anyway, and
+`target_output_tokens` is the one `[batching]` key whose shipped value
+moves a knob the built-in leaves unset.
+
+The unit cap and `coalesce_sections` are one dial. While adjacent whole
+sections share a batch (DCR-0057), units keep joining until a budget
+stops them, so the cap rather than the section boundary is what usually
+ends a batch — which is why profile and built-in hold it at the same
+`32`.
 
 Every sizing knob above treats `0` the same way: rejected with a
 path-qualified load warning, normalized to unset, and the key then
 resolves exactly as if it had been absent — never floored to `1`.
+`coalesce_sections` has no such arm, because a boolean has no invalid
+value: anything that is not one is a TOML type error the loader already
+reports.
 
 `[batching].max_split_retries` was **removed in v0.4.0** (DCR-0026). It is
 no longer a field, no longer in the loader's key allowlist, and no longer
@@ -183,42 +198,73 @@ travels on the compiled profile. A profile still carrying it gets the
 ordinary unknown-key load warning naming `batching.max_split_retries` and
 is otherwise unaffected.
 
-There is no key for merging sections into one batch. `coalesce_sections`
-does not exist at any level — profile key, CLI flag, or library option —
-and writing it produces an unknown-key warning and no behavior.
+`coalesce_sections` is a profile key and a CLI flag pair, but not a
+`TranslateOptions` field: a library caller sets it by writing it into the
+profile it passes.
 
-### These budgets bind within one section
+### These budgets pack whole sections
 
 Since v0.4.0 (DCR-0027) the unit list is partitioned at every heading of
-any level before anything is packed, and each section is packed on its
-own. Every batch's units therefore come from exactly one section, and no
-batch straddles a `##` / `###` boundary. The budgets above cannot merge
-two sections: on a heading-rich document the run dispatches at least one
-batch per section however large the budgets are, so they no longer
-predict batch count from document size alone. What they still control is
-how a single section is divided — a section that exceeds a budget is the
-only thing that splits one section across several batches, all of them
-still confined to that section. A document with no headings is one
-section and packs exactly as it did before.
+any level before anything is packed. `coalesce_sections` decides what a
+batch may then hold, and under the default `true` (DCR-0057) a batch is
+one of exactly two shapes: **N consecutive whole sections** whose combined
+estimates fit all three budgets above, or **a fragment of one oversize
+section**, split by the same greedy packer. The budgets therefore shape batch count much more directly than they did
+under strict confinement — but they do not decide it alone: a section that
+fails either admission test still starts a new batch however much room is
+left, so a profile with any section-scoped glossary entry, or a document
+mixing a raw-HTML or row-window section with prose, keeps a floor the
+budgets cannot lower. What they can never produce is a batch holding the
+tail of one section and the head of the next.
 
-Batch ids remain a single document-order sequence `1..N` across sections.
+Two consecutive sections coalesce only when they agree on both admission
+terms, each an equality test:
+
+- **Effective glossary** — the compiled system prompt follows the
+  section's effective glossary, so two sections resolving to the same
+  entry list are handed byte-identical prompt bytes.
+- **Instruction clauses** — the raw-HTML segment contract, the DCR-0026
+  row-window contract and the HTML-document clause are assembled from the
+  batch's own membership, so a prose section and a section holding a
+  raw-HTML unit are not admissible with one another.
+
+A section too large for one batch coalesces in neither direction: it
+cannot join the batch before it, and its trailing fragment cannot host the
+section after it. That split is the only thing that ever separates one
+section's units, and all of the resulting batches stay inside that
+section. A document with no headings is one section and packs exactly as
+it did before.
+
+Under `coalesce_sections = false` every batch's units come from exactly
+one section and no batch straddles a `##` / `###` boundary. The budgets
+then cannot merge two sections at all: a heading-rich document dispatches
+at least one batch per section however large they are set.
+
+Neither setting moves a cache key. Both admission terms pin the two
+batch-scoped axes of the key (the compiled-prompt digest and the
+instruction digest), so a coalesced batch's request is byte-identical to
+the one its sections would have received alone.
+
+Batch ids remain a single document-order sequence `1..N` across sections
+under either setting.
 
 See
-[why batches stop at section boundaries](../../../explanation/user/en/why-batches-stop-at-section-boundaries.md)
-for what the rule buys and what it costs.
+[where batches stop](../../../explanation/user/en/why-batches-stop-at-section-boundaries.md)
+for why a section bounds a batch at all, and what each setting costs.
 
 ### Overlays
 
 A caller-set `TranslateOptions` value that differs from the built-in
 default wins over the profile value for `target_input_tokens_per_batch`
 and `max_units_per_batch` (a caller passing the built-in default is
-indistinguishable from "unset"). The CLI's four batching flags
+indistinguishable from "unset"). The CLI's six batching flags
 (`--target-output-tokens`, `--output-expansion-factor`,
-`--target-input-tokens-per-batch`, `--max-units-per-batch`) overlay the
-profile for one run this same way, as does `--table-strategy` — applied
-in the same place, though it lands on a `[constraints]` key rather than a
-`[batching]` one. `--max-concurrent-batches` has no profile home at all —
-see [CLI flags](./cli.md).
+`--target-input-tokens-per-batch`, `--max-units-per-batch`, and the
+mutually exclusive `--coalesce-sections` / `--no-coalesce-sections` pair)
+overlay the profile for one run this same way, as does `--table-strategy`
+— applied in the same place, though it lands on a `[constraints]` key
+rather than a `[batching]` one. `--max-concurrent-batches` has no profile
+home at all — see [CLI flags](./cli.md).
 
 ## `[[glossary]]` — zero or more entries
 
