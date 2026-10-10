@@ -53,20 +53,19 @@ why an entry that is in none of them is a defect in this file, not an ambiguity.
 
 **Census (2026-10-10) — a count, not a sweep, and this is the current one.** Computed from
 `ti list --open --json` and `docs/project/open-issues.md`. No other source was re-scanned, so the
-last full sweep is still the 2026-09-12 one. **44 entries; 40 are live** — each carrying at least
+last full sweep is still the 2026-09-12 one. **44 entries; 41 are live** — each carrying at least
 one open TicGit ticket. By section: Type 1 holds 1 entry and it is live, Type 2 holds 19 of which
-**17 are live**, Type 3 holds 24 of which **22 are live**. Four entries carry no open ticket:
-`anthropic-leg-outside-the-release-gate-trigger`, `oversize-tombstones-point-at-a-closed-oi-0008`
-and `phrasing-extension-list-for-custom-elements` cite none, and both tickets of
-`no-machine-check-of-the-manual-cli-reference` are closed. **The two registers do not agree in
-both directions.** TicGit holds **73 open tickets** (1 in progress, 17 new, 55 blocked). Forty are
-cited by an entry and **33 have no entry here**. All 33 were filed after the 2026-09-12 sweep, 31
-of them by the documentation reconciliation and compaction runs that followed it, and the next
-sweep adopts them. Until it runs, the queue is `ti list --open`, not this file. The open-issue
-register's summary lists 20 issues: **4 OPEN** (OI-0051 through OI-0054), **1 DEFERRED** (OI-0049)
-and 15 RESOLVED, four of which (OI-0040, OI-0041, OI-0046, OI-0048) keep their entries in the
-register because each still has an open ticket against it. **What counts against a gate is still
-the owner's to state**: no gate has been declared since v0.5.0, and whether a v0.6.0 breaking
+**17 are live**, Type 3 holds 24 of which **23 are live**. Three entries carry no open ticket:
+`anthropic-leg-outside-the-release-gate-trigger` and `oversize-tombstones-point-at-a-closed-oi-0008`
+cite none, and `phrasing-extension-list-for-custom-elements` cites only a closed one. **The two
+registers do not agree in both directions.** TicGit holds **74 open tickets** (17 new, 57 blocked,
+none in progress). Forty-one are cited by an entry and **33 have no entry here**. All 33 were filed
+after the 2026-09-12 sweep, 32 of them by the documentation reconciliation and compaction runs
+that followed it, and the next sweep adopts them. Until it runs, the queue is `ti list --open`, not
+this file. The open-issue register holds nine issues: **4 OPEN** (OI-0051 through OI-0054),
+**1 DEFERRED** (OI-0049) and four marked RESOLVED (OI-0040, OI-0041, OI-0046, OI-0048) that stay in
+the register because each still has an open ticket against it. **What counts against a gate is
+still the owner's to state**: no gate has been declared since v0.5.0, and whether a v0.6.0 breaking
 window is open is undecided (ticket `2d616b6a`).
 
 Re-derive these figures on each sweep rather than trusting them — an entry counts unless it
@@ -638,7 +637,7 @@ OI-0051, OI-0052 and OI-0054.
   (the exemption is a recorded decision — DCR-0028 §3/§4 plus the 2026-08-10 note, accepted by
   R0009-0082's own Decision reference — and the one sentence calling it open arrived inside the
   commit that closed the member). This pass recommends type 1 with the contest on record
-- **Sources:** ticgit:9c26d90c, docs/project/open-issues.md#OI-0044,
+- **Sources:** ticgit:9c26d90c, docs/project/open-issues-archive.md#OI-0044,
   docs/project/design-change-records/DCR-0028-disk-backed-cache-and-document-metadata.md
 - **First seen:** 2026-09-12
 - **Last seen:** 2026-09-13
@@ -1238,7 +1237,7 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Type:** 3
 - **Verified:** yes — reopen verified 2026-08-24: `grep -c manual crates/transync-cli/tests/docs_cli_flags_drift.rs` returns 0
 - **Blocked by:** a decision on whether the guard belongs on `manual/`'s generated output or on the generator that produces it
-- **Sources:** ticgit:7e2fd068
+- **Sources:** ticgit:7e2fd068 (closed), ticgit:3ea4d3a5 (the flag-prose class the resolution left unwelded)
 - **First seen:** 2026-08-24 · **Last seen:** 2026-08-24
 
 ### Description
