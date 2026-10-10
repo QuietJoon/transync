@@ -423,3 +423,97 @@ async fn already_cancelled_offline_request_is_typed_cancelled() {
         Err(TranslatorError::Cancelled)
     ));
 }
+
+/// DCR-0060: Vertex express mode addresses the publisher model directly — no
+/// project and no location — and is reached with an API key. Getting this URL
+/// wrong is a silent 404 rather than a compile error, so it is pinned here.
+#[test]
+fn vertex_express_addresses_the_publisher_model_without_project_or_location() {
+    let config = GoogleConfig {
+        surface: GoogleSurface::VertexExpress,
+        model: ModelId::parse("gemini-3.8-flash".to_string()).unwrap(),
+        base_url: None,
+        thinking_level: None,
+    };
+    let url = endpoint(&config).expect("express endpoint builds");
+    assert_eq!(
+        url.as_str(),
+        "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.8-flash:generateContent"
+    );
+    assert!(
+        !url.as_str().contains("projects/"),
+        "express carries no project"
+    );
+    assert!(
+        !url.as_str().contains("locations/"),
+        "express carries no location"
+    );
+}
+
+/// The credential and the surface are paired: an express surface takes an
+/// express key, and every other combination is refused rather than sent.
+#[test]
+fn vertex_express_pairs_only_with_an_api_key() {
+    let config = || GoogleConfig {
+        surface: GoogleSurface::VertexExpress,
+        model: ModelId::parse("gemini-3.8-flash".to_string()).unwrap(),
+        base_url: None,
+        thinking_level: None,
+    };
+    assert!(
+        TransyncGoogle::try_new(
+            config(),
+            GoogleCredentials::VertexApiKey(SecretString::new("k".to_string().into()))
+        )
+        .is_ok()
+    );
+    assert!(matches!(
+        TransyncGoogle::try_new(config(), GoogleCredentials::VertexAdc),
+        Err(GoogleConfigError::CredentialSurfaceMismatch)
+    ));
+    assert!(matches!(
+        TransyncGoogle::try_new(
+            config(),
+            GoogleCredentials::VertexApiKey(SecretString::new("   ".to_string().into()))
+        ),
+        Err(GoogleConfigError::EmptyApiKey)
+    ));
+    // The other direction: a Developer key on the express surface, and an
+    // express key on either other surface, are refused too.
+    assert!(matches!(
+        TransyncGoogle::try_new(
+            config(),
+            GoogleCredentials::DeveloperApiKey(SecretString::new("k".to_string().into()))
+        ),
+        Err(GoogleConfigError::CredentialSurfaceMismatch)
+    ));
+    assert!(matches!(
+        TransyncGoogle::try_new(
+            developer(None),
+            GoogleCredentials::VertexApiKey(SecretString::new("k".to_string().into()))
+        ),
+        Err(GoogleConfigError::CredentialSurfaceMismatch)
+    ));
+    assert!(matches!(
+        TransyncGoogle::try_new(
+            vertex(VertexLocation::Global),
+            GoogleCredentials::VertexApiKey(SecretString::new("k".to_string().into()))
+        ),
+        Err(GoogleConfigError::CredentialSurfaceMismatch)
+    ));
+}
+
+/// Express and ADC Vertex are the same service but different request URLs, so
+/// they must not share a cache entry.
+#[test]
+fn vertex_express_and_adc_vertex_do_not_share_a_fingerprint() {
+    let express = TransyncGoogle::offline(GoogleConfig {
+        surface: GoogleSurface::VertexExpress,
+        model: ModelId::parse("gemini-3.8-flash".to_string()).unwrap(),
+        base_url: None,
+        thinking_level: None,
+    })
+    .unwrap();
+    let adc = TransyncGoogle::offline(vertex(VertexLocation::Global)).unwrap();
+    assert_ne!(express.fingerprint(), adc.fingerprint());
+}
