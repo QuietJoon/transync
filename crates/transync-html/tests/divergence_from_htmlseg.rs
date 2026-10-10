@@ -1,10 +1,12 @@
 //! Differential proof of the claimed divergences from the retired `htmlseg`.
 //!
-//! `CLAUDE.md` states that the record trail records **nineteen** deliberate
-//! behavioural divergences of `transync-html` from `transync-syntax::htmlseg`,
-//! and that "a difference from it in any of the nineteen is the **fix**, not a
+//! `docs/architecture/transync-html-divergences.md` enumerates **nineteen**
+//! deliberate behavioural divergences of `transync-html` from
+//! `transync-syntax::htmlseg`, and `CLAUDE.md` carries the rule they serve:
+//! "a difference from `htmlseg` in any of them is the **fix**, not a
 //! regression to restore". That sentence is load-bearing: it is what stops the
-//! next maintainer "repairing" a deliberate browser-fidelity change.
+//! next maintainer "repairing" a deliberate browser-fidelity change. The count
+//! lives with the enumeration (commit `9bbbf59` moved it there), where it is checkable.
 //!
 //! Until now the sentence rested on a count nobody could check. DCR-0032's
 //! amendments describe the early divergences in prose without ordinals and then
