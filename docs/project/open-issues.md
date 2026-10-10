@@ -918,26 +918,20 @@ can be made crate-private — in which case nothing blocks it.
 
 | Issue ID | Title                                                  | Status   | Severity |
 |----------|--------------------------------------------------------|----------|----------|
-| OI-0016  | Active-block selection scans per scroll frame            | RESOLVED (2026-09-02) | Low      |
-| OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | RESOLVED (2026-08-23) — archived | Low |
-| OI-0037  | Provider payloads bypass the parser's nesting intake guard | RESOLVED (2026-09-01) | Low |
-| OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | RESOLVED (2026-09-02) | Low |
-| OI-0039  | JS lint gate exits 0 while validating nothing            | RESOLVED — format half 2026-09-04; lint half 2026-09-15 (DCR-0056) | Low |
-| OI-0040  | Same bytes parsed/spliced repeatedly on the accepted path | RESOLVED (2026-09-04) — prefilter + tripwire; seam deferred | Low (R0009-0035 Medium) |
-| OI-0041  | Pre-network setup recomputes derived values              | RESOLVED (2026-09-04) — partial; rest declined/deferred | Low |
-| OI-0042  | Two worse-than-linear scans in the degraded regen cascade | RESOLVED (2026-09-04) — all three sites, twin included | Low |
-| OI-0043  | Four modules called oversized; one is a real concern bundle | RESOLVED (2026-09-04) — output.rs split, proven pure | Low |
-| OI-0044  | Disk cache log: unbounded read, poisonable write, non-converging trim | RESOLVED (2026-09-05) — trim member 2026-09-03; read and write members 2026-09-05 | Low |
-| OI-0045  | `serve` under-delivers a truncated body, over-advertises authorities | RESOLVED (2026-09-04) | Low |
-| OI-0046  | Three holes in the checking apparatus itself             | RESOLVED (2026-09-04) — all three; (3) found a live defect | Low |
-| OI-0047  | Sync engine freezes past its last anchor; silent drift on reflow | RESOLVED (2026-09-04) | Low |
-| OI-0048  | Four boundary checks weaker than the inferred contract   | RESOLVED (2026-09-04) — R0009-0052 deferred | Low |
+| OI-0040  | Same bytes parsed/spliced repeatedly on the accepted path | RESOLVED (2026-09-04) — prefilter + tripwire; seam deferred; residual owed (ti `26238261`) | Low (R0009-0035 Medium) |
+| OI-0041  | Pre-network setup recomputes derived values              | RESOLVED (2026-09-04) — partial; rest declined/deferred except one action still owed (ti `b3e8d80c`) | Low |
+| OI-0046  | Three holes in the checking apparatus itself             | RESOLVED (2026-09-04) — all three; (3) found a live defect; Action 2's second half still owed (ti `a736f3fd`) | Low |
+| OI-0048  | Four boundary checks weaker than the inferred contract   | RESOLVED (2026-09-04) — R0009-0052 deferred, on a premise the code contradicts (ti `830de884`) | Low |
 | OI-0049  | Review 0010's non-blocking survivors (16 findings)       | DEFERRED (2026-09-05) — re-trigger recorded | Low |
-| OI-0050  | A panicking `serve` connection task is discarded silently | RESOLVED (2026-09-06) — fixed the day it was filed | Low |
 | OI-0051  | Every batch clones its profile and duplicates its glossary | OPEN (2026-09-06) — blocked on a breaking window | Low |
 | OI-0052  | Checked provider constructors accept invalid header values | OPEN (2026-09-06) — blocked on a breaking window | Medium |
 | OI-0053  | Shells have no small-screen layout and no visible pane headings | OPEN (2026-09-06) — needs a scope decision | Low |
 | OI-0054  | The NUL/nesting guard is reachable as `intake::markdown::intake` | OPEN (2026-09-08) — needs a decision; rename needs a window | Low |
+
+The table lists the issues that have an entry above. Eleven resolved issues have none, because
+their entries are archived: OI-0016, OI-0035, OI-0037, OI-0038, OI-0039, OI-0042, OI-0043, OI-0044,
+OI-0045, OI-0047 and OI-0050 are in `open-issues-archive.md`, with the rows this table carried for
+them.
 
 ***
 

@@ -2445,3 +2445,20 @@ any such site did, so the trigger never had to fire.
 
 ---
 
+> Archived 2026-10-10. Reason: the entries these rows summarized are archived above, so the rows left the "Open Issues Summary" table in `open-issues.md`, which now lists only issues that still have an entry there.
+
+## Summary rows of archived issues (from `open-issues.md`'s Open Issues Summary)
+
+| Issue ID | Title                                                  | Status   | Severity |
+|----------|--------------------------------------------------------|----------|----------|
+| OI-0016  | Active-block selection scans per scroll frame            | RESOLVED (2026-09-02) | Low      |
+| OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | RESOLVED (2026-08-23) — archived | Low |
+| OI-0037  | Provider payloads bypass the parser's nesting intake guard | RESOLVED (2026-09-01) | Low |
+| OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | RESOLVED (2026-09-02) | Low |
+| OI-0039  | JS lint gate exits 0 while validating nothing            | RESOLVED — format half 2026-09-04; lint half 2026-09-15 (DCR-0056) | Low |
+| OI-0042  | Two worse-than-linear scans in the degraded regen cascade | RESOLVED (2026-09-04) — all three sites, twin included | Low |
+| OI-0043  | Four modules called oversized; one is a real concern bundle | RESOLVED (2026-09-04) — output.rs split, proven pure | Low |
+| OI-0044  | Disk cache log: unbounded read, poisonable write, non-converging trim | RESOLVED (2026-09-05) — trim member 2026-09-03; read and write members 2026-09-05 | Low |
+| OI-0045  | `serve` under-delivers a truncated body, over-advertises authorities | RESOLVED (2026-09-04) | Low |
+| OI-0047  | Sync engine freezes past its last anchor; silent drift on reflow | RESOLVED (2026-09-04) | Low |
+| OI-0050  | A panicking `serve` connection task is discarded silently | RESOLVED (2026-09-06) — fixed the day it was filed | Low |
