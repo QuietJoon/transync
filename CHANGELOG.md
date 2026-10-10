@@ -28,6 +28,10 @@ rename has no such fallback: it is the discharge of a deferral DCR-0035 wrote
 down, and reverting it would re-open the asymmetry that record exists to
 explain.
 
+The workspace manifest reads `0.6.0-dev` (`7190be3`). Whether a v0.6.0
+breaking window is open is undecided (ticket `2d616b6a`); nothing in this
+section opens one.
+
 ### Changed (BREAKING)
 
 - **`transync_syntax::intake::markdown::ranges::LineOffsets::offsets` is
@@ -67,8 +71,34 @@ explain.
   Google's model card lists 1,048,576 input and 65,536 output tokens. The
   $300 Cloud Welcome credit excludes Developer API / AI Studio charges, so
   Cloud-credit use requires the Vertex surface and account billing checks.
+- **`--google-auth api-key` reaches Vertex AI in express mode** (DCR-0060):
+  an API key from `GOOGLE_API_KEY` instead of ADC, addressing the publisher
+  model with no project or location. Only the flag selects it; a key in the
+  environment never does. The `x-goog-api-key` header form awaits its first
+  live run (`scripts/smoke-live-gate.sh google-vertex-express`).
 
 ### Changed
+
+- **Adjacent sections share a batch when they fit** (DCR-0057, settling
+  DCR-0027's OQ-A). A run of consecutive **whole** sections packs as one
+  population when they agree on both admission terms — effective glossary
+  cohort and `DocumentFacts` — so a heading no longer costs a provider request
+  of its own. An oversize section is DCR-0027 P4 exactly as before and
+  coalesces in neither direction. New `[batching].coalesce_sections`; unset
+  means `true`, and `false` restores strict confinement. CLI:
+  `--coalesce-sections` / `--no-coalesce-sections`. **Nothing re-keys** — a
+  `CacheKey`'s two batch-scoped axes are pinned by the two admission terms, so
+  a coalesced batch's request is byte-identical to the one its sections would
+  have received alone, and no schema version moves. What does change besides
+  batch count: `provider_retries` and `batch_schema_faults` ceilings are
+  multiples of the input batch count, so the run-wide allowance tightens.
+- **The shipped profile's `max_units_per_batch` is 32** (ti `f17fc9`), up from
+  8 and equal to `TranslateOptions`' built-in default, so a default-profile
+  run packs up to 32 units per batch.
+- **`scripts/smoke-live-gate.sh` gains the `google-vertex-express` leg**, which
+  `all` runs too, and reads a key it is missing from that key's gitignored
+  file at the repository root (`.openai.api_key`, `.anthropic.api_key`,
+  `.gemini.api_key`, `.google_vertex.api_key`).
 
 - **Glossary and section keys use Unicode full case folding** instead of
   `str::to_lowercase` (R0010-0063). They are different operations, and the
@@ -116,8 +146,20 @@ explain.
   (R0011-0012) and selects the `transync` bin target rather than the last line
   carrying a path (R0011-0013).
 
+- **The hook's JS leg lints too** (DCR-0056, closing OI-0039's deferred half):
+  `biome lint --error-on-warnings`, since biome exits 0 on warnings. All 36
+  diagnostics fixed, guard rewrites verified by the browser suite.
+- **`docs/` is a conformant OKF v0.2 bundle** (DCR-0055): reserved `index.md`
+  and `log.md`, curated `project-index.md`, frontmatter on 38 docs.
+
 ### Fixed
 
+- **GPT generations past 5, and any `o<N>`, reach Responses and `o200k_base`
+  without being listed** (DCR-0059). Surface dispatch and both encoder
+  guesses matched prefixes (`gpt-5`, `o1`, `o3`, `o4`), so `gpt-6` and later
+  fell back to Chat Completions and `cl100k_base`. The OpenAI fingerprint
+  names the API surface, so cached entries for a model whose surface moves
+  miss once and are translated again.
 - **`scripts/smoke-live.sh` and `scripts/smoke-live-long.sh` were broken in
   every configuration** (R0011-0001, R0011-0002). `DEFAULT_WORKDIR="$(…)"WORKDIR="…"`
   is *one* shell assignment word, not two, so `WORKDIR` was never set and the
