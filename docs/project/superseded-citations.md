@@ -67,20 +67,21 @@ retired on 2026-09-13. They were 1,505,956 bytes — 27% of all tracked English
 Markdown — and between 63% and 89% of each was a frozen copy of code that had
 already shipped.
 
-**Nine records cite them by path and cannot be corrected**, because a record is
+**Ten records cite them by path and cannot be corrected**, because a record is
 write-once:
 
 | record | cited plan |
 |---|---|
 | `DCR-0020` | `2026-08-05-track-c-wasm-render-demo.md` |
-| `DCR-0034` | `2026-08-20-html-wave2-ir-split.md` |
+| `archive/DCR-0034` | `2026-08-20-html-wave2-ir-split.md` |
 | `DCR-0035` | `2026-08-20-html-wave3-intake-round-trip.md` |
-| `DCR-0036` | `2026-08-20-html-wave4-layer6-twin.md` |
-| `DCR-0037` | `2026-08-20-html-wave5-units-context-prompt.md` |
-| `DCR-0038` | `2026-08-20-html-wave6-panes-wire-cli.md` |
+| `archive/DCR-0036` | `2026-08-20-html-wave4-layer6-twin.md` |
+| `archive/DCR-0037` | `2026-08-20-html-wave5-units-context-prompt.md` |
+| `archive/DCR-0038` | `2026-08-20-html-wave6-panes-wire-cli.md` |
 | `DCR-0040` | `2026-08-20-html-wave*.md` (as a group) |
 | `archive/DCR-0019` | `2026-08-05-oi0008-0033-internal-quality.md` |
-| `archive/DCR-0017`, `archive/DCR-0018` | their waves' plans, by description |
+| `archive/DCR-0017` | `2026-08-04-transync-syntax-split.md` |
+| `archive/DCR-0018` | `2026-08-04-oi0027-public-surface-hardening.md` |
 
 **What to read instead.** Each plan's own DCR is the authoritative record of what
 that wave changed and why; the `[0.4.0]` and `[0.5.0]` sections of

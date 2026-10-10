@@ -30,9 +30,10 @@
 //!   not the claim.
 //!
 //! Snapshot documents (ADRs, DCRs, dated plans and status entries) are not
-//! guarded: they record what was true when written. The wave plans under
-//! `docs/superpowers/plans/` say "never `--no-verify`" and are correct as
-//! written, but they are history, so they are not this test's business.
+//! guarded: they record what was true when written. The retired wave plans
+//! (`docs/project/superseded-citations.md`) said "never `--no-verify`" and
+//! were correct as written, but they were history, so they were never this
+//! test's business.
 //!
 //! TRACE: ti 8c5156
 
