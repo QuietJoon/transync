@@ -1,3 +1,12 @@
+---
+type: "Source of Truth Table"
+title: "Source-of-Truth Table"
+description: "Names the single owning crate and module for every piece of structural state, contract, output artifact, configuration and run state, and what transync deliberately does not own"
+tags: ["architecture", "DCR-0017", "DCR-0018", "DCR-0032"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Source-of-Truth Table
 
 For each piece of state or contract, this table names the single owner. If two layers think they own the same thing, the design is broken.
@@ -45,7 +54,7 @@ Owners are named by their **owning crate and module**. Since 2026-08-04 (DCR-001
 |------------------------------------------|----------------------------------------------|-------------------|
 | Profile TOML schema (top-level `slug`/`version`/`auto_glossary`, `[system].prompt` + `prompt_html`, `[constraints]`, `[batching]`, `[render]`, `[[glossary]]`) | `transync::profile` | Single parser; CLI and library both go through it. |
 | Canonical default profile                | `transync::profile` (embedded via `include_str!`) | Core embeds the canonical default (`crates/transync-core/profiles/default.toml`) and exposes it as `default_profile()`; the CLI resolves its default through core and carries no copy of its own (R0001-0041, 2026-08-06). |
-| CLI provider/surface and credential selection (`OPENAI_API_KEY`, `GEMINI_API_KEY`, Vertex ADC) | `transync-cli::translate_cmd::provider` | Resolves only the selected provider's flags and environment, then constructs its adapter; a key never selects a provider implicitly. Anthropic remains a library-only adapter (DCR-0058). |
+| CLI provider/surface and credential selection (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, Vertex ADC) | `transync-cli::translate_cmd::provider` | Resolves only the selected provider's flags and environment, then constructs its adapter; a key never selects a provider implicitly. Anthropic remains a library-only adapter (DCR-0058). |
 | Provider authentication on requests | The selected provider crate (`transync-openai`, `transync-anthropic`, or `transync-google`) | Each adapter owns its own HTTP authentication and transport; core remains unaware of credentials. |
 | `--model` / `--base-url` flags | `transync-cli::translate_cmd::provider` | Resolves the selected OpenAI or Google surface's model and endpoint settings; the chosen adapter composes the request URL. |
 
@@ -62,7 +71,7 @@ This section was called "In-process state" until 2026-08-10. `DiskCache` made th
 ## What `transync` does **not** own
 
 - The HTTP client and its retry / rate-limit / observability story — consumer's `Translator` impl.
-- The `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` values and their rotation — environment / consumer. One variable per provider crate, per the discovery row above: a new provider adds its own and takes nothing over.
-- Disk paths for input / output files — CLI flags supplied by the user. The library still opens no document file of its own; its one filesystem door since 2026-08-09 is the cache directory a caller hands `DiskCache::open` (DCR-0028), and that is the caller's path, never one the library picks or discovers. It has no XDG presence — see `persistence-and-files.md`.
+- The provider keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`) and their rotation — environment / consumer. One variable per credential: a new provider or surface adds its own and takes nothing over, and the CLI reads only the selected provider's (the provider/surface selection row above).
+- Disk paths for input / output files — CLI flags supplied by the user. The library still opens no document file of its own; its one filesystem door is the cache directory a caller hands `DiskCache::open` (DCR-0028), and that is the caller's path, never one the library picks or discovers. It has no XDG presence — see `persistence-and-files.md`.
 - The browser-side render lifecycle (CSS, layout, fonts) — JS demo.
 - Markdown dialects beyond GFM (MDX, frontmatter, math) — DEFERRED per draft NG2. **Raw HTML left this list on 2026-08-04:** block-level raw HTML is a translatable kind owned by `transync-html` plus `transync-syntax::{intake::markdown, regen, render}` (ADR-0018 / DCR-0016; those modules moved out of `transync-core` in the DCR-0017 crate split and stopped being reachable through the facade in the DCR-0018 curation); inline raw-HTML tags are guarded verbatim by `transync-core::validate::inline`.

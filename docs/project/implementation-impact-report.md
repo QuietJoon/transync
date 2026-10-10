@@ -1,3 +1,12 @@
+---
+type: "Impact Report"
+title: "Implementation Impact Report"
+description: "Records which baseline the implementation is synced to, the SL-00..SL-14 cutline and required-real integrations, and where landed design change records actually live"
+tags: ["project", "implementation", "process"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Implementation Impact Report
 
 This report tracks the implementation track's relationship to the design baseline.
@@ -9,7 +18,7 @@ This report tracks the implementation track's relationship to the design baselin
 | Synced baseline ID                         | `BL-2026-07-B`                     |
 | Synced stub-manifest version               | `generated-2026-05-01`             |
 | Sync status                                | `synced` (`mvp_complete`)          |
-| Open design change records                 | none — DCR-0001..DCR-0053 have landed and live in `docs/project/design-change-records/` |
+| Open design change records                 | none — DCR-0001..DCR-0060 have landed and live in `docs/project/design-change-records/` (deprecated ones under `archive/`) |
 | Last sync                                  | 2026-07-13 (`BL-2026-07-B`); initial 2026-05-01 (`BL-2026-05-01-A`) |
 
 ## Baseline re-sync (2026-07-13 — recorded here 2026-09-08)
