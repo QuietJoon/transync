@@ -3,7 +3,8 @@
 //! The two surfaces share prompts and response parsing, but have distinct
 //! authentication and structured-output schema dialects. For Google Cloud's
 //! trial credit, select [`GoogleSurface::Vertex`] and ADC; an AI Studio API key
-//! selects the Developer API and its separate billing account.
+//! pairs with the Developer API and its separate billing account, and a Vertex
+//! express-mode key with [`GoogleSurface::VertexExpress`] (DCR-0060).
 
 use std::str::FromStr;
 use std::time::Duration;
@@ -61,6 +62,21 @@ pub enum GoogleSurface {
         project: String,
         location: VertexLocation,
     },
+    /// Vertex AI in **express mode**: the same Vertex service and models,
+    /// reached with an API key instead of Application Default Credentials.
+    ///
+    /// It is a separate variant rather than a credential flag on
+    /// [`GoogleSurface::Vertex`] because the URL genuinely differs — express
+    /// mode carries no project and no location, addressing the publisher
+    /// model directly. [`TransyncGoogle::offline`] promises the *same*
+    /// fingerprint as a live instance, and the fingerprint follows the
+    /// request URL, so the shape has to be derivable from the config alone
+    /// rather than from which credential was handed to `try_new`.
+    ///
+    /// Callers still choose it on the credential axis: the CLI takes
+    /// `--google-surface vertex --google-auth api-key`, and an API key present
+    /// in the environment never selects it (DCR-0060).
+    VertexExpress,
 }
 
 /// Supported Vertex AI processing locations for Gemini 3.8 Flash.
@@ -150,6 +166,9 @@ pub struct GoogleConfig {
 pub enum GoogleCredentials {
     DeveloperApiKey(SecretString),
     VertexAdc,
+    /// A Vertex AI express-mode API key. Pairs with
+    /// [`GoogleSurface::VertexExpress`].
+    VertexApiKey(SecretString),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -181,6 +200,7 @@ pub enum GoogleConfigError {
 enum Auth {
     Developer(SecretString),
     Vertex(Credentials),
+    VertexApiKey(SecretString),
     Offline,
 }
 
@@ -217,6 +237,12 @@ impl TransyncGoogle {
                     .map_err(|e| GoogleConfigError::Adc(e.to_string()))?;
                 Auth::Vertex(credentials)
             }
+            (GoogleSurface::VertexExpress, GoogleCredentials::VertexApiKey(key)) => {
+                if key.expose_secret().trim().is_empty() {
+                    return Err(GoogleConfigError::EmptyApiKey);
+                }
+                Auth::VertexApiKey(key)
+            }
             _ => return Err(GoogleConfigError::CredentialSurfaceMismatch),
         };
         Ok(Self {
@@ -240,6 +266,7 @@ impl TransyncGoogle {
     pub fn fingerprint(&self) -> ProviderFingerprint {
         let (surface, project, location) = match &self.config.surface {
             GoogleSurface::Developer => ("developer", "", ""),
+            GoogleSurface::VertexExpress => ("vertex-express", "", ""),
             GoogleSurface::Vertex { project, location } => {
                 ("vertex", project.as_str(), location.as_str())
             }
@@ -273,7 +300,12 @@ impl TransyncGoogle {
         let endpoint = endpoint(&self.config).map_err(|e| TranslatorError::Other(e.to_string()))?;
         let mut request = self.http.post(endpoint).json(&body);
         request = match &self.auth {
-            Auth::Developer(key) => request.header("x-goog-api-key", key.expose_secret()),
+            Auth::Developer(key) | Auth::VertexApiKey(key) => {
+                // The key rides a header, never the `?key=` query parameter
+                // Google's own curl examples use: a URL carries into logs,
+                // proxies and error messages, which DCR-0030 forbids.
+                request.header("x-goog-api-key", key.expose_secret())
+            }
             Auth::Vertex(credentials) => {
                 // Use the SDK's complete header set: user ADC can require
                 // x-goog-user-project in addition to Authorization.
@@ -412,6 +444,7 @@ fn endpoint(config: &GoogleConfig) -> Result<Url, GoogleConfigError> {
     let default = match &config.surface {
         GoogleSurface::Developer => "https://generativelanguage.googleapis.com",
         GoogleSurface::Vertex { location, .. } => location.base_url(),
+        GoogleSurface::VertexExpress => "https://aiplatform.googleapis.com",
     };
     let mut url = config
         .base_url
@@ -419,7 +452,7 @@ fn endpoint(config: &GoogleConfig) -> Result<Url, GoogleConfigError> {
         .unwrap_or_else(|| Url::parse(default).expect("built-in Google origin"));
     let version = match &config.surface {
         GoogleSurface::Developer => "v1beta",
-        GoogleSurface::Vertex { .. } => "v1",
+        GoogleSurface::Vertex { .. } | GoogleSurface::VertexExpress => "v1",
     };
     let has_version = url
         .path_segments()
@@ -435,6 +468,11 @@ fn endpoint(config: &GoogleConfig) -> Result<Url, GoogleConfigError> {
     match &config.surface {
         GoogleSurface::Developer => {
             segments.push("models");
+        }
+        GoogleSurface::VertexExpress => {
+            // Express mode addresses the publisher model directly: no
+            // project, no location.
+            segments.push("publishers").push("google").push("models");
         }
         GoogleSurface::Vertex { project, location } => {
             segments
@@ -516,7 +554,9 @@ fn generation_body(
     let mut generation = json!({ "responseMimeType": "application/json" });
     match &config.surface {
         GoogleSurface::Developer => generation["responseJsonSchema"] = schema,
-        GoogleSurface::Vertex { .. } => generation["responseSchema"] = vertex_schema(schema),
+        GoogleSurface::Vertex { .. } | GoogleSurface::VertexExpress => {
+            generation["responseSchema"] = vertex_schema(schema)
+        }
     }
     if let Some(n) = ceiling.filter(|n| *n > 0) {
         generation["maxOutputTokens"] = json!(n);

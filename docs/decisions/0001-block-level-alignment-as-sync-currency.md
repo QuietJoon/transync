@@ -34,15 +34,25 @@ We must decide which approach `transync` adopts, because the choice shapes the d
 
 We chose **option 1**. The user selected it during brainstorming Q2 with the rationale that the LLM-Trans samples are reference UX, not algorithmic guidance. Block-level alignment honors the design draft's structural contract, eliminates the parser-divergence trap, and produces a tractable validation surface where each unit has exactly one ID and exactly one block-kind constraint.
 
-Status: Decided 2026-05-01 (brainstorming Q2). Shipped — block IDs are the sole sync currency end-to-end (Rust IR → LLM contract → alignment map → `data-sync-id` DOM anchors → JS sync engine); the sync engine was later amended by DCR-0008 (see Implementation).
+Status: Decided 2026-05-01 (brainstorming Q2). Shipped — block IDs are the sole sync currency end-to-end (Rust IR → LLM contract → alignment map → `data-sync-id` DOM anchors → JS sync engine); the JS sync engine is DCR-0008's scroll-listener engine (see Implementation).
 
 ### Implementation
 
 - The Rust IR (`Document`) assigns one `BlockId` per sync-relevant block. Inline sentences and runs do not get IDs.
 - The `TranslationUnit` data type carries the same `BlockId` as `unit_id`.
 - The annotated HTML renderer emits exactly one `data-sync-id` attribute per sync-relevant block.
-- The JS sync engine works against `[data-sync-id]` anchors only. No sentence-level lookups. *(Amended by DCR-0008: the originally-specified `IntersectionObserver` + intersection-ratio + viewport-center + hysteresis design was replaced by the shipped scroll-listener engine — RAF-coalesced scroll events, a reference-line active-block pick with intra-block progress fraction, per-frame lerp toward the partner target, and a per-pane programmatic-scroll lock. The authoritative algorithm description is `docs/superpowers/specs/2026-05-03-smooth-scroll-sync.md`. The block-ID-as-only-currency principle this ADR decides is unchanged.)*
-- The alignment map records `source_block_id` and `target_block_id` (identical for static documents); per-unit `fallback_status` rides alongside.
+- The JS sync engine works against `[data-sync-id]` anchors only. No sentence-level lookups. It is the scroll-listener engine DCR-0008 records — RAF-coalesced scroll events, a reference-line active-block pick with intra-block progress fraction, per-frame lerp toward the partner target, and a per-pane programmatic-scroll lock — not an `IntersectionObserver` + intersection-ratio + viewport-center + hysteresis design. The authoritative algorithm description is `docs/superpowers/specs/2026-05-03-smooth-scroll-sync.md`; the block-ID-as-only-currency principle it runs on is this ADR's.
+- The alignment map records `source_block_id` and `target_block_id` (identical for static documents); per-unit `fallback_status` rides alongside. Schema 1.x makes that identity normative (*ID identity* below).
+
+### ID identity (alignment schema 1.x)
+
+The currency is the same id on both sides. That `source_block_id` and `target_block_id` are identical is a **stated invariant of alignment schema 1.x**, not an observation about the emitter, and the consumer side is written against it:
+
+- The reference JS engine pairs the two panes by **identical `data-sync-id`**: `handleScroll` looks the active block's own id up in the partner map. This is the contract, not an implementation detail one could read either way.
+- The map's `source_block_id` / `target_block_id` indirection is therefore **RESERVED** — in the same sense as `parent_id` and the `child-only` `sync_role` — for a future revision in which the two documents' block sets may genuinely diverge. It stays in the wire format; nothing routes through it today, because under this ADR there is nothing for it to express.
+- A schema-1.x map whose row contradicts the identity is refused by the engine rather than mounted. Review 0003's `R0003-0002` found the two consumer code paths disagreeing about it — the map/DOM drift warning resolved `target_block_id` while the scroll handler resolved `source_block_id`, so such a map warned correctly and then could not sync in either direction. Making the identity normative is what makes one of those two readings the right one; refusing the map is what keeps the other from being reached.
+
+The consumer contract lives in `docs/architecture/contracts.md` §3.
 
 ## Consequences
 
@@ -52,30 +62,9 @@ Status: Decided 2026-05-01 (brainstorming Q2). Shipped — block IDs are the sol
 - **Bad:** Sentence-click-to-pair (a feature LLM-Trans has) is unavailable in MVP. Acceptable; the user explicitly de-prioritized this.
 - **Bad:** Within very long blocks (large tables, long code blocks), intra-block sync is coarser than ideal. Mitigated post-MVP by optional intra-block progress (draft §18.2).
 
-## Amendment (2026-08-09, ticket `d3acc3`) — ID identity is normative, not incidental
+## History
 
-The Implementation note above records that `source_block_id` and
-`target_block_id` are "identical for static documents". That was written as an
-observation about the emitter. It is now a **stated invariant of alignment
-schema 1.x**, and the consumer side is written against it:
+Full text of each event: [`archive/adr-amendments.md`](archive/adr-amendments.md), under *ADR-0001*.
 
-- The reference JS engine pairs the two panes by **identical `data-sync-id`**.
-  It always did (`handleScroll` looks the active block's own id up in the
-  partner map); what changed is that this is the contract rather than an
-  implementation detail one could read either way.
-- The map's `source_block_id` / `target_block_id` indirection is therefore
-  **RESERVED** — in the same sense as `parent_id` and the `child-only`
-  `sync_role` — for a future revision in which the two documents' block sets
-  may genuinely diverge. It stays in the wire format; nothing routes through
-  it today, because under this ADR there is nothing for it to express.
-- A schema-1.x map whose row contradicts the identity is refused by the engine
-  rather than mounted. Review 0003's `R0003-0002` found the two consumer code
-  paths disagreeing about it — the map/DOM drift warning resolved
-  `target_block_id` while the scroll handler resolved `source_block_id`, so
-  such a map warned correctly and then could not sync in either direction.
-  Making the identity normative is what makes one of those two readings the
-  right one; refusing the map is what keeps the other from being reached.
-
-The block-ID-as-only-currency decision itself is unchanged; this names which
-id, on which side, is that currency. The consumer contract lives in
-`docs/architecture/contracts.md` §3.
+- 2026-07-10 (DCR-0008, OI-0006): the JS engine is the scroll-listener engine, not `IntersectionObserver`; the smooth-scroll spec is authoritative.
+- 2026-08-09 (ticket `d3acc3`, R0003-0002): source/target id identity made normative for schema 1.x; the indirection RESERVED; a contradicting map refused.

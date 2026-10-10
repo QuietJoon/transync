@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: The browser gets the Rust renderer as a wasm demo layer, not the CLI bundle
-description: A sixth workspace member, `transync-wasm`, wraps `transync-syntax` for the browser — syntax-only dependency (charter plus the getrandom trap), a JSON-string boundary, and both view and edit modes. wasm-bindgen is pinned exactly at `=0.2.126` instead of committing a lockfile (OI-0020 stays open, with a sharpened risk); binaryen >= 121 becomes a documented host prerequisite with an explicit `wasm-opt` pass; the module is budgeted at 1,950,000 B raw / 810,000 B gzip against a measured 1,739,791 / 718,136. The CLI `--html-out` bundle deliberately carries no wasm. Owner-settled 2026-08-05.
+description: A sixth workspace member, `transync-wasm`, wraps `transync-syntax` for the browser — syntax-only dependency (charter plus the getrandom trap), a JSON-string boundary, and both view and edit modes. wasm-bindgen is pinned exactly at `=0.2.126`, and the pin stays beside the committed `Cargo.lock` (OI-0020 resolved); binaryen >= 121 becomes a documented host prerequisite with an explicit `wasm-opt` pass; `scripts/build-wasm.sh` enforces the module's size budget of 1,840,000 B raw / 760,000 B gzip. The CLI `--html-out` bundle deliberately carries no wasm. Owner-settled 2026-08-05.
 tags: [decision, ADR-0019]
 status: active
 ---
@@ -14,9 +14,9 @@ status: active
 > commits, `94d7e39`..`1d04135`. This ADR records **Track C proper** — the
 > browser integration OI-0028 / DCR-0017 deliberately deferred after
 > delivering only the compile path and its standing gate. It is **additive**:
-> the curated facade surface, the alignment schema (`1.2.0`), the ADR-0006
-> six-file bundle contract, both shipped shells, and `sync.js` are all
-> untouched.
+> the curated facade surface, the alignment schema
+> (`ALIGNMENT_SCHEMA_VERSION`), the ADR-0006 six-file bundle contract, both
+> shipped shells, and `sync.js` are all untouched.
 
 ## Context and Problem Statement
 
@@ -54,12 +54,12 @@ only artifact real readers ever open.
   `getrandom`, which on `wasm32-unknown-unknown` needs an explicit backend or
   fails to link. A single careless dependency edge turns a working module into
   an unbuildable one.
-* **Reproducibility without a lockfile.** `Cargo.lock` is uncommitted here
-  (OI-0020, blocked by a machine-global gitignore). wasm-bindgen requires
-  **exact** crate↔CLI version identity: a resolution drift does not degrade,
-  it breaks the build outright, and the repair path (`cargo install
-  wasm-bindgen-cli@<v>` from source) needs a network this machine measured as
-  restricted.
+* **Reproducibility without a lockfile.** `Cargo.lock` was uncommitted when
+  this was decided (OI-0020, blocked by a machine-global gitignore).
+  wasm-bindgen requires **exact** crate↔CLI version identity: a resolution
+  drift does not degrade, it breaks the build outright, and the repair path
+  (`cargo install wasm-bindgen-cli@<v>` from source) needs a network this
+  machine measured as restricted.
 * **Prerequisites must fail loudly.** The wasm gate's own precedent (DCR-0017:
   the hook fails with a `rustup target add` hint rather than skipping) applies
   to every new host tool. A silently-skipped build step is a gate that has
@@ -96,8 +96,8 @@ The owner settled five points, all binding.
 
 ### 1. Crate shape — `transync-syntax` and nothing else
 
-`crates/transync-wasm` is the workspace's **sixth** member
-(`crate-type = ["cdylib", "rlib"]`, `publish = false`), and among workspace
+`crates/transync-wasm` entered the workspace as its **sixth** member
+(`crate-type = ["cdylib"]`, `publish = false`), and among workspace
 crates it depends on **`transync-syntax` alone**. The restriction carries a
 double rationale, and both halves are load-bearing:
 
@@ -113,26 +113,37 @@ double rationale, and both halves are load-bearing:
 Logic lives in `engine` — plain Rust, zero wasm-bindgen — with only thin
 `#[wasm_bindgen]` wrappers in `lib`. That split is what makes the whole surface
 **host-testable**: `cargo test -p transync-wasm` exercises the real call
-sequences, and the wrappers stay obviously correct by inspection. `cdylib` +
-`rlib` also means the ordinary `cargo build/test/clippy --workspace` sweeps the
-new member with no special-casing (bindgen exports are inert on the host).
+sequences, and the wrappers stay obviously correct by inspection. `cargo test`
+compiles the lib target into its own test harness whatever the crate-type, so
+the ordinary `cargo build/test/clippy --workspace` sweeps the member with no
+special-casing (bindgen exports are inert on the host). The crate-type is
+`cdylib` alone because an `rlib` beside it costs the shipped module fat-LTO
+scope (decision 4).
 
 `transync-syntax`'s own manifest is **untouched**: still no `[features]`, still
 no `transync-core` dependency. The standing gate simply widens to
 `cargo check -p transync-syntax -p transync-wasm --target wasm32-unknown-unknown`
 in both pre-commit hook copies and `scripts/smoke.sh`.
 
-### 2. wasm-bindgen is pinned exactly; OI-0020 stays open
+### 2. wasm-bindgen is pinned exactly
 
-`wasm-bindgen = "=0.2.126"` in `[workspace.dependencies]` — an exact pin, not a
-caret range. Given no committed lockfile, the pin is the only defense against
-clean-checkout skew on a dependency whose version mismatch is fatal rather than
-degrading.
+`wasm-bindgen = "=0.2.126"` stays in `[workspace.dependencies]` and must not be
+loosened — an exact pin, not a caret range. wasm-bindgen requires crate↔**CLI**
+version identity, so a version mismatch is fatal rather than degrading.
+`Cargo.lock` is committed (`6cf4164`: `.gitignore` gained a repo-local
+`!Cargo.lock` un-ignore overriding the machine-global rule), and the pin stays
+necessary beside it: a lockfile binds only the resolves that read it —
+`cargo update`, a regenerated lockfile, and any build after the lock is deleted
+all re-resolve from the manifests — and no lockfile can pin the CLI half of that
+identity at all (`wasm-bindgen-cli` is a host tool installed outside the
+workspace). The lock covers the checkout; the pin covers the lock-less resolves.
+The root manifest's comment beside the pin and
+`docs/project/release-checklist.md` step 18 both say this.
 
-**The escalation this wave produced, recorded honestly so the owner can
-revisit.** The pre-implementation analysis expected the binding constraint to
-be `slug → comrak`, i.e. a wasm32-side edge sharing a resolution with a
-dependency we already had. That is **wrong**, and the correction matters:
+**The escalation this wave produced.** The pre-implementation analysis expected
+the binding constraint to be `slug → comrak`, i.e. a wasm32-side edge sharing a
+resolution with a dependency we already had. That is **wrong**, and the
+correction matters:
 
 * `slug`/`comrak` declares only a caret `"0.2"` and never constrained anything.
 * The binding edge is **host-side**: `reqwest → js-sys` inside
@@ -145,15 +156,20 @@ dependency we already had. That is **wrong**, and the correction matters:
   `wasm-bindgen-futures`), not the one-liner the plan assumed. `reqwest` itself
   did not move, and all of `transync-openai`'s tests stayed green, so the
   js-sys/web-sys bump is behaviorally inert here.
-* **The sharpened risk:** that seven-package resolution exists **only in the
-  gitignored `Cargo.lock`**. A future wasm-bindgen release moves fresh `js-sys`
-  resolutions, and a clean checkout can then land on a `js-sys` whose own exact
-  pin **conflicts with our `=0.2.126`** — a hard resolver failure originating
-  in a `reqwest` bump that looks entirely unrelated to wasm.
+* **The sharpened risk:** that seven-package resolution is recorded in the
+  committed `Cargo.lock`, so the clean-checkout failure mode does not sit in
+  front of a first build — but a resolve that does not read the lock can still
+  meet it. A future wasm-bindgen release moves fresh `js-sys` resolutions, and
+  such a resolve can then land on a `js-sys` whose own exact pin **conflicts
+  with our `=0.2.126`** — a hard resolver failure originating in a `reqwest`
+  bump that looks entirely unrelated to wasm. The recovery is a matching
+  `-p js-sys` update.
 
-**Owner decision 2026-08-05: pin over lock.** OI-0020 stays OPEN and
-un-retracted; the pin is the mitigation, this paragraph is the warning, and the
-recovery is a matching `-p js-sys` update (or, finally, committing the lock).
+OI-0020 (no committed `Cargo.lock`) is RESOLVED;
+`docs/project/open-issues-archive.md` carries the resolution and names the two
+things that survive it: the `CLAUDE.md` half of the same gitignore concern,
+declined rather than fixed, and the absence of any `--locked` gate over the
+committed lock.
 
 ### 3. binaryen is a host prerequisite, and `wasm-opt` is invoked explicitly
 
@@ -196,12 +212,20 @@ correct advice for a machine with a writable brew prefix, which is why the
 failure hints still say exactly that. The prerequisite is "binaryen ≥ 121 on
 PATH", and the channel is the host's business.
 
-### 4. Size budget — 1,950,000 B raw / 810,000 B gzip
+### 4. Size budget — 1,840,000 B raw / 760,000 B gzip
 
 `scripts/build-wasm.sh` asserts the ceilings and fails the build on a breach,
-so the number is a gate rather than a note. Measured today: **1,739,791 B raw /
-718,136 B gzip** (1.66 MiB / 701 KiB), byte-reproducible across clean rebuilds
-on the implementing host.
+so the number is a gate rather than a note. This decision was taken against a
+measured **1,739,791 B raw / 718,136 B gzip** (1.66 MiB / 701 KiB),
+byte-reproducible across clean rebuilds on the implementing host, under
+ceilings of 1,950,000 / 810,000 — ~210 KB raw / ~92 KB gzip above the
+measurement. Ticket `92ac61b9` spent the one known recoverable slice —
++113,844 B of fat-LTO scope lost to the `rlib` crate-type sitting beside the
+`cdylib` — by making `crate-type` `["cdylib"]` alone (decision 1). Re-measured
+A/B at the crate's then-current size, the drop returns **101,228 B raw /
+46,758 B gzip**, and the enforced ceilings came down with it to
+**1,840,000 / 760,000** — the same ~12 % headroom. DCR-0020's attribution table
+carries the numbers.
 
 The spec's original ceilings (1,400,000 / 500,000, from a 1,237,349 B probe)
 were **factually wrong input, corrected by measurement** — the exploration
@@ -217,22 +241,9 @@ Two decision-relevant readings of that table:
 * **The JSON-string boundary is cheap** — +42,127 B — so approach A1's
   "no `serde-wasm-bindgen`, no new dependency, one `JSON.parse` per call"
   choice is vindicated on size grounds, not merely on dependency grounds.
-* **A breach is a design signal**, not a number to bump reflexively. The
-  ceilings sit ~210 KB raw / ~92 KB gzip above the measurement; the one known
-  recoverable slice (+113,844 B of fat-LTO scope lost to the `rlib` crate-type
-  sitting beside the `cdylib`) is ticketed as `92ac61b9` rather than spent.
-
-*(Dated note, 2026-08-05 — appended, nothing above rewritten. Ticket
-`92ac61b9` was resolved by **spending** that slice: `crate-type` is now
-`["cdylib"]` alone, so decision 1's manifest line and this bullet's "rather
-than spent" both read as history. Re-measured A/B at the crate's then-current
-size, the drop returns **101,228 B raw / 46,758 B gzip**, and the enforced
-ceilings came down with it to **1,840,000 / 760,000** — the same ~12 %
-headroom. Decision 1's host-testability claim is unaffected and was re-verified
-rather than assumed: `cargo test` compiles the lib target into its own test
-harness whatever the crate-type, so `cargo build/test/clippy --workspace` still
-sweeps the member with no special-casing. DCR-0020's attribution table carries
-the numbers.)*
+* **A breach is a design signal**, not a number to bump reflexively. The one
+  known recoverable slice, the `rlib`'s fat-LTO scope, is already spent (ticket
+  `92ac61b9`, above).
 
 ### 5. Web-only — the CLI bundle deliberately carries no wasm
 
@@ -286,30 +297,30 @@ construction.
 * Good, because every new host prerequisite fails loudly with a named path and
   an install hint, and the size ceiling is a build failure rather than a
   comment.
-* Bad, because **`transync-wasm` cannot be built from a clean checkout without
-  luck**. Its build needs wasm-pack, binaryen ≥ 121, the `wasm32-unknown-unknown`
-  target, *and* a dependency resolution that satisfies `=0.2.126` — and the
-  last of those lives only in an uncommitted lockfile. This is OI-0020's cost,
-  now concentrated on a critical path instead of spread thin, and it is the
-  strongest argument yet for committing the lock.
+* Bad, because `transync-wasm`'s build needs wasm-pack, binaryen ≥ 121, the
+  `wasm32-unknown-unknown` target, *and* a dependency resolution that satisfies
+  `=0.2.126`. The last of those lives in the committed `Cargo.lock`, so the
+  clean-checkout failure mode does not sit in front of a first build; a
+  resolve that does not read the lock can still meet it (decision 2).
 * Bad, because the demo is **not** a supported package. It is not bundled, not
   published, not versioned separately, and its artifacts are gitignored build
   output; a consumer who wants in-browser rendering must build it themselves
   from this repo. Track D's "JS sync ships as an unpolished demo" posture now
   covers a second, heavier demo.
 * Bad, because a second schema mirror exists. `web/js/wasm-demo.js` carries its
-  own `KNOWN_SCHEMA = "1.2.0"`, joining both `sync.js` copies. Mitigated rather
-  than removed: it is checked **twice** at boot — against the wasm module's own
-  `schema_version()` (build-time drift: a blob from a different commit) and
-  against the fetched map (data drift) — and both checks fail closed. A
-  host-side test pins `schema_version()` to `ALIGNMENT_SCHEMA_VERSION`, so the
-  blob can never silently disagree with the crate it was built from.
+  own `KNOWN_SCHEMA`, a mirror of `ALIGNMENT_SCHEMA_VERSION`, joining both
+  `sync.js` copies. Mitigated rather than removed: it is checked **twice** at
+  boot — against the wasm module's own `schema_version()` (build-time drift: a
+  blob from a different commit) and against the fetched map (data drift) — and
+  both checks fail closed. A host-side test pins `schema_version()` to
+  `ALIGNMENT_SCHEMA_VERSION`, so the blob can never silently disagree with the
+  crate it was built from.
 * Bad, because html blocks are **read-only** in the demo. Their payload is an
   extracted text-segment array (ADR-0018), not Markdown, so a Markdown slice
   could not be spliced back; the demo declines the edit rather than offering
   one it cannot round-trip.
 
-  **2026-08-05 — the consequence runs one step further than "read-only".**
+  **The consequence runs one step further than "read-only".**
   Read-only is not free: the segment array is unrecoverable from the rendered
   bundle (the demo only ever sees the spliced result), so an html block cannot
   be *carried* through a rebuild either. `regen` falls it back to its **source**
@@ -332,46 +343,26 @@ construction.
   the syntax API returns `Result` rather than using panics as control flow, and
   `transync-cli`'s stock `release` profile is untouched.
 
-## Amendment (2026-08-07) — the lock was committed after all; the pin stays
-
-Decision 2 above chose "pin over lock" and recorded that OI-0020 "stays OPEN and
-un-retracted". **The owner reversed that one day later, on 2026-08-06, in commit
-`6cf4164`:** `.gitignore` gained a repo-local `!Cargo.lock` un-ignore overriding
-the machine-global rule, and `Cargo.lock` is now tracked. The seven-package
-resolution decision 2 says "exists **only in the gitignored `Cargo.lock`**" is
-therefore a tracked file, and the clean-checkout failure mode recorded there — a
-future wasm-bindgen release moving fresh `js-sys` resolutions into conflict with
-`=0.2.126` — no longer sits in front of a first build. **OI-0020 is RESOLVED
-(2026-08-06)**; `docs/project/open-issues-archive.md` carries the resolution and names
-the two things that survive it: the `CLAUDE.md` half of the same gitignore
-concern, declined rather than fixed, and the absence of any `--locked` gate over
-the committed lock.
-
-**What is unchanged: the exact pin.** `wasm-bindgen = "=0.2.126"` stays in
-`[workspace.dependencies]` and must not be loosened. Decision 2's reasoning for
-an exact pin survives the lock intact, because a lockfile binds only the
-resolves that read it — `cargo update`, a regenerated lockfile, and any build
-after the lock is deleted all re-resolve from the manifests — and because
-wasm-bindgen's requirement is crate↔**CLI** identity, of which no lockfile can
-pin the CLI half at all (`wasm-bindgen-cli` is a host tool installed outside the
-workspace). What changed is the pin's standing, not its necessity: it was the
-*only* defense against clean-checkout skew and is now the half that covers the
-lock-less resolves, with the lock covering the checkout. The root manifest's
-comment beside the pin and `docs/project/release-checklist.md` step 18 both say
-this. The front-matter description, the "Reproducibility without a lockfile"
-driver and decision 2's heading and text are left exactly as written — they
-record the 2026-08-05 state, and this amendment is the correction.
-
 ## Related
 
 - **DCR-0020** — the implementing record for this decision: files, gate lines, the boundary contract, the edit model, the durable size-attribution table, and the parity evidence
 - DCR-0017 / **OI-0028** — delivered the compile path and the standing gate, and deferred exactly this work; OI-0028 stays RESOLVED and gains a dated "Track C proper landed" note
 - DCR-0019 — shrank the path this module ships (`Document::hierarchy` and `Block::parent_id` deleted) specifically so Track C would carry less; its IR freeze rule held, and this wave is where the "serde-vs-DTO for the JS boundary" question it deferred is answered — **neither**: JSON strings cross the boundary and the IR is not reshaped
-- **OI-0020** — no committed `Cargo.lock`; **stays OPEN** by owner decision 2026-08-05, with the sharpened clean-checkout risk recorded in decision 2 above — **superseded 2026-08-06** (`6cf4164`): the lock is committed and OI-0020 is RESOLVED, while the exact pin stays; see the 2026-08-07 amendment above
-- ADR-0003 — the workspace decision, **amended 2026-08-05** by this ADR: six members, `transync-wasm → transync-syntax`
+- **OI-0020** — no committed `Cargo.lock`; RESOLVED by committing it (`6cf4164`), while the exact pin stays (decision 2); `docs/project/open-issues-archive.md` carries the resolution
+- ADR-0003 — the workspace decision, **amended** by this ADR: `transync-wasm` joins as the sixth member, `transync-wasm → transync-syntax`
 - ADR-0006 — the renderer's output shape and the six-file bundle contract: **unchanged**, and decision 5 is the reason it is unchanged
 - ADR-0001 — block-level alignment as the sync currency: the reason a second Markdown parser is not an option and the renderer crosses instead
 - ADR-0018 — HTML content via segment extraction: why html blocks are read-only in the demo (their payload is a segment array, not Markdown)
 - ADR-0004 — comrak as the GFM parser: unchanged; `default-features = false` drops `cli`/`syntect` only
 - CLAUDE.md tech-stack layering (the WASM path) and invariants 1, 7, 8
 - `docs/superpowers/specs/2026-08-05-track-c-wasm-render-demo-design.md` — the approved design spec (its decision-2 "brew binaryen" wording carries a dated pointer to the install-channel record above)
+
+## History
+
+The dated notes, the 2026-08-07 amendment and the wording this body replaced are
+kept verbatim under ADR-0019 in [`archive/adr-amendments.md`](archive/adr-amendments.md).
+
+- 2026-08-05 (DCR-0020): decided — option 1, a syntax-only `transync-wasm` member for the `web/` demo; landed in `94d7e39`..`1d04135`.
+- 2026-08-05 (ticket `92ac61b9`, DCR-0020): `rlib` dropped for `crate-type = ["cdylib"]`; ceilings 1,950,000 / 810,000 → 1,840,000 / 760,000.
+- 2026-08-05 (DCR-0020): another block's edit reverts translated html blocks to source; html rows leave `statuses` and render as `fallback_source`.
+- 2026-08-06 (OI-0020, `6cf4164`; amendment 2026-08-07): `Cargo.lock` committed, reversing pin over lock; OI-0020 RESOLVED; the exact pin stays.

@@ -21,6 +21,11 @@ without revalidation, and that mutex poisoning was unhandled. Review
 recovers via `into_inner` and keeps writing, but every subsequent `get`
 stays a miss for the cache's lifetime.
 
+External review P2-8 (EXT-2026-07) showed what that asymmetry costs:
+`std::sync::Mutex` poison never clears on its own, so `put` kept
+"recovering" via `into_inner` into a map no `get` would ever read —
+**dead writes**.
+
 ## Decision Drivers
 
 * A poisoned mutex means a panic occurred *while mutating the map* — the
@@ -28,11 +33,11 @@ stays a miss for the cache's lifetime.
   half-written entry to skip one provider call is the wrong trade for a
   translation pipeline whose whole design is "never silently corrupt
   output."
-* Treating reads as misses is always safe (worst case: re-translate) and
-  the `tracing::warn` on every poisoned `get` deliberately keeps the
+* Dropping untrusted contents is always safe (worst case: re-translate),
+  and one `tracing::warn` per poison event deliberately keeps the
   underlying bug loud instead of self-healing it into silence.
-* Writes recovering via `into_inner` preserves forward progress — new
-  results from the current healthy run still land, so a long run isn't
+* Recovery preserves forward progress — new results from the current
+  healthy run still land *and are readable*, so a long run isn't
   punished for one earlier panic.
 * Independent of poisoning, a cache hit is revalidated before
   acceptance; a hit that fails validation is discarded and the unit
@@ -43,93 +48,92 @@ stays a miss for the cache's lifetime.
 1. Recover reads too (`into_inner` on `get`), fully self-healing.
 2. Replace/clear the cache instance on first poison.
 3. Miss-on-get (loud), recover-on-put, revalidate every hit.
+4. Clear-once-and-resume: on the first poisoned lock, recover the guard,
+   clear the map and the poison flag, warn once, and carry on as a
+   normal empty cache; revalidate every hit.
 
 ## Decision Outcome
 
-ACCEPT R0006-0002 (fixed: hit revalidation + poison handling shipped);
-REJECT R0008-0019 (the read/write asymmetry is the intended shape):
-option 3. Option 1 trusts data a panic interrupted; option 2 throws
-away provably-good progress written after the poison.
+Option 4, **clear-once-and-resume** (a refinement of option 2 that
+does not discard a live instance), with every cache hit revalidated.
+ACCEPT R0006-0002 (fixed: hit revalidation + poison handling shipped).
+Option 1 trusts data a panic interrupted; option 2 throws away
+provably-good progress written after the poison. Option 3 is
+internally inconsistent: its two halves cannot coexist as described,
+and its recover-on-put branch is unreachable-by-readers (Context). The
+Review 0008 gate rejected R0008-0019 on the ground that option 3's
+read/write asymmetry was the intended shape; external review P2-8
+superseded option 3, and no asymmetry remains.
+
+**Poison.** On the first poisoned lock — from `get`, `put`, `evict` or
+`len` — the guard is recovered via `PoisonError::into_inner`, the map is
+**cleared** (its contents were mutated mid-panic and are untrusted),
+`Mutex::clear_poison` is called so subsequent locks succeed normally,
+and a single `tracing::warn` ("cache poisoned; cleared and resumed
+empty") is emitted. The cache is then a normal empty cache: gets miss
+until repopulated, and puts land and *are readable*.
+
+**Invalid hits.** Every cache hit re-runs the per-unit validation
+layers on reuse before it is accepted. A hit that fails is evicted and
+the unit re-dispatched, so a cached translation that no longer
+validates is re-translated rather than trusted.
+
+The disk-backed cache (DCR-0028, ticket `f12b8b`) extends both halves of
+this policy rather than inventing parallel ones, at the granularity each
+failure actually has:
+
+* **Recovery.** `DiskCache`'s persisted state recovers in this ADR's
+  shape — loud, safe, forward progress — but line- and file-granular
+  instead of map-granular: an unreadable line is skipped with a `warn`,
+  a torn tail is truncated to the last good record, and an unreadable or
+  unknown-format file is rotated aside so the cache resumes empty. Its
+  in-memory *index* mutex uses this ADR's clear-once-and-resume directly
+  (clearing the index, not the file — the next open replays the log), as
+  do `InMemoryCache`'s document-metadata map (DCR-0028) and
+  glossary-harvest map (ti `dca5bf`), each behind its own lock.
+* **Hit revalidation is what makes disk entries trustworthy.** That
+  gate, not checksums, is why a damaged-but-parseable disk payload
+  degrades to a re-translation and can never reach the output. DCR-0028
+  leans on it and adds nothing to it.
 
 Status: Implemented (`cache.rs` doc comments trace the rationale;
 `pipeline.rs` rejects-and-re-dispatches invalid hits).
 
-> **Superseded** — see *Amended 2026-07-13* below.
-
-#### Amended 2026-07-13 (external review P2-8)
-
-The original outcome (option 3: miss-on-get, recover-on-put) is
-**superseded**. It was internally inconsistent: `std::sync::Mutex`
-poison never clears on its own, so after one panic *every* `get`
-returned a miss for the cache's whole lifetime, while `put` kept
-"recovering" via `into_inner` into a map no `get` would ever read —
-**dead writes**. The two halves of option 3 could not coexist as
-described; the recover-on-put branch was unreachable-by-readers.
-
-New outcome: **clear-once-and-resume** (a refinement of option 2 that
-does not discard a live instance). On the first poisoned lock — from
-`get`, `put`, or `len` — the guard is recovered via
-`PoisonError::into_inner`, the map is **cleared** (its contents were
-mutated mid-panic and are untrusted), `Mutex::clear_poison` is called
-so subsequent locks succeed normally, and a single `tracing::warn`
-("cache poisoned; cleared and resumed empty") is emitted. The cache is
-then a normal empty cache: gets miss until repopulated, and puts land
-and *are readable*.
-
 ### Implementation
 
-`get` → miss + `tracing::warn` on poison; `put` → recover + write;
-pipeline revalidates hits before acceptance.
-
-#### Amended 2026-07-13 (external review P2-8)
-
-`InMemoryCache` now routes `get`, `put`, and `len` through one private
-`locked()` helper. On a healthy lock it returns the guard unchanged; on
-poison it recovers via `into_inner`, clears the map, calls
-`Mutex::clear_poison` (std, stable since 1.77; within MSRV 1.85), emits
-one `warn`, and returns a guard over the now-empty, functional map. The
-pipeline's hit-revalidation behaviour is unchanged.
+`InMemoryCache` routes `get`, `put`, `evict` and `len` through one
+private `locked()` helper: a healthy lock's guard is returned unchanged,
+and a poisoned one gets the recovery above and comes back as a guard
+over the now-empty, functional map. `Mutex::clear_poison` is std,
+stabilized in Rust 1.77 and inside the workspace MSRV (the root
+`Cargo.toml`'s `rust-version` owns that number). `DiskCache`'s own
+`locked()` (`cache/disk.rs`) clears its index maps and leaves the log
+untouched. The pipeline revalidates hits before acceptance: the
+cache-hit arm in `pipeline/dispatch.rs` runs the cached rows through
+`validate_batch`, evicts a rejected hit's key, and re-queues the
+pristine unit.
 
 ## Consequences
 
 * Good, because a panic can never launder a half-written entry into the
   output, and the warn stream surfaces the real bug.
-* Bad, because one poisoning event makes the rest of the run cache-cold
-  on reads (bounded cost: re-translation of not-yet-dispatched units).
-
-#### Amended 2026-07-13 (external review P2-8)
-
-The "cache-cold on reads for the rest of the run" consequence above no
-longer holds; it is **superseded** by clear-once-and-resume.
-
-* Good, because after recovery the cache is fully functional again:
-  writes are no longer dead, and a run is not punished for the rest of
-  its life by a single earlier panic.
+* Good, because after recovery the cache is fully functional: writes
+  land and are readable, and a run is not punished for the rest of its
+  life by a single earlier panic.
 * Good, because clearing on poison is safe by construction — the
   discarded entries are exactly those a panic interrupted mid-mutation,
-  which the original policy already deemed untrusted.
-* Cost is bounded to entries present at the moment of the panic: they
-  are dropped and re-translated on next demand. Everything written after
+  which this ADR's first driver already deems untrusted.
+* Good, because the single `warn` per poison event keeps the underlying
+  bug loud rather than self-healing it into silence.
+* Bad, but bounded: the entries present at the moment of the panic are
+  dropped and re-translated on next demand. Everything written after
   recovery is cached normally.
-* The single `warn` per poison event still keeps the underlying bug
-  loud rather than self-healing it into silence.
 
-#### Appended 2026-08-09 (DCR-0028, ticket f12b8b)
+## History
 
-The disk-backed cache design extends both halves of this policy rather than
-inventing parallel ones, at the granularity each failure actually has:
+The full text of each replaced passage is in
+[`archive/adr-amendments.md`](archive/adr-amendments.md), under ADR-0015.
 
-* **Recovery.** `DiskCache`'s persisted state recovers in this ADR's shape —
-  loud, safe, forward progress — but line- and file-granular instead of
-  map-granular: an unreadable line is skipped with a `warn`, a torn tail is
-  truncated to the last good record, and an unreadable or unknown-format file
-  is rotated aside so the cache resumes empty. Its in-memory *index* mutex
-  uses this ADR's clear-once-and-resume directly (clearing the index, not the
-  file — the next open replays the log), as does the document-metadata map
-  `InMemoryCache` gains.
-* **Hit revalidation is what makes disk entries trustworthy.** Every cache
-  hit already re-runs the per-unit validation layers on reuse and a failing
-  hit is evicted and re-dispatched — that existing gate, not checksums, is
-  why a damaged-but-parseable disk payload degrades to a re-translation and
-  can never reach the output. The decision above did that work in advance;
-  DCR-0028 leans on it and adds nothing to it.
+- 2026-07-11 (R0006-0002, R0008-0019): recorded at the Review 0008 gate as option 3 — miss-on-get, recover-on-put; R0008-0019 rejected.
+- 2026-07-13 (external review P2-8): option 3 superseded by clear-once-and-resume through one `locked()` helper; the cache-cold-reads cost is gone.
+- 2026-08-09 (DCR-0028, ti f12b8b): the disk cache extends both halves — line/file-granular recovery, index clear-once, hit revalidation over checksums.

@@ -8,13 +8,6 @@ status: active
 
 # ADR: Whole-document-in-memory is inherent
 
-> **Amended 2026-07-13 (external review P1-7).** The original framing —
-> "CLI input reads are not size-capped" — is superseded at the boundary: a
-> `limit + 1` admission cap now ships (`--max-input-bytes`, default 64 MiB,
-> for `--input`; a fixed 4 MiB cap for `--profile` / `--system-prompt-file`).
-> This is a scoped decision, not a settled absolute — see **Amendment** below.
-> The whole-document-in-memory core stance still holds for ACCEPTED inputs.
-
 ## Context and Problem Statement
 
 Found in Review 0008 (Issue R0008-0040, Severity: Medium) (review archived and removed). Location:
@@ -22,21 +15,17 @@ Found in Review 0008 (Issue R0008-0040, Severity: Medium) (review archived and r
 `std::fs::read_to_string` on `--input`, `--profile`,
 `--system-prompt-file`).
 
-> **Path note (2026-08-05, DCR-0019).** The decision is unchanged; the code
-> moved. `resolve_profile` and the capped reads now live in
-> `crates/transync-cli/src/translate_cmd/input.rs`, and `run`'s body became
-> `translate_cmd::execute`. The caps this ADR sets are enforced in the same
-> place they always were, one module deeper.
-
 The reviewer flagged that the CLI reads input, profile, and prompt
 files without metadata checks or streaming caps, so an accidental huge
 file exhausts memory before batching or provider limits apply.
 
 ## Decision Drivers
 
-* The pipeline is whole-document by design: `parse()` builds a full
-  Comrak AST over the entire source, regeneration splices exact source
-  byte ranges, and validation layer 5 reparses the *complete* document.
+* The pipeline is whole-document by design: intake builds the IR for the
+  entire source in one pass (a full Comrak AST for Markdown, the
+  `intake::html` scanner walk for HTML), regeneration splices exact source
+  byte ranges, and validation layer 6 re-checks the *complete* regenerated
+  document (`full_reparse`, or `full_rescan_html` for an HTML run).
   Streaming is not an option the architecture supports; a read-side cap
   would only relabel "OOM" as "file too large," not reduce peak memory
   for accepted inputs.
@@ -62,14 +51,17 @@ memory for documents that legitimately translate. Option 2 (streaming)
 contradicts the full-document reparse contract that anchors correctness and
 stays rejected.
 
-Originally recorded as "no change required" — that framing is now scoped by
-the 2026-07-13 amendment: option 1 is accepted in a *narrow* form (a
-boundary admission cap that rejects absurd inputs before parse), while the
-in-memory stance itself is unchanged for everything the cap admits. This is
-a **scoped decision, not a settled absolute**. Revisit trigger: transync
-running as a service or multi-tenant deployment ingesting third-party
-uploads — that deployment needs request-level limits *outside* the library
-anyway, and the CLI-boundary cap is not a substitute for them.
+Option 1 is accepted in a *narrow* form: a boundary admission cap that
+rejects absurd inputs before parse, with the in-memory stance itself
+unchanged for everything the cap admits. The reviewer's `limit + 1`
+admission-control argument holds without changing the architecture: for any
+input the cap admits, the pipeline still holds the whole document in memory
+as **Decision Drivers** describes, so the cap is boundary hygiene, not a
+peak-memory guard. This is a **scoped decision, not a settled absolute**.
+Revisit trigger: transync running as a service or multi-tenant deployment
+ingesting third-party uploads — that deployment needs request-level limits
+*outside* the library anyway, and the CLI-boundary cap is not a substitute
+for them.
 
 ### Implementation
 
@@ -77,31 +69,22 @@ anyway, and the CLI-boundary cap is not a substitute for them.
 caps `--profile` / `--system-prompt-file`. Each is enforced by reading
 `limit + 1` bytes via `Read::take` — metadata length is never trusted alone
 — and exceeding a cap exits 2 (InputReadFailure) with a message naming the
-limit (and, for input, the flag). See `crates/transync-cli/src/translate_cmd.rs`
-(`read_capped`) and contracts.md §6. `docs/Performance.md` describes memory
-scaling with document size for accepted inputs.
+limit (and, for input, the flag). Reading one byte past the limit and
+erroring on the extra byte is the correct primitive because it never trusts
+`metadata().len()` (which can lie, race, or grow). See `read_capped` and
+`resolve_profile` in `crates/transync-cli/src/translate_cmd/input.rs`
+(`translate_cmd::execute` applies the `--input` cap) and contracts.md §6.
 
-> **Correction (2026-08-07, ti `038c54`).** The last sentence above was never
-> true. `docs/Performance.md` has been a wall-clock tuning guide since it was
-> written and said nothing about memory consumption at any point in its history,
-> so a reader sent there for the scaling curve found batching dials and provider
-> latency instead. Nothing in this ADR rests on that forward reference: the
-> reason peak memory tracks document size is argued in **Decision Drivers**
-> above from the architecture itself — full Comrak AST, exact-source-range
-> splicing, full-document reparse in validation layer 5 — and that argument is
-> self-contained. Rely on it, not on the citation.
->
-> As of this note `docs/Performance.md` does carry a "Memory" section, so the
-> reference now resolves — but it resolves to something narrower than the
-> original sentence promised. It is six coarse peak-RSS readings
-> (`/usr/bin/time -l` over a stub-provider release run, one machine), reported
-> as measured points and explicitly not as a scaling law. It does not predict
-> unmeasured sizes, does not say where an input at the `--max-input-bytes`
-> default would land, and does not locate the true OOM ceiling. The third
-> consequence below therefore stands exactly as written. Read narrowly, that
-> section is also the first thing to discharge the documentation half of
-> option 3 under **Considered Options** — the half this sentence had been
-> claiming as already done.
+`docs/Performance.md`'s "Memory" section reports coarse peak-RSS readings
+(`/usr/bin/time -l` over stub-provider release runs, one machine) as
+measured points and explicitly not as a scaling law. It does not predict
+unmeasured sizes, does not say where an input at the `--max-input-bytes`
+default would land, and does not locate the true OOM ceiling, so the third
+consequence below stands as written. Read narrowly, that section is what
+discharges the documentation half of option 3. The reason peak memory
+tracks document size is argued in **Decision Drivers** from the architecture
+itself, and that argument is self-contained: rely on it, not on the
+measurements.
 
 ## Consequences
 
@@ -115,16 +98,12 @@ scaling with document size for accepted inputs.
   still exhaust memory — the cap is boundary hygiene, not a peak-memory
   guard, and a service deployment still needs its own limits.
 
-## Amendment (2026-07-13, external review P1-7)
+## History
 
-The reviewer's `limit + 1` admission-control argument was **accepted**:
-reading one byte past the limit and erroring on the extra byte is the
-correct primitive because it never trusts `metadata().len()` (which can lie,
-race, or grow). CLI-boundary caps shipped accordingly (`--max-input-bytes`
-for `--input`, a fixed 4 MiB cap for the auxiliary text inputs). What did
-**not** change is the architecture: for any input the cap admits, the
-pipeline still parses a full Comrak AST, splices exact source byte ranges,
-and reparses the *complete* regenerated document. The record is therefore
-reframed from "settled: no cap" to "scoped: boundary caps ship, core
-stance holds for accepted inputs, revisit on service/multi-tenant
-deployment."
+The full text of each replaced passage is in
+[`archive/adr-amendments.md`](archive/adr-amendments.md), under ADR-0016.
+
+- 2026-07-11 (R0008-0040): option 3 adopted and recorded as "no change required" — CLI reads of operator-chosen files stayed uncapped.
+- 2026-07-13 (EXT-2026-07 P1-7, DCR-0011): `limit + 1` admission caps shipped for `--input` and the auxiliary texts; the core stance held.
+- 2026-08-05 (DCR-0019): `resolve_profile` and the capped reads moved to `translate_cmd/input.rs`; `run`'s body became `translate_cmd::execute`.
+- 2026-08-07 (ti 038c54): the Performance.md memory-scaling citation was retracted as never true; Performance.md gained a measured "Memory" section.

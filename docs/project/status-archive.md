@@ -137,3 +137,79 @@ make that three — **OI-0054**, the `intake::markdown::intake` collision, rides
 the same window.) Unlike the field, the rename has no revert
 fallback: reverting it would re-open the asymmetry DCR-0035 exists to explain.
 
+## Phase 1–5 validation evidence, as status recorded it
+
+The five evidence tables of the 2026-05-01 design handoff, moved verbatim from
+`docs/project/status.md` on 2026-10-10. Their counts and file names are as of
+that handoff.
+
+## Phase 1 Validation Evidence
+| Checklist item                                            | Status | Where validated |
+|-----------------------------------------------------------|--------|-----------------|
+| Architecture overview written                             | ✅      | `docs/architecture/README.md` |
+| MVP scope locked                                          | ✅      | `docs/architecture/mvp-scope.md` |
+| Scenario matrix lists every mandatory scenario            | ✅      | `docs/architecture/scenario-matrix.md` (SCN-01..14) |
+| At least one ADR written                                  | ✅      | `docs/decisions/0001..0004` |
+| User review of Phase 1 artifacts                          | ✅      | 2026-05-01 |
+
+## Phase 2 Validation Evidence
+| Checklist item                                                              | Status | Where validated |
+|-----------------------------------------------------------------------------|--------|-----------------|
+| Every mandatory scenario mapped to binaries/modules                         | ✅      | `docs/implementation/module-map.md` (Scenario → component table) |
+| Every mandatory scenario mapped to persistence/files                        | ✅      | `docs/implementation/module-map.md` (Persistence/file touches table) |
+| Every mandatory scenario mapped to integrations                             | ✅      | `docs/implementation/module-map.md` (Integrations table) |
+| Essential persistence interfaces exist                                      | ✅      | `Cache` trait + `transync::profile` loader in module-map.md; lifecycle in `persistence-and-files.md` |
+| Essential file-storage interfaces exist                                     | ✅      | `transync-cli::output` atomic-write spec in `persistence-and-files.md` §atomic-write |
+| Rough schema outlines exist where durable state lives                       | ✅      | `docs/architecture/rough-schema.md` |
+| Source-of-truth recorded                                                    | ✅      | `docs/architecture/source-of-truth-table.md` |
+| Contract pack written                                                       | ✅      | `docs/architecture/contracts.md` (Translator trait, Profile TOML, AlignmentMap JSON, HTML attrs, retry policy, CLI args, transync-openai constructor) |
+| BlockId format ADR                                                          | ✅      | `docs/decisions/0005-block-id-format.md` |
+| User review of Phase 2 artifacts                                            | ✅      | 2026-05-01 |
+
+## Phase 3 Validation Evidence
+| Checklist item                                                              | Status | Where validated |
+|-----------------------------------------------------------------------------|--------|-----------------|
+| Skeleton plan written (repo + workspace + binary layout, gen order, deps)   | ✅      | `docs/project/skeleton-plan.md` §1–§5 |
+| Local run / demo script plan defined                                        | ✅      | `skeleton-plan.md` §7 |
+| Smoke test path defined                                                     | ✅      | `skeleton-plan.md` §8 |
+| Core verification skeletons listed                                          | ✅      | `skeleton-plan.md` §9 |
+| Marker policy defined (STUB / DEFERRED / traceability tags)                 | ✅      | `skeleton-plan.md` §10 |
+| Implementation slice checklists exist for every mandatory scenario          | ✅      | `docs/project/implementation-slice-checklists.md` (SL-00 through SL-14) |
+| Initial stub manifest seeded                                                | ✅      | `docs/project/stub-manifest.md` (31 transync rows + 7 transync-openai + 4 transync-cli + 3 web rows) |
+| Smoke fixture contents resolved (Phase-3 deferred item)                     | ✅      | `skeleton-plan.md` §6 (12 fixtures spec'd; SCN-03 + SCN-10 generated programmatically) |
+| Renderer output shape resolved (Phase-3 deferred item)                      | ✅      | ADR-0006 locks two pane fragments + templated `index.html` shell |
+| User review of Phase 3 plan                                                 | ✅      | 2026-05-01 (Phase 4 advanced after approval) |
+
+## Phase 4 Validation Evidence
+| Checklist item                                                              | Status | Where validated |
+|-----------------------------------------------------------------------------|--------|-----------------|
+| All in-scope binaries / processes / modules generated                       | ✅      | `crates/transync-core/src/`, `crates/transync-openai/src/`, `crates/transync-cli/src/`, `web/` |
+| Major types + traits defined with traceability tags                         | ✅      | `id.rs`, `llm.rs`, `align.rs`, `cache.rs`, etc. — every `pub fn`/`pub struct`/`pub trait`/`pub enum` carries at least one `TRACE:`/`ADR:` tag |
+| Internal dummy logic sufficient for end-to-end invocation                   | ✅      | `pipeline::run_pipeline` composes STUB sub-steps and returns a well-typed `TranslationOutput` |
+| Local run/demo script exists                                                | ✅      | `scripts/smoke.sh` (executable; runs build + test + CLI dry path) |
+| Smoke verification artifact for the local end-to-end path                   | ✅      | `scripts/smoke.sh` exits 0; 7 outputs land in `/Volumes/Temp/claude/transync-smoke/` |
+| Verification skeletons for every mandatory scenario                         | ✅      | `crates/transync/tests/scenarios.rs` aggregator + 12 `scn_*.rs` files |
+| Markers tracked in `stub-manifest.md` with type + path + scenario + exit    | ✅      | 45 rows; status flipped to `generated` |
+| `cargo build --workspace` clean                                             | ✅      | only the reserved `ExitCode::ArgumentError`/`AllUnitsFellBack` warning |
+| `cargo test --workspace` passes                                             | ✅      | 12 scenario tests pass (historical, as of 2026-05-01) |
+| `cargo test -p transync-cli --features test-stub-provider` passes           | ✅      | `cli_translate_smoke` passes |
+| `./scripts/smoke.sh` exits 0                                                | ✅      | output bundle materialized; all five `--html-out` files non-empty |
+| User review of Phase 4 skeleton                                             | ✅      | 2026-05-01 (Phase 5 advanced after approval) |
+
+## Phase 5 Validation Evidence
+| Checklist item                                                              | Status | Where validated |
+|-----------------------------------------------------------------------------|--------|-----------------|
+| Structural skeleton reflects the scenario matrix                            | ✅      | `design-baseline.md` "Repo / workspace topology"; 12 fixtures + 12 scenario tests cover SCN-01..14 |
+| Required binaries / processes / modules exist                               | ✅      | `crates/transync-cli` binary + `transync` lib + `transync-openai` lib |
+| Essential repository and file-storage interfaces exist                      | ✅      | `Cache` trait + `InMemoryCache`; `transync-cli::output::write_atomic` is real |
+| Rough schema and file lifecycle design represented in structure             | ✅      | every type from `rough-schema.md` exists in code; CLI writes the 5-file `--html-out` bundle |
+| Source-of-truth placement documented                                        | ✅      | `source-of-truth-table.md` |
+| Local run / demo scripts exist                                              | ✅      | `scripts/smoke.sh` |
+| Smoke verification runs                                                     | ✅      | `./scripts/smoke.sh` exits 0 |
+| Core verification skeletons exist and compile/run                           | ✅      | 12 `scn_*.rs` smoke tests pass |
+| `STUB` vs `DEFERRED` usage correct                                          | ✅      | 45 `STUB` rows, 0 `DEFERRED` rows (pre-hardening snapshot, 2026-05-01; post-hardening: 0 MVP-blocking `STUB` rows, 11 `DEFERRED`); `stub-manifest.md` "Hard-gate evidence checklist" |
+| Implementation slice checklists cover all mandatory scenarios               | ✅      | SL-01..SL-14 (one per SCN) plus SL-00 foundation |
+| `CHANGELOG.md` exists with `[Unreleased]` + handoff entry naming baseline   | ✅      | `CHANGELOG.md` "Handoff" entry naming `BL-2026-05-01-A` |
+| `design-baseline.md` published                                              | ✅      | `docs/project/design-baseline.md` |
+| `phase-state.yaml.design.baseline_status = approved`                        | ✅      | `phase-state.yaml` |
+

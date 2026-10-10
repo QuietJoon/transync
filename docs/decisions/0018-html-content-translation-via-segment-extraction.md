@@ -145,26 +145,16 @@ travels into a prompt, and the same data-framing discipline covers them.
 
 ### Implementation
 
-Recorded in full in **DCR-0016**; the decision-relevant shape:
-
-*Path note (2026-08-04, DCR-0017): the module paths below are as of this
-record's date. `htmlseg`, the parser, and `HtmlOutcome` moved to
-`crates/transync-syntax/src/` in the crate split — `htmlseg.rs` and
-`parser.rs` at the same filenames, `HtmlOutcome`/`html_outcomes` into
-`outcome.rs` (still reachable as `transync::unit::html_outcomes`). The
-decision is unaffected: one parser owns block boundaries, `lol_html` works
-inside a block, and both now live in the same crate.*
-
-*Path note 2 (2026-08-04, DCR-0018): the `transync::unit::html_outcomes`
-path cited just above is no longer reachable. The OI-0027 curation made
-`transync-core`'s `unit` module `#[doc(hidden)] pub` and dropped it from the
-facade's curated re-export list, so `html_outcomes` is named as
+Recorded in full in **DCR-0016**; the decision-relevant shape follows, with
+the module paths DCR-0016 recorded. The crate split (DCR-0017) moved
+`htmlseg`, the parser and `HtmlOutcome` out of `transync-core`, and the
+facade curation (DCR-0018, OI-0027) dropped `transync-core`'s `unit` module
+from the facade's curated re-export list, so `html_outcomes` is named as
 `transync_core::unit::html_outcomes` (or `transync_syntax::outcome::html_outcomes`)
-by code that depends on an engine crate directly — which is what
-`transync-openai`'s live-smoke test now does, via dev-dependencies. `htmlseg`
-was never on the facade and is additionally narrowed: `balance_fragment` is
-`pub(crate)`. The decision is again unaffected — this changes who may name
-the machinery, not what it does.*
+by code that depends on an engine crate directly. Neither affects the
+decision: one parser owns block boundaries and `lol_html` works inside a
+block; the moves change where the machinery lives and who may name it, not
+what it does.
 
 * **Engine** — `crates/transync-core/src/htmlseg.rs`: one pinned `lol_html`
   `Settings` shared by the extract pass and the splice pass (so the two passes
@@ -183,12 +173,16 @@ the machinery, not what it does.*
   `HtmlSegmentConstraints` carries the prompt-visible segment count and parent
   labels *and* the validator-only source bytes and block type (never
   serialized into the prompt).
-* **Validation** — per-kind `check_html` (JSON shape, count, non-empty;
+* **Validation** — per-kind `check_html` (JSON shape and count;
   retryable); a layer-3 post-splice check whose *engine faults* go to **direct
   fallback** (no retry burn, no cache put) because a splice failure after
   acceptance is not a model fault; `html` labels on both sides of the
   full-document reparse compare; and an **always-on** inline raw-HTML tag
-  guard hoisted above the inline layer's policy gates.
+  guard hoisted above the inline layer's policy gates. Whether a translated
+  segment still renders any text is not `check_html`'s question: the
+  visible-text presence layer (`validate::text_presence`, DCR-0048) rejects,
+  retryably, a translation that renders nothing where its source segment
+  carried visible text.
 * **Versions** — `VALIDATION_SCHEMA_VERSION` 1 → 2 (new payload semantics +
   prompt instructions + the always-on guard); alignment schema 1.1.0 → 1.2.0
   (additive `html` `block_kind`).
@@ -247,19 +241,6 @@ adding them does not compromise the base-crate split that follows.
   zero: the shipped cache is in-memory and hits are re-validated on every run
   (ADR-0015), so the bump only invalidates within-process reuse.
 
-## Amendment (2026-08-09) — "non-empty" is "non-blank" (R0003-0042)
-
-*Appended, not a rewrite.* The Decision Outcome's **Validation** bullet above
-says `check_html` enforces "JSON shape, count, non-empty". The last word is now
-**non-blank**: a translated segment consisting only of whitespace is rejected
-the same way an empty one is, and for the same reason. Extraction drops every
-source text node whose decoded form is all whitespace, so a segment the model
-sees always carries visible text — a whitespace-only answer is content erasure
-with no legitimate case behind it, and it used to pass layer 2 and every layer
-after it (structure is unchanged, so the splice, the fragment reparse and the
-full reparse all agree) and ship as `translated`. The rejection is retryable,
-like the rest of the bullet. See DCR-0016's 2026-08-09 amendment.
-
 ## Related
 
 - DCR-0016 — the implementation record for this decision (what changed, the schema lockstep drill, the known limits, migration)
@@ -272,3 +253,13 @@ like the rest of the bullet. See DCR-0016's 2026-08-09 amendment.
 - OI-0028 — the crate split this feature's dependencies were canaried against
 - CLAUDE.md invariant 7 (amended by this ADR), invariant 2 (structure is application-owned)
 - `docs/superpowers/specs/2026-08-03-html-content-translation-design.md` — the approved v2 design spec
+
+## History
+
+The full text of each event is in
+[`archive/adr-amendments.md`](archive/adr-amendments.md), under ADR-0018.
+
+- 2026-08-04 (DCR-0017): the crate split moved `htmlseg`, the parser and `HtmlOutcome` from `transync-core` into `transync-syntax`.
+- 2026-08-04 (DCR-0018, OI-0027): `unit` left the facade, so `transync::unit::html_outcomes` stopped resolving; `balance_fragment` became `pub(crate)`.
+- 2026-08-09 (R0003-0042, DCR-0025, DCR-0016): `check_html`'s "non-empty" became "non-blank": a whitespace-only translated segment is rejected.
+- 2026-09-04 (DCR-0048, ti c887bc): `check_html` became shape-only; whether a segment renders anything moved to the visible-text presence comparison.

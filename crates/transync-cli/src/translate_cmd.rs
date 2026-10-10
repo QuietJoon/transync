@@ -25,8 +25,8 @@ use args::{
 use clap::Args;
 use input::{CappedReadError, ProfileError, html_document_marker, read_capped, resolve_profile};
 use provider::{
-    GoogleLocationArg, GoogleSurfaceArg, GoogleThinkingArg, ProviderArg, resolve_provider_config,
-    translator_for_run,
+    GoogleAuthArg, GoogleLocationArg, GoogleSurfaceArg, GoogleThinkingArg, ProviderArg,
+    resolve_provider_config, translator_for_run,
 };
 use publish::{PublishError, preflight_destinations, publish_outputs};
 use report::{
@@ -219,6 +219,13 @@ pub struct TranslateArgs {
     /// Google API surface. For Google, defaults to Vertex AI.
     #[arg(long = "google-surface", value_enum)]
     pub google_surface: Option<GoogleSurfaceArg>,
+    /// How a Vertex AI run authenticates: `adc` (Application Default
+    /// Credentials, the default) or `api-key` (Vertex express mode, read from
+    /// GOOGLE_API_KEY). Explicit on purpose: an API key present in the
+    /// environment for some other Google service must not silently move this
+    /// run's billing path. Applies to --google-surface vertex only.
+    #[arg(long = "google-auth", value_enum)]
+    pub google_auth: Option<GoogleAuthArg>,
     /// Vertex AI project. Defaults to GOOGLE_CLOUD_PROJECT.
     #[arg(long = "google-project")]
     pub google_project: Option<String>,
@@ -322,6 +329,21 @@ pub struct TranslateArgs {
     /// profile's `[batching].max_units_per_batch`.
     #[arg(long = "max-units-per-batch", value_parser = clap::value_parser!(u32).range(1..))]
     pub max_units_per_batch: Option<u32>,
+    /// Let adjacent whole sections share a batch when they fit (DCR-0057).
+    /// This is the shipped default; the flag is here to override a profile
+    /// that turns it off. Overrides `[batching].coalesce_sections`.
+    #[arg(
+        long = "coalesce-sections",
+        default_value_t = false,
+        conflicts_with = "no_coalesce_sections"
+    )]
+    pub coalesce_sections: bool,
+    /// Pack every section into batches of its own, never sharing one with a
+    /// neighbor (DCR-0027 P2's strict confinement). Costs one request per
+    /// heading on a heading-dense document; buy that back only if you need
+    /// batch boundaries to line up with sections.
+    #[arg(long = "no-coalesce-sections", default_value_t = false)]
+    pub no_coalesce_sections: bool,
     /// What to do with a table whose estimated response exceeds the output
     /// ceiling (DCR-0026). `row-window-first` (the shipped default) splits it
     /// into header-carrying row windows at packing time and reassembles one

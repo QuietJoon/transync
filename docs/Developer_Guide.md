@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Developer Guide"
+description: "The practical handbook for using, extending and customizing transync — workspace map, build/test/lint commands, full CLI reference with exit codes and env vars, library usage, custom Translator and profile authoring, alignment-map consumption, and demo CSS/JS hooks"
+tags: ["reference", "cli", "translation", "browser"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Developer Guide
 
 How to **use**, **extend**, and **customize** transync. This is the
@@ -55,19 +64,23 @@ at it.
   glossary, batching hints. Override via `--profile`,
   `--system-prompt`, or `--system-prompt-file`.
 - **Long-document batching + cache.** The batcher partitions the units
-  by section first (DCR-0027: a batch never straddles a heading) and
-  packs each section under a token budget — a 6000-token soft input
-  target per batch, plus a hard unit cap that is **8**, not the `32` on
-  `TranslateOptions::default()`, on any run that does not set the field
-  itself: the shipped default profile carries
-  `[batching].max_units_per_batch = 8`, and a caller value equal to the
-  built-in default reads as unset (contracts.md §2). An in-memory
+  by section first (DCR-0027) and packs **whole sections** under a token
+  budget: a batch is either N consecutive whole sections that fit every
+  cap and agree on both admission terms — same effective glossary
+  cohort, same `DocumentFacts` — or a fragment of one oversize section,
+  never a section boundary inside a fragment (DCR-0057).
+  `[batching].coalesce_sections = false` confines a batch to one section
+  instead. The budget is a 6000-token soft input target per batch, plus
+  a hard cap of **32** units: the shipped default profile carries
+  `[batching].max_units_per_batch = 32` and `TranslateOptions::default()`
+  carries the same number, so profile and built-in default agree
+  (ti `f17fc9`). An in-memory
   `Cache` keyed on `{provider_fingerprint,
   validation_schema_version, source_hash, source_lang, target_lang,
   profile_version, profile_prompt_hash, glossary_hash, model_id,
   block_kind, input_mode, context_hash, instruction_hash}` makes partial-resume runs
-  byte-identical to the original — `detected_source_language` included
-  since v0.4.0: the `Cache` also holds one **document-level** record per
+  byte-identical to the original — `detected_source_language` included:
+  the `Cache` also holds one **document-level** record per
   document, written from a live run's qualifying envelope and replayed by
   a run that dispatched zero provider batches, so a fully-cached resume
   reports the detection the live run made rather than `null`
@@ -229,7 +242,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps \
 
 The pre-commit hook runs `cargo fmt --check`, `cargo clippy
 -D warnings`, and both standing gates above — wasm, and rustdoc in its
-**two** legs (the library one and, since 2026-09-06, the bin-only one);
+**two** legs (the library one and the bin-only one);
 any of them failing blocks the commit. Run `cargo fmt --all` before staging if
 rustfmt complains. The hook that actually runs is the tracked
 `scripts/hooks/pre-commit`, wired in by `scripts/install-hooks.sh` setting
@@ -258,32 +271,27 @@ write could outrank it. In the cases that do proceed, the exact restore
 command is printed. Once
 the value is already `scripts/hooks`, re-running is a one-line no-op.
 
-**The rustdoc gate** (DCR-0018, widened to `transync-openai` on
-2026-08-07) keeps `cargo doc` warning-free for **every workspace member
+**The rustdoc gate** (DCR-0018) keeps `cargo doc` warning-free for **every workspace member
 that has a library target** — `transync-lang`, `transync-html`, `transync-syntax`,
 `transync-core`, `transync`, `transync-openai`, `transync-anthropic`, `transync-google`, `transync-wasm`. Its usual
 failure is an intra-doc link from a public item to a private sibling:
 either widen the linked item or de-link the prose to plain backticks,
 whichever the curation calls for.
 
-**`transync-cli` is inside it too, since 2026-09-06, on its own leg.** It
-was excluded on the ground that it is bin-only with no public API to
-document — true, and beside the point: `--document-private-items` is how a
-developer reads this crate, and that reader is who the links are for. With
-nothing checking them, nine broke silently, four of them in
-`crates/transync-cli/src/output/lock.rs` — a file OI-0043's `output.rs`
-split never opened, whose `super::X` references simply became sibling
-references when the concerns moved out — plus a tenth latent behind
-`#[cfg(not(unix))]`. It is a **second** `cargo doc` invocation rather than
-two more `-p` entries on the first, because `--document-private-items`
-documents the private items and so stops `rustdoc::private_intra_doc_links`
-from firing, which is exactly the failure the library leg exists to catch.
-Its list is `RUSTDOC_GATE_BIN_CRATES`, beside the other one.
+**`transync-cli` is inside it too, on its own leg.** It is bin-only with
+no public API to document, which is beside the point:
+`--document-private-items` is how a developer reads this crate, and that
+reader is who the links are for. It is a **second** `cargo doc` invocation
+rather than two more `-p` entries on the first, because
+`--document-private-items` documents the private items and so stops
+`rustdoc::private_intra_doc_links` from firing, which is exactly the failure
+the library leg exists to catch. Its list is `RUSTDOC_GATE_BIN_CRATES`,
+beside the other one.
 
 Two things run it, and neither owns the crate list. The list lives in
 `scripts/lib/rustdoc-gate.sh`, sourced by `scripts/smoke.sh` — which runs
 the gate after the test suites — and by `scripts/hooks/pre-commit`, which
-runs it on **every commit** (since 2026-08-07; a warm re-document of the
+runs it on **every commit** (a warm re-document of the
 nine crates costs about a second, next to the `--all-targets
 --all-features` clippy run already there). Add a new library member to
 that one file and both callers pick it up. Keep the list total — a member
@@ -339,12 +347,11 @@ selected live provider for an in-process `EchoTranslator` so smoke runs
 work without a provider credential.
 
 **Repository integrity is not assumed here, it is checked.** This clone
-lost a git object once (2026-08-07, ticket `7a7feb`: the `docs/` subtree
-of one commit disappeared from `.git/objects`, and everything crossing
-that commit failed with `fatal: unable to read tree`). The cause was a
-file-sync client re-materializing files under `.git/` while git wrote
-them, on the external volume the worktree lives on; it is parked rather
-than removed. Two consequences for anyone working here:
+has lost git objects to a file-sync client re-materializing files under
+`.git/` while git writes them, on the external volume the worktree lives
+on; `docs/project/git-history-loss-2026-08-17.md` is the incident record —
+the loss events, the cause with its evidence, and the recovery runbook. Two
+consequences for anyone working here:
 
 - **Run `git fsck --no-progress --connectivity-only` before you cut a
   release** — it is step 0 of `docs/project/release-checklist.md` and
@@ -359,7 +366,7 @@ than removed. Two consequences for anyone working here:
   at a quiet point is unaffected and is the intended replacement.
 
 `docs/Troubleshooting.md` carries the diagnosis and the hash-verified
-tree rebuild that recovered the lost object.
+tree rebuild for a missing tree.
 
 ---
 
@@ -423,7 +430,7 @@ repeat run against an identical source (and same opts/profile/model)
 skips every translator call.
 
 `CacheKey` is exhaustive by policy, so a field addition is a breaking
-change — `instruction_hash` is the 0.3.0 one, `input_mode` the 0.4.0 one.
+change.
 Build a key with a struct
 literal naming every field, and destructure one the same way; the
 supported set is the one `crates/transync/tests/public_surface.rs`
@@ -478,6 +485,8 @@ transync translate
   [--provider <openai|google>]   default: openai; explicit provider selector
   [--google-surface <vertex|developer>]
                                  Google only; default vertex
+  [--google-auth <adc|api-key>]  Vertex only; default adc. `api-key` is
+                                 express mode, keyed from $GOOGLE_API_KEY
   [--google-project <id>]        Vertex project; else $GOOGLE_CLOUD_PROJECT
   [--google-location <global|us|eu>]
                                  Vertex location; default global
@@ -507,6 +516,9 @@ transync translate
   [--target-input-tokens-per-batch <n>]
                                  per-batch input budget; n >= 1
   [--max-units-per-batch <n>]    hard unit cap per batch; n >= 1
+  [--coalesce-sections]          let adjacent whole sections share a batch,
+                                 over a profile that turned it off
+  [--no-coalesce-sections]       confine every batch to one section
   [--table-strategy <whole-block|row-window-first>]
                                  what an oversize table does: split into
                                  header-carrying row windows (default) or
@@ -543,13 +555,12 @@ transync's own rather than foreign, and every guard skips all three — the two
 markers only when the entry wearing the name is a *regular file*, since those
 are the two names a guard accepts without looking inside: the
 `.transync-publish.lock` marker, the `.transync-out-dir` ownership marker, and
-`*.tmp.<pid>` staging leftovers — the last of these now including an `--out-dir`
-target's top level, which used to be the one place the allow-list had no room
-for them (ti `66339b`; `Troubleshooting.md` has the operator's view). `--out-dir`
+`*.tmp.<pid>` staging leftovers — at an `--out-dir` target's top level too
+(ti `66339b`; `Troubleshooting.md` has the operator's view). `--out-dir`
 also asks one question the bundle guard does not: whether transync *published*
 the target, answered by the ownership marker or by the complete output set being
-present, so a user directory whose only entry happens to be called `out.md` is no
-longer replaced without a flag (OI-0036). The check runs before any output is
+present, so a user directory whose only entry happens to be called `out.md` is not
+replaced without a flag (OI-0036). The check runs before any output is
 written, so a refusal — exit 4 — never strands a half-written output set.
 `contracts.md` §6 lists the entries each guard allows.
 
@@ -577,12 +588,13 @@ Full rules: `contracts.md` §6 "Language labels at the CLI boundary".
 Template variables (`{{source_language}}`, `{{target_language}}`) in
 the prompt body are substituted per call.
 
-Four flags overlay the profile's `[batching]` section for one run —
+Six flags overlay the profile's `[batching]` section for one run —
 `--target-output-tokens`, `--output-expansion-factor`,
-`--target-input-tokens-per-batch` and `--max-units-per-batch` —
+`--target-input-tokens-per-batch`, `--max-units-per-batch`, and the mutually
+exclusive `--coalesce-sections` / `--no-coalesce-sections` pair —
 `--table-strategy` overlays `[constraints].default_table_strategy` under the
 same rule, and `--max-concurrent-batches` sets the one runtime knob that has
-no profile home. "Batching + concurrency knobs" below is where all six are
+no profile home. "Batching + concurrency knobs" below is where all eight are
 explained, including how a `0` resolves. `--auto-glossary` and `--no-auto-glossary` are mutually
 exclusive and decide the extraction preflight over whatever the profile
 says ("Glossary handling"). `--validation-report <path>` writes the
@@ -625,8 +637,8 @@ answer, and a page on `attacker.example` that rebinds its own name to
 authority is checked. Serving a bundle to other machines with `--bind 0.0.0.0`
 therefore takes an `--allow-host <the address they reach it at>` as well.
 
-Since the HTML→HTML wave (ADR-0025, ti `490d97`), serve is also the
-**fidelity door**: an `--input-format html` run's `--out-dir` holds the
+`transync serve` is also the
+**fidelity door** (ADR-0025, ti `490d97`): an `--input-format html` run's `--out-dir` holds the
 translated page itself — `out.html`, full head, scripts, styles,
 anchor-free — beside the sync bundle in `html/`. The bundle's panes
 deliberately carry no page fidelity (they are a sync surface — no
@@ -634,11 +646,9 @@ layout, no styles, no scripts), so to see the real translated page,
 serve the out-dir and open `out.html`:
 `transync serve --rendered <out-dir>`.
 
-This retires the deferred stub the command shipped as (STUB-061) from SL-13
-until 2026-08-09, which printed an address and exited `5`. Any other static
-server still works — the bundle is self-contained — but `scripts/test-browser.sh`,
-`scripts/smoke-live.sh` and `web/SMOKE.md` all use this one now. `contracts.md`
-§6 has the refusal rules and the exit codes in full.
+Any other static server works — the bundle is self-contained — but
+`scripts/test-browser.sh`, `scripts/smoke-live.sh` and `web/SMOKE.md` all use
+this one. `contracts.md` §6 has the refusal rules and the exit codes in full.
 
 ### What the bundle calls the document (`--title`)
 
@@ -722,11 +732,10 @@ only useful automated response is to skip it. Both abort before publishing
 anything (ADR-0017), which is what separates `7` from `3` — `3` writes a
 full output set in which every block fell back to source.
 
-Codes are append-only: `6` and `7` were added in 0.4.0 and nothing in
-`0`–`5` changed meaning. If you are matching on `5` today to catch provider
-failures, note that four of the causes that used to land there now land on
-`6` and two on `7`; `5` keeps the ones the taxonomy does not classify.
-Library callers get the finer split without exit codes at all, from
+Codes are append-only and never re-meant (`contracts.md` §6). `5` keeps
+every provider failure that `6` and `7` do not claim, so a script that
+reads `5` as "any provider failure" misses `6` and `7`. Library callers get
+the finer split without exit codes at all, from
 `TransyncError::stable_code()` (`contracts.md` §1).
 
 ### Environment variables (CLI)
@@ -747,6 +756,7 @@ Library callers get the finer split without exit codes at all, from
 | `TRANSYNC_GOOGLE_VERTEX_BASE_URL` | official Vertex endpoint | Vertex base URL when `--base-url` is absent. |
 | `TRANSYNC_GOOGLE_DEVELOPER_BASE_URL` | official Developer endpoint | Developer base URL when `--base-url` is absent. |
 | `GEMINI_API_KEY`            | —                             | Required for live Developer API calls only; never selects the provider or surface. |
+| `GOOGLE_API_KEY`            | —                             | Vertex express-mode key, read only under `--google-auth api-key` (DCR-0060); never selects the provider, surface or auth mode. |
 
 Keys are read from the environment and never written anywhere
 (`persistence-and-files.md`). If you keep yours in a file, the repo's
@@ -787,7 +797,22 @@ cargo run -p transync-cli -- translate \
   --input samples/demo-complex.md --target-language ko --out-dir /tmp/transync-gemini
 ```
 
-For either surface, `--model` overrides `TRANSYNC_GOOGLE_MODEL`, and
+Pass `--google-auth api-key` with the Vertex surface to reach Vertex AI in
+**express mode**, keyed from `GOOGLE_API_KEY` instead of ADC (DCR-0060).
+Express mode addresses the publisher model directly, so it takes no project or
+location: `--google-project` and `--google-location` are refused beside it,
+and an ambient `GOOGLE_CLOUD_PROJECT` is ignored. The key alone never selects
+express mode; the flag does. Its `x-goog-api-key` header form awaits its first
+live run (`scripts/smoke-live-gate.sh google-vertex-express`).
+
+```bash
+export GOOGLE_API_KEY=your-vertex-express-key
+cargo run -p transync-cli -- translate \
+  --provider google --google-auth api-key \
+  --input samples/demo-complex.md --target-language ko --out-dir /tmp/transync-gemini
+```
+
+For every surface, `--model` overrides `TRANSYNC_GOOGLE_MODEL`, and
 `--base-url` overrides the selected surface's base-URL environment variable;
 it may be an HTTPS origin or an endpoint prefix ending in `/v1beta` for the
 Developer API or `/v1` for Vertex. HTTP is accepted only for loopback test
@@ -824,40 +849,43 @@ structured outputs; use `gemini-3.8-flash` for this translation adapter.
 ### Batching + concurrency knobs
 
 `TranslateOptions` exposes three tunables that together control how
-fast a long document gets translated:
+fast a long document gets translated, plus one profile-only key that
+decides whether consecutive sections may share a batch:
 
 | Field                            | Default | What it does |
 |----------------------------------|---------|--------------|
-| `target_input_tokens_per_batch`  | 6000    | Soft cap on per-batch input tokens. The packer adds units to a batch until the next one would tip the running total over this number, then starts a new batch. Counted with the model's tiktoken encoding (`o200k_base` for gpt-4o / gpt-5 / o-series, `cl100k_base` otherwise). |
-| `max_units_per_batch`            | 32      | Hard cap on units per batch even if they're tiny. Keeps retry granularity reasonable on documents with many short blocks. The shipped profile makes an OpenAI CLI run use 8; Google CLI runs use 32 — see below. |
+| `target_input_tokens_per_batch`  | 6000    | Soft cap on per-batch input tokens. The packer adds units to a batch until the next one would tip the running total over this number, then starts a new batch. Counted with the model's tiktoken encoding (`o200k_base` for gpt-4o, GPT-5 and later, and any o-series model; `cl100k_base` otherwise — DCR-0059). |
+| `max_units_per_batch`            | 32      | Hard cap on units per batch even if they're tiny. Keeps retry granularity reasonable on documents with many short blocks. The shipped profile sets the same 32, and the Google CLI's provider defaults pack at 32 too. |
 | `max_concurrent_batches`         | 6       | How many batches the pipeline dispatches in parallel. Set to 1 for fully-sequential dispatch. |
+| `coalesce_sections`              | profile-only, unset means `true` | Whether consecutive whole sections may share one batch when their combined estimates fit the input, output and unit caps and they agree on effective glossary cohort and `DocumentFacts` (DCR-0057). `false` confines every batch to one section, DCR-0027 P2's shape. |
 
-The `Default` column is `TranslateOptions::default()`, and for the first
-two fields that is not the same thing as what a run packs under. Both
-resolve caller-then-profile-then-built-in-default, and "caller" means *a
-value that differs from the built-in default* — `TranslateOptions` has no
-`Option` in which to say "unset", so a caller explicitly passing `32` is
-indistinguishable from a caller who never touched the field, and the
-profile wins in both cases (`unit::budget::caller_wins`, contracts.md
-§2). The shipped default profile
+The `Default` column is `TranslateOptions::default()` for the first three
+rows. The first two resolve caller-then-profile-then-built-in-default, and
+"caller" means *a value that differs from the built-in default* —
+`TranslateOptions` has no `Option` in which to say "unset", so a caller
+explicitly passing `32` is indistinguishable from a caller who never touched
+the field, and the profile wins in both cases (`unit::budget::caller_wins`,
+contracts.md §2). The shipped default profile
 (`crates/transync-core/profiles/default.toml`) sets
-`[batching].max_units_per_batch = 8` and leaves
-`target_input_tokens_per_batch` unset. So on a bare OpenAI `transync translate`
-— and on any library run that leaves `TranslateOptions::profile` at
-`None` — the packer runs at **6000 input tokens and 8 units**. To get 32
-back from the library, ask for it in the profile you pass, or set some
-*other* value on `TranslateOptions`. The Google CLI applies its provider
-defaults (20,000 input / 65,536 output / 32 units) before explicit overrides.
-The CLI flags have no such blind
-spot: `--max-units-per-batch` and `--target-input-tokens-per-batch`
-overlay the resolved profile rather than `TranslateOptions`, precisely so
-that an explicit `32` on the command line still beats a profile
+`[batching].max_units_per_batch = 32` — the built-in number, so the two
+agree (ti `f17fc9`) — and leaves `target_input_tokens_per_batch` unset. So on
+a bare OpenAI `transync translate`, and on any library run that leaves
+`TranslateOptions::profile` at `None`, the packer runs at **6000 input tokens
+and 32 units**. A *custom* profile that names its own value still wins over a
+caller passing the built-in `32`: ask for the number you want in the profile
+you pass, or set some *other* value on `TranslateOptions`. The Google CLI
+applies its provider defaults (20,000 input / 65,536 output / 32 units) before
+explicit overrides. The CLI flags have no such blind spot:
+`--max-units-per-batch` and `--target-input-tokens-per-batch` overlay the
+resolved profile rather than `TranslateOptions`, precisely so that a command
+line value equal to the built-in default still beats a profile
 (`translate_cmd::args::apply_batching_overrides`).
 
-All three accept `>= 1`. A `0` is not a usable setting for any of them:
+The three sizing knobs accept `>= 1` (`coalesce_sections` is a boolean and
+has no range). A `0` is not a usable setting for any of the three:
 it is reported on `tracing::warn` and then resolves as if you had never
 set the field — the profile's `[batching]` value, else the built-in
-default above. It is **not** floored to 1, so a stray zero can no longer
+default above. It is **not** floored to 1, so a stray zero cannot
 put every block in its own batch, or turn a run sequential, without
 saying so. The profile-side keys of the first two behave the same way
 (contracts.md §2), and the profile's `target_output_tokens` follows the
@@ -880,7 +908,12 @@ A nonzero output ceiling must also clear the 64-token response envelope
 the packer reserves off it — anything at or below that leaves no room for
 a single translated unit, so it is warned about and ignored on the same
 warn-then-ignore rule, which disables the ceiling exactly as `0` does
-(R0003-0034).
+(R0003-0034). `coalesce_sections` is profile-only in the same way — no
+`TranslateOptions` field exists for a caller to set — and the CLI spells it
+`--coalesce-sections` / `--no-coalesce-sections`, mutually exclusive (clap
+rejects both). The key defaults on, so `--no-coalesce-sections` is the one
+that usually has work to do; `--coalesce-sections` beats a profile that set
+`false`.
 
 The input cap is a budget for the *units*: the compiled system prompt
 (glossary included), the assembled instruction envelope and both
@@ -896,16 +929,26 @@ target or shorten the profile's prompt and glossary.
 
 Effect on a typical long document, measured on `samples/demo-complex.md`
 (64 blocks → 63 translation units — the one thematic break carries no
-text — and 11 headings): under
-the shipped defaults it packs into **12** batches. The token target is
-not what shapes that number — no section in it comes anywhere near 6000
-tokens. Section partitioning does: 11 headings and no preamble means 11
-sections, hence 11 batches at minimum however the budget is set, and the
-one nine-unit section splits under the profile's 8-unit cap to make 12.
-Raising the cap to 32 merges that split back and gives 11, not the 3–4 a
-purely token-driven packer would. What the concurrency cap buys is
-unaffected by any of that: with 6-way dispatch the wall-clock on a
-`gpt-5-chat-latest` round-trip drops from ~30 s to ~5 s.
+text — and 11 headings): under `coalesce_sections = false` and an 8-unit
+cap it packs into **12** batches. The token target is not what shapes that
+number — no section in it comes anywhere near 6000 tokens. Section
+partitioning does: 11 headings and no preamble means 11 sections, hence 11
+batches at minimum however the budget is set, and the one nine-unit section
+splits under that 8-unit cap to make 12. Raising the cap to 32 while still
+confined merges that split back and gives 11, not the 3–4 a purely
+token-driven packer would.
+That floor of one request per heading is what the shipped default removes: consecutive **whole** sections coalesce
+until a cap stops them, and the 30-section SCN-10 fixture that costs 30
+batches confined costs materially fewer. Coalescing is also why the unit cap
+is the number it is: with every batch confined to one section, section
+boundaries bound first and the cap almost never did; once DCR-0057 let whole
+sections meet, the cap became the dominant limit. The two are one dial, so the
+shipped profile carries the built-in `32` that `mvp-scope.md` pre-authorised
+(ti `f17fc9`). With 6-way dispatch the wall-clock on a `gpt-5-chat-latest`
+round-trip drops from ~30 s to ~5 s — and a document
+that coalesces below `max_concurrent_batches` no longer fills those slots,
+which is the one case for `false`: a short, heading-dense document tuned
+for wall clock.
 
 ### Dual API dispatch
 
@@ -914,13 +957,15 @@ unaffected by any of that: with 6-way dispatch the wall-clock on a
 | Surface           | Endpoint                                | Used for |
 |-------------------|-----------------------------------------|----------|
 | Chat Completions  | `POST {base_url}/v1/chat/completions`   | Default; required for `*-chat-*` aliases (e.g. `gpt-5-chat-latest`). |
-| Responses         | `POST {base_url}/v1/responses`          | O-series (`o1*`, `o3*`, `o4*`) and non-chat GPT-5 snapshots. |
+| Responses         | `POST {base_url}/v1/responses`          | O-series (any `o<N>`) and non-chat GPT snapshots from generation 5 up. |
 
 Routing rule (`client::api_for_model`):
 
 1. Model name contains `chat` → **Chat Completions**.
-2. Model starts with `o1` / `o3` / `o4` → **Responses**.
-3. Model starts with `gpt-5` and rule 1 didn't match → **Responses**.
+2. Model is `o<N>` → **Responses**.
+3. Model is `gpt-<N>` with N ≥ 5 and rule 1 didn't match → **Responses**
+   (DCR-0059). N is the leading integer after the prefix: `gpt-5.6-terra` is
+   5, `gpt-4o` is 4, and `gpt-oss` declares none.
 4. Anything else → **Chat Completions**.
 
 Override with `TRANSYNC_OPENAI_API=chat` or `TRANSYNC_OPENAI_API=responses`
@@ -935,7 +980,7 @@ The override is read **once, when `TransyncOpenAI` is constructed**, and the
 answer is stored on the adapter; `TransyncOpenAI::api()` reports it. For the
 CLI that is invisible (it builds the provider from the environment at
 startup), but a long-lived library host that mutates the variable mid-process
-no longer risks a run whose cache namespace names one surface while its
+cannot end up with a run whose cache namespace names one surface while its
 requests go to the other — set the variable before constructing, or build a
 second adapter to change surface.
 
@@ -970,9 +1015,9 @@ implements `FromStr` over the same tokens the environment variable accepts —
 |-------------------------------|----------------------------------------------------------------|
 | `./scripts/smoke.sh`          | Build + tests + CLI dry path with the in-process echo provider. No network. **Host prerequisites:** the `wasm32-unknown-unknown` rustup target, `wasm-pack`, and **binaryen ≥ 121** (`brew install binaryen`) — it runs the wasm gate and `build-wasm.sh`, both of which fail loudly rather than skipping. |
 | `./scripts/build-wasm.sh`     | Builds the Track C demo module into `web/wasm/` (gitignored) and enforces its size budget (raw ≤ 1,840,000 B, gzip ≤ 760,000 B — the script's own comment carries the derivation). Publication is **staged**: the build, the `wasm-opt` pass and both budget checks all run in a per-run staging directory, and `web/wasm` is replaced as a whole by rename, so a build that fails a gate leaves the previous module in place and two concurrent builds do not collide. Same wasm-pack + binaryen prerequisites; wasm-pack's cached binaryen 117 is **not** a substitute. |
-| `./scripts/test-browser.sh`   | Headless Playwright suite: SCN-13 dual-pane sync (`web/tests/scn13.spec.js`), the SCN-16 HTML-run bundle driven through the shipped shell (`web/tests/scn16.spec.js`), `sync.js`'s mount contract driven directly over a bare two-pane rig (`web/tests/engine.spec.js`), and the wasm render+edit demo (`web/tests/wasm.spec.js`), plus headless Chromium as an *independent* oracle for `transync-html`'s walk and balancer over generated fragments (`web/tests/html-oracle.spec.js`, ti `ec235f`). The runner is the authority on coverage — `playwright.config.js` sets `testDir: "./tests"` and the script ends in a bare `pnpm exec playwright test`, so it runs every spec under `web/tests/`. Regenerates the CLI fixture and runs `build-wasm.sh`, so it inherits the same prerequisites plus Chromium. **A bare `pnpm exec playwright test` now refuses a bundle older than its inputs** (ti `ed2e73`): the script ends in that bare command, so running it directly skips the regeneration and would green a bundle that predates your edits. `playwright.config.js` compares the fixture's newest file against `crates/`, `web/js`, `web/vendor`, `web/wasm` and the two shell HTML files — deliberately **not** `web/tests`, so the documented spec-editing inner loop stays green. `TRANSYNC_ALLOW_STALE_FIXTURE=1` downgrades it to a warning. Two limits stated at the check: the input list is hand-maintained and will drift when a build leg is added, and mtime cannot see a `git checkout` that leaves sources older than the fixture. |
+| `./scripts/test-browser.sh`   | Headless Playwright suite: SCN-13 dual-pane sync (`web/tests/scn13.spec.js`), the SCN-16 HTML-run bundle driven through the shipped shell (`web/tests/scn16.spec.js`), `sync.js`'s mount contract driven directly over a bare two-pane rig (`web/tests/engine.spec.js`), and the wasm render+edit demo (`web/tests/wasm.spec.js`), plus headless Chromium as an *independent* oracle for `transync-html`'s walk and balancer over generated fragments (`web/tests/html-oracle.spec.js`, ti `ec235f`). The runner is the authority on coverage — `playwright.config.js` sets `testDir: "./tests"` and the script ends in a bare `pnpm exec playwright test`, so it runs every spec under `web/tests/`. Regenerates the CLI fixture and runs `build-wasm.sh`, so it inherits the same prerequisites plus Chromium. **A bare `pnpm exec playwright test` refuses a bundle older than its inputs** (ti `ed2e73`): the script ends in that bare command, so running it directly skips the regeneration and would green a bundle that predates your edits. `playwright.config.js` compares the fixture's newest file against `crates/`, `web/js`, `web/vendor`, `web/wasm` and the two shell HTML files — deliberately **not** `web/tests`, so the documented spec-editing inner loop stays green. `TRANSYNC_ALLOW_STALE_FIXTURE=1` downgrades it to a warning. Two limits stated at the check: the input list is hand-maintained and will drift when a build leg is added, and mtime cannot see a `git checkout` that leaves sources older than the fixture. |
 | `./scripts/smoke-live.sh`     | Live OpenAI run, then `transync serve` for browsing the demo. Knobs documented at the top of the file. |
-| `./scripts/smoke-live-gate.sh`| **Machine-asserted** live round-trip against each provider surface (`chat` \| `responses` \| `anthropic` \| `google-vertex` \| `google-developer` \| `all`, default `all`; five tiny paid calls). Wraps the ignored, `TRANSYNC_LIVE_SMOKE=1`-gated tests in each provider crate's `tests/live_smoke.rs`. Each requested leg checks its key or project up front; Vertex also needs ADC. Missing credentials refuse the run rather than silently skipping a leg. Model overrides: `TRANSYNC_LIVE_SMOKE_CHAT_MODEL`, `TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL`, `TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL`, `TRANSYNC_LIVE_SMOKE_GOOGLE_MODEL`. The OpenAI and Anthropic live tests also accept their provider base-URL variables; Google's tests use official endpoints. |
+| `./scripts/smoke-live-gate.sh`| **Machine-asserted** live round-trip against each provider surface (`chat` \| `responses` \| `anthropic` \| `google-vertex` \| `google-vertex-express` \| `google-developer` \| `all`, default `all`; six tiny paid calls). Wraps the ignored, `TRANSYNC_LIVE_SMOKE=1`-gated tests in each provider crate's `tests/live_smoke.rs`. Each requested leg checks its key or project up front; a key left unset is read from its gitignored file at the repository root (`.openai.api_key`, `.anthropic.api_key`, `.gemini.api_key`, `.google_vertex.api_key`) when that file exists, and the `google-vertex` leg also needs ADC. Missing credentials refuse the run rather than silently skipping a leg. Model overrides: `TRANSYNC_LIVE_SMOKE_CHAT_MODEL`, `TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL`, `TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL`, `TRANSYNC_LIVE_SMOKE_GOOGLE_MODEL`. The OpenAI and Anthropic live tests also accept their provider base-URL variables; Google's tests use official endpoints. |
 | `./scripts/test.sh`           | Local one-shot wrapper for `smoke-live.sh` with a project-default system prompt. Edit to taste. |
 
 **Release gate (OI-0030 / DCR-0015; additional providers in DCR-0029 and
@@ -983,7 +1028,7 @@ Before tagging a release that touches `transync-openai`,
 CHANGELOG entry for that release. There is no `ANTHROPIC_API_KEY` in the
 development environment yet, so the `anthropic` leg has never been executed —
 run it as `./scripts/smoke-live-gate.sh anthropic` once a key exists. Run the
-two Google legs separately when their project/ADC or API key is configured;
+three Google legs separately when their project/ADC or API key is configured;
 until then read those crates' evidence off their offline tests, which
 drives the whole stack over a loopback socket. The assertions are structural (validation
 summary, anchor counts, at least one genuinely translated unit), so a failure
@@ -1055,7 +1100,8 @@ default_table_strategy    = "whole-block"
 
 [batching]
 target_output_tokens = 8000
-max_units_per_batch  = 8
+max_units_per_batch  = 32
+coalesce_sections    = true
 
 [[glossary]]
 source = "agent"
@@ -1146,21 +1192,24 @@ The structured `Vec<GlossaryEntry>` stays accessible on the returned
 `ProfileMetadata` so downstream tools (custom Translator impls,
 reviewers, exports) can read the entries programmatically without
 re-parsing the prompt body. `scope = "global"` is applied
-unconditionally; `scope = "section"` is **honored per section** since
-v0.4.0 (DCR-0027; it was rejected with a now-removed
-`ProfileError::Unsupported` until section-coherent batching made
-per-section filtering possible). A section-scoped entry names the
+unconditionally; `scope = "section"` is **honored per section**
+(DCR-0027). A section-scoped entry names the
 sections it applies to with `sections = ["…"]`, a list of heading-text
 selectors matched — trimmed, NFC-normalized and case-folded, levels
 ignored — against
 every heading enclosing a section, the one that opens it included. So a
 term selected by `"Installation"` also applies inside `### Windows`
-beneath `## Installation`. Batches never straddle a section boundary, so
-every batch has one answer to "which entries apply here": its section's
-effective glossary, which is every global entry plus every applicable
-section-scoped one, with an applicable section-scoped entry **beating**
-the global rendering of the same term. The selectors are never rendered
-— filtering, not annotation — and are not part of the cache identity,
+beneath `## Installation`. Sections may share a batch only when their
+effective glossaries are identical (DCR-0057's first admission term), so
+every batch still has exactly one answer to "which entries apply here":
+the effective glossary of the sections in it, which is every global entry
+plus every applicable section-scoped one, with an applicable
+section-scoped entry **beating** the global rendering of the same term.
+By default that exactness comes from the admission rule rather than from
+confinement; under `coalesce_sections = false` confinement supplies it
+directly. Either way it is the same exactness, because a merged glossary is
+never compiled. The selectors are never rendered — filtering, not
+annotation — and are not part of the cache identity,
 which keys on the prompt bytes the model saw.
 
 Entries are content-checked before they can reach that bullet list:
@@ -1336,75 +1385,68 @@ in `client/chat.rs` and `client/responses.rs`, transport in
 `client/transport.rs`, and the HTTP-status → error classification your retry
 behavior depends on in `client/classify.rs`.
 
-### v0.2 migration notes (custom `Translator` / `Cache` implementors)
+### Cache identity, unit construction, errors and cancellation
 
-v0.2 moved three provider/cache-boundary surfaces (DCR-0009). If you
-carry a custom impl across the bump:
+Beyond the behavior contract above, a custom `Translator` or `Cache` — and the caller that drives it — owes these:
 
-- **`Translator::fingerprint()`** now namespaces every cache entry by the
-  producing translator, so a shared cache cannot replay one provider's
-  output for another's request. The default derives the fingerprint from
-  the implementing type name — correct only when every instance of your
-  type is interchangeable. If your instances can differ (configurable
-  model, endpoint, prompt template), **override `fingerprint()`** to
-  cover every output-affecting axis. Over-distinguishing only costs a
-  redundant re-translation; under-distinguishing lets a shared cache
-  replay foreign output.
-- **The `Cache` trait is now fallible and gained `evict`.** `get` /
-  `put` / `evict` all return `Result<_, CacheError>` (the pipeline
-  degrades on a cache error — miss / not-persisted / stale — and never
-  aborts). `evict` (remove exactly one key; an absent key is `Ok(())`)
-  is **required** — it is the mechanism behind document-level
-  disqualification eviction (contracts §5a).
-- **`TranslationUnit` gained `retry: Option<RetryContext>`,** and became
-  `#[non_exhaustive]` in the OI-0027 curation. Construct it with
-  `TranslationUnit::new(unit_id, block_kind, input_mode, source_payload,
-  source_hash)` — which defaults `retry` to `None` for a first dispatch —
-  plus `with_context` / `with_constraints` / `with_batch_id` /
-  `with_retry` as needed. Struct literals are in-crate only, so field
-  additions no longer cost you a migration.
+- **Override `fingerprint()` when your instances can differ.**
+  `Translator::fingerprint()` namespaces every cache entry by the producing
+  translator, so a shared cache cannot replay one provider's output for
+  another's request. The default derives the fingerprint from the
+  implementing type name — correct only when every instance of your type is
+  interchangeable. If your instances can differ (configurable model,
+  endpoint, prompt template), **override `fingerprint()`** to cover every
+  output-affecting axis. Over-distinguishing only costs a redundant
+  re-translation; under-distinguishing lets a shared cache replay foreign
+  output (DCR-0009).
+- **A `Cache` is fallible, and `evict` is required.** `get` / `put` /
+  `evict` all return `Result<_, CacheError>` (the pipeline degrades on a
+  cache error — miss / not-persisted / stale — and never aborts). `evict`
+  (remove exactly one key; an absent key is `Ok(())`) is **required** — it
+  is the mechanism behind document-level disqualification eviction
+  (contracts §5a).
+- **Build a `TranslationUnit` through its constructor.** The type is
+  `#[non_exhaustive]` (the OI-0027 curation), so struct literals are
+  in-crate only. Construct it with `TranslationUnit::new(unit_id,
+  block_kind, input_mode, source_payload, source_hash)` — which defaults
+  `retry: Option<RetryContext>` to `None` for a first dispatch — plus
+  `with_context` / `with_constraints` / `with_batch_id` / `with_retry` as
+  needed; a field addition costs you no migration.
 - **The error enums are `#[non_exhaustive]`.** Matches over
   `TranslatorError`, `TransyncError`, and `ParseError` need a wildcard arm;
   variant additions are non-breaking. `TransyncError::stable_code()` and
   `TranslatorError::stable_code()` give you a stable machine string per
   variant if you need to branch across a process boundary — the former
   delegates to the latter for provider failures, so one call answers either
-  way (contracts.md §1 holds the twenty-two-code vocabulary — 8 engine-side
-  plus 14 provider-side).
+  way (contracts.md §1 holds the code vocabulary).
 - **`TranslatorError` states a cause, not a policy.** Each variant names why
   the provider stopped — a content-policy stop, an exhausted output ceiling,
   a model refusal, an oversize response, a rejected request — and none of them
-  says whether to retry. That is yours to decide; note that of the causes
-  above, none survives a verbatim resubmission, which is why the pipeline
-  re-dispatches only `Network` and `RateLimited`. A wildcard arm is mandatory
-  but is the *wrong* home for those five: they are exactly the failures a
-  reader must be told not to retry. Reach for `Other` in your own
-  `Translator` impl when nothing fits — it is a permanent catch-all, not a
-  deprecated bucket.
-
-### v0.4 migration notes (custom `Translator` implementors)
-
-One signature change, and it is not optional — a defaulted method was
-considered and rejected precisely because it could be missed (DCR-0024,
-contracts.md §5b).
-
-- **`translate_batch` and `extract_glossary` take `cancel: &CancellationToken`.**
-  Add the parameter. If you do not intend to use it, name it `_cancel` and you
-  are done: the pipeline races your future against the same token and drops it,
-  which aborts an in-flight `reqwest`-style request. If your work is *not*
-  drop-cancellable — an inner `tokio::spawn`, a `spawn_blocking` client, an
-  internal queue — or if callers drive your adapter directly, race it yourself
-  and return `TranslatorError::Cancelled`. See *The cancellation token* above.
-- **`TranslatorError::Cancelled` is new** (stable code `provider_cancelled`),
-  as is **`TransyncError::Cancelled`** (stable code `cancelled`). Both enums
-  are `#[non_exhaustive]`, so your matches keep compiling — but a cancelled run
-  is not a failure to report to a user, and a wildcard arm will treat it as
-  one.
+  says whether to retry; that is yours to decide. None of those five causes
+  survives a verbatim resubmission, which is why the pipeline re-dispatches
+  only `Network` and `RateLimited`. A wildcard arm is mandatory but is the
+  *wrong* home for those five: they are exactly the failures a reader must be
+  told not to retry. `Other` is a permanent catch-all, not a deprecated
+  bucket.
+- **Cancellation has two variants.**
+  `TranslatorError::Cancelled` (stable code `provider_cancelled`) and
+  `TransyncError::Cancelled` (stable code `cancelled`) sit in the same
+  `#[non_exhaustive]` enums, so your matches compile without naming them —
+  but a cancelled run is not a failure to report to a user, and a wildcard
+  arm will treat it as one.
+- **The `cancel` parameter is not optional** on `translate_batch` and
+  `extract_glossary` — a defaulted method was considered and rejected
+  precisely because it could be missed (DCR-0024, contracts.md §5b). *The
+  cancellation token* above says when naming it `_cancel` is enough and when
+  to race it yourself.
 - **Cancelling a run is opt-in from the caller's side:**
-  `opts.cancel = Some(token)`. Leaving it `None` reproduces the pre-0.4
-  behavior exactly. If you may cancel, use `translate_with_cache` with a cache
-  you own — the units already accepted are in it, and that is the only place a
-  cancelled run's paid-for work survives.
+  `opts.cancel = Some(token)`; leaving it `None`, the default, requests no
+  cancellation. If you may cancel, use `translate_with_cache` with a cache
+  you own — the units already accepted are in it, and that is the only place
+  a cancelled run's paid-for work survives.
+
+The per-release migration notes for carrying a custom implementation across
+v0.2 and v0.4 are kept verbatim in `docs/Developer_Guide-archive.md`.
 
 ### Wiring it into the pipeline
 

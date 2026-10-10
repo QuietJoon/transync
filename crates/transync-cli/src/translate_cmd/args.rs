@@ -211,6 +211,15 @@ pub(crate) fn apply_batching_overrides(profile: &mut ProfileMetadata, args: &Tra
     if let Some(v) = args.target_input_tokens_per_batch {
         profile.batching.target_input_tokens_per_batch = Some(v);
     }
+    // DCR-0057: a paired boolean rather than a value flag, because the key
+    // defaults to `true` — `--no-coalesce-sections` is the one that has work
+    // to do, and `--coalesce-sections` exists to beat a profile that set
+    // `false`. Clap rejects both at once, so this is not a precedence policy.
+    if args.coalesce_sections {
+        profile.batching.coalesce_sections = Some(true);
+    } else if args.no_coalesce_sections {
+        profile.batching.coalesce_sections = Some(false);
+    }
     // DCR-0026: `--table-strategy` is a `[constraints]` key rather than a
     // `[batching]` one, but it is overlaid here for the same reason and under
     // the same rule — flag > profile > built-in default — so one place

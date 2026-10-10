@@ -105,25 +105,7 @@ impl Construct {
 /// This list may only shrink. Adding a path to it is not a repair — it is a
 /// decision to let a living document keep a piece of its own revision history,
 /// and it belongs in a DCR, not here.
-const CONSTRUCTS_ALLOWED_TODAY: &[&str] = &[
-    // wave 4 — the recitals move to docs/architecture/contracts-history.md
-    "docs/architecture/contracts.md",
-    // wave 5 — the amendment sections move to docs/decisions/archive/adr-amendments.md
-    "docs/decisions/0001-block-level-alignment-as-sync-currency.md",
-    "docs/decisions/0002-http-free-core-with-translator-trait.md",
-    "docs/decisions/0003-cargo-workspace-with-provider-crates.md",
-    "docs/decisions/0004-comrak-as-gfm-parser.md",
-    "docs/decisions/0006-renderer-output-shape.md",
-    "docs/decisions/0007-renderer-wrapper-div-for-tables-and-code.md",
-    "docs/decisions/0009-reject-retry-policy-changes.md",
-    "docs/decisions/0011-lan-bind-in-convenience-wrappers.md",
-    "docs/decisions/0012-inline-content-llm-owned-advisory-constraints.md",
-    "docs/decisions/0013-opaque-language-labels.md",
-    "docs/decisions/0016-whole-document-in-memory.md",
-    "docs/decisions/0017-batch-terminal-failures-abort-the-run.md",
-    "docs/decisions/0018-html-content-translation-via-segment-extraction.md",
-    "docs/decisions/0019-wasm-demo-layer.md",
-];
+const CONSTRUCTS_ALLOWED_TODAY: &[&str] = &[];
 
 /// A budget more than this far above the real size is stale: the document has
 /// been compacted and its ceiling was never brought down with it.
@@ -134,17 +116,36 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 /// A budget goes **down** as a wave lands and never up. Raising one is a
 /// decision that a document is allowed to be bigger, which is exactly the
 /// conversation this gate exists to force.
+///
+/// Every ceiling is a whole KiB. A wave that lands lowers its document's
+/// ceiling to the smallest whole KiB that holds the compacted file, and the
+/// trailing comment names the wave: `docs/index.md` (wave 1),
+/// `docs/backlog.md` (wave 2) and `docs/architecture/contracts.md` (wave 4)
+/// came down that way. `docs/project/status.md` came down with the Phase 1–5
+/// evidence tables that moved to `status-archive.md`, and keeps about 2 KiB of
+/// working room.
+///
+/// A raise is the smallest whole-KiB increment that fits text a recorded
+/// change added, and the trailing comment names the change. What the raises
+/// below paid for is interface rules or state, not history: DCR-0058's Google
+/// surfaces; DCR-0055's frontmatter header, DCR-0056's lint leg and DCR-0057's
+/// packing policy and CLI pair; DCR-0059's model-generation floor; DCR-0060's
+/// Vertex express mode; the shipped 32-unit default (ti `f17fc9`); the record
+/// roster `phase-state.yaml` carries; and the two lines `CLAUDE.md` gained,
+/// the `--google-auth` selector and the manifest's version. None is a licence
+/// for the next entry, and the compaction targets in the trailing comments
+/// are unchanged by them.
 const BUDGETS: &[(&str, u64)] = &[
-    ("CLAUDE.md", 22_528),     // wave 1 done; the rest is rules, not history
-    ("docs/index.md", 41_984), // wave 1 → 22_528
-    ("docs/architecture/contracts.md", 311_296), // wave 4 → 163_840; +4 KiB DCR-0058
-    ("docs/project/status.md", 32_768), // wave 2 done; ~2 KiB of working room
+    ("CLAUDE.md", 23_552), // wave 1 done; the rest is rules, not history; +1 KiB DCR-0060's `--google-auth` selector and the manifest version line
+    ("docs/index.md", 26_624), // wave 1 landed, → 22_528 not reached
+    ("docs/architecture/contracts.md", 306_176), // wave 4 landed, → 163_840 not reached
+    ("docs/project/status.md", 24_576), // wave 2 done; ~2 KiB of working room
     ("docs/project/release-checklist.md", 48_128), // wave 2; +1 KiB DCR-0058
-    ("docs/project/phase-state.yaml", 6_144), // wave 2 done
+    ("docs/project/phase-state.yaml", 7_168), // wave 2 done; +1 KiB DCR-0054..DCR-0060 roster
     ("docs/project/open-issues.md", 60_416), // wave 2 done
-    ("docs/backlog.md", 261_120), // wave 2
-    ("CHANGELOG.md", 97_280),  // wave 3 done; +1 KiB DCR-0058
-    ("docs/Developer_Guide.md", 91_136), // wave 3; +6 KiB DCR-0058
+    ("docs/backlog.md", 113_664), // wave 2 done
+    ("CHANGELOG.md", 99_328), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9
+    ("docs/Developer_Guide.md", 94_208), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9
     ("docs/Troubleshooting.md", 40_960), // wave 3
     ("docs/implementation/module-map.md", 40_960), // wave 3; +1 KiB DCR-0058
 ];
@@ -191,9 +192,14 @@ fn living_documents() -> Vec<PathBuf> {
     let root = repo_root();
     let mut files = vec![root.join("README.md"), root.join("CLAUDE.md")];
 
-    // Top-level reader docs, minus the one register that lives among them.
+    // Top-level reader docs, minus the one register that lives among them
+    // and the `*-archive.md` siblings, which DCR-0054 classes as archives.
     for path in markdown_in(&root.join("docs")) {
-        if path.file_name().and_then(|n| n.to_str()) == Some("backlog.md") {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        if name == "backlog.md" || name.ends_with("-archive.md") {
             continue;
         }
         files.push(path);

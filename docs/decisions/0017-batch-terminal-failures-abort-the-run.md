@@ -84,6 +84,37 @@ raise the ceiling, lower the expansion factor, or split the input without
 authoring a profile TOML. Abort stays the terminal behavior; prevention makes
 the terminal case rare and self-diagnosing.
 
+The scope boundary: **this ADR governs provider/transport-terminal batch
+failures only.** Run cancellation (DCR-0024, `TranslateOptions.cancel`)
+applies this ADR's reasoning unchanged: a cancelled run answers
+`Err(TransyncError::Cancelled)` and writes no output, rather than a
+`TranslationOutput` whose unreached blocks are marked `fallback_source`,
+because *loud failure beats a quietly-degraded document*. Cancellation adds an
+objection of its own, which is why it is a separate record rather than an
+extension of this one: `fallback_source` is a statement that a block *was
+attempted* and its retries were spent (ADR-0009, invariant 6), and a cancelled
+run's unreached blocks were never attempted, so borrowing the marker would make
+the two indistinguishable in the alignment map. A cancellation is not a failure
+at all — it is the caller's own instruction — so it does not consume this ADR's
+rejected alternatives, and a proposal to add a per-batch fallback rung argues
+against the decision above, not against DCR-0024.
+
+**An oversize table is split at packing time (DCR-0026, ticket `fc0304`).**
+This is the oversize split STUB-017 tracked, built for **tables only**, and it
+lies entirely on this ADR's prevention side: an oversize table is split into
+header-carrying row-window units **at packing time, before the first provider
+call**, deterministically — the same kind of act as batch packing, not a
+runtime rung that catches a provider failure. DCR-0026 §1 sets when the split
+applies. It moves nothing this ADR settled:
+
+- **Abort remains the terminal behavior.** A provider/transport-terminal error
+  aborts the whole run, windows included; a provider-side oversize signal after
+  packing is terminal. DCR-0026 explicitly rejected a reactive re-split for
+  exactly the reasons recorded here.
+- The preflight and its terminal-error annotation are unchanged by the split; a
+  window that cannot fit even alone (a single giant row) is flagged and aborts
+  exactly as a whole oversize unit does.
+
 ### Implementation
 
 None for the abort path itself — it is the shipped behavior (contracts.md §5;
@@ -108,12 +139,16 @@ ADR is entirely prevention/diagnosis and is recorded in DCR-0012:
   estimated output size vs the ceiling, and the remediation flags, so the
   most common abort (output truncation) diagnoses itself.
 * Bad, because a **boundary document** — one whose largest translatable unit
-  is a single block bigger than the output ceiling can hold (a giant table or
-  a wall-of-text paragraph) — is *untranslatable* under a too-low ceiling:
-  output-aware packing cannot split a single unit, so the run aborts until the
-  operator raises `--target-output-tokens` (or the deferred oversize-split
-  lands — STUB-017, the provider-side row-window / block splitter). The
-  preflight names the block and the remediation flags rather than letting the
+  is a single block bigger than the output ceiling can hold (a wall-of-text
+  paragraph, say) — is *untranslatable* under a too-low ceiling: output-aware
+  packing cannot split a single unit, so the run aborts until the operator
+  raises `--target-output-tokens`. The cost narrows rather than disappears: where the
+  row-window split applies (DCR-0026 §1) an over-ceiling table is split into
+  row windows (Decision Outcome), and every
+  other kind — paragraph, code block (invariant 4), list item, blockquote,
+  html — keeps it exactly, each excluded by a recorded per-kind decision in
+  DCR-0026 §7. The preflight names the block and the ceiling flags (and the
+  table-strategy knob, where applicable) as the remedy rather than letting the
   provider truncate silently.
 * Bad, because callers who genuinely want "best-effort, pass through what
   fails" have no supported mode; that appetite is deliberately unmet.
@@ -123,60 +158,16 @@ ADR is entirely prevention/diagnosis and is recorded in DCR-0012:
 - DCR-0012 — output-aware batching + CLI knobs (the prevention-side mitigation)
 - DCR-0006 / DCR-0011 — staged fileset commit (the all-or-nothing artifact discipline this preserves)
 - ADR-0009 — bounded retry policy (the *validation* fallback path, which is unchanged and distinct)
-- STUB-017 — deferred provider-side oversize / row-window splitter
+- DCR-0024 — run cancellation (a separate decision that applies this ADR's reasoning; see Decision Outcome)
+- DCR-0026 — packing-time row-window split for oversize tables (the STUB-017 oversize splitter, tables only)
 - contracts.md §5 — retry / fallback policy ("a `Translator` error is not a fallback path")
 
-## Note (2026-08-08) — cancellation adopts this shape, and is not this decision
+## History
 
-*Appended, not a rewrite. Nothing above changes; this note records that a later
-decision leaned on the reasoning here, and marks the boundary between them.*
+The full text of each moved passage is in
+[`archive/adr-amendments.md`](archive/adr-amendments.md), under ADR-0017.
 
-DCR-0024 added run cancellation (`TranslateOptions.cancel`), and settled its
-central question — what a cancelled run returns — by applying this ADR's
-reasoning unchanged: a cancelled run answers `Err(TransyncError::Cancelled)`
-and writes no output, rather than a `TranslationOutput` whose unreached blocks
-are marked `fallback_source`. The driver that carried it is the second one
-listed above: *loud failure beats a quietly-degraded document*, because an
-untranslated island is not visually distinguished in raw Markdown and a
-downstream reader can ship it without noticing.
-
-Cancellation added a second objection of its own, which is why it is a separate
-record rather than an extension of this one: `fallback_source` is a statement
-that a block *was attempted* and its retries were spent (ADR-0009, invariant
-6), and a cancelled run's unreached blocks were never attempted. Borrowing the
-marker would make the two indistinguishable in the alignment map.
-
-The scope boundary: **this ADR governs provider/transport-terminal batch
-failures only.** A cancellation is not a failure at all — it is the caller's
-own instruction — so it does not consume this ADR's rejected alternatives, and
-a future proposal to add a per-batch fallback rung would still be arguing
-against the decision above, not against DCR-0024.
-
-## Note (2026-08-09) — the row-window splitter is commissioned; the boundary-document cost narrows to non-table kinds
-
-*Appended, not a rewrite. Nothing in the decision above moves.*
-
-DCR-0026 (ticket `fc0304`, owner decision 2026-08-06) commissions the deferred
-oversize split this ADR's first "Bad" consequence pointed at (STUB-017), for
-**tables only**, and it lands entirely on this ADR's prevention side: an
-oversize table is split into header-carrying row-window units **at packing
-time, before the first provider call**, deterministically — the same kind of
-act as batch packing, not a runtime rung that catches a provider failure.
-
-What this ADR settled stays settled, on every point:
-
-- **Abort remains the terminal behavior.** No per-batch fallback rung and no
-  policy flag were added. A provider/transport-terminal error still aborts the
-  whole run, windows included; a provider-side oversize signal after packing is
-  still terminal. DCR-0026 explicitly rejected a reactive re-split for exactly
-  the reasons recorded here.
-- **The "boundary document" consequence narrows rather than disappears.** A
-  document whose over-ceiling block is a **table** stops being untranslatable
-  under a too-low ceiling once DCR-0026's slices ship. Every other kind —
-  paragraph, code block (invariant 4), list item, blockquote, html — keeps this
-  ADR's semantics exactly, each excluded by a recorded per-kind decision in
-  DCR-0026 §7, with the preflight naming the block and the ceiling flags (and
-  now the table-strategy knob, where applicable) as the remedy.
-- The preflight and its terminal-error annotation are unchanged; a window that
-  cannot fit even alone (a single giant row) is flagged and aborts exactly as a
-  whole oversize unit does today.
+- 2026-07-24 (DR-2026-07): the owner kept whole-run abort; the per-batch fallback rung and the policy flag were both rejected.
+- 2026-07-27 (DCR-0012): the prevention-side wave shipped — output-aware packing, the at-risk preflight and the CLI batching flags.
+- 2026-08-08 (DCR-0024): cancellation adopted this ADR's reasoning as its own decision; a note marked this ADR's scope as terminal failures only.
+- 2026-08-09 (DCR-0026, ti `fc0304`): the STUB-017 splitter was commissioned for tables; the boundary-document cost narrowed to non-table kinds.

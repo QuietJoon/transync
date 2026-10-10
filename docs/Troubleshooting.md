@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Troubleshooting"
+description: "Symptom-keyed diagnosis for failing runs — provider errors and exit codes, universal fallback, frozen sync, nesting-depth refusals, publish lock and stray output files, glossary and placeholder surprises, each with the commands that confirm the cause"
+tags: ["reference", "cli", "validation", "browser"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Troubleshooting
 
 Symptom-keyed reference. If a CLI run, a library call, or the browser
@@ -70,8 +79,7 @@ The model returned text that didn't conform to the strict
    first to isolate.
 
 What is **not** on this list: a response the provider's output ceiling
-cut off. That used to arrive here as invalid JSON on Chat Completions;
-both surfaces name it themselves now — see "`incomplete (reason:
+cut off. Both surfaces name it themselves — see "`incomplete (reason:
 max_output_tokens)` / `output incomplete (finish_reason: length)`".
 
 A `MalformedResponse` is a translator error, so it aborts the run and
@@ -156,8 +164,8 @@ translates to more tokens than any ceiling the model will honor, no
 value of `--target-output-tokens` helps: output-aware packing cannot
 split a unit, and a model caps its own maximum output whatever the
 request asks for. ADR-0017 records this as the *boundary document* and
-accepts it. One kind is exempt since DCR-0026 (STUB-017, closed
-2026-08-09): an oversize **table** with at least two body rows is split
+accepts it. One kind is exempt (DCR-0026, STUB-017): an oversize
+**table** with at least two body rows is split
 at packing time into header-carrying row windows and merged back into
 one block afterwards, whenever the effective
 `[constraints].default_table_strategy` is `"row-window-first"` — the
@@ -312,16 +320,12 @@ follows. If you see freezing, you're looking at:
 
 ## "byte index N is not a char boundary" panic
 
-Pre-`e4182f6` panic when the translation widens the document
-(multi-byte CJK). Fixed in v0.1.0.
-
-`e4182f6` predates the 2026-08-17 history restart
-(`docs/project/git-history-loss-2026-08-17.md`), so it cannot appear in
-this clone's `git log` at all — the check this section used to give could
-never succeed, on any current checkout. Every revision reachable from the
-2026-08-17 root `59ce8df` already carries the fix, so if you see this
-panic on a current checkout it is a **new** defect: file a ticket rather
-than pulling.
+A panic when the translation widens the document (multi-byte CJK), fixed
+in v0.1.0 by `e4182f6`. That commit predates the history restart recorded
+in `docs/project/git-history-loss-2026-08-17.md`, so it is not in this
+clone's `git log`; every revision reachable from the root `59ce8df`
+carries the fix. If you see this panic on a current checkout it is a
+**new** defect: file a ticket rather than pulling.
 
 ## `block nesting too deep` / exit code 2 on a small file
 
@@ -459,13 +463,10 @@ because of them. (A *directory* or a symlink wearing one of the two marker
 names is not transync's and is not skipped: those are the two names the
 guards accept without looking inside, so a directory there would carry
 whatever it held into the replace. Transync refuses such a target until
-`--force`.) That
-now includes a `*.tmp.<pid>` at the **top level of an `--out-dir` target**,
-left there by a crashed `--output` / `--map` run that wrote into that same
-directory: it used to be the one place the allow-list had no room for, so
-the target read as foreign and the publish refused with exit 4 (ti
-`66339b`). It no longer does, and the leftover goes with the tree the
-publish replaces.
+`--force`.) The guards also recognize a `*.tmp.<pid>` at the **top level
+of an `--out-dir` target**, left there by a crashed `--output` / `--map`
+run that wrote into that same directory (ti `66339b`): the target does not
+read as foreign, and the leftover goes with the tree the publish replaces.
 
 - `.transync-out-dir` is the **ownership marker** a `--out-dir`
   publication writes into the tree it publishes. It is what tells the next
@@ -513,8 +514,8 @@ that process exits, `SIGKILL` included, so ending it unblocks this run.
 
 The pre-commit hook enforces `cargo fmt`. Run `cargo fmt --all` and
 re-stage. Formatting is one of five Rust gates in the tracked
-`scripts/hooks/pre-commit` — rustdoc is two of them, since 2026-09-06 —
-and any of them failing blocks the commit:
+`scripts/hooks/pre-commit` — rustdoc is two of them — and any of them
+failing blocks the commit:
 
 ```bash
 cargo fmt --all -- --check
@@ -558,19 +559,22 @@ If not, sync `master` or add `*.ko.md` to your local `.gitignore`.
 
 ## `fatal: unable to read tree` / `git fsck` reports a missing object
 
-An object vanished from `.git/objects`. It has happened three times here —
-2026-08-07 (one tree, repaired), 2026-08-10 (30 objects, history restarted:
-`docs/project/git-history-loss-2026-08-10.md`) and 2026-08-17 (33 objects,
-history restarted again: `docs/project/git-history-loss-2026-08-17.md`, which
-carries the full recovery runbook). The worked example below is the first one,
-because it is the only one that ended in a repair rather than a restart: the
-`docs/` subtree of commit `494bc9c` was gone minutes after the commit was
-written, so every `git show`, `git diff` and `git log -p` crossing that commit
-died with
+An object vanished from `.git/objects`. Every `git show`, `git diff` and
+`git log -p` that has to read it dies; for a missing tree the error is
 
 ```
-fatal: unable to read tree (c8daa7a8aa53cbaed7e805c6db86023a8e052e70)
+fatal: unable to read tree (<sha>)
 ```
+
+This repository's object-loss incidents are recorded in
+`docs/project/git-history-loss-2026-08-10.md` and
+`docs/project/git-history-loss-2026-08-17.md`. The second carries the cause's
+physical evidence, the recurrence that followed excluding `.git` from the sync
+client, the full recovery runbook (sibling stores searched by hash, every
+re-import hash-verified), the roles of the `origin` and `backup` remotes, and
+what to do when a commit hash quoted in a document does not resolve. The
+`494bc9c` tree repair (ticket `7a7feb`) that the 2026-08-17 record cites this
+page for is kept verbatim in `docs/Troubleshooting-archive.md`.
 
 Establish what is actually missing before touching anything:
 
@@ -583,14 +587,12 @@ git fsck --no-progress --connectivity-only
 one names the parent that still points at the hole, which is how you find
 out *what* was lost.
 
-**Cause — confirmed 2026-08-17.** A file-sync client (Insync/Google Drive,
-here) re-materializing files under `.git/` while git is writing them — this
-worktree lives on a synced external volume. For the first two events this was
-an inference; on 2026-08-17 the client's conflict copies were found *inside*
-`.git`: 23 duplicated object **fanout directories** named `0a (2)`, `6d (2)`
-and so on, three duplicated object files, and a duplicated ref file
-`refs/heads/master (2)` holding a null sha1 — 27 collision paths inside `.git`
-against **0** in the working tree.
+**Cause.** A file-sync client (Insync/Google Drive, here) re-materializing
+files under `.git/` while git is writing them — this worktree lives on a
+synced external volume. Its tell, when it leaves one, is the client's conflict
+copies *inside* `.git`: duplicated object **fanout directories** named
+`0a (2)`, `6d (2)` and so on, duplicated object files, and duplicated ref files
+such as `refs/heads/master (2)`.
 
 The duplicated *directory* is the form that hides: the object files inside it
 carry ordinary 38-hex names, so a `find .git -name '* (*'` sweep walks past
@@ -603,9 +605,11 @@ find .git -name '* (*'                                     # files AND directori
 find .git/objects -type d -name '* (*' -exec find {} -type f \;
 ```
 
-Two older tells still apply: a pack whose `.pack` mtime is newer than its own
-`.idx` (git never rewrites a finished pack), and the fact that nothing in this
-repository prunes objects and no `gc` had run.
+Two further tells: a pack whose `.pack` mtime is newer than its own `.idx`
+(git never rewrites a finished pack), and a missing object with no `gc` or
+`prune` run behind it. None of these is the check — a loss can leave no
+collision copies at all, so a sweep that finds nothing is not evidence of
+anything. `git fsck` is the check.
 
 **Repair, when the missing object is a tree.** Recovery is purely
 additive: never `reset`, `gc`, `prune` or rewrite history to make the
@@ -622,9 +626,7 @@ git mktree                              # feed them in; it prints the hash it wr
 Rebuild the deepest missing tree first, then each parent tree with the
 child's new hash substituted in. If the hash `git mktree` prints equals
 the hash git said was missing, the object is the original byte for byte —
-nothing else can produce that hash. The 2026-08-07 repair rebuilt three
-nested trees this way, after which `git fsck` was clean and `git show
---stat 494bc9c` worked again.
+nothing else can produce that hash.
 
 A missing **blob** has no equivalent trick — its content is not derivable
 from anything else in the store — which is why detection is worth more
@@ -641,42 +643,20 @@ here than recovery technique.
   --no-progress --connectivity-only` as release preflight, so a loss
   surfaces the day it happens rather than at the next clone — while the
   neighbouring objects that make a tree rebuildable are still there.
-- **The cause is excluded from the sync client, since 2026-08-17.** `.git` is
-  now in the client's ignore list (`/Volumes/Common/GDrive/InsyncIgnore.txt`),
-  which had previously excluded only rebuildable directories like `target` and
-  `node_modules`. This **reverses** the earlier posture — excluding the
-  repository had been weighed and declined under ticket `7a7feb`, leaving
-  detection as the standing answer, and two restarts followed.
-
-  **The exclusion did not work.** On 2026-08-19 the loss recurred with the line
-  still in the file and the client still running: 13 objects missing,
-  `git ls-tree -r HEAD` aborting at 151 of 342 paths. It also left **no
-  collision copies** — the census read 0 while objects were vanishing — so a
-  clean census is not evidence of anything. `git fsck` is the check.
-
-  What repaired it was **redundancy**: every one of the 13 objects was found in
-  the salvaged store at `/Volumes/Common/git-backup/transync-broken-git-20260817`
-  and re-imported hash-verified.
-
-  **There is now a mirror to push to.** The remote is named **`backup`**, not
-  `origin` — deliberately, because it is a mirror of record and not an upstream
-  anyone develops against. It is `/Volumes/Common/git-backup/transync.git`, a
-  bare clone created 2026-08-19, and `master` tracks `backup/master`. Push
-  after every commit (`git push backup master`) — it is the cheapest thing
-  on this page and the only one that has ever turned a loss into a repair. Its
-  own integrity is checkable the same way: `git --git-dir=/Volumes/Common/git-backup/transync.git fsck --full`.
+- **Push to `origin` first, then `backup`.** `origin`
+  (`github:QuietJoon/transync.git`) is the store of record (owner ruling, ti
+  `6b4300`), and local `master` tracks `origin/master`. **`backup`**
+  (`/Volumes/Common/git-backup/transync.git`, a bare mirror) is the fast
+  local copy. After every commit run `git push origin master`, then
+  `git push backup master`. The mirror's own integrity is checkable the same
+  way: `git --git-dir=/Volumes/Common/git-backup/transync.git fsck --full`.
 
   Be honest about its limit: it lives on the same synced volume, so it can be
   damaged by the same cause. It is redundancy, not immunity — a copy on a
   volume the sync client does not touch would be strictly better. And treat any
   sync-client setting as unproven until an `fsck` after a stretch of normal
-  work says otherwise; the 2026-08-19 recurrence is what that rule is made of.
-
-The commit hashes in this section — `494bc9c` above among them — name commits
-that are **not in this object store**: the 2026-08-10 and 2026-08-17 restarts
-replaced the graph twice. They are kept because the story is what makes the
-repair legible, not because they can be checked out. See the two records named
-at the top of this section for the archived stores that may still hold them.
+  work says otherwise; `docs/project/git-history-loss-2026-08-17.md` records
+  the recurrence that rule is made of.
 
 ## Glossary entries don't appear to take effect
 

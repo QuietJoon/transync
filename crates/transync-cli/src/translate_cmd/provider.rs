@@ -32,6 +32,16 @@ pub enum GoogleSurfaceArg {
     Developer,
 }
 
+/// How a Vertex AI run authenticates. Explicit on purpose — see
+/// `--google-auth` in `translate_cmd`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum GoogleAuthArg {
+    /// Application Default Credentials (the default).
+    Adc,
+    /// A Vertex AI express-mode API key, read from `GOOGLE_API_KEY`.
+    ApiKey,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum GoogleLocationArg {
     Global,
@@ -128,6 +138,7 @@ pub(crate) fn resolve_provider_config(args: &TranslateArgs) -> Result<ProviderCo
     match args.provider {
         ProviderArg::Openai => {
             if args.google_surface.is_some()
+                || args.google_auth.is_some()
                 || args.google_project.is_some()
                 || args.google_location.is_some()
                 || args.google_thinking.is_some()
@@ -160,6 +171,13 @@ pub(crate) fn resolve_provider_config(args: &TranslateArgs) -> Result<ProviderCo
             });
             let (surface, base_env) = match surface {
                 GoogleSurfaceArg::Developer => {
+                    if args.google_auth.is_some() {
+                        return Err(
+                            "--google-auth applies to --google-surface vertex only; the Developer \
+                             API always authenticates with GEMINI_API_KEY"
+                                .to_string(),
+                        );
+                    }
                     if args.google_project.is_some() || args.google_location.is_some() {
                         return Err(
                             "--google-project and --google-location require --google-surface vertex"
@@ -169,6 +187,28 @@ pub(crate) fn resolve_provider_config(args: &TranslateArgs) -> Result<ProviderCo
                     (
                         GoogleSurface::Developer,
                         "TRANSYNC_GOOGLE_DEVELOPER_BASE_URL",
+                    )
+                }
+                GoogleSurfaceArg::Vertex if args.google_auth == Some(GoogleAuthArg::ApiKey) => {
+                    // Vertex in express mode: same service and models, reached
+                    // with an API key. Its URL carries no project and no
+                    // location, so an explicitly passed one would be silently
+                    // dropped — refuse instead. An ambient GOOGLE_CLOUD_PROJECT
+                    // is ignored rather than refused: it is environment, not a
+                    // request.
+                    if args.google_project.is_some() || args.google_location.is_some() {
+                        return Err("--google-project and --google-location do not apply to \
+                             --google-auth api-key: Vertex express mode addresses the publisher \
+                             model directly, with no project or location in the request"
+                            .to_string());
+                    }
+                    tracing::info!(
+                        target: "transync::provider",
+                        "Google: Vertex AI in express mode (--google-auth api-key); project and location do not apply"
+                    );
+                    (
+                        GoogleSurface::VertexExpress,
+                        "TRANSYNC_GOOGLE_VERTEX_BASE_URL",
                     )
                 }
                 GoogleSurfaceArg::Vertex => {
@@ -243,6 +283,7 @@ pub(crate) fn translator_for_run(
                     };
                     ("vertex", Some(project.as_str()), Some(location))
                 }
+                GoogleSurface::VertexExpress => ("vertex-express", None, None),
             };
             let thinking = google.thinking_level.as_ref().map(|level| match level {
                 ThinkingLevel::Low => "low",
@@ -414,6 +455,12 @@ pub(crate) fn translator_for_run(
                         GoogleCredentials::DeveloperApiKey(SecretString::new(key.into()))
                     }
                     GoogleSurface::Vertex { .. } => GoogleCredentials::VertexAdc,
+                    GoogleSurface::VertexExpress => {
+                        let key = std::env::var("GOOGLE_API_KEY").map_err(|_| {
+                            "GOOGLE_API_KEY not set for Vertex AI express mode".to_string()
+                        })?;
+                        GoogleCredentials::VertexApiKey(SecretString::new(key.into()))
+                    }
                 };
                 TransyncGoogle::try_new(config, credentials)
             }

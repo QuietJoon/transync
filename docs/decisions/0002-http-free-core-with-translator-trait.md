@@ -35,7 +35,7 @@ Neither makes the LLM call truly the *consumer's* concern, because both are end-
 
 We chose **option 1**. The user selected it during brainstorming Q3.
 
-The core `transync` crate exposes:
+The core owns no HTTP. Its provider boundary is the `Translator` trait, declared in `transync-core`'s `llm` module and re-exported by the `transync` facade. The one method an implementation must write is:
 
 ```rust
 #[async_trait]
@@ -43,84 +43,38 @@ pub trait Translator: Send + Sync {
     async fn translate_batch(
         &self,
         batch: TranslationBatch,
+        cancel: &CancellationToken,
     ) -> Result<TranslationBatchResult, TranslatorError>;
+
+    // …and three defaulted methods, named below.
 }
 ```
 
-Consumer owns the LLM transport. The default `transync-openai` sibling crate implements `Translator` against the OpenAI Responses API + Structured Outputs and ships in the same workspace so the CLI works out of the box. Future providers are sibling crates: `transync-anthropic`, `transync-local-llama`, …
+Besides that method the trait carries three defaulted ones (`fingerprint`, `tokenizer_hint`, `extract_glossary` — DCR-0009 / DCR-0014 / DCR-0015). The trait's live shape is `contracts.md` §1's, not this file's, and §1 carries its stability rules.
 
-Status: Decided 2026-05-01 (brainstorming Q3). Shipped — `transync-core` is HTTP-free; the `Translator` trait seam is implemented by `transync-openai` (model-driven Chat Completions + Responses dispatch).
+Consumer owns the LLM transport. The default `transync-openai` sibling crate implements `Translator` against the OpenAI API — model-driven Chat Completions + Responses dispatch, with Structured Outputs — and ships in the same workspace so the CLI works out of the box. Future providers are sibling crates. The first one named here, `transync-anthropic`, is built: it is the second in-tree provider, and its design is DCR-0029's and `contracts.md` §8's, not this file's. `transync-local-llama` stays deferred — the owner ordered it after Anthropic (ticket `bda471`), and ticket `3887f0` holds the open decision on what happens to it. The provider crates in the tree, and which of them the CLI carries, are `docs/implementation/module-map.md`'s to list.
+
+Status: Decided 2026-05-01 (brainstorming Q3). Shipped — `transync-core` is HTTP-free; the `Translator` trait seam is implemented by `transync-openai` (model-driven Chat Completions + Responses dispatch) and by every further provider crate in the tree.
 
 ### Implementation
 
-- `crates/transync` declares the `Translator` trait, `TranslationBatch`, `TranslationBatchResult`, `TranslatorError`. **It does not depend on `reqwest`, `async-openai`, `tokio`'s networking features beyond the runtime, or any HTTP client.**
-- `crates/transync-openai` depends on `transync` and on `async-openai` (or `reqwest` + handcrafted types). It re-exports its concrete type so consumers can construct it with `TransyncOpenAI::new(api_key, model, base_url)`.
-- `crates/transync-cli` depends on both `transync` and `transync-openai`. The default profile expects `OPENAI_API_KEY`; the CLI surfaces a clear error when the key is missing.
-- Future provider crates follow the same pattern. They never modify the core trait.
+- **Declaration site.** `Translator`, `TranslationBatch`, `TranslationBatchResult`, `TranslationUnit` and `TranslatorError` are declared in **`transync-core`'s `llm` module**. `crates/transync` is the facade — the semver firewall — and only *re-exports* them, which is why they appear in `contracts.md` §0 as `transync::…` paths. A new boundary type is therefore added to `transync-core::llm` and then curated into the facade; adding one to `crates/transync` itself is not even possible, as its `lib.rs` is nothing but `pub use` lines and declares no item of its own.
+- **Which crates are HTTP-free.** The property the decision buys belongs to `transync-core` and `transync-syntax`, and to the facade above them. **None of them depends on `reqwest`, `async-openai`, `tokio`'s networking features beyond the runtime, or any HTTP client.** An HTTP client is a provider crate's dependency and no other member's. That is checkable in one grep of the workspace's manifests.
+- **The provider crate's transport.** `transync-openai` speaks to the API through `reqwest` with hand-written request/response types and no OpenAI SDK. It depends on the facade `transync` (plus test-only dev-dependencies on `transync-core` / `transync-syntax` for engine internals the facade stops re-exporting — OI-0027), and re-exports its concrete type, `TransyncOpenAI`.
+- **The constructor.** `TransyncOpenAI::try_new(api_key, model, base_url)` is canonical; it refuses an empty key or an unusable base URL at construction (R0001-0033, `contracts.md` §7). `TransyncOpenAI::new(api_key, model, base_url)` is the *unchecked* one.
+- **The CLI.** `crates/transync-cli` is the reference binary over the facade and the provider crates it carries. Which crates those are is `docs/implementation/module-map.md`'s; which provider a run selects, which one is the default, and the credential each provider path reads are `contracts.md` §6's. This record restates neither. On the OpenAI path the CLI expects `OPENAI_API_KEY` and surfaces a clear error when the key is missing.
+- Future provider crates follow the same pattern. They never modify the core trait. A provider crate uses the provider-neutral tier-(b) surface (`transync::llm::prompt`, `profile::render_prompt_body`) unmodified — prompt assembly, schema object, response parsing. Where the provider's schema dialect is narrower, the adaptation lives in the adapter (DCR-0029's schema-profile pass), never in the shared surface. `transync-anthropic` holds to this under a schema transport OpenAI does not use (`output_config.format`).
 
-## Consequences
-
-- **Good:** Core crate is unit-testable with a `MockTranslator` implementing the trait. SCN-07 / SCN-08 / SCN-09 / SCN-10 are verified without network.
-- **Good:** Consumers with bespoke HTTP stacks can adopt the library without adopting our HTTP choices.
-- **Good:** Adding a provider is a sibling crate. Zero churn in the core API.
-- **Bad:** The CLI must depend on `transync-openai` directly, which means changing the default provider is technically a breaking change at the CLI level. Acceptable — providers are stable choices, not hot-swappable.
-- **Bad:** Slightly more workspace ceremony than a single crate. Acceptable.
-
-## Amendment (2026-08-06) — where the boundary is declared, not what it is
-
-*Appended, not a rewrite. Every decision above stands: the core owns no HTTP,
-the consumer supplies a `Translator`, and `transync-openai` is the default
-sibling implementation. Only the "Implementation" map below the decision is
-corrected — Review-0001 `R0001-0049` found it naming the wrong crate.*
-
-- **Declaration site.** `Translator`, `TranslationBatch`,
-  `TranslationBatchResult`, `TranslationUnit` and `TranslatorError` are
-  declared in **`transync-core`'s `llm` module**. `crates/transync` is the
-  facade — the semver firewall — and only *re-exports* them, which is why they
-  appear in `contracts.md` §0 as `transync::…` paths. A new boundary type is
-  therefore added to `transync-core::llm` and then curated into the facade;
-  adding one to `crates/transync` itself is not even possible, as its `lib.rs`
-  is nothing but `pub use` lines and declares no item of its own.
-- **Which crates are HTTP-free.** The property the decision buys belongs to
-  `transync-core` and `transync-syntax`, and to the facade above them: no
-  member except `transync-openai` depends on `reqwest` or any other HTTP
-  client. That is checkable in one grep of the workspace's manifests.
-- **The provider crate's transport.** The either/or this ADR left open —
-  "`async-openai` (or `reqwest` + handcrafted types)" — resolved to the second:
-  `transync-openai` speaks to the API through `reqwest` with hand-written
-  request/response types and no OpenAI SDK. It depends on the facade
-  `transync`, as written here (plus test-only dev-dependencies on
-  `transync-core` / `transync-syntax` for engine internals the facade stops
-  re-exporting — OI-0027).
-- **The constructor named here** — `TransyncOpenAI::new(api_key, model,
-  base_url)` — is the *unchecked* one. `try_new` is canonical; it refuses an
-  empty key or an unusable base URL at construction (R0001-0033,
-  `contracts.md` §7).
-- **The trait's shape** has grown three defaulted methods since this ADR
-  (`fingerprint`, `tokenizer_hint`, `extract_glossary` — DCR-0009 / DCR-0014 /
-  DCR-0015), so the single-method snippet above is the 2026-05-01 shape, not
-  today's. `contracts.md` §1 carries the live one and its stability rules.
-
-## Amendment (2026-08-08) — `TranslatorError` states a cause, not a policy
-
-*Appended, not a rewrite. The decision stands unchanged: the core owns no
-HTTP, the consumer supplies a `Translator`, and the trait's error type is the
-seam. What is added is the shape of that error type, which this ADR named
-(`TranslatorError`) without saying what it must carry. DCR-0023 / ticket
-`1a85f3`; breaking, carried by v0.4.0.*
+### `TranslatorError` states a cause, not a policy
 
 The trait is the whole boundary, so `TranslatorError` is the **only** channel
-through which a provider tells the application what went wrong. Through v0.3.0
-one variant, `Other(String)`, carried five distinct terminal causes — a
-content-policy stop, an exhausted output ceiling, a model refusal, an oversize
-response, and every non-transient 4xx — and the only way to separate them was
-to match a message string that is explicitly not an interface. That is a
-failure of *this* decision, not of the adapter: option 1 was chosen so that a
-consumer could bring its own transport, its own retry policy and its own
-observability, and none of the three is expressible over an error that will not
-say what happened.
+through which a provider tells the application what went wrong. An error that
+cannot say what happened is a failure of *this* decision, not of the adapter:
+option 1 was chosen so that a consumer could bring its own transport, its own
+retry policy and its own observability, and none of the three is expressible
+over an error that will not say what happened (DCR-0023, ticket `1a85f3`).
 
-Three rules now govern the type, and a new provider crate inherits them:
+Three rules govern the type, and a new provider crate inherits them:
 
 - **A variant names why the provider stopped, never what the caller should do.**
   Retryability is deliberately absent. The pipeline's rule (re-dispatch
@@ -131,36 +85,30 @@ Three rules now govern the type, and a new provider crate inherits them:
 - **The catch-all is permanent.** `Other(String)` stays, and a `Translator`
   implementation SHOULD reach for it rather than force a quirk into a name that
   does not fit. Without it, "adding a provider is a sibling crate, zero churn in
-  the core API" — this ADR's third decision driver — would fail the first time a
-  provider had a failure mode the enum had not anticipated. `transync-anthropic`
-  (ticket `bda471`) is the near-term test of that.
+  the core API" would fail the first time a provider had a failure mode the
+  enum had not anticipated. A genuinely new cause is named rather than
+  flattened into `Other` — vocabulary growth, not trait churn — which is how
+  Anthropic's context-window overflow became `ContextWindowExceeded`
+  (DCR-0029). `Other` absorbs what fits no name: for that adapter, exactly the
+  stop reasons it cannot elicit by construction (`stop_sequence`, `tool_use`,
+  `pause_turn`).
 - **Every variant carries a stable machine code.** `TranslatorError::stable_code()`
   mirrors `TransyncError::stable_code()`, and `TransyncError` delegates to it, so
   the taxonomy survives the process boundary a `Translator`'s caller may sit
-  behind. `contracts.md` §1 holds the vocabulary; a scrape test welds the two.
+  behind. `contracts.md` §1 holds the vocabulary; a scrape test welds the two
+  (`crates/transync/tests/error_taxonomy.rs`).
 
 The live variant list is `contracts.md` §1's, not this file's — a decision
 record should not become a second declaration site for a set that grows.
 
-## Amendment (2026-08-08) — the boundary carries the caller's stop signal
+### The boundary carries the caller's stop signal
 
-*Appended, not a rewrite. The decision stands unchanged: the core owns no HTTP,
-the consumer supplies a `Translator`, and the trait is the whole boundary. What
-is added is that the boundary must also cross in the other direction — from the
-application into the provider — which the 2026-05-01 single-method shape had no
-place for. DCR-0024 / ticket `43331a`; breaking, carried by v0.4.0.*
-
-`Translator::translate_batch` and `Translator::extract_glossary` now take a
-`cancel: &CancellationToken` alongside their payload.
-
-This follows from a decision driver already on the list above: *"the core
-library should be reusable in long-running applications that already have an
-HTTP stack and an opinionated retry / observability story."* A long-running
+`Translator::translate_batch` and `Translator::extract_glossary` take a
+`cancel: &CancellationToken` alongside their payload (DCR-0024, ticket
+`43331a`). That follows from the first decision driver: a long-running
 application also has an opinionated **lifecycle** story — a request that is
-abandoned, a process that is draining — and the trait as declared gave it
-nowhere to say so. The only stop signal available was dropping the future,
-which is a property of async Rust rather than a promise this boundary made, and
-which a consumer could only discover by reading transync's source.
+abandoned, a process that is draining — and dropping the future is a property
+of async Rust, not a promise this boundary makes.
 
 Two rules govern the parameter, and a new provider crate inherits them:
 
@@ -180,71 +128,38 @@ retreat from "the core owns no HTTP" — a cancellation token is a
 synchronization primitive, not transport — but it is the first foreign type in
 the curated surface, and `contracts.md` §0 records the cost that carries.
 
-The trait's live shape is `contracts.md` §1's, not this file's.
+### An adapter may not name an error its transport cannot produce
 
-## Amendment (2026-08-10) — the second sibling is commissioned, and the seam is what it must hold
+Each adapter owns its own mapping onto `TranslatorError`, and may keep its own
+error type in front of it. The rule that governs such a type is narrower than
+"keep the adapters' taxonomies identical", which would contradict this ADR's
+whole premise that each adapter owns its own mapping: **an adapter may name any
+error its transport can actually produce, and may not name one it cannot.** A
+variant nothing constructs is not a capability claim — it is a promise to
+consumers that a condition is distinguishable when it is not, and it survives
+review precisely because dead code compiles (DCR-0040, R0009-0085).
 
-*Appended, not a rewrite. The decision stands unchanged: the core owns no HTTP,
-the consumer supplies a `Translator`, and future providers are sibling crates.
-What is added is that the future tense above ("`transync-anthropic`,
-`transync-local-llama`, …") stops being hypothetical for the first name on the
-list. DCR-0029 / ticket `bda471`; owner decision 2026-08-06 (Anthropic first,
-local-llama later). Additive — the crate itself breaks nothing.*
+Removing such a variant is not free. An adapter error type that is `pub` in a
+published crate with no `#[non_exhaustive]` — `transync-openai`'s
+`ProviderError` is one — loses a variant only as a breaking change, which needs
+a sanctioned breaking window. With no window open, the correct outcome is to
+leave the variant in place and record it.
 
-`transync-anthropic` is commissioned as the second in-tree provider, designed
-in DCR-0029 against the post-DCR-0023/0024 trait — the typed terminal causes
-and the cancellation parameter — deliberately *after* both landed, so the
-second implementation never existed against an interface about to move.
+## Consequences
 
-The commissioning is also this ADR's first real test, and three of its claims
-are what the DCR holds the implementation to:
+- **Good:** Core crate is unit-testable with a `MockTranslator` implementing the trait. SCN-07 / SCN-08 / SCN-09 / SCN-10 are verified without network.
+- **Good:** Consumers with bespoke HTTP stacks can adopt the library without adopting our HTTP choices.
+- **Good:** Adding a provider is a sibling crate. Zero churn in the core API. `transync-anthropic` was the first test of it and touched no core type beyond one new `TranslatorError` variant — vocabulary growth, not trait churn (DCR-0029).
+- **Bad:** The CLI must depend on `transync-openai` directly, which means changing the default provider is technically a breaking change at the CLI level. Acceptable — providers are stable choices, not hot-swappable. Which provider crates the binary carries is `docs/implementation/module-map.md`'s to list, and how a run selects among them is `contracts.md` §6's.
+- **Bad:** Slightly more workspace ceremony than a single crate. Acceptable.
 
-- **"Adding a provider is a sibling crate, zero churn in the core API."** The
-  crate touches no core type. The one candidate exception is put to the owner
-  as DCR-0029's open fork — Anthropic's `model_context_window_exceeded` stop
-  reason has no honest variant in the taxonomy, and *naming a new cause* is
-  vocabulary growth the 2026-08-08 amendment anticipated, not trait churn.
-  Everything else the provider needed, the seam already carried.
-- **The provider-neutral half is genuinely neutral.** The second adapter calls
-  the same tier-(b) surface (`transync::llm::prompt`,
-  `profile::render_prompt_body`) unmodified — prompt assembly, schema object,
-  response parsing — under a schema transport OpenAI does not use
-  (`output_config.format`). Where the provider's schema dialect is narrower,
-  the adaptation lives in the adapter (DCR-0029's schema-profile pass), never
-  in the shared surface.
-- **The catch-all earns its keep.** The 2026-08-08 amendment named
-  `transync-anthropic` as the near-term test of `Other(String)`; the answer:
-  the second provider's stop-reason vocabulary maps onto named variants
-  everywhere a cause fits, `Other` absorbs exactly the stop reasons the
-  adapter cannot elicit by construction (`stop_sequence`, `tool_use`,
-  `pause_turn`), and the one genuinely new cause goes to the owner as a fork
-  instead of being flattened into it.
+## History
 
-What this amendment does **not** do is restate the adapter's design —
-constructors, terminal-cause table, packaging, slices are DCR-0029's and
-`contracts.md` §8's. The CLI remains OpenAI-backed; this ADR's recorded "Bad"
-consequence (the CLI's provider is a compile-time choice) is unchanged, and a
-CLI provider axis is explicitly out of DCR-0029's scope.
+The full text of each event is in [`archive/adr-amendments.md`](archive/adr-amendments.md), under ADR-0002.
 
-## Amendment (2026-08-26, DCR-0040) — an adapter may not name an error its transport cannot produce
-
-*Appended, not a rewrite. Everything above, and the 2026-08-08 amendment that
-DCR-0023 added, stand as written.*
-
-DCR-0023 gave the provider adapters a shared error taxonomy. It did not say what
-happens when an adapter carries a variant **nothing constructs**, and one did:
-`transync-openai`'s `ProviderError::RateLimited` was unreachable, while the
-later `transync-anthropic` was written without it.
-
-Review 0009 (R0009-0085) found it; `8d4efda` removed it. `ProviderError` is
-`pub` in a published crate with no `#[non_exhaustive]`, so that is a breaking
-change — permitted **only** because `ff788f7` had opened the sanctioned v0.5.0
-window hours earlier. With the window closed the correct outcome would have been
-to leave the variant in place and record it.
-
-The rule this leaves is narrower than "keep the adapters' taxonomies identical",
-which would contradict this ADR's whole premise that each adapter owns its own
-mapping: **an adapter may name any error its transport can actually produce, and
-may not name one it cannot.** A variant nothing constructs is not a capability
-claim — it is a promise to consumers that a condition is distinguishable when it
-is not, and it survives review precisely because dead code compiles.
+- 2026-08-06 (R0001-0049): Implementation map corrected — types declared in `transync-core::llm`; `transync-openai` on `reqwest`; `try_new` canonical.
+- 2026-08-08 (DCR-0023, ti `1a85f3`): `TranslatorError` gained named causes, a stable code per variant and three rules; breaking, v0.4.0.
+- 2026-08-08 (DCR-0024, ti `43331a`): `translate_batch` and `extract_glossary` gained `cancel: &CancellationToken`; breaking, v0.4.0.
+- 2026-08-10 (DCR-0029, ti `bda471`): `transync-anthropic` commissioned as the second sibling provider, against the post-DCR-0023/0024 trait; additive.
+- 2026-08-26 (DCR-0040, R0009-0085): an adapter may not name an error its transport cannot produce; `ProviderError::RateLimited` removed in the v0.5.0 window.
+- 2026-09-23 (DCR-0058): the CLI gained `--provider openai|google`; the 2026-08-10 "CLI remains OpenAI-backed" gloss no longer holds.

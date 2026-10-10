@@ -51,35 +51,64 @@ misrepresents them — they are operator instructions, exactly like the
 system prompt they land in. `contracts.md` §6 and the CLI arg docs
 state the opaque-label contract explicitly.
 
-Status: No change required. Raised twice. This decision rests on the
-assumption that the label author and the prompt author are the same
-principal — the single operator of a local CLI run. Revisit trigger: a
-multi-tenant or service deployment that separates the label author from the
-prompt author; that deployment would need its own boundary review before
-relying on opaque labels.
+Labels are fully opaque for every *engine* consumer: the system prompt, the
+cache key, the alignment map, and every validation layer forward them
+verbatim, unparsed, with only the non-emptiness check (R0008-0039). What they
+forward is the label the caller passed or, on a CLI run, the one value the
+argument boundary stored for it (below). The rest of this section is the one
+reserved literal and every place that reads a label beyond forwarding it; none
+of them parses a tag, and none makes the label load-bearing for the engine.
 
-### Implementation
+**One reserved literal.** This ADR reserves exactly one literal: `auto`, the
+source-language sentinel that compiles to *"the auto-detected source
+language"* instead of being substituted. No literal is reserved on the target
+side, so `--target-language AUTO` is an ordinary label.
 
-None beyond the shipped non-emptiness checks (R0008-0039).
+**The CLI normalizes once, at its argument boundary.** The labels are
+validated in `translate_cmd::args::resolve_language_and_model_args`, and every
+CLI consumer reads the one normalized value it stores. This is **not**
+validation and does not narrow what counts as a label:
 
-## Consequences
+- *Surrounding* whitespace comes off both labels. Nothing in a label's
+  interior is touched, no case is folded, and no tag is parsed.
+  `"Korean (formal, 존댓말)"` survives byte-for-byte, spaces included. A
+  whitespace-only label is blank, and blank is an error.
+- A recognized sentinel is stored in its **canonical spelling**, `auto`.
+  **Only the reserved literal is folded.** A value the recognizer rejects is
+  stored byte-for-byte, case included — `DE` stays `DE`, `Auto-detect` stays
+  `Auto-detect`. This is not case folding of *labels*; it is a reserved word
+  being spelled the one way it is defined.
+- **One recognizer, two callers.** `args::is_source_language_sentinel` is the
+  only place the CLI decides whether a value is the sentinel; the argument
+  boundary canonicalizes with it and the bundle emitter's
+  `pane_source_language` asks it. Two copies of the question are what let
+  answers diverge, so there is one.
+- `--model` is deliberately **not** normalized: it is a provider identifier,
+  not a label this ADR governs.
 
-* Good, because expressive labels ("한국어 — 기술문서체") flow through to
-  the model unmangled, and cache identity keys on exactly what the
-  model saw.
-* Bad, because a typo'd label silently produces a differently-keyed,
-  differently-prompted run instead of a validation error.
+**The library layer deliberately does not normalize.**
+`TranslateOptions::source_language` stays opaque, and the library substitutes
+a non-sentinel label verbatim; only its sentinel *test*
+(`profile::render_prompt_body`) tolerates padding and case. Padding is removed
+by the *argument boundary*, which is the layer that knows a value was typed on
+a command line. A caller that bypasses the CLI with `"AUTO"` therefore
+compiles the detection prompt but keys and stamps `AUTO` — pinned by
+`scn_11_the_library_keeps_the_sentinels_spelling`, so the asymmetry is a
+recorded decision rather than an oversight.
 
-## Amendment (2026-08-03) — presentation-layer direction hint
+**The batch packer measures the labels.** This ADR is the decision that labels
+have no bounded size — `"Middle High German as written in the Rhine Franconian
+scribal tradition"` is exactly the expressive label it exists to protect — so
+the per-batch reserve is four encoded strings: the instruction envelope, the
+compiled system prompt, and the two labels, with no fixed allowance in it.
+**The packer measures what it will send and assumes nothing about the size of
+anything.** Counting a string's tokens is the same operation the packer
+performs on the system prompt and on every unit's payload — it reads the
+bytes, it does not interpret them.
 
-RTL pane direction shipped in the OI-2026-08 wave (DCR-0015, OI-0032). This
-ADR is **amended, not violated**: labels remain fully opaque for every *engine*
-consumer — the system prompt, the cache key, the alignment map, and every
-validation layer still forward them verbatim, unparsed, with only the
-non-emptiness check.
-
-What is added is confined to the **presentation layer** — the CLI's HTML
-bundle emitter, which is already the one component whose job is rendering:
+**The bundle's pane direction is a presentation hint.** It is confined to the
+**presentation layer** — the CLI's HTML bundle emitter, the one component
+whose job is rendering:
 
 - When direction resolves to `auto` (the default), the emitter applies a
   best-effort **hint**: the label's first `-`/`_`-separated token,
@@ -97,129 +126,61 @@ bundle emitter, which is already the one component whose job is rendering:
   `expressive_labels_stay_ltr`, not a parsing attempt. A caller who wants RTL
   for an expressive label uses the flag or the profile key.
 - The hint is **invisible to identity**: it never enters the prompt, the cache
-  key, the alignment map (schema stays `1.1.0`), or `out.md`. Two runs
-  differing only in pane direction are cache-identical.
+  key, the alignment map, or `out.md`, and it drove no alignment-map schema
+  bump. Two runs differing only in pane direction are cache-identical.
 
-Revisit trigger for this amendment: if direction ever needs to reach the
-alignment map or the prompt, the opacity contract must be re-examined first —
-that would make the label load-bearing for the engine, which this ADR
-forbids.
+Status: No change required. Raised twice. This decision rests on the
+assumption that the label author and the prompt author are the same
+principal — the single operator of a local CLI run. Revisit trigger: a
+multi-tenant or service deployment that separates the label author from the
+prompt author; that deployment would need its own boundary review before
+relying on opaque labels.
 
-## Amendment (2026-08-06) — the batch budget measures the label instead of assuming a size
+A second revisit trigger guards the direction hint: if direction ever needs to
+reach the alignment map or the prompt, the opacity contract must be
+re-examined first — that would make the label load-bearing for the engine,
+which this ADR forbids.
 
-Review-0001 `R0001-0013` pointed out a consequence of this ADR that the batch
-packer had not absorbed: `batch::FIXED_ENVELOPE_TOKENS` (256) stood in for the
-constant user-message instruction **and** the two language labels. An allowance
-is a size assumption, and this ADR is precisely the decision that labels have no
-bounded size — `"Middle High German as written in the Rhine Franconian scribal
-tradition"` is exactly the expressive label this ADR exists to protect, and it
-alone outweighs the whole allowance.
+### Implementation
 
-Ticket `24fd28` encodes `source_language` and `target_language` into the
-per-batch envelope reserve; the constant now covers only the instruction it was
-tuned for. This is **not** a parsing attempt and does not make the label
-load-bearing for the engine: the labels are still forwarded verbatim and
-unparsed to every consumer this ADR names. Counting a string's tokens is the
-same operation the packer already performs on the system prompt and on every
-unit's payload — it reads the bytes, it does not interpret them.
+None for the rejection beyond the shipped non-emptiness checks (R0008-0039).
+The rules above that read a label ship under their own records: the CLI
+normalization under R0001-0021 (ti `ed8c57`) and ti `fd5aa8`, the measured
+batch reserve under R0001-0013 (ti `24fd28`, `aa92d64f`), and the direction
+hint under DCR-0015 / OI-0032.
 
-Consequence: a caller who passes a very long label now gets more, smaller
-batches rather than requests that quietly exceed the token target. Ordinary
-labels (`en`, `ko`, `한국어`) cost a token or two, so packing shape is
-effectively unchanged for them.
+## Consequences
 
-## Amendment (2026-08-06) — surrounding whitespace comes off once, at the CLI boundary
+* Good, because expressive labels ("한국어 — 기술문서체") flow through to
+  the model unmangled, and cache identity keys on exactly what the
+  model saw.
+* Good, because at the CLI a padded label is indistinguishable from a bare
+  one, and `AUTO` or `Auto` from `auto` — same compiled prompt, same cache
+  identity, same alignment metadata. Sharing the key is correct and not merely
+  convenient, because the canonical label is also what goes on the wire: two
+  runs that share a key send byte-identical requests. No non-sentinel label's
+  identity is touched by the folding.
+* Good, because a caller who passes a very long label gets more, smaller
+  batches rather than requests that quietly exceed the token target. Ordinary
+  labels (`en`, `ko`, `한국어`) cost a token or two, so packing shape is
+  effectively the same for them.
+* Bad, because a typo'd label silently produces a differently-keyed,
+  differently-prompted run instead of a validation error.
+* Bad, because a caller who genuinely wants a label with a leading space
+  cannot express it through the CLI. That is the intended trade, since such a
+  label differs from its trimmed twin in no way anyone can see except cache
+  identity.
+* Bad, because the direction hint misses expressive labels; such a run renders
+  LTR unless the caller sets `--target-direction` or
+  `[render].target_direction`.
 
-Review-0001 `R0001-0021`. This ADR reserves exactly one literal: `auto`, the
-source-language sentinel that compiles to *"the auto-detected source language"*
-instead of being substituted. A reserved literal has to be recognizable, and
-`--source-language ' auto '` was not recognized: the CLI validated
-`trim().is_empty()` and then forwarded the untrimmed value, so the padded label
-compiled a prompt naming ` auto ` verbatim, keyed its own cache entries, and was
-stamped on the alignment map — while the HTML bundle's pane label, which had a
-`trim()` of its own, treated the same run as auto-detected. One run, two
-answers about whether the sentinel had been typed.
+## History
 
-Ticket `ed8c57` trims *surrounding* whitespace once, where the labels are
-validated (`translate_cmd::args::resolve_language_and_model_args`), and every
-CLI consumer reads that one normalized value. The library's sentinel test
-(`profile::render_prompt_body`) tolerates padding and case as well, so a caller
-that never crosses the CLI gets the same answer.
+The full text of each event is in
+[`archive/adr-amendments.md`](archive/adr-amendments.md), under ADR-0013.
 
-This is **not** validation and does not narrow what counts as a label:
-
-- Nothing in a label's interior is touched, no case is folded, and no tag is
-  parsed. `"Korean (formal, 존댓말)"` survives byte-for-byte, spaces included.
-- Non-emptiness is still the only rule (R0008-0039); a whitespace-only label is
-  blank, which it already was under the old `trim().is_empty()` check.
-- `--model` is deliberately **not** normalized: it is a provider identifier,
-  not a label this ADR governs.
-- The library layer still substitutes a non-sentinel label verbatim. Padding is
-  removed by the *argument boundary*, which is the layer that knows a value was
-  typed on a command line; `TranslateOptions::source_language` remains opaque.
-
-Consequence: a padded run is now indistinguishable from a bare one — same
-compiled prompt, same cache identity, same alignment metadata. A caller who
-genuinely wants a label with a leading space cannot express it through the CLI;
-that is the intended trade, since such a label differs from its trimmed twin in
-no way anyone can see except cache identity.
-
-## Amendment (2026-08-06) — the constant the labels were carved out of is gone entirely
-
-The 2026-08-06 amendment above ended with `batch::FIXED_ENVELOPE_TOKENS` covering
-"only the instruction it was tuned for". Ticket `aa92d64f` found that it never
-covered even that: the assembled instruction outgrew 256 tokens on its own, and
-the constant no longer exists. The per-batch reserve is now four encoded strings
-— the instruction envelope, the compiled system prompt, and the two labels —
-with no fixed allowance left in it.
-
-This ADR's rule is unchanged and is now applied uniformly: **the packer measures
-what it will send and assumes nothing about the size of anything.** The labels
-keep the treatment R0001-0013 gave them, and they are still forwarded verbatim
-and unparsed to every consumer this ADR names.
-
-## Amendment (2026-08-07) — the reserved literal has one spelling at the CLI boundary
-
-Ticket `fd5aa8`. The 2026-08-06 whitespace amendment made the reserved literal
-recognizable through padding; **case** was the half it left. Both sentinel tests
-in the tree folded ASCII case — `profile::render_prompt_body` and
-`translate_cmd::publish::pane_source_language` — while
-`translate_cmd::args::resolve_language_and_model_args` only trimmed. So
-`--source-language AUTO` compiled *"the auto-detected source language"* and
-rendered the bundle's source pane from the model's *detected* label, yet
-`CacheKey::source_lang`, the user-message payload's `source_language` and the
-alignment map's `source_language` all carried the literal `AUTO`. One request,
-two identities: the prompt and the pane said "detection was requested", the key
-and the metadata said "a label spelled `AUTO`". That is the R0001-0021 split
-again, one notch weaker — the two answers no longer contradict each other, they
-just fail to be the same answer.
-
-The CLI now stores a recognized sentinel in its **canonical spelling**, at the
-same place and for the same reason it trims:
-
-- **One recognizer, two callers.** `args::is_source_language_sentinel` is the
-  only place the CLI decides whether a value is the sentinel; the argument
-  boundary canonicalizes with it and the bundle emitter's
-  `pane_source_language` asks it. Two copies of the question were what let the
-  answers diverge, so there is now one.
-- **Only the reserved literal is folded.** A value the recognizer rejects is
-  stored byte-for-byte, case included — `DE` stays `DE`, `Auto-detect` stays
-  `Auto-detect`, `"Korean (formal, 존댓말)"` stays intact. This is not case
-  folding of *labels*; it is a reserved word being spelled the one way it is
-  defined.
-- **The target side is untouched.** No literal is reserved there, so
-  `--target-language AUTO` is an ordinary label.
-- **The library layer is deliberately unchanged**, on the same layering the
-  padding amendment stated: `TranslateOptions::source_language` stays opaque,
-  and only its sentinel *test* tolerates padding and case. A caller that
-  bypasses the CLI with `"AUTO"` therefore compiles the detection prompt but
-  keys and stamps `AUTO` — pinned by
-  `scn_11_the_library_keeps_the_sentinels_spelling`, so the asymmetry is a
-  recorded decision rather than an oversight.
-
-Consequence for the cache, stated plainly: **a run spelled `AUTO` (or `Auto`)
-re-keys, once.** Entries it wrote under the old literal are still in the cache
-and are never looked up again; from now on it shares identity with the `auto`
-runs. Sharing is correct and not merely convenient, because the canonical label
-is also what goes on the wire: two runs that now share a key send byte-identical
-requests. Nothing about a non-sentinel label's identity moves.
+- 2026-08-03 (DCR-0015, OI-0032): the HTML bundle gained a best-effort RTL pane-direction hint; engine consumers keep the label opaque.
+- 2026-08-06 (R0001-0013, ti 24fd28): the batch reserve began encoding both labels instead of covering them with a fixed 256-token allowance.
+- 2026-08-06 (R0001-0021, ti ed8c57): the CLI began trimming surrounding whitespace off both labels once, so a padded `auto` is the sentinel.
+- 2026-08-06 (ti aa92d64f): `batch::FIXED_ENVELOPE_TOKENS` was removed; the per-batch reserve became four encoded strings.
+- 2026-08-07 (ti fd5aa8): the CLI began storing a recognized sentinel as `auto`; a run spelled `AUTO` re-keyed once, then shared `auto`'s identity.

@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Release Checklist"
+description: "The ordered ritual for cutting a tagged release — preflight, standing gates, the live-endpoint gate, CHANGELOG, version bump, records, commit and tag"
+tags: ["process", "project", "DCR-0015", "OI-0030"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Release Checklist
 
 The ritual for cutting a tagged `transync` release, in the order it has to
@@ -32,66 +41,16 @@ Every annotated `vX.Y.Z` tag. Steps 10–12 (the live-endpoint gate) are
 conditional on what the release range touches; everything else is
 unconditional.
 
-### v0.4.0 shipped untagged, then was tagged — owner decisions, 2026-08-13 and 2026-08-20
-
-**Superseded. `v0.4.0` is tagged.** The decision below stood from 2026-08-13
-until the release had already shipped, and the owner reversed it the same day
-the release landed: an **annotated `v0.4.0` tag** now points at the release-prep
-commit from step 24, and it is pushed to the `backup` mirror.
-
-What reversed it was not a change of mind about this repository's history —
-that reasoning, kept below, still holds — but a use the original decision did
-not weigh: **consumers need a ref to depend on.** A tag serves that whether or
-not the commit's ancestry is the development that produced the release. The tag
-makes no claim about ancestry; it names which tree is v0.4.0.
-
-So **steps 1, 15, 20, 25, 26, 27 and 28 run as written** — their v0.4.0
-carve-outs are spent, and each says so where it stands. Two carve-outs are
-**not** spent, because they were never about the tag: **steps 3 and 10** rest on
-the history restart, and both facts are still true — no `v0.3.0` tag exists to
-name, and this history is one root commit below the release, so a
-`git log v<prev>..HEAD` or `git diff v<prev>..HEAD` range still cannot be
-formed. Do not read "the tag exists now" as retiring those.
-
-The original decision and its reasoning, kept because the next reader needs to
-know why the release shipped the way it did:
-
-**Scope: v0.4.0 only.** That release is recorded in `CHANGELOG.md` and in the
-section F records, and **no `v0.4.0` tag is created for it**. Tagging resumes
-at the next release, which runs every step below exactly as written.
-
-The reason is a fact about this object store, not a preference. This
-repository's git history has been restarted **twice** — on 2026-08-10
-(`docs/project/git-history-loss-2026-08-10.md`) and again on 2026-08-17
-(`docs/project/git-history-loss-2026-08-17.md`) — each time after the object
-store lost objects to a file-sync client writing inside `.git`, 30 the first
-time and 33 the second. Each restart replaced the whole graph, so **this
-history has exactly one commit below the work in progress**: the restart
-commit, whose message begins "chore: the repository restarts from a verified
-working tree". Name it by resolving it rather than by quoting a hash — an
-earlier revision of this file quoted the 2026-08-10 restart's hash, and the
-2026-08-17 restart made that instruction unfollowable:
-
-```bash
-git rev-list --max-parents=0 HEAD    # the root commit of whatever history this clone holds
-```
-
-`git tag -l` returns **empty**: the three previously shipped tags did not
-survive, and the commits they pointed at are not in this clone. Tagging v0.4.0
-here would put a release tag on a commit that does not carry the release's
-history.
-
-Nothing below is deleted for this — every step that needs a tag needs one
-again at the next release. Where a step cannot be followed without a tag
-*now*, it says what to do for v0.4.0 instead: steps 1, 3, 10, 15, 20, 25, 26,
-27 and 28.
-
-*(Since the 2026-08-20 reversal that list has two live members, not nine.
-Steps 1, 15, 20, 25, 26, 27 and 28 needed a tag and now have one, so each
-carries a spent-note where it stands and otherwise reads as written. **Steps 3
-and 10 are still live**, because they never depended on the tag: no `v0.3.0`
-exists to name, and this history is one root commit below the release, so a
-`v<prev>..HEAD` range cannot be formed either way.)*
+Two carve-outs are **not** spent, because they were never about the tag:
+**steps 3 and 10** rest on the history restart, and both facts are still true —
+no `v0.3.0` tag exists to name, and this history is one root commit below the
+release, so a `git log v<prev>..HEAD` or `git diff v<prev>..HEAD` range still
+cannot be formed. Do not read "the tag exists now" as retiring those. Name the
+root commit by resolving it rather than by quoting a hash:
+`git rev-list --max-parents=0 HEAD`. Every other v0.4.0 carve-out is spent —
+steps 1, 15, 20, 25, 26, 27 and 28 run as written. Why v0.4.0 shipped untagged
+on the owner's 2026-08-13 decision and was tagged on the owner's 2026-08-20
+reversal is kept in `docs/project/release-checklist-archive.md`.
 
 **The step numbers are cited from outside this file** — the failure
 messages in `crates/transync/tests/workspace_publication.rs` (steps 17 and
@@ -159,10 +118,6 @@ free where it belonged.
    (this project commits directly to `master`), and everything the release
    contains already committed — a tag points at a commit, never at a working
    tree. Every gate below runs against *that* commit.
-
-   v0.4.0's carve-out here is spent: it fixed one commit — the release-prep
-   commit from step 24 — and since 2026-08-20 the `v0.4.0` tag points at that
-   same commit, so the step reads as written with nothing removed.
 
 2. **Pick the version number under the stability rules, not by feel.**
    `contracts.md` §0/§1 decide what counts as breaking; a break needs a
@@ -291,8 +246,9 @@ Run all of them on the exact commit from step 1, and keep the output.
    --all-features -- -D warnings`.** The tracked pre-commit hook runs both
    plus the wasm gate, **both** rustdoc legs — the library one and the
    bin-only `--document-private-items` one `transync-cli` needs (`a24f323`,
-   2026-09-06) — and a `biome format` leg over every tracked
-   `.js`/`.mjs`/`.cjs` (OI-0039 / DCR-0049), on the release-prep commit, so
+   2026-09-06) — and a `biome format` + `biome lint --error-on-warnings` leg
+   over every tracked `.js`/`.mjs`/`.cjs` (OI-0039 / DCR-0049, DCR-0056), on
+   the release-prep commit, so
    running them here is an early check, not a substitute — and the hook is
    never bypassed with `--no-verify`. Install the JS toolchain before that
    commit (`cd web && pnpm install --frozen-lockfile`): a declared-but-uninstalled
@@ -322,16 +278,15 @@ Run all of them on the exact commit from step 1, and keep the output.
      `transync_syntax::id::BlockId` and the provider unifies the types), and
      **`transync-lang`** (a fourth, since 2026-09-06, `a4b1acc`)
 
-   **Verified 2026-09-05, and the step's original premise is spent.** It read
-   "every checkout below depends on `crates/transync` and `crates/transync-openai`
-   by **path**, so it compiles against this working tree". That is no longer
-   true of either: both now depend on the **GitHub tag** — `{ git =
-   "https://github.com/QuietJoon/transync.git", tag = "v0.4.0" }` — and neither
+   Both depend on the **GitHub tag** — `{ git =
+   "https://github.com/QuietJoon/transync.git", tag = "v0.5.0" }`, moved there
+   by dynwebserver `9ea9711` and resp-translator `d104793` — and neither
    carries a `[patch]` override or a path dependency. So `cargo check
-   --workspace` in those checkouts compiles the **published v0.4.0 tree** and
+   --workspace` in those checkouts compiles the **published v0.5.0 tree** and
    says nothing whatever about the commit being tagged; running it and
-   recording a green would be evidence about the wrong tree. Check first,
-   then choose:
+   recording a green would be evidence about the wrong tree. What this step
+   owes them now is the set of migration items the **next** release will hand
+   them. Check first, then choose:
 
    - **Path or `[patch]`ed to this tree** — run `cargo check --workspace`
      there against the commit to be tagged, per consumer, and record whether a
@@ -347,13 +302,6 @@ Run all of them on the exact commit from step 1, and keep the output.
 
    A per-consumer record is owed either way; "not applicable, and here is why"
    is a result, silence is not.
-
-   **Updated 2026-09-06.** Both consumers have since moved their pin from
-   `v0.4.0` to `tag = "v0.5.0"` — dynwebserver on 2026-09-05 (`9ea9711`),
-   resp-translator on 2026-09-06 (`d104793`) — so the migration items step 8
-   owed them for v0.5.0 are spent, and what this step owes now is the set the
-   **next** release will hand them. The 2026-09-05 paragraph above is a dated
-   observation and stands as written; the branch it selects has not changed.
 
    For reference, the shape a real run produces: v0.2.0's was an empty profile `target_language` now
    failing fast with `stable_code "internal"` — exactly the class of change a
@@ -386,14 +334,14 @@ Run all of them on the exact commit from step 1, and keep the output.
 
 10. **Decide whether the gate is triggered — by inspection, not recall.** It
     is triggered if the release range touches `transync-openai`,
-    `transync-google`,
+    `transync-anthropic`, `transync-google`,
     `transync-core::llm::prompt`, the output schema (the Structured Output
     schema object and the `TranslationBatchResult` envelope the model has to
     fill), or batching:
 
     ```bash
     git diff --stat v<prev>..HEAD -- \
-      crates/transync-openai crates/transync-google \
+      crates/transync-openai crates/transync-anthropic crates/transync-google \
       crates/transync-core/src/llm crates/transync-core/src/llm.rs \
       crates/transync-core/src/batch.rs \
       crates/transync-core/src/unit crates/transync-core/src/unit.rs
@@ -418,10 +366,16 @@ Run all of them on the exact commit from step 1, and keep the output.
 11. **Run it — by leg name, not by the bare default.**
     `OPENAI_API_KEY=… ./scripts/smoke-live-gate.sh chat`, then the same with
     `responses`: two tiny mini-model calls, one per OpenAI API surface. The
-    script takes `chat|responses|anthropic|google-vertex|google-developer|all`
-    and defaults to **`all`**, now five legs. It requires OpenAI and Anthropic
-    keys, a Google Cloud project with ADC for Vertex, and a Gemini API key for
-    Developer. Run `./scripts/smoke-live-gate.sh google-vertex` and
+    script takes
+    `chat|responses|anthropic|google-vertex|google-vertex-express|google-developer|all`
+    and defaults to **`all`**, six legs. It requires OpenAI and Anthropic
+    keys, a Google Cloud project with ADC for Vertex, a Vertex express-mode
+    key (`GOOGLE_API_KEY`) and a Gemini API key for Developer. A key that is
+    not in the environment is read from its gitignored file at the
+    repository root when that file exists (`.openai.api_key`,
+    `.anthropic.api_key`, `.google_vertex.api_key`, `.gemini.api_key`). Run
+    `./scripts/smoke-live-gate.sh google-vertex`,
+    `./scripts/smoke-live-gate.sh google-vertex-express` and
     `./scripts/smoke-live-gate.sh google-developer` separately when those
     credentials are configured. The bare form refuses without
     `ANTHROPIC_API_KEY` in this environment (`status.md` carries that gap).
@@ -445,7 +399,8 @@ Run all of them on the exact commit from step 1, and keep the output.
     Completions) and `<responses-model>` (Responses).” Name the legs that
     ran **and** the legs that did not, so that `2/2` reads as the two OpenAI
     surfaces rather than as the whole gate. Record `anthropic`,
-    `google-vertex` and `google-developer` separately as passed, failed or
+    `google-vertex`, `google-vertex-express` and `google-developer` separately
+    as passed, failed or
     unrun; a release that skips a leg says so. If the gate was *not* triggered,
     say so explicitly — an absent line
     is indistinguishable from a forgotten one.
@@ -472,22 +427,13 @@ Run all of them on the exact commit from step 1, and keep the output.
     version heading rendered as literal text until a follow-up commit fixed
     it.
 
-    **v0.4.0's commit-URL form is spent, and it cost a second commit — which
-    is the lesson worth keeping.** While the release was untagged, `[0.4.0]`
-    was defined as a commit URL for the release-prep commit and `[Unreleased]`
-    compared that sha to `HEAD`. A commit URL names the sha of the commit it
-    ships in, which cannot be known before that commit exists, so the release
-    committed with a `RELEASE_PREP_SHA` placeholder and substituted the real
-    sha immediately afterward. **Expect two commits whenever a release ships
-    untagged**; a tagged release does not have the problem, because the tag
-    name is known in advance. Since the 2026-08-20 tag both entries were
-    rewritten to their normal form — `[0.4.0]` is
-    `https://github.com/QuietJoon/transync/releases/tag/v0.4.0` and
-    `[Unreleased]` compares `v0.4.0...HEAD`. Step 16's invariant is unchanged:
-    the heading still needs exactly one definition, and step 27 still requires
-    it to render as a link. The stanza's existing `v0.1.0`–`v0.3.0` entries
-    stay as written; they name refs those releases really carried when they
-    shipped.
+    `[0.4.0]` is in its normal form,
+    `https://github.com/QuietJoon/transync/releases/tag/v0.4.0`, and the
+    stanza's existing `v0.1.0`–`v0.3.0` entries stay as written; they name refs
+    those releases really carried when they shipped. A release that ships
+    untagged has no tag to name here and needs the commit-URL form instead;
+    **expect two commits whenever a release ships untagged** (step 28 says
+    why).
 
 16. **Assert the invariant** before moving on: every `## [version]` heading
     has exactly one matching `[version]:` link definition, and every
@@ -646,14 +592,8 @@ Run all of them on the exact commit from step 1, and keep the output.
     the tallies from step 9; the next-actions block strikes the release
     through and names what follows it.
 
-    v0.4.0's carve-out here is spent. While the release was untagged the line
-    read `v0.4.0 (untagged, owner decision 2026-08-13)` and pointed at *When it
-    applies*, on the rule that a version line naming a ref `git rev-parse`
-    cannot resolve is worse than one saying why there is none. That rule still
-    governs; it simply no longer applies, because the ref resolves. The line
-    now names the tag and the commit it points at, and says the tag was created
-    after the release and makes no claim about ancestry — `git log v0.4.0`
-    reaches one synthetic root, not the development that produced the release.
+    The workspace-version line follows one rule: a version line naming a ref
+    `git rev-parse` cannot resolve is worse than one saying why there is none.
 
 **20a. `README.md`'s Status line names the new release and the new tag.** It is
 the first thing GitHub renders and it ships **inside the tagged tree**, so a
@@ -720,9 +660,7 @@ followed. A future insertion should do the same rather than shift anything.
     git tag -a vX.Y.Z -m "transync vX.Y.Z — <headline>"
     ```
 
-    **v0.4.0's skip is spent.** It was skipped on 2026-08-13's decision and
-    then tagged on 2026-08-20 when the owner reversed it (*When it applies*),
-    so this step has no exception left in it. A release that tags late tags the
+    This step has no exception. A release that tags late tags the
     release-prep commit from step 24 — the same commit the CHANGELOG names —
     and says in the tag message why it is late, because a tag whose date
     trails its release is a question someone will ask.
@@ -748,21 +686,12 @@ followed. A future insertion should do the same rather than shift anything.
 
     `%(objecttype)` must read `tag`, not `commit`.
 
-    **v0.4.0's inverted form is spent.** While the release was untagged this
-    check ran backwards — the first command had to print *nothing*, confirming
-    both that step 25 was skipped on purpose and that no tag had been
-    resurrected by accident. It was run in that form and passed. Since the
-    2026-08-20 reversal the normal form applies: `v0.4.0 tag 2026-08-20` and
-    `v0.5.0 tag 2026-09-05` are what it prints, and `%(objecttype)` reading
-    `tag` on **both** lines is what it proves.
-
 ## H. After the tag
 
 27. **Re-read the top of the rendered CHANGELOG.** The new version heading
     must render as a link (the step-15 failure mode is a heading that renders
     as literal text), and `[Unreleased]` must hold only its placeholder line
-    and compare against the new tag. v0.4.0's stand-in — the release-prep
-    commit URL from step 15 — is spent; both entries name the tag now.
+    and compare against the new tag.
 
 28. **Push, then publish.** This clone now has **two** remotes.
     **`backup`** — `/Volumes/Common/git-backup/transync.git`, a bare mirror on
@@ -771,8 +700,9 @@ followed. A future insertion should do the same rather than shift anything.
     the 2026-08-19 recurrence cost nothing: `git push backup master` after the
     release-prep commit, and after the tag when there is one
     (`git push backup vX.Y.Z`). **`origin`** — `github:QuietJoon/transync.git` —
-    is the one the CHANGELOG's compare URLs name, and `master` tracks
-    `origin/main`. Neither push is publication in the crates.io sense; see
+    is the authoritative store (ti `6b4300`) and the one the CHANGELOG's
+    compare URLs name; `master` tracks `origin/master`. Push `origin` first,
+    then `backup`. Neither push is publication in the crates.io sense; see
     below.
 
     **GitHub publication is wired and pushed; registry publication is not.**

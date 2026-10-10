@@ -45,6 +45,22 @@ Chosen option 3 (user routing, Review 0008 gate, 2026-07-11). The
 wrappers stay bound to `0.0.0.0`; `smoke-live.sh` keeps its `127.0.0.1`
 default for everyone who calls it directly.
 
+The bind is not sufficient on its own: it decides which *network* can
+open the socket, not which authorities `transync serve` answers for.
+That set, and how `--allow-host` widens it, is `contracts.md` §6's rule
+(the `--allow-host` entry and the `Host` bullet of the `transync serve`
+note). A `0.0.0.0` bind cannot derive the address another machine
+reaches the dev box at, so a browser on the second machine typing the
+dev box's LAN address sends a `Host` naming that address and is
+answered with a `421`.
+
+So the wrappers keep working with zero flags **from this machine**, at
+`localhost`. Cross-machine browsing additionally needs the authority the
+other browser types, named through `TRANSYNC_LIVE_ALLOW_HOST=<host:port>`,
+which `scripts/smoke-live.sh` forwards as `--allow-host`. The wrappers
+cannot set it themselves — the address is the operator's to state — so
+their comments say so instead.
+
 Status: No change required.
 
 ### Implementation
@@ -54,31 +70,21 @@ None. Reviewers: treat `TRANSYNC_LIVE_BIND=0.0.0.0` in
 
 ## Consequences
 
-* Good, because the owner's cross-machine demo workflow keeps working
-  with zero flags.
+* Good, because the owner's demo workflow keeps working with zero flags
+  from this machine, and cross-machine browsing takes one setting the
+  operator states, `TRANSYNC_LIVE_ALLOW_HOST`.
 * Bad, because anyone copying the wrappers verbatim onto an untrusted
-  network exposes their translation output; the wrappers' comments and
-  this ADR carry that warning.
+  network still publishes the socket to that network; a page reaching it
+  under a name the server does not answer for is refused before the
+  served root is consulted, but the `Host` check is not deployment
+  hardening (`contracts.md` §6). The wrappers' comments and this ADR carry
+  that warning.
 
-## Amendment (2026-08-16) — the bind is no longer sufficient on its own
+## History
 
-The decision stands; one consequence above has expired. Since the `Host`
-check landed (R0004-0002, 2026-08-12), a bind decides which *network* can
-open the socket and no longer decides which authorities the server
-answers for. `serve_cmd::host::HostPolicy::new` derives nothing from a
-wildcard bind but the loopback authorities it is also listening on —
-`127.0.0.1`, `[::1]`, `localhost` — so a browser on the second machine
-typing the dev box's LAN address sends a `Host` naming that address,
-gets `Verdict::Elsewhere`, and is answered with a `421`.
+The full text of each replaced passage is in
+[`archive/adr-amendments.md`](archive/adr-amendments.md), under ADR-0011.
 
-So "keeps working with zero flags" now reads: keeps working with zero
-flags **from this machine**, at `localhost`. Cross-machine browsing
-additionally needs the authority the other browser types, named through
-`TRANSYNC_LIVE_ALLOW_HOST=<host:port>`, which `scripts/smoke-live.sh`
-forwards as `--allow-host`. The wrappers cannot set it themselves — the
-address is the operator's to state — so their comments say so instead.
-
-The "bad" consequence is correspondingly narrower: a wrapper copied onto
-an untrusted network still publishes the socket, but a page reaching it
-under a name the policy does not answer for is refused before the served
-root is consulted.
+- 2026-07-11 (R0008-0010): the Review 0008 gate chose option 3; the wrappers keep `TRANSYNC_LIVE_BIND=0.0.0.0`.
+- 2026-08-09 (ti b791d6): `transync serve` replaced the Python demo server behind `scripts/smoke-live.sh`.
+- 2026-08-16 (R0004-0002): after the 2026-08-12 `Host` check, zero flags works from this machine only; cross-machine browsing needs `TRANSYNC_LIVE_ALLOW_HOST`.

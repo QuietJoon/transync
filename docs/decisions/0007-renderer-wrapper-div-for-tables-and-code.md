@@ -11,15 +11,13 @@ status: active
 ## Context and Problem Statement
 
 Found in Review 0001 (Issue R0001-0024, Severity: High) (review archived and removed).
-Location: `crates/transync-core/src/render.rs::wrapper_element_for`
-(now `crates/transync-syntax/src/render.rs` — see the 2026-08-04 amendment
-at the end of this record)
+Location: `crates/transync-core/src/render.rs::wrapper_element_for` (now `crates/transync-syntax/src/render.rs`)
 
-`docs/architecture/contracts.md` §4 (HTML attributes) specifies that the
+`docs/architecture/contracts.md` §4 (HTML attributes) specified that the
 sync-id attributes (`data-sync-id`, `data-block-kind`, `data-order`,
 `data-fallback`, `data-parent-id`) live on the *semantic outer element*
-of each block. For tables that means `<table data-sync-id="t-0001">…`;
-for code blocks that means `<pre data-sync-id="c-0001"><code>…`.
+of each block. For tables that meant `<table data-sync-id="t-0001">…`;
+for code blocks that meant `<pre data-sync-id="c-0001"><code>…`.
 
 The shipping renderer instead wraps tables and code blocks in a
 transparent `<div data-sync-id="t-0001"><table>…</table></div>` /
@@ -31,7 +29,7 @@ inline comment on `wrapper_element_for` documents the choice:
 > a transparent `<div>` so the sync-id wrapper does not nest a second
 > copy of the same element.
 
-This is a real conflict between the contract and the implementation.
+That was a real conflict between the contract and the implementation.
 
 ## Decision Drivers
 
@@ -74,15 +72,26 @@ either (a) the user observes or (b) downstream consumers depend on.
 Status: Implemented. Contract update in
 `docs/architecture/contracts.md` §4 + cross-reference DCR-0001.
 
+The attributes therefore live on a transparent `<div>` around Comrak's
+own `<table>` / `<pre>` — and, on the same rationale, `<blockquote>` —
+as `contracts.md` §4 documents. That governs Comrak-rendered panes; an
+HTML-source pane deliberately puts them on a block's own outermost
+element where that element can carry them (`contracts.md` §4,
+*HTML-source panes*, DCR-0038).
+
 ### Implementation
 
-No code change required — the renderer behavior is being formalized,
-not modified. The action items are documentation:
-- Update `contracts.md` §4 to describe the wrapper-div pattern as the
-  intended shape.
-- Cross-reference this ADR + DCR-0001.
-- Keep the inline comment on `wrapper_element_for` as the
-  authoritative description of the choice.
+No code change was required — the renderer behavior was formalized,
+not modified. `contracts.md` §4 describes the wrapper-div pattern as the
+intended shape and cross-references this ADR + DCR-0001. Keep the inline
+comment on `wrapper_element_for` as the authoritative description of the
+choice.
+
+From one Comrak parse per pane, the renderer hands each block's paired
+AST node to `comrak::format_html` — the **whole node** for table / code
+block / blockquote — so Comrak's own element lands inside the `<div>`
+with nothing injected into it and no string surgery on Comrak's HTML
+(`contracts.md` §4, *Rendering mechanism*).
 
 ## Consequences
 
@@ -90,7 +99,8 @@ not modified. The action items are documentation:
   reading either the ADR or the inline comment reach the same mental
   model.
 * Good, because the implementation can use Comrak's HTML output
-  unmodified — no AST surgery required for tables and code blocks.
+  unmodified — no AST surgery and no string surgery, so the brittleness
+  R0001-0096 recorded (OI-0008) cannot arise.
 * Good, because downstream CSS/JS consumers always have a single,
   predictable element to target via `[data-sync-id]` regardless of
   block kind.
@@ -101,33 +111,12 @@ not modified. The action items are documentation:
   from the wrapper, not up from the cell, so this is moot for the
   shipping demo.)
 
-## Amendment 2026-08-04 (DCR-0017) — mechanism, not decision
+## History
 
-*Appended, not a rewrite. The decision stands unchanged: sync-id attributes
-live on a transparent `<div>` wrapping Comrak's own `<table>` / `<pre>` /
-`<blockquote>`, and `contracts.md` §4 continues to document that as the
-intended shape.*
+The amendment's full text, and the body wording consolidation replaced:
+[`archive/adr-amendments.md`](archive/adr-amendments.md), ADR-0007.
 
-Two mechanism statements above are now stale:
-
-- **Location.** `wrapper_element_for` lives in
-  `crates/transync-syntax/src/render.rs` (the renderer moved to the new
-  wasm32-compilable base crate). Its inline comment remains the authoritative
-  description of the wrapper choice, per the *Implementation* section's third
-  action item.
-- **"No AST surgery required" is now satisfied differently — and better.**
-  The 2026-07 renderer avoided AST surgery by reparsing each block as an
-  isolated fragment and string-stripping Comrak's outer element
-  (`strip_outer_wrapper`). That mechanism is **deleted**. The renderer now
-  parses each pane once and hands the paired AST node straight to
-  `comrak::format_html`: for table / code block / blockquote it formats the
-  **whole node**, so Comrak still emits its own `<table>` / `<pre><code>` /
-  `<blockquote>` inside the transparent `<div>` — identical output, reached by
-  reading the AST instead of by rewriting Comrak's HTML.
-
-The *Decision Drivers* bullet "Injecting attributes into Comrak's emitted
-outer element requires either AST-level node manipulation … or post-process
-string surgery (brittle)" is unchanged as a rejection of option 2 — the
-renderer still injects nothing into Comrak's element. What changed is that the
-alternative it chose is no longer string surgery either, which retires the
-R0001-0096 brittleness that OI-0008 tracked.
+- 2026-05-04 (R0001-0024, DCR-0001): decision recorded, formalizing the wrapper-div renderer behavior already shipping.
+- 2026-07-10 (DCR-0001): `contracts.md` §4 rewritten to describe the wrapper-div pattern as the intended shape.
+- 2026-08-04 (DCR-0017): renderer moved to wasm32-compilable `transync-syntax`; whole-node formatting replaced `strip_outer_wrapper` (R0001-0096, OI-0008).
+- 2026-09-03 (DCR-0038): HTML-source panes put the attributes on the block's own open tag; this wrapper rule governs Comrak-rendered panes.
