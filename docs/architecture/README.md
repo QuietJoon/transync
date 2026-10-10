@@ -1,3 +1,12 @@
+---
+type: "Architecture Overview"
+title: "Architecture Overview"
+description: "Entry point to the architecture set: the crate-by-crate component table, the end-to-end pipeline state machine, the eight architectural invariants, and a pointer index to every deeper document"
+tags: ["architecture", "translation", "browser"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # transync — Architecture Overview
 
 This document is the entry point to the architecture artifacts. It names the components, describes the data flow, and points to the deeper documents for each concern.
@@ -24,7 +33,7 @@ The application — not the LLM — owns block IDs, table shape, list topology, 
 | HTML mechanics engine    | `crates/transync-html`            | Text-segment extraction / positional splice-back inside raw-HTML blocks (`lol_html`, one pinned `Settings` for both passes) + render-path fragment balancing (ADR-0018 / DCR-0016) |
 | Source-language gate     | `crates/transync-lang`            | *Pre-flight* only: is this text already in the target language, so a caller can skip the run? Script test first, `whichlang` second (backend chosen by measurement — `benchmark/lang-detect/RESULTS.md`). Depends on no workspace member, and its `Verdict` names no language — it must never become the alignment map's provider-authored `detected_source_language` (ti `e4f4b0`) |
 | Translation unit builder | `crates/transync-core` (`unit` mod)    | Context-rich units; section path + neighbor snippets |
-| Batch manager            | `crates/transync-core` (`batch` mod + `unit::section`) | Section-coherent packing: the unit list is partitioned at every heading (`unit::section`), then each section is packed by the sequential token-budget packer (consumer-driven via `TranslateOptions`). No batch straddles a section boundary; an oversize section splits inside itself (DCR-0027) |
+| Batch manager            | `crates/transync-core` (`batch` mod + `unit::section`) | Section-coherent packing: the unit list is partitioned at every heading (`unit::section`), then packed a whole section at a time by the sequential token-budget packer (consumer-driven via `TranslateOptions`). Adjacent whole sections share a batch when they fit and agree on both admission terms — glossary cohort and `DocumentFacts` (DCR-0057); a section is split only when it cannot fit a batch alone, and then inside itself (DCR-0027). `[batching].coalesce_sections = false` restores strict confinement — no batch straddles a section boundary (DCR-0027 P2) |
 | Translator trait         | `crates/transync-core` (`llm` mod)     | HTTP-free contract: `translate_batch(batch, cancel) -> result` + `fingerprint()` for cache namespacing; the `cancel` token is the run's (DCR-0024, contracts.md §5b) |
 | Translation cache        | `crates/transync-core` (`cache` mod)   | `Cache` trait v2 (`get`/`put`/`evict`, fallible); `CacheKey` identity; provisional results, hits re-validated (ADR-0015) |
 | Validator                | `crates/transync-core` (`validate` mod)| Layered: schema → IDs → per-kind → fragment reparse → visible-text presence → inline protection → full reparse |
@@ -35,7 +44,7 @@ The application — not the LLM — owns block IDs, table shape, list topology, 
 | Facade crate             | `crates/transync`                 | Semver firewall: an **explicitly curated** re-export list over `transync-core`, enumerated in `contracts.md` §0 and pinned by `tests/public_surface.rs`. Engine internals are deliberately not reachable through it (DCR-0005 / DCR-0017 / DCR-0018) |
 | OpenAI Translator impl   | `crates/transync-openai`          | Default `Translator` impl: model-driven Chat/Responses dispatch + Structured Outputs |
 | Anthropic Translator impl | `crates/transync-anthropic`      | Second in-tree `Translator` impl: the Anthropic Messages API — one endpoint, so no `Api` axis — with structured outputs via `output_config.format` (DCR-0029, contracts.md §8). The facade re-exports neither provider; a consumer names a provider crate directly (ADR-0002) |
-| Google Translator impl   | `crates/transync-google`         | Gemini Developer API and Vertex AI through one `Translator` impl; the CLI selects either surface explicitly (DCR-0058, contracts.md §9) |
+| Google Translator impl   | `crates/transync-google`         | Gemini Developer API and Vertex AI through one `Translator` impl; the CLI selects the surface explicitly — `--google-surface`, plus `--google-auth api-key` for Vertex express mode (DCR-0058, DCR-0060; contracts.md §9) |
 | CLI                      | `crates/transync-cli`             | `transync translate` with OpenAI or Google + `transync serve`; Anthropic remains library-only |
 | JS sync engine           | `web/js/sync.js`                  | Scroll-listener + reference-line active-block sync by block ID; smooth-lerp partner follow with a programmatic-scroll lock |
 
@@ -50,8 +59,8 @@ source.md
 ┌──────────────────┐   ┌──────────────────┐   ┌───────────────────────────────┐
 │ parse (Comrak)   │──▶│ assign block IDs │──▶│ build units + batches         │
 │ GFM AST → IR     │   │ + source hashes  │   │ (partition at every heading,  │
-└──────────────────┘   └──────────────────┘   │ then sequential token-budget  │
-                                              │ packing WITHIN each section)  │
+└──────────────────┘   └──────────────────┘   │ then pack WHOLE sections;     │
+                                              │ admissible neighbors share)   │
                                               └──────────────┬────────────────┘
                                                              ▼
                                               ┌───────────────────────────────┐

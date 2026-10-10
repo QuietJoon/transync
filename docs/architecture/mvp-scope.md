@@ -1,3 +1,12 @@
+---
+type: "MVP Scope"
+title: "MVP Scope"
+description: "What the shipped system includes and deliberately excludes — the Track D boundary, per-crate in-scope feature lists, the post-MVP waves that landed since, locked defaults, deferred work, and the definition of \"MVP working\""
+tags: ["architecture", "project", "ADR-0018", "DCR-0017"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # MVP Scope
 
 ## Track
@@ -21,7 +30,7 @@ terms as the JS sync engine, and it is not a supported package.
 - GFM parsing via Comrak (ADR-0004).
 - Block IR with stable IDs and source ranges (ID format finalized Phase 2).
 - Translation unit construction with section path + neighbor snippets.
-- Section-coherent, sequential token-budget batch grouping (DCR-0027) — the unit list is partitioned at every heading, and each section is then packed in document order until the budget or the `max_units_per_batch` cap is hit; the consumer or `TranslateOptions` configures the token budget. **A batch never straddles a `##`/`###` boundary**; a section too large for one batch packs into several, all inside that section, which is the only thing that separates one section's units. Whole-section coalescing (two small sections sharing a batch) is deliberately not done — see DCR-0027 OQ-A.
+- Section-coherent, sequential token-budget batch grouping (DCR-0027, DCR-0057) — the unit list is partitioned at every heading, and batches are packed in document order; the consumer or `TranslateOptions` configures the token budget. **A batch is one of exactly two shapes**: N consecutive whole sections whose combined estimates fit all three caps (input tokens, output tokens, `max_units_per_batch`), or a fragment of one oversize section, split inside that section. Consecutive sections coalesce only when they agree on both their effective glossary cohort and their `DocumentFacts`, so the compiled system prompt and the assembled instruction are byte-identical for every unit in the batch; an oversize section coalesces in neither direction, so a section boundary never falls inside a fragment. `[batching].coalesce_sections = false` — or `--no-coalesce-sections` — restores DCR-0027's strict confinement, where every batch's units come from exactly one section.
 - HTTP-free `Translator` trait (ADR-0002). The core crate has zero `reqwest` / `async-openai` dependency.
 - Layered validation: schema → ID set → per-block-kind shape → fragment reparse → visible-text presence → inline protection → full-doc reparse.
 - Retry then fallback to source; never silent corruption.
@@ -135,7 +144,8 @@ Accepted output changes (the full list is in DCR-0017):
 | Default OpenAI model          | `gpt-5-chat-latest` (override via `TRANSYNC_OPENAI_MODEL` or `--model`; if your project lacks access, try `gpt-4o-2024-11-20`) |
 | Provider output ceiling       | `[batching].target_output_tokens` — `--target-output-tokens` overrides. There is no separate request-max-tokens knob; a `12_000` default was written here at Phase 1 and never shipped as a constant. |
 | Default `target_output_tokens`| `8_000` per page |
-| Default max segments per page | `8` (low for MVP, raise after fixture-driven tuning) |
+| Default `max_units_per_batch` | `32` — equal to `TranslateOptions`' built-in default (ti `f17fc9`) |
+| Default section coalescing    | `true` — `[batching].coalesce_sections`, and unset means the same; adjacent whole sections share a batch when they fit and agree on glossary cohort and `DocumentFacts`. `false` confines every batch to one section (DCR-0057) |
 | Default split retries         | *(removed)* — `max_split_retries` was deleted, not repurposed, by DCR-0026 (SL-104); the loader now emits an unknown-key warning for it, because a deterministic packing-time split has no split retry to bound. |
 | License                       | MIT (single) |
 | Rust edition                  | `2024` (workspace pins `rust-version = "1.88"` — let-chains, not the edition, set the floor; `transync-cli` pins 1.89 for the std file lock) |

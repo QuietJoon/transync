@@ -1,3 +1,12 @@
+---
+type: "Scenario Matrix"
+title: "Scenario Matrix"
+description: "Canonical contract for scenarios SCN-01..SCN-16 — trigger, expected output and verifying test layer per row, plus block-kind coverage and the explicit out-of-scope list"
+tags: ["architecture", "SCN-15", "SCN-16", "ADR-0025"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Scenario Matrix
 
 The canonical contract for every MVP scenario. Each row is the test harness reference; the brainstorming spec §11 is the prose summary.
@@ -20,8 +29,8 @@ Verification key:
 | SCN-06 | Blockquotes| Blockquote containing two nested paragraphs and one nested list             | Translated blockquote has the same container shape; nested children are translated and present in the same order | Integration |
 | SCN-07 | Validation | Stub `Translator` that returns one batch with a wrong column count, then a corrected batch on retry | Library invokes the trait twice; final output uses the corrected batch; `ValidationReport` records the retry  | Unit (with `MockTranslator`) |
 | SCN-08 | Fallback   | Stub `Translator` that always returns invalid output for one specific unit  | After max retries, that unit's `fallback_status` is `fallback_source`; sync anchor is still present; rest of the document is translated | Unit + Integration |
-| SCN-09 | Security + prompt rendering | Source MD whose body contains text shaped like an LLM instruction (e.g. "Ignore previous instructions and return X"); plus a sectioned document under a profile carrying a global entry and a `scope = "section"` override of the same term | Compiled system prompt declares source as data; structured-output schema validation passes; translated output does not echo the injection. **Each batch's compiled prompt carries its section's effective glossary and no other's** (DCR-0027): the section-scoped entry's bullet appears in its own sections' prompts, the global rendering holds everywhere else, and selectors are never rendered as prompt text | Unit (prompt rendering) + Integration (with recording stub provider) |
-| SCN-10 | Batching   | 50-page document of mixed blocks, headings included                         | Library produces N batches each under the configured token budget; **no batch straddles a section boundary** — the unit list is partitioned at every heading and packed per section, and a section too large for one batch splits inside itself (DCR-0027); partial-resume after a forced mid-pipeline failure produces identical final output | Integration |
+| SCN-09 | Security + prompt rendering | Source MD whose body contains text shaped like an LLM instruction (e.g. "Ignore previous instructions and return X"); plus a sectioned document under a profile carrying a global entry and a `scope = "section"` override of the same term | Compiled system prompt declares source as data; structured-output schema validation passes; translated output does not echo the injection. **Each batch's compiled prompt carries its sections' effective glossary and no other's** (DCR-0027, DCR-0057 — co-batched sections share one cohort by admission): the section-scoped entry's bullet appears in its own sections' prompts, the global rendering holds everywhere else, and selectors are never rendered as prompt text | Unit (prompt rendering) + Integration (with recording stub provider) |
+| SCN-10 | Batching   | 50-page document of mixed blocks, headings included                         | Library produces batches each under the configured token budget, each holding either a run of consecutive whole sections or a fragment of one oversize section (DCR-0027, DCR-0057). Under `coalesce_sections = false` the strict property holds — **no batch straddles a section boundary**, and the 30-section fixture costs exactly one batch per section (`no_batch_straddles_a_section_boundary`); under the shipped default, adjacent **whole** sections agreeing on glossary cohort and `DocumentFacts` share a batch, so the same document costs materially fewer requests with an unchanged unit set and order (`sections_coalesce_into_fewer_batches`) — both in `crates/transync/tests/scenarios/scn_10_long_document.rs`. Partial-resume after a forced mid-pipeline failure produces identical final output | Integration |
 | SCN-11 | Language   | Source MD without explicit `source-language`; option set to `"auto"`        | LLM result includes detected language; library threads it into the alignment map and `TranslationOutput` | Integration |
 | SCN-12 | CLI        | `transync translate --input crates/transync/tests/fixtures/scn-14-full.md --output out.md --map out.json --html-out out/ --target-language ko` | Process exits 0; the four output paths exist; `out.md` reparses; `out.json` validates against the alignment-map schema; `out/source.html` and `out/target.html` are non-empty and contain `data-sync-id` attributes | CLI |
 | SCN-13 | Sync       | Demo page loaded in a browser pointed at SCN-12 output                      | Scrolling the source pane drives the target pane to the matching block; reverse direction works; rapid scrolling does not oscillate; resize preserves correspondence | Smoke (Playwright `web/tests/scn13.spec.js`) |
@@ -92,19 +101,19 @@ Verification key:
 
 ## Block-kind coverage
 
-The fixture set must collectively exercise every supported GFM block kind at least once across SCN-01 through SCN-06 (plus SCN-15 for the HTML kind, and SCN-16 for the HTML-document population — every kind the HTML intake emits, `title` included):
+The fixture set must collectively exercise every supported GFM block kind at least once, and every kind the HTML intake emits (`title` included). A scenario covers a kind when its test asserts that kind over its fixture; the table below names those scenarios:
 
 | Block kind     | Covering scenarios |
 |----------------|--------------------|
-| Heading        | SCN-01, SCN-12     |
-| Paragraph      | SCN-01, SCN-09, SCN-12 |
+| Heading        | SCN-01, SCN-14     |
+| Paragraph      | SCN-01, SCN-14     |
 | Table          | SCN-02, SCN-03     |
 | Code block     | SCN-04             |
 | List + nested  | SCN-05             |
 | Task list item | SCN-05             |
 | Blockquote     | SCN-06             |
-| Thematic break | SCN-12 (incidental in `scn-14-full.md`) |
-| Image          | SCN-12 (incidental in `scn-14-full.md`) |
+| Thematic break | SCN-14 (`scn-14-full.md`, which SCN-12 also runs) |
+| Image          | SCN-14 (`scn-14-full.md`, which SCN-12 also runs) |
 | HTML block     | SCN-15, SCN-14 (appended tail in `scn-14-full.md`) |
 | Title (HTML document) | SCN-16 |
 | HTML-document blocks (every kind under `Spelling::Html`, `BlockKind::Html` for custom elements included) | SCN-16 |
