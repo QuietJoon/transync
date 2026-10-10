@@ -226,7 +226,8 @@ fn the_pre_extraction_engine_had_no_reserved_attribute_strip() {
 // the idempotence that bought.
 // ---------------------------------------------------------------------------
 
-/// **Claim (ti `95f55b`, contracts.md §4a):** "a closer that would land inside
+/// **Claim (ti `95f55b`, contracts.md §4a; the fuzz figure is in
+/// `docs/architecture/archive/contracts-history.md` §4):** "a closer that would land inside
 /// an unterminated trailing comment, CDATA section, bogus comment, raw-text run
 /// or tag is **not** appended … because a swallowed closer buys nothing and
 /// feeds unbounded re-balance growth: 15,726 violations across 200,000 fuzz
@@ -562,7 +563,8 @@ fn the_next_blocks_anchor_stops_nesting_inside_the_previous_wrapper() {
 // behaviour the record describes is pinned regardless.
 // ---------------------------------------------------------------------------
 
-/// **Claim (ti `490d97` wave 1, contracts.md §4a):** the strip "coalesces
+/// **Claim (ti `490d97` wave 1, contracts.md §4a; the before-the-rule example
+/// is in `docs/architecture/archive/contracts-history.md` §4):** the strip "coalesces
 /// adjacent cuts and replaces the run with one space wherever deleting it would
 /// weld bytes together. Before that rule, `<div data-sync-id="a b="c">x`
 /// stripped to `<divc">x` and the inventory moved from `["div"]` to
@@ -671,7 +673,8 @@ fn adjacent_cuts_coalesce_into_exactly_one_space() {
 // NOT_COMPARABLE for the same reason section 3 is.
 // ---------------------------------------------------------------------------
 
-/// **Claim (ti `415cdb`, contracts.md §4a):** "across a stray `=` the strip
+/// **Claim (ti `415cdb`, `docs/architecture/archive/contracts-history.md` §4):**
+/// "across a stray `=` the strip
 /// over-deleted, so `strip_reserved_sync_attrs("<div =data-sync-id=\"x\">y")`
 /// returned `<div =>y` where a browser folds those bytes into **one junk
 /// attribute named `=data-sync-id`** — nothing reserved present, yet the cut
@@ -721,7 +724,8 @@ fn a_stray_equals_begins_an_attribute_name_so_nothing_is_cut() {
     );
 }
 
-/// **Claim (ti `415cdb`, contracts.md §4a):** "The direction was always safe
+/// **Claim (ti `415cdb`, `docs/architecture/archive/contracts-history.md` §4):**
+/// "The direction was always safe
 /// (over-deletion, never under-deletion: a 51-case browser equivalence probe
 /// found 50/51 equal, that one over-deletion, and **zero** under-deletions), so
 /// the impostor-anchor property was never at risk."

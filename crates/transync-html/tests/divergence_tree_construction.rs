@@ -131,7 +131,9 @@ fn the_vendored_reference_still_balances() {
 /// start tags that enter it. Everywhere else the slash is a parse error the
 /// parser ignores, so "a self-closing spelling of a non-void tag **counts as
 /// opened** and the author's matching end tag is its real closer rather than an
-/// orphan". Before the fix "the walk never pushed one, the author's `</div>`
+/// orphan". Before the fix (wording now in
+/// `docs/architecture/archive/contracts-history.md` §4) "the walk never pushed
+/// one, the author's `</div>`
 /// was deleted as an orphan, and the fragment reached the pane still open".
 ///
 /// `<div/>x</div>` is the smallest input that exhibits it: one non-void tag in
@@ -1010,7 +1012,8 @@ fn close_p_and_close_br_are_never_orphans_because_a_browser_makes_content_of_eac
 // Claim 6 — the deliberate absence: no adoption agency algorithm.
 // ---------------------------------------------------------------------------
 
-/// **Claim (contracts.md §4b "What is NOT modelled"; DCR-0051; ti `525bef`):**
+/// **Claim (contracts.md §4b "What is NOT modelled"; DCR-0051; ti `525bef`; "down
+/// from 1,358" is in `docs/architecture/archive/contracts-history.md` §4):**
 /// "The adoption agency algorithm and the list of active formatting elements. A
 /// formatting end tag goes through 'any other end tag' instead. The appended
 /// redundant closer is a no-op in a browser, but *reconstruction* is not covered
@@ -1055,7 +1058,8 @@ fn the_absent_active_formatting_element_list_is_pinned_rather_than_narrated() {
          for the formatting frame a browser has already moved. That appended \
          closer is the accepted residual — if this value changes, the adoption \
          agency algorithm has been implemented (ti 525bef) or the residual has \
-         moved, and contracts.md §4b's census must be re-measured against \
+         moved, and the html-oracle.spec.js census (and contracts.md §4b's \
+         residual figure) must be re-measured against \
          Chromium in the same commit"
     );
     assert_eq!(
