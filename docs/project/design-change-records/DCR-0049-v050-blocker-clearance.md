@@ -1,7 +1,7 @@
 ---
 type: DCR
 title: The v0.5.0 blocker clearance — the review-0009 cluster is dispositioned, and the arc does not reach a tag
-description: The ten open issues filed from Review 0009 (OI-0039..OI-0048) are all dispositioned, four of them by a recorded deferral with an objective self-firing re-trigger rather than by doing the work. OI-0039 adopts biome format-only. The arc's own output then re-opened the gate it was clearing: the checking apparatus OI-0046 asked for found a live anchor-injection defect on its first execution, and the first run of the browser suite since the biome adoption found a second one that was already red at HEAD.
+description: "The ten open issues filed from Review 0009 (OI-0039..OI-0048) are all dispositioned, four of them by a recorded deferral with an objective self-firing re-trigger rather than by doing the work. OI-0039 adopts biome format-only. The arc's own output then re-opened the gate it was clearing: the checking apparatus OI-0046 asked for found a live anchor-injection defect on its first execution, and the first run of the browser suite since the biome adoption found a second one that was already red at HEAD."
 tags: [change, project-control, DCR-0049]
 generated:
   by: claude-code/claude-opus-5

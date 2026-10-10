@@ -1,7 +1,7 @@
 ---
 type: reference
 title: The nineteen divergences of transync-html from the retired htmlseg
-description: transync-html was lifted out of transync-syntax::htmlseg verbatim and has deliberately diverged from it nineteen times since. This is the enumeration — each divergence with its date, ticket and record — and the rule it exists to serve: a difference from the old htmlseg in any of the nineteen is the fix, not a regression to restore.
+description: "transync-html was lifted out of transync-syntax::htmlseg verbatim and has deliberately diverged from it nineteen times since. This is the enumeration — each divergence with its date, ticket and record — and the rule it exists to serve: a difference from the old htmlseg in any of the nineteen is the fix, not a regression to restore."
 tags: [reference, architecture, transync-html, DCR-0032]
 generated:
   by: claude-code/claude-opus-5

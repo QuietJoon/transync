@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Reserved glossary scope "conditional-on-section" is rejected until section-aware batching lands
-description: Superseded 2026-08-09 by DCR-0027 — this is the record of the rejection era, not current behavior. It recorded that load_profile (and, from 2026-08-05, the translate boundary) rejected glossary entries with scope "conditional-on-section" (ProfileError::Unsupported) instead of rendering them globally with an advisory suffix, as a time-boxed deferral until section-aware batching made per-section filtering cheap. That trigger fired: SL-106..SL-109 shipped section-coherent batching and per-cohort prompts, and removed the rejection helper, ProfileMetadata::ensure_supported and ProfileError::Unsupported outright. Amended 2026-07-13 (external review P0-3); superseded 2026-08-09 (DCR-0027).
+description: "Superseded 2026-08-09 by DCR-0027 — this is the record of the rejection era, not current behavior. It recorded that load_profile (and, from 2026-08-05, the translate boundary) rejected glossary entries with scope \"conditional-on-section\" (ProfileError::Unsupported) instead of rendering them globally with an advisory suffix, as a time-boxed deferral until section-aware batching made per-section filtering cheap. That trigger fired: SL-106..SL-109 shipped section-coherent batching and per-cohort prompts, and removed the rejection helper, ProfileMetadata::ensure_supported and ProfileError::Unsupported outright. Amended 2026-07-13 (external review P0-3); superseded 2026-08-09 (DCR-0027)."
 tags: [decision, ADR-0014]
 status: deprecated
 superseded_by: project/design-change-records/DCR-0027-section-coherent-batching-and-glossary-section-scope.md
