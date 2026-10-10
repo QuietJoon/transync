@@ -1,3 +1,12 @@
+---
+type: "Open Issues"
+title: "Open Issues"
+description: "The live register of accepted but unresolved issues (OI-0040 through OI-0054), each carrying problem, impact, required actions and verification criteria"
+tags: ["project", "process", "validation"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Open Issues
 
 Issues accepted but pending verification or requiring larger architectural changes.
@@ -399,7 +408,7 @@ once, on a code path the threat model says to assume hostile.
 
 ### Related
 
-- Ticket `95f55b` (`docs/backlog.md`, `transync-html-wave-0-1-findings`) — the
+- Ticket `95f55b` (`docs/backlog-archive.md`, `transync-html-wave-0-1-findings`) — the
   ad hoc fuzz run whose harness was not kept.
 - Commit `88964df` — R0009-0017's fix, which R0009-0018's work should build
   on rather than duplicate.
@@ -913,7 +922,7 @@ can be made crate-private — in which case nothing blocks it.
 | OI-0035  | Injected `data-sync-id` can pre-claim a real block's anchor | RESOLVED (2026-08-23) — archived | Low |
 | OI-0037  | Provider payloads bypass the parser's nesting intake guard | RESOLVED (2026-09-01) | Low |
 | OI-0038  | A fully-warm run cannot start offline — credentials precede the cache | RESOLVED (2026-09-02) | Low |
-| OI-0039  | JS lint gate exits 0 while validating nothing            | RESOLVED (2026-09-04) — format half adopted; lint deferred | Low |
+| OI-0039  | JS lint gate exits 0 while validating nothing            | RESOLVED — format half 2026-09-04; lint half 2026-09-15 (DCR-0056) | Low |
 | OI-0040  | Same bytes parsed/spliced repeatedly on the accepted path | RESOLVED (2026-09-04) — prefilter + tripwire; seam deferred | Low (R0009-0035 Medium) |
 | OI-0041  | Pre-network setup recomputes derived values              | RESOLVED (2026-09-04) — partial; rest declined/deferred | Low |
 | OI-0042  | Two worse-than-linear scans in the degraded regen cascade | RESOLVED (2026-09-04) — all three sites, twin included | Low |
