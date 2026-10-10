@@ -26,14 +26,14 @@ test-stub-provider = ["transync/test-stub"]
 
 [dependencies]
 # R0008-0060: the CLI uses serde_json, clap, tokio, url, and secrecy
-# directly; serde, thiserror, tracing, and toml were unused direct deps.
+# directly; serde, thiserror, tracing, and toml were then unused direct deps.
 # R0001-0032: tracing-subscriber is back, and only here. The library
 # members emit `tracing` events and install nothing; the reference binary
 # is the one process that gets to decide where those events go, so the
-# subscriber lives at the application boundary (src/logging.rs). Note the
-# asymmetry with the removed `tracing` dep above: the CLI *consumes* the
-# events, it does not emit them, so it needs the subscriber and not the
-# facade.
+# subscriber lives at the application boundary (src/logging.rs). The CLI
+# mostly consumes those events; its one emitter is the Vertex express-mode
+# notice in src/translate_cmd/provider.rs (DCR-0060), which is why `tracing`
+# is a direct dependency again.
 transync           = { workspace = true }
 transync-openai    = { workspace = true }
 transync-google    = { workspace = true }
