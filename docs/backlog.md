@@ -9,7 +9,7 @@ generated:
 ---
 # Backlog — WIP / deferred / open items
 
-Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-09-12** (earlier in-place passes 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit).
+Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-10-10** (the census below; earlier in-place passes 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit, 2026-09-12).
 The 2026-08-07 refresh was derived from
 `ti list --all` and `git log`, not from this file's own previous text — the review-0001
 arc produced several tickets whose root cause was one document restating another, and the
@@ -51,42 +51,32 @@ as much as the census that answers it, which is why every entry below has to be 
 three states — counting, deferred-with-a-recorded-condition, or resolved/historical — and
 why an entry that is in none of them is a defect in this file, not an ambiguity.
 
-**Census (2026-09-12) — the full sweep, and this is the current one.** Re-derived against
-`ti list --open`, `ti list --all`, `docs/project/open-issues.md` and the source-C registers, not
-read off the 2026-09-08 line below. **87 entries; 40 are live** — each carrying exactly one open
-TicGit ticket, and every one of the **40 open tickets** has an entry, so the two registers agree
-in both directions. By section: Type 1 holds 26 entries of which **2 are live**, Type 2 holds 32
-of which **15 are live**, Type 3 holds 29 of which **23 are live**; the remaining 47 are resolved
-or historical records retained deliberately. Six entries are **new this run** and all six were
-filed as tickets at the selection gate: the v0.5.0 live-endpoint gate still unrun (`342e028d`),
-the Anthropic leg never executed (`40b29a9d`), the unopened breaking window (`2d616b6a`), the disk
-cache's exempt document-scoped records (`9c26d90c`), the `transync-local-llama` deferral with no
-trigger (`3887f02e`), and three documents still calling the oversize deferral live (`2183fbbb`).
-**Type 1 is no longer empty**, and what is in it is two items rather than one: the new
-`mvp-scope-lists-retired-oversize-deferral`, and `adr-0014-anchors-without-their-successor`, whose
-entry has read Type 1 since 2026-09-11 while its ticket stays `blocked` — a **deliberate**
-divergence, documented in that entry, because 4B narrowed the ticket's broader claim to a settled
-citation fix and this command may not reclassify a ticket it did not file. Sources scanned this
-run: TicGit, `docs/project/open-issues.md`, `reviews/*.md` (top level — every round is gated and
-archived, so it yielded nothing), `docs/decisions/*.md` (**zero** `Pending`),
-`docs/project/stub-manifest.md` (every STUB and all 13 DEFERRED rows closed),
-`docs/project/implementation-slice-checklists.md` (**zero** unticked boxes),
-`docs/architecture/mvp-scope.md`, `docs/project/intake.md`, `docs/project/status.md`,
-`docs/project/phase-state.yaml`, `docs/project/implementation-impact-report.md`, and all 53 DCRs.
-Nothing was absent or unreadable. **What counts against a gate is still the owner's to state**, for
-the reason the 2026-09-08 line gives: v0.5.0's window-closing condition was written for v0.5.0, and
-no later gate has been declared.
+**Census (2026-10-10) — a count, not a sweep, and this is the current one.** Computed from
+`ti list --open --json` and `docs/project/open-issues.md`. No other source was re-scanned, so the
+last full sweep is still the 2026-09-12 one. **44 entries; 40 are live** — each carrying at least
+one open TicGit ticket. By section: Type 1 holds 1 entry and it is live, Type 2 holds 19 of which
+**17 are live**, Type 3 holds 24 of which **22 are live**. Four entries carry no open ticket:
+`anthropic-leg-outside-the-release-gate-trigger`, `oversize-tombstones-point-at-a-closed-oi-0008`
+and `phrasing-extension-list-for-custom-elements` cite none, and both tickets of
+`no-machine-check-of-the-manual-cli-reference` are closed. **The two registers do not agree in
+both directions.** TicGit holds **73 open tickets** (1 in progress, 17 new, 55 blocked). Forty are
+cited by an entry and **33 have no entry here**. All 33 were filed after the 2026-09-12 sweep, 31
+of them by the documentation reconciliation and compaction runs that followed it, and the next
+sweep adopts them. Until it runs, the queue is `ti list --open`, not this file. The open-issue
+register's summary lists 20 issues: **4 OPEN** (OI-0051 through OI-0054), **1 DEFERRED** (OI-0049)
+and 15 RESOLVED, four of which (OI-0040, OI-0041, OI-0046, OI-0048) keep their entries in the
+register because each still has an open ticket against it. **What counts against a gate is still
+the owner's to state**: no gate has been declared since v0.5.0, and whether a v0.6.0 breaking
+window is open is undecided (ticket `2d616b6a`).
 
 Re-derive these figures on each sweep rather than trusting them — an entry counts unless it
 carries a resolution or a dated deferral line. The release-side half of this rule is
 `docs/project/release-checklist.md` step 2a, which is where a release actually consults
 the census. Each census replaces the previous one (release-checklist step 20b): the superseded
-censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut) and 2026-09-08, and the TicGit snapshots
-of 2026-08-08 and 2026-08-24, are kept verbatim in `docs/backlog-archive.md`; the "2026-09-08 line" the current census
-cites is the one kept there. An entry moves
-there too, under its own heading, once its resolution is verified against code or a shipped
-artifact — so the 2026-09-12 section counts above still include entries that have moved since,
-until the next sweep re-derives them.
+censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut), 2026-09-08 and 2026-09-12, and the TicGit
+snapshots of 2026-08-08 and 2026-08-24, are kept verbatim in `docs/backlog-archive.md`. An entry
+moves there too, under its own heading, once its resolution is verified against code or a shipped
+artifact.
 
 The two tickets still tagged `deferred-v050` carry their re-triggers on the tickets themselves;
 the v0.5.0-cut census stated them as ti `525bef` (no active-formatting-element list and no

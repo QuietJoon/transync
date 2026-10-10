@@ -136,6 +136,47 @@ Correlation between the two registers depends on the `ticgit:<8-hex>` spelling, 
 sweep. Read the census above for the current answer to the release gate; read `ti list
 --all` for the current queue.
 
+## docs/backlog.md header — superseded census (2026-09-12)
+
+**Superseded by the 2026-10-10 census**, which stays in the `backlog.md` header (release-checklist step 20b: each census replaces the previous one). Moved from the `docs/backlog.md` header on 2026-10-10. Two paragraphs verbatim below, in their original order: the census, and the paragraph that followed it as it read beside that census.
+
+**Census (2026-09-12) — the full sweep, and this is the current one.** Re-derived against
+`ti list --open`, `ti list --all`, `docs/project/open-issues.md` and the source-C registers, not
+read off the 2026-09-08 line below. **87 entries; 40 are live** — each carrying exactly one open
+TicGit ticket, and every one of the **40 open tickets** has an entry, so the two registers agree
+in both directions. By section: Type 1 holds 26 entries of which **2 are live**, Type 2 holds 32
+of which **15 are live**, Type 3 holds 29 of which **23 are live**; the remaining 47 are resolved
+or historical records retained deliberately. Six entries are **new this run** and all six were
+filed as tickets at the selection gate: the v0.5.0 live-endpoint gate still unrun (`342e028d`),
+the Anthropic leg never executed (`40b29a9d`), the unopened breaking window (`2d616b6a`), the disk
+cache's exempt document-scoped records (`9c26d90c`), the `transync-local-llama` deferral with no
+trigger (`3887f02e`), and three documents still calling the oversize deferral live (`2183fbbb`).
+**Type 1 is no longer empty**, and what is in it is two items rather than one: the new
+`mvp-scope-lists-retired-oversize-deferral`, and `adr-0014-anchors-without-their-successor`, whose
+entry has read Type 1 since 2026-09-11 while its ticket stays `blocked` — a **deliberate**
+divergence, documented in that entry, because 4B narrowed the ticket's broader claim to a settled
+citation fix and this command may not reclassify a ticket it did not file. Sources scanned this
+run: TicGit, `docs/project/open-issues.md`, `reviews/*.md` (top level — every round is gated and
+archived, so it yielded nothing), `docs/decisions/*.md` (**zero** `Pending`),
+`docs/project/stub-manifest.md` (every STUB and all 13 DEFERRED rows closed),
+`docs/project/implementation-slice-checklists.md` (**zero** unticked boxes),
+`docs/architecture/mvp-scope.md`, `docs/project/intake.md`, `docs/project/status.md`,
+`docs/project/phase-state.yaml`, `docs/project/implementation-impact-report.md`, and all 53 DCRs.
+Nothing was absent or unreadable. **What counts against a gate is still the owner's to state**, for
+the reason the 2026-09-08 line gives: v0.5.0's window-closing condition was written for v0.5.0, and
+no later gate has been declared.
+
+Re-derive these figures on each sweep rather than trusting them — an entry counts unless it
+carries a resolution or a dated deferral line. The release-side half of this rule is
+`docs/project/release-checklist.md` step 2a, which is where a release actually consults
+the census. Each census replaces the previous one (release-checklist step 20b): the superseded
+censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut) and 2026-09-08, and the TicGit snapshots
+of 2026-08-08 and 2026-08-24, are kept verbatim in `docs/backlog-archive.md`; the "2026-09-08 line" the current census
+cites is the one kept there. An entry moves
+there too, under its own heading, once its resolution is verified against code or a shipped
+artifact — so the 2026-09-12 section counts above still include entries that have moved since,
+until the next sweep re-derives them.
+
 ## adr-0014-anchors-without-their-successor
 
 **Settled by ti `772a36` / commit `a67e704` (2026-09-13).** Moved from `docs/backlog.md` § Type 1 — Ready on 2026-10-06 after re-verification against code: all fourteen `ADR-0014` anchors in `crates/` now name `DCR-0027` within their own block, and both ti `772a36bb` and ti `6f52db2d` are closed/resolved. Entry verbatim below.
