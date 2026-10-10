@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "HTML→HTML Document Translation"
+description: "Owner-ratified design making an HTML document a first-class input on the one existing pipeline: twelve locked decisions, the kind/spelling IR split, the extracted mechanics crate, the layer-6 twin, and an eight-wave implementation split"
+tags: ["html", "translation", "ADR-0025", "DCR-0032", "OI-0035"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # HTML→HTML Document Translation — Design Spec
 
 - **Date:** 2026-08-20

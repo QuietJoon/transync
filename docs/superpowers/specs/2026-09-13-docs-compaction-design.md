@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Documentation Compaction"
+description: "Measured account of amendment scaffolding and dead history across the tracked docs, plus the eight-wave compaction plan, write-once record policy, and the steady-state rule that keeps documents from regrowing"
+tags: ["docs", "process", "DCR-0054"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Documentation Compaction — Design Spec
 
 - **Date:** 2026-09-13

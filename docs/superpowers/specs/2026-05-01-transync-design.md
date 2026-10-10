@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "transync — MVP Design Spec"
+description: "The unedited 2026-05-01 brainstorming narrative that froze the v1 design — invariants, workspace layout, public API, CLI, sync engine, scenarios and deferrals — kept as historical record"
+tags: ["reference", "architecture", "project"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # transync — MVP Design Spec
 
 > **HISTORICAL — ORIGINAL BRAINSTORMING NARRATIVE.** This is the 2026-05-01 brainstorming output, preserved unedited below this banner. It describes the design as first conceived — an `IntersectionObserver` sync engine (replaced by the scroll-listener engine, DCR-0008), a working `serve` command, content-only code units (now full fenced-block units), and the pre-split workspace (`crates/transync` monolith, split by DCR-0005) — all since superseded. Its self-description as "the source-of-truth narrative" no longer holds: document authority is governed by the hierarchy in `docs/project/design-baseline-2026-07.md`, where this file ranks as historical narrative only.

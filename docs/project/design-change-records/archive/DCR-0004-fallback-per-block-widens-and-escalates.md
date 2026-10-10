@@ -1,3 +1,12 @@
+---
+type: "DCR"
+title: "`FallbackPerBlock` widens to neighbors and auto-escalates"
+description: "Extends per-block reparse fallback into a three-stage cascade — minimal, widen to top-level neighbors, escalate to full source fallback — so the policy never returns an error"
+tags: ["project", "validation", "DCR-0004", "DCR-0002", "R0004-0001"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # DCR-0004: `FallbackPerBlock` widens to neighbors and auto-escalates
 
 > Archived 2026-07-11. Reason: change fully absorbed — affected ADRs/contracts in sync, migration/follow-up landed; kept for audit.

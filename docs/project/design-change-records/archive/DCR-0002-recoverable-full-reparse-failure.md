@@ -1,3 +1,12 @@
+---
+type: "DCR"
+title: "Post-regen full-reparse failure becomes recoverable"
+description: "Turns a post-regeneration reparse rejection from a whole-document hard error into byte-offset-attributed per-block fallback under a caller-selected `FullReparseFailure` policy"
+tags: ["project", "validation", "DCR-0002", "SCN-14"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # DCR-0002: Post-regen full-reparse failure becomes recoverable
 
 > Archived 2026-07-11. Reason: change fully absorbed — affected ADRs/contracts in sync, migration/follow-up landed; kept for audit.

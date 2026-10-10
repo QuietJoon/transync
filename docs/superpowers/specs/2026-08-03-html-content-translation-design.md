@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "HTML-Content Translation Design"
+description: "Approved design making block-level raw HTML translatable through lol_html text-segment extraction and positional splice-back, with render-side fragment balancing and an inline tag-identity guard"
+tags: ["html", "translation", "DCR-0013"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # HTML-Content Translation — Design Spec
 
 - **Date:** 2026-08-03 (v2 — review-hardened)

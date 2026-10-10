@@ -1,3 +1,12 @@
+---
+type: "Open Issues"
+title: "Open Issues — Archive"
+description: "Retired open-issue entries kept verbatim for audit, each with its problem, decision, resolution, and the review finding that raised it"
+tags: ["project", "reference"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Open Issues — Archive
 
 Entries moved from `docs/project/open-issues.md` after their implementation impact had lapsed. Kept for audit and historical context. Do not add new OPEN issues here.

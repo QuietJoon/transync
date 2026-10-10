@@ -1,3 +1,12 @@
+---
+type: "Rough Schema"
+title: "Rough Schemas"
+description: "Outline shapes for every durable and wire-crossing data type — block IDs and kinds, spelling/format vocabularies, the document IR, translation units and batches, profile metadata, alignment map, validation report, and the cache key"
+tags: ["architecture", "reference", "ADR-0005", "ADR-0025"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Rough Schemas
 
 Schema outlines for every durable / wire-crossing data type. These are the **rough** shapes — exact field names and Cargo type definitions land in code during Phase 4. Deviations from these shapes require a Design Change Record (DCR).

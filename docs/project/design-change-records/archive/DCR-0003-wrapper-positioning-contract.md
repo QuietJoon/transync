@@ -1,3 +1,12 @@
+---
+type: "DCR"
+title: "Annotated-HTML wrapper positioning contract"
+description: "Documents the `<main>` wrapper's structure and states that consumers doing offsetTop scroll math must set `position: relative` on their own pane, which the renderer deliberately never does"
+tags: ["project", "browser", "DCR-0003", "R0005-0001"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # DCR-0003: Annotated-HTML wrapper positioning contract
 
 > Archived 2026-07-11. Reason: change fully absorbed — affected ADRs/contracts in sync, migration/follow-up landed; kept for audit.

@@ -1,3 +1,12 @@
+---
+type: "Skeleton Plan"
+title: "Structural Skeleton Plan (Phase 3)"
+description: "The Phase-3 plan the skeleton generator followed: repo and workspace layout, binary shape, generation order, dependency wiring, smoke fixtures, and the marker policy"
+tags: ["project", "implementation"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Structural Skeleton Plan (Phase 3)
 
 The Phase 4 generator follows this plan. Every file listed here must exist after Phase 4; nothing in the workspace should appear that is not covered by either this plan or `stub-manifest.md`.

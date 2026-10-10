@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "transync-syntax Crate Split + AST-Direct Renderer"
+description: "Approved design lifting parse/id/regen/render/align into a wasm32-compilable crate, dissolving the boundary inversions it exposes, and replacing per-block re-parsing with one AST-direct parse per pane"
+tags: ["architecture", "wasm", "OI-0028", "DCR-0017"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # transync-syntax Crate Split + AST-Direct Renderer — Design Spec
 
 - **Date:** 2026-08-04 (v2 — review-hardened)

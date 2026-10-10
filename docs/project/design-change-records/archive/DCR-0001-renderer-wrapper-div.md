@@ -1,3 +1,12 @@
+---
+type: "DCR"
+title: "Renderer wrapper-div for tables and code blocks"
+description: "Aligns the HTML-attributes contract with the shipping renderer, which stamps sync-id attributes on a transparent wrapper `<div>` around tables and code blocks rather than on `<table>`/`<pre>`"
+tags: ["project", "DCR-0001", "ADR-0007", "R0001-0024"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # DCR-0001: Renderer wrapper-div for tables and code blocks
 
 > Archived 2026-07-11. Reason: change fully absorbed — affected ADRs/contracts in sync, migration/follow-up landed; kept for audit.

@@ -1,3 +1,12 @@
+---
+type: "Intake"
+title: "transync MVP Intake"
+description: "The Phase-1 transcription of the brainstorming spec: product goal, actors, the fourteen MVP scenarios, explicit non-goals, persistent state, integrations and system shape, with later corrections appended"
+tags: ["project", "process", "reference"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # transync MVP Intake
 
 Transcribed from the brainstorming spec at `docs/superpowers/specs/2026-05-01-transync-design.md`. Anything later phases need beyond this lives in the brainstorming spec or in `references/draft.md`.

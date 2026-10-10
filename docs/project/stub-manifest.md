@@ -1,3 +1,12 @@
+---
+type: "Stub Manifest"
+title: "Stub Manifest"
+description: "The historical traceability table from every STUB and DEFERRED placeholder to the slice, record, or date that retired it — all rows now closed"
+tags: ["project", "implementation"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Stub Manifest
 
 **Version:** historical record (Phase 4 baseline, 2026-05-01); MVP closed 2026-05-03.

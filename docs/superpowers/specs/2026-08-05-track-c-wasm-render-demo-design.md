@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Track C — In-Browser WASM Rendering + Edit Demo"
+description: "Owner-approved design for the `transync-wasm` crate, its JSON boundary contract, binaryen build pipeline and size budget, and the web-only editing demo — with the reasoning for keeping wasm out of the CLI bundle"
+tags: ["wasm", "browser", "ADR-0019", "DCR-0020", "OI-0028"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Track C — In-Browser WASM Rendering + Edit Demo — Design Spec
 
 - **Date:** 2026-08-05

@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "OI-0008 + OI-0033 Internal-Quality Wave"
+description: "Approved post-0.2.0 design fixing lone-CR line offsets to match comrak and splitting the retry policy, run_pipeline, unit, OpenAI client, CLI, and parser walker into single-concern modules"
+tags: ["implementation", "OI-0008", "OI-0033", "R0001-0057", "R0001-0078"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # OI-0008 + OI-0033 Internal-Quality Wave — Design Spec
 
 - **Date:** 2026-08-05

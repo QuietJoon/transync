@@ -1,3 +1,12 @@
+---
+type: "Design Baseline"
+title: "Design Baseline `BL-2026-05-01-A`"
+description: "The superseded 2026-05-01 MVP-D baseline, preserved unedited: frozen contract inventory, ADR roster, pre-split workspace topology and the Phase-4 validation evidence"
+tags: ["project", "architecture", "decisions"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Design Baseline `BL-2026-05-01-A`
 
 > **HISTORICAL SNAPSHOT — SUPERSEDED.** This is the design baseline as issued at the 2026-05-01 Phase-5 handoff. It was superseded on 2026-07-13 by [`BL-2026-07-B`](design-baseline-2026-07.md) (the v0.2.0 steady state). The file is preserved **unedited** below this banner: its crate paths (pre-split `crates/transync` monolith), contract inventory, and topology are historical record, not current structure. For the current authority hierarchy and live contract surfaces, read `design-baseline-2026-07.md`.

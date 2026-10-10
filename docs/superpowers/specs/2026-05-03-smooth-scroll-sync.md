@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "Smooth Scroll Sync"
+description: "Design for the per-frame lerp that glides the partner pane toward its target scrollTop, killing snap motion and within-block jitter in both sync.js copies"
+tags: ["browser", "sync", "reference"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Smooth scroll sync — `web/js/sync.js`
 
 Per-frame lerping so the partner pane glides toward the active block's

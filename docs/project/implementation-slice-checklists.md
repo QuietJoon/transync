@@ -1,3 +1,12 @@
+---
+type: "Slice Checklists"
+title: "Implementation Slice Checklists"
+description: "The closed SL-00..SL-14 slices with modules, contracts, negative-path requirements and done-when criteria as verified at MVP completion, plus the slice dependency graph"
+tags: ["implementation", "project", "process"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Implementation Slice Checklists
 
 Each slice is a coherent body of implementation work that turns one or more `STUB` paths into real behavior for a specific scenario from `docs/architecture/scenario-matrix.md`. Slices are listed in dependency order, with risk notes, but execution order is not rigid — slices that share no STUB rows in `stub-manifest.md` may be implemented in parallel (and `phase-state.yaml.implementation.allowed_parallel_slices` will list them when they are).

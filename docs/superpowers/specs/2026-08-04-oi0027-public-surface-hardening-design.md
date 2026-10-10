@@ -1,3 +1,12 @@
+---
+type: "Reference"
+title: "OI-0027 Public-Surface Hardening"
+description: "Approved design closing the public API to three tiers by compiler enforcement — pub(crate) internals, an explicit facade re-export list, #[non_exhaustive] hardening, and a surface-drift test"
+tags: ["architecture", "OI-0027", "DCR-0017"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # OI-0027 Public-Surface Hardening — Design Spec
 
 - **Date:** 2026-08-04
