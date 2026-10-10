@@ -1,6 +1,15 @@
+---
+type: "Persistence and Files"
+title: "Persistence and Files"
+description: "Every file transync reads or writes and who owns its lifecycle: the file-class table, the staged fileset commit and its rollback rules, publication locking, output-bundle and cache-directory layout, and path-safety guarantees"
+tags: ["architecture", "cli", "DCR-0021", "DCR-0028"]
+generated:
+  by: unknown/unknown
+  at: 2026-09-15T13:39:50Z
+---
 # Persistence and Files
 
-`transync` persists almost nothing, and every path it touches is one a user handed it. The CLI is where nearly all of that happens — input, output, map, HTML bundle, all from flags. The library has exactly **one** filesystem door of its own, opened since 2026-08-09 (DCR-0028 / ADR-0021): `DiskCache::open(<dir>)`, the durable cache backend, which the CLI reaches through `--cache-dir`. A library caller that never constructs one never touches disk. Nothing here is discovered, defaulted or guessed — transync has no XDG presence and no path it invents.
+`transync` persists almost nothing, and every path it touches is one a user handed it. The CLI is where nearly all of that happens — input, output, map, HTML bundle, all from flags. The library has exactly **one** filesystem door of its own (DCR-0028 / ADR-0021): `DiskCache::open(<dir>)`, the durable cache backend, which the CLI reaches through `--cache-dir`. A library caller that never constructs one never touches disk. Nothing here is discovered, defaulted or guessed — transync has no XDG presence and no path it invents.
 
 ## Lifecycle by file class
 
@@ -13,7 +22,7 @@
 | Annotated source HTML       | Written by CLI on success                            | `<--html-out>/source.html`                 | `transync-syntax::render`             | User-managed |
 | Annotated target HTML       | Written by CLI on success                            | `<--html-out>/target.html`                 | `transync-syntax::render`             | User-managed |
 | Demo `index.html`           | Written by CLI on success                            | `<--html-out>/index.html`                  | `transync-cli` (templated, embeds JS) | User-managed |
-| Embedded JS sync engine     | Read at compile time via `include_str!`              | Source: `web/js/sync.js`. Output: copied into `<--html-out>/sync.js` | `transync-cli` | Bound to CLI binary |
+| Embedded JS sync engine     | Read at compile time via `include_str!`              | Source: `crates/transync-cli/web/sync.js`, the tracked byte-pinned twin of `web/js/sync.js` (`tests/sync_js_drift.rs`). Output: copied into `<--html-out>/sync.js` | `transync-cli` | Bound to CLI binary |
 | Embedded DOMPurify          | Read at compile time via `include_str!`              | Source: `crates/transync-cli/web/purify.min.js` (mirror of `web/vendor/purify.min.js`). Output: copied into `<--html-out>/purify.min.js` | `transync-cli` | Bound to CLI binary |
 | Embedded default profile    | Read at compile time via `include_str!`              | Source: `crates/transync-core/profiles/default.toml` — the workspace's only copy. | `transync-core` | Bound to the core library (and to every binary linking it) |
 | Publication lock marker     | Created by CLI before the first write                | `.transync-publish.lock` in every directory published into | `transync-cli` (DCR-0021)      | Never removed by design — see below |
@@ -167,7 +176,7 @@ exclusion with `--output` / `--map` / `--html-out`).
 └── .transync-publish.lock   # zero-byte publication lock marker; left behind by design
 ```
 
-`transync serve --rendered <dir>` serves that directory over HTTP on `127.0.0.1:7470` (ticket `b791d6`, 2026-08-09; it was **deferred** until then and exited non-zero). It reads the directory and writes nothing: no upload path, no directory listing, no file the process creates. A request is answered only from a regular file whose canonical path is still inside the served root, so a symlink pointing out of the bundle is refused rather than followed — the one **read**-side path guard in the system, and the counterpart to the write-side guards below. Any other static HTTP server against the directory still works; the JS sync engine works against any origin that serves the six files.
+`transync serve --rendered <dir>` serves that directory over HTTP on `127.0.0.1:7470` (ticket `b791d6`). It reads the directory and writes nothing: no upload path, no directory listing, no file the process creates. A request is answered only from a regular file whose canonical path is still inside the served root, so a symlink pointing out of the bundle is refused rather than followed — the one **read**-side path guard in the system, and the counterpart to the write-side guards below. Any other static HTTP server against the directory still works; the JS sync engine works against any origin that serves the six files.
 
 ## Cache directory contents (`--cache-dir` / `DiskCache::open`)
 
