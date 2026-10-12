@@ -1027,12 +1027,13 @@ Before tagging a release that touches `transync-openai`,
 `./scripts/smoke-live-gate.sh` and record the date and the models used in the
 CHANGELOG entry for that release. **Which surfaces have actually answered is
 not the same set as the legs this script offers**, and the roster lives in the
-README's provider-evidence table. As of 2026-10-13: `chat`, `responses` and
-`google-vertex-express` have each passed a live round-trip; the `anthropic` leg
-has run exactly once and was rejected `400`, because an organization-scoped key
-must carry an `anthropic-workspace-id` header that this adapter cannot send;
-and `google-developer` and `google-vertex` (ADC) have never run, for want of a
-Developer API key and of ADC on this account. Run each leg **by name** — the
+README's provider-evidence table. As of 2026-10-13, `chat`, `responses`,
+`anthropic` and `google-vertex-express` have each passed a live round-trip, so
+every provider crate in the workspace has live evidence; `google-developer` and
+`google-vertex` (ADC) have never run, for want of a Developer API key and of
+ADC on this account. One constraint the Anthropic run exposed: the adapter
+sends no `anthropic-workspace-id`, so it needs a **workspace-scoped** key — an
+organization-scoped one is refused `400` before the model is reached. Run each leg **by name** — the
 default surface is `all`, which refuses up front unless every credential is
 present. For a surface still unverified, read that crate's evidence off its
 offline tests, which drive the whole stack over a loopback socket: they prove

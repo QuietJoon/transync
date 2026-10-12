@@ -119,7 +119,7 @@ What it has established:
 | OpenAI Chat Completions | `chat` | **VERIFIED** 2026-10-13 — round-trip against `gpt-4o-mini` |
 | OpenAI Responses | `responses` | **VERIFIED** 2026-10-13 — round-trip against `gpt-5-mini` |
 | Vertex AI express mode | `google-vertex-express` | **VERIFIED** 2026-10-13 — round-trip against `gemini-3.8-flash`; also the first confirmation that express mode accepts the key as an `x-goog-api-key` header rather than Google's documented `?key=` query parameter |
-| Anthropic Messages | `anthropic` | **UNVERIFIED** — run 2026-10-13 and rejected `400`: the key was organization-scoped and this adapter sends no `anthropic-workspace-id` header, so it cannot name a workspace. A 400 rather than a 401 means the key, `anthropic-version` and the request body were accepted; no response has ever been read |
+| Anthropic Messages | `anthropic` | **VERIFIED** 2026-10-13 — round-trip against `claude-haiku-4-5`. One known limit the run exposed: the adapter sends no `anthropic-workspace-id`, so it needs a **workspace-scoped** key; an organization-scoped one is refused `400` by the API before the model is reached |
 | Gemini Developer API | `google-developer` | **UNVERIFIED** — never run; no Developer-API key here, and the Cloud Welcome credit does not pay for that surface |
 | Vertex AI with ADC | `google-vertex` | **UNVERIFIED** — never run; credentials live on another account, deferred to its own track |
 

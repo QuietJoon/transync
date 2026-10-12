@@ -9,7 +9,7 @@ generated:
 ---
 # Backlog — WIP / deferred / open items
 
-Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-10-10** (the census below; earlier in-place passes 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit, 2026-09-12).
+Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-10-13** (the live-endpoint gate's results: one entry resolved and archived, one filed, and the census re-counted; earlier in-place passes 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit, 2026-09-12, 2026-10-10).
 The 2026-08-07 refresh was derived from
 `ti list --all` and `git log`, not from this file's own previous text — the review-0001
 arc produced several tickets whose root cause was one document restating another, and the
@@ -51,31 +51,43 @@ as much as the census that answers it, which is why every entry below has to be 
 three states — counting, deferred-with-a-recorded-condition, or resolved/historical — and
 why an entry that is in none of them is a defect in this file, not an ambiguity.
 
-**Census (2026-10-10) — a count, not a sweep, and this is the current one.** Computed from
-`ti list --open --json` and `docs/project/open-issues.md`. No other source was re-scanned, so the
-last full sweep is still the 2026-09-12 one. **44 entries; 41 are live** — each carrying at least
-one open TicGit ticket. By section: Type 1 holds 1 entry and it is live, Type 2 holds 19 of which
-**17 are live**, Type 3 holds 24 of which **23 are live**. Three entries carry no open ticket:
-`anthropic-leg-outside-the-release-gate-trigger` and `oversize-tombstones-point-at-a-closed-oi-0008`
-cite none, and `phrasing-extension-list-for-custom-elements` cites only a closed one. **The two
-registers do not agree in both directions.** TicGit holds **74 open tickets** (17 new, 57 blocked,
-none in progress). Forty-one are cited by an entry and **33 have no entry here**. All 33 were filed
-after the 2026-09-12 sweep, 32 of them by the documentation reconciliation and compaction runs
-that followed it, and the next sweep adopts them. Until it runs, the queue is `ti list --open`, not
-this file. The open-issue register holds nine issues: **4 OPEN** (OI-0051 through OI-0054),
-**1 DEFERRED** (OI-0049) and four marked RESOLVED (OI-0040, OI-0041, OI-0046, OI-0048) that stay in
-the register because each still has an open ticket against it. **What counts against a gate is
-still the owner's to state**: no gate has been declared since v0.5.0, and whether a v0.6.0 breaking
-window is open is undecided (ticket `2d616b6a`).
+**Census (2026-10-13) — a count, not a sweep, and this is the current one.** Re-derived from
+`ti list --open --json` and the section headings of this file; `docs/project/open-issues.md` was
+not re-scanned and its figures below carry over from the 2026-10-10 count. No other source was
+re-scanned either, so the last full sweep is still the 2026-09-12 one. **44 entries; 41 are live**
+— each carrying at least one open TicGit ticket. By section: Type 1 holds 1 entry and it is live,
+Type 2 holds 20 of which **18 are live**, Type 3 holds 23 of which **22 are live**. The same three
+entries carry no open ticket: `anthropic-leg-outside-the-release-gate-trigger` and
+`oversize-tombstones-point-at-a-closed-oi-0008` cite none, and
+`phrasing-extension-list-for-custom-elements` cites only a closed one. **The two registers still
+do not agree in both directions.** TicGit holds **73 open tickets** (18 new, 55 blocked, none in
+progress). Forty-one are cited by an entry and **32 have no entry here**; those 32 were all filed
+after the 2026-09-12 sweep, and the next sweep adopts them. Until it runs, the queue is
+`ti list --open`, not this file. The open-issue register holds nine issues: **4 OPEN** (OI-0051
+through OI-0054), **1 DEFERRED** (OI-0049) and four marked RESOLVED (OI-0040, OI-0041, OI-0046,
+OI-0048) that stay in the register because each still has an open ticket against it. **What counts
+against a gate is still the owner's to state**: no gate has been declared since v0.5.0, and
+whether a v0.6.0 breaking window is open is undecided (ticket `2d616b6a`).
+
+**What moved since 2026-10-10, and it is all the live-endpoint gate.** The entry count is
+unchanged because one entry left and one arrived. `anthropic-live-leg-never-run` is **RESOLVED**
+and moved verbatim to `docs/backlog-archive.md`: the leg ran on 2026-10-13 and passed, against
+`claude-haiku-4-5`, closing ti `40b29a9d` and a standing gap open since 2026-08-10. In its place,
+Type 2 gains `anthropic-adapter-cannot-name-a-workspace` (ti `3e013e47`) — the limit that run
+exposed and that its fix did not remove: the adapter sends no `anthropic-workspace-id`, so it
+needs a workspace-scoped key. The second closure has no entry here and so moves only the
+ticket count: ti `c5b1431a` asked whether Vertex express accepts the `x-goog-api-key` header
+form, and the `google-vertex-express` leg answered yes. `v050-live-gate-unrun` stays open on a
+narrower claim than its title — the run attests the branch, not the released `v0.5.0` tree.
 
 Re-derive these figures on each sweep rather than trusting them — an entry counts unless it
 carries a resolution or a dated deferral line. The release-side half of this rule is
 `docs/project/release-checklist.md` step 2a, which is where a release actually consults
 the census. Each census replaces the previous one (release-checklist step 20b): the superseded
-censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut), 2026-09-08 and 2026-09-12, and the TicGit
-snapshots of 2026-08-08 and 2026-08-24, are kept verbatim in `docs/backlog-archive.md`. An entry
-moves there too, under its own heading, once its resolution is verified against code or a shipped
-artifact.
+censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut), 2026-09-08, 2026-09-12 and 2026-10-10, and
+the TicGit snapshots of 2026-08-08 and 2026-08-24, are kept verbatim in
+`docs/backlog-archive.md`. An entry moves there too, under its own heading, once its resolution is
+verified against code or a shipped artifact.
 
 The two tickets still tagged `deferred-v050` carry their re-triggers on the tickets themselves;
 the v0.5.0-cut census stated them as ti `525bef` (no active-formatting-element list and no
@@ -934,6 +946,78 @@ pointer from both carriers and let ADR-0009 plus `contracts.md` §5 stand as the
 at it *(source: the tombstone's own premise, that the redesign is a thing that may still be
 wanted)*.
 
+## anthropic-adapter-cannot-name-a-workspace
+
+- **Type:** 2
+- **Verified:** yes — observed first-hand 2026-10-13 against the live Messages API, not deduced.
+  An organization-scoped `ANTHROPIC_API_KEY` drove `./scripts/smoke-live-gate.sh anthropic` to
+  **`400 invalid_request_error`**: *“This API key is not scoped to a workspace, so this request
+  must include the `anthropic-workspace-id` header with the ID of the workspace to use. Add the
+  header, or use an API key that is scoped to a workspace.”* `crates/transync-anthropic/src/
+  client/transport.rs` sets exactly two headers — `x-api-key` and `anthropic-version` — and
+  `grep -i workspace` over the crate's sources matches nothing but prose.
+- **Blocked by:** nothing external. It is a decision, not a prerequisite: the owner holds a
+  workspace-scoped key, so the adapter works today and this buys reach rather than function.
+- **Sources:** ticgit:3e013e47, the 2026-10-13 live-gate run (CHANGELOG `[Unreleased]`, README provider-evidence
+  table, `docs/project/status-archive.md`'s completed standing-gap action), the archived entry
+  `anthropic-live-leg-never-run` in `docs/backlog-archive.md`,
+  `crates/transync-anthropic/src/lib.rs`, `crates/transync-anthropic/src/client/transport.rs`
+- **First seen:** 2026-10-13
+- **Last seen:** 2026-10-13
+
+### Description
+
+`transync-anthropic` cannot address an Anthropic **workspace**. It sends `x-api-key` and
+`anthropic-version` and nothing else, so a key that is scoped to the organization rather than to
+one workspace is refused before the model is reached. Anthropic's own refusal names two remedies
+and this adapter supports only the second — use a workspace-scoped key. That is a real constraint
+on who can adopt the crate, and it is invisible until the first request.
+
+### Background
+
+It is worth being exact about what this is and is not. It is **not** what blocked the live gate:
+that entry is closed, because a workspace-scoped key passed unchanged on 2026-10-13. It is also
+not a defect in request shaping — the same run's 400-rather-than-401 is the provider's own
+statement that `x-api-key`, `anthropic-version`, the model name and the body are all well-formed.
+What it is: an adapter that silently assumes one of the two key classes its provider issues.
+
+Two sub-questions have to be settled together, which is what makes this a decision rather than a
+ready task.
+
+**Where the value enters.** `try_new(api_key, model, base_url)` is positional, so a fourth
+parameter is breaking and would need a window. A `with_workspace_id` builder method alongside the
+existing `with_timeout` is additive and needs none, and `from_env` would grow a fourth variable
+beside `ANTHROPIC_API_KEY`, `TRANSYNC_ANTHROPIC_MODEL` and `TRANSYNC_ANTHROPIC_BASE_URL`. The
+builder road is the cheap one and is almost certainly right; it is named here so the choice is
+recorded rather than assumed.
+
+**Whether it rides the fingerprint.** This is the question that actually needs thought.
+`ProviderFingerprint` feeds `CacheKey`, so anything included partitions the cache. A workspace is
+a billing and access scope, not a model-behaviour one: the same model in two workspaces should
+return interchangeable translations, which argues for excluding it, as `ANTHROPIC_VERSION` is
+excluded. The counter-argument is that a workspace can carry its own model access and limits, so
+a cache entry written under one may not be reproducible under another. Getting this wrong is
+cheap in one direction (a redundant cache partition) and silent in the other (a replayed
+translation attributed to the wrong scope).
+
+### Options
+
+**Add `with_workspace_id` plus a `TRANSYNC_ANTHROPIC_WORKSPACE_ID` read in `from_env`** — the
+expected route. Additive, no window, one header conditional in `transport.rs`, and it makes the
+crate usable with either key class. Needs a record, because it widens a published crate's surface,
+and that record is where the fingerprint question is answered.
+
+**Document the constraint and stop** — already half-done: the README's provider-evidence table
+names it. Zero code, and honest, but it leaves a published adapter that refuses a credential class
+its provider issues by default.
+
+**Refuse an organization-scoped key at construction with a message naming the remedy** — composes
+with either route above and is the smallest real improvement: the failure stays, but it stops
+being a remote 400 and becomes a local error that says what to do. Its limit is that the key class
+is not reliably readable from the key itself, so this may only be achievable as a better message
+on the provider's 400 rather than as a pre-flight check.
+
+
 # Type 3 — Blocked
 
 Type-3 entries retired from this register are kept verbatim in
@@ -1521,136 +1605,3 @@ and never says where the value comes from; blast radius is one living document a
 `require_key` already rejects a padded or control-character-bearing value. It produces no evidence
 about v0.5.0 and no block on the next cut, and naming where a key lives establishes neither credit
 nor authorization to spend.
-
-
-## anthropic-live-leg-never-run
-
-- **Type:** 3
-- **Verified:** yes — reopen verified 2026-09-12 first-hand: the repository root holds
-  `.openai.api_key` (gitignored, untracked, mode 0600) and no Anthropic counterpart, and
-  `crates/transync-anthropic` sits on the `PUBLISHED_MEMBERS` roster in
-  `crates/transync/tests/workspace_publication.rs`. **Re-verified 2026-09-13** by a second
-  adversarial pass (two independent lenses plus a completeness critic): every code, record,
-  roster and ticket quote in ti `40b29a9d` reproduces, and the type-3 prerequisite is confirmed
-  unmet (no `ANTHROPIC_*` variable in the environment, no Anthropic key file, no Anthropic OAuth
-  profile, no `ant` CLI). Four facts were refuted and corrected in the ticket body: the first
-  recorded live run is 2026-08-05 (the `[0.2.0]` gate paragraph), not 2026-08-20; the crate has
-  been packaged by exactly **one** recorded publish dry run (2026-09-05, `--allow-dirty`), not by
-  every release's; v0.3.0 was cut 2026-08-07, three days before the crate existed, so the leg was
-  unrun at two cuts rather than three; and R0009-0086's `dependentSchemas` fix is latent
-  (`dependentSchemas` appears nowhere under `crates/transync-core/src/`), so no live call could
-  confirm or refute it and it is withdrawn as evidence of drift risk. A sixth route was added.
-  Still unverified: that the leg has never run *anywhere* (a universal negative), and that the
-  script and the offline suite are green at HEAD — no cargo command and no network call was made
-- **Executed 2026-10-13 — the slug is now historical.** The leg has been run. It is kept under this
-  name because `docs/backlog-archive.md` cites the slug twice and an Archive is never edited; read
-  the name as the entry's origin, not as its current claim.
-- **Blocked by:** *(original blocker cleared 2026-10-13)* a working `ANTHROPIC_API_KEY` reached this
-  environment and the leg ran. It is now blocked on a **workspace-scoped** key, or on the owner
-  choosing the other road — an optional `anthropic-workspace-id` header on the adapter. The key on
-  disk is organization-scoped, which the Messages API refuses outright for this endpoint.
-- **Sources:** ticgit:40b29a9d, ticket `342e028d` (coupled route; provenance, not this entry's
-  ticket), docs/project/status.md (standing
-  gap, open 2026-08-10), docs/project/release-checklist.md (step 10's trigger paths, steps 11-12),
-  docs/project/design-change-records/DCR-0029-transync-anthropic-second-provider.md,
-  docs/architecture/mvp-scope.md
-- **First seen:** 2026-09-12
-- **Last seen:** 2026-10-13
-
-### Description
-
-`crates/transync-anthropic` is a complete, rostered workspace member implementing `Translator` over
-the Anthropic Messages API. The machinery is written and double-gated — `tests/live_smoke.rs` holds
-one full round-trip behind `#[ignore]` plus a predicate demanding `TRANSYNC_LIVE_SMOKE=1` and a
-non-empty key, and `scripts/smoke-live-gate.sh anthropic` is the opt-in.
-
-**Updated 2026-10-13.** A credential arrived and the leg ran, so the entry's founding claim — that
-no process here had ever sent this adapter's request to the real service — no longer holds. The
-request reached Anthropic and came back **`400 invalid_request_error`**: *“This API key is not
-scoped to a workspace, so this request must include the `anthropic-workspace-id` header with the ID
-of the workspace to use.”* What that buys, and what it does not, are both worth stating. It buys
-the provider's own agreement that the **outbound** request is well-formed — a 400 and not a 401
-means `x-api-key`, `anthropic-version`, the model name and the body were parsed and accepted — so
-the adapter's request assembly is now attested by the provider rather than only by this
-repository's loopback server. It does not buy the claim the gate exists for: **no real Messages API
-response has ever been read**, so envelope reading, the schema-profile pass and every validation
-layer downstream of a success are still attested only offline. The adapter also turns out to have a
-real capability gap, previously invisible: it cannot name a workspace at all, so an
-organization-scoped key cannot use it.
-
-### Background
-
-The offline suite is strong and should not be re-litigated: `tests/offline_end_to_end.rs` drives
-`transync::translate` through the adapter against a loopback server that parses the request the
-adapter actually sent and answers per unit, so request assembly, the schema-profile pass, the
-credential and protocol-version headers, transport, envelope reading and every validation layer are
-exercised with no key and no network. What that server cannot do is **refuse** — the only status
-line it ever writes is `200 OK`. So every assumption the adapter makes about the provider is
-attested only by this repository's own code checked against this repository's own server, and the
-one claim only a live call makes is that the provider accepts this request as written. DCR-0029
-anticipated exactly this, saying the offline suite "must carry the whole correctness burden"
-precisely because there is no key here — so the gap is designed around, not overlooked. The blast
-radius is bounded on one side and not the other: no `transync` CLI run can reach the adapter, since
-the CLI depends on `transync`, `transync-openai` and `transync-google`, none of which reaches it, and the workspace table deliberately
-carries no entry for it — but the crate is on the publication roster at row 7, is packaged and
-verify-built by the one publish dry run recorded since it landed (2026-09-05, 14 files / 267.7 KiB,
-run with `--allow-dirty`; the `[0.4.0]` section records no publish dry run at all). **The
-documentation half of this was fixed 2026-10-13**: the README now carries a provider-evidence table
-naming every surface and marking this one **UNVERIFIED** with its reason, so the README no longer
-presents the adapter symmetrically with the OpenAI one. The crate's own rustdoc still says nothing,
-which is the remaining half of that route. Nothing in the workspace has
-been pushed to a registry yet, which is exactly the window in which this is still cheap to decide.
-Type 3: the prerequisite is external, concrete, and not an agent's to supply — both 2026-09-13
-lenses agreed on the type, noting a real type-2 component (the owner must still pick a route, and
-the documentation route is executable today) that the 3 > 2 > 1 tie-break absorbs. Two structural
-facts the first pass missed: `crates/transync-anthropic` is **not** in release-checklist step 10's
-trigger-path diff, so by the ritual's own rule this leg can never become *due* — it is outside the
-gate rather than skipped by it, which is why it lives in `status.md` as a standing gap; and ti
-`342e028d` (the v0.5.0 live gate, also blocked, same script) carries a route making a usable key a
-precondition of the tag, which against the script's default surface `all` would make an Anthropic
-key a cut-time requirement and decide this item with it.
-
-### Options
-
-**Run the leg by name once a key exists and record date and model in the CHANGELOG** *(source:
-`docs/project/status.md`'s standing-gap action)* — closes the gap outright. Must be run **by name**,
-because the script's default surface `all` demands both keys and refuses up front in this
-environment. One caveat priced honestly: the effort estimate holds only if it passes; a failure is
-adapter repair of unknown size in a rostered crate.
-
-**Mark the adapter unverified against its live provider in its own rustdoc and the README**
-*(proposed by reopen; — **README half DONE 2026-10-13**)* — needs no key at all, which is its
-distinguishing point. Effort is two doc edits; blast radius is prose plus the Korean mirrors that
-track it. It makes the record honest without making the adapter proven. The README half shipped as
-a provider-evidence table covering all six surfaces rather than a sentence about this one; the
-rustdoc half is still open.
-
-**Give the adapter an optional `anthropic-workspace-id`** *(the 2026-10-13 run's own finding)* —
-the only route that makes an organization-scoped key usable, which is the key class the owner
-actually holds. It is a new surface on a published crate, so it needs a record, and it composes
-with every route above. Its cheap alternative needs no code at all: **obtain a workspace-scoped
-key**, which the provider's own refusal message offers as the first remedy.
-
-**Replace the live leg with a contract test against captured real provider responses** *(proposed by
-reopen)* — gives a refusable server without a standing key, but the capture itself needs one live
-call, so it does not remove the prerequisite, it amortizes it. Needs a DCR, since it changes what
-the gate means.
-
-**Drop the adapter from the publication roster until it has spoken to its provider** *(proposed by
-reopen)* — the only route that removes the exposure rather than documenting it. Blast radius is the
-roster test and the release ritual; reversible, but it reverses DCR-0029's scope decision and would
-need that record amended.
-
-**Run the existing live test against an Anthropic-compatible endpoint via the base-URL override**
-*(proposed by reopen, research pass 2026-09-12)* — the plumbing is already there and validated. The
-distinguishing point is the same as its limit: a compatible gateway proves the request is
-well-formed, not that Anthropic accepts it, so it is evidence of a different and weaker claim.
-
-**Make the leg release-gated — add `crates/transync-anthropic` to release-checklist step 10's
-trigger paths** *(proposed by reopen verification 2026-09-13)* — the only route aimed at
-recurrence: the crate is absent from step 10's trigger diff today, so the leg can never become due
-and a seventh release can be cut in this position. One checklist edit, no code, no credential, and
-no provider evidence of its own; composes with any other route. Whether widening the trigger set
-DCR-0015 names is a record-free "when to run" edit or needs a dated note on that archived record is
-an owner reading, and should be settled before the edit.
-
