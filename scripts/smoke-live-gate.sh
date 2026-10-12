@@ -34,15 +34,12 @@
 #   GEMINI_API_KEY    <- .gemini.api_key
 #   GOOGLE_API_KEY    <- .google_vertex.api_key
 #
-# UNVERIFIED — google-vertex-express. The adapter sends the express-mode key as
-# an `x-goog-api-key` HTTP header. Google's own published examples use a `?key=`
-# query parameter instead; the header form is the one every other adapter here
-# uses and is the only form that keeps the key out of URLs, logs and proxies
-# (DCR-0030), but **no live call has confirmed Vertex express accepts it**. If
-# this leg returns 401/403 while the same key works against the documented
-# `?key=` URL, that is the cause, and the fix is one line in
-# `crates/transync-google/src/lib.rs`'s `generate`. Record the outcome of the
-# first run here.
+# VERIFIED — google-vertex-express. The adapter sends the express-mode key as an
+# `x-goog-api-key` HTTP header rather than the `?key=` query parameter Google's
+# own published examples use, because the header is the only form that keeps the
+# key out of URLs, logs and proxies (DCR-0030). A live round-trip against
+# `gemini-3.8-flash` accepted the header, so the documented query form is one
+# spelling of this key and not the only one; no `?key=` fallback is needed.
 #
 # Optional:
 #   TRANSYNC_LIVE_SMOKE_CHAT_MODEL          — overrides default (gpt-4o-mini)

@@ -1025,12 +1025,18 @@ DCR-0058).**
 Before tagging a release that touches `transync-openai`,
 `transync-anthropic`, `transync-google`, `llm::prompt`, the output schema, or batching, run
 `./scripts/smoke-live-gate.sh` and record the date and the models used in the
-CHANGELOG entry for that release. There is no `ANTHROPIC_API_KEY` in the
-development environment yet, so the `anthropic` leg has never been executed —
-run it as `./scripts/smoke-live-gate.sh anthropic` once a key exists. Run the
-three Google legs separately when their project/ADC or API key is configured;
-until then read those crates' evidence off their offline tests, which
-drives the whole stack over a loopback socket. The assertions are structural (validation
+CHANGELOG entry for that release. **Which surfaces have actually answered is
+not the same set as the legs this script offers**, and the roster lives in the
+README's provider-evidence table. As of 2026-10-13: `chat`, `responses` and
+`google-vertex-express` have each passed a live round-trip; the `anthropic` leg
+has run exactly once and was rejected `400`, because an organization-scoped key
+must carry an `anthropic-workspace-id` header that this adapter cannot send;
+and `google-developer` and `google-vertex` (ADC) have never run, for want of a
+Developer API key and of ADC on this account. Run each leg **by name** — the
+default surface is `all`, which refuses up front unless every credential is
+present. For a surface still unverified, read that crate's evidence off its
+offline tests, which drive the whole stack over a loopback socket: they prove
+the request the adapter sends, not that the provider accepts it. The assertions are structural (validation
 summary, anchor counts, at least one genuinely translated unit), so a failure
 means real drift — transport, auth, schema, or model behavior — not model
 nondeterminism. If a default model identifier has been retired, the failure

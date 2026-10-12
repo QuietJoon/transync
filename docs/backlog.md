@@ -1417,25 +1417,32 @@ only under ADR-0026 — check that ADR's re-open conditions before the work star
   lenses plus a completeness critic): every quoted record and all of the trigger arithmetic
   reproduced, and three of the body's arguments were refuted and corrected — the consumer pins, the
   type-3 premise, and OI-0030's unticked box as an open obligation.
-- **Blocked by:** the owner's decision to spend from the key this machine already holds, plus
-  confirmation that it still carries credit, plus network in the running session. A gitignored,
-  untracked `.openai.api_key` (165 bytes, mode 0600, mtime 2026-05-03) does sit at the repository
-  root and predates both recorded gate PASSes, so the key is **not** the missing piece; what is
-  missing is that no session exports it, `OPENAI_API_KEY` is unset in an agent session, and
-  `scripts/smoke-live-gate.sh` reads only the environment variable. Credit and network are
-  **unverified**, not known absent — which is what makes the type contested above.
+- **Blocked by:** *(all three original blockers cleared 2026-10-13)* the owner authorized the spend,
+  the key was refreshed — the 2026-05-03 one on disk had expired and returned `401
+  invalid_api_key`, which is the one thing the contested-type argument below assumed away — and the
+  session had network. `scripts/smoke-live-gate.sh` also no longer reads only the environment: a
+  `load_key_file` helper now picks each credential up from its gitignored file at the repository
+  root when the variable is unset, so “no session exports it” has stopped being a blocker for every
+  leg at once. What remains is **narrower than the entry's title**: the run attests the *branch*,
+  not the released `v0.5.0` tree, so v0.5.0 itself still ships unattested and can only be given
+  evidence by a run against the tag.
 - **Sources:** ticgit:342e028d, docs/project/status.md, CHANGELOG.md `[0.5.0]` and `[0.2.0]`,
   docs/project/phase-state.yaml, docs/project/release-checklist.md (steps 8 and 10-12),
   docs/Developer_Guide.md, resp-translator/Cargo.toml, dynwebserver/Cargo.toml,
   crates/transync-openai/src/client/dispatch.rs
 - **First seen:** 2026-09-12
-- **Last seen:** 2026-09-13
+- **Last seen:** 2026-10-13
 
 ### Description
 
 The released v0.5.0 tree carries no evidence that it can complete a single translation round-trip
 against a real provider. The gate that would produce it — `scripts/smoke-live-gate.sh`, created by
-DCR-0015 Part C and resolving OI-0030 — is triggered for this range and was never run. All three
+DCR-0015 Part C and resolving OI-0030 — is triggered for this range and was never run against the
+tag. **Partly answered 2026-10-13**, and the distinction is the whole of what is left: the gate ran
+on the branch and `chat`, `responses` and `google-vertex-express` all passed, so the *code* is
+known to survive a real round-trip — but the tree it ran against is dozens of commits past
+`v0.5.0`, so it attests a tree nobody released. The two routes below that were about *obtaining a
+run* are therefore spent; the one about *which tree the run attests* is not. All three
 evidence carriers say so rather than hide it: the `[0.5.0]` CHANGELOG preamble reads **"Release
 gate (OI-0030 / DCR-0015 Part C): TRIGGERED and NOT RUN."**, `phase-state.yaml` says the same, and
 status.md still lists it among what remains after the tag. The second half is structural rather
@@ -1535,24 +1542,41 @@ nor authorization to spend.
   confirm or refute it and it is withdrawn as evidence of drift risk. A sixth route was added.
   Still unverified: that the leg has never run *anywhere* (a universal negative), and that the
   script and the offline suite are green at HEAD — no cargo command and no network call was made
-- **Blocked by:** a working `ANTHROPIC_API_KEY` for an account with credit, held by the owner or an
-  operator acting for them. None has ever existed in this environment.
+- **Executed 2026-10-13 — the slug is now historical.** The leg has been run. It is kept under this
+  name because `docs/backlog-archive.md` cites the slug twice and an Archive is never edited; read
+  the name as the entry's origin, not as its current claim.
+- **Blocked by:** *(original blocker cleared 2026-10-13)* a working `ANTHROPIC_API_KEY` reached this
+  environment and the leg ran. It is now blocked on a **workspace-scoped** key, or on the owner
+  choosing the other road — an optional `anthropic-workspace-id` header on the adapter. The key on
+  disk is organization-scoped, which the Messages API refuses outright for this endpoint.
 - **Sources:** ticgit:40b29a9d, ticket `342e028d` (coupled route; provenance, not this entry's
   ticket), docs/project/status.md (standing
   gap, open 2026-08-10), docs/project/release-checklist.md (step 10's trigger paths, steps 11-12),
   docs/project/design-change-records/DCR-0029-transync-anthropic-second-provider.md,
   docs/architecture/mvp-scope.md
 - **First seen:** 2026-09-12
-- **Last seen:** 2026-09-13
+- **Last seen:** 2026-10-13
 
 ### Description
 
 `crates/transync-anthropic` is a complete, rostered workspace member implementing `Translator` over
-the Anthropic Messages API, and no process in this repository has ever sent it a request to the
-real service. The machinery is written and double-gated — `tests/live_smoke.rs` holds one full
-round-trip behind `#[ignore]` plus a predicate demanding `TRANSYNC_LIVE_SMOKE=1` and a non-empty
-key, and `scripts/smoke-live-gate.sh anthropic` is the opt-in. What is missing is the credential,
-and it has been missing since the crate landed on 2026-08-10.
+the Anthropic Messages API. The machinery is written and double-gated — `tests/live_smoke.rs` holds
+one full round-trip behind `#[ignore]` plus a predicate demanding `TRANSYNC_LIVE_SMOKE=1` and a
+non-empty key, and `scripts/smoke-live-gate.sh anthropic` is the opt-in.
+
+**Updated 2026-10-13.** A credential arrived and the leg ran, so the entry's founding claim — that
+no process here had ever sent this adapter's request to the real service — no longer holds. The
+request reached Anthropic and came back **`400 invalid_request_error`**: *“This API key is not
+scoped to a workspace, so this request must include the `anthropic-workspace-id` header with the ID
+of the workspace to use.”* What that buys, and what it does not, are both worth stating. It buys
+the provider's own agreement that the **outbound** request is well-formed — a 400 and not a 401
+means `x-api-key`, `anthropic-version`, the model name and the body were parsed and accepted — so
+the adapter's request assembly is now attested by the provider rather than only by this
+repository's loopback server. It does not buy the claim the gate exists for: **no real Messages API
+response has ever been read**, so envelope reading, the schema-profile pass and every validation
+layer downstream of a success are still attested only offline. The adapter also turns out to have a
+real capability gap, previously invisible: it cannot name a workspace at all, so an
+organization-scoped key cannot use it.
 
 ### Background
 
@@ -1570,9 +1594,11 @@ radius is bounded on one side and not the other: no `transync` CLI run can reach
 the CLI depends on `transync`, `transync-openai` and `transync-google`, none of which reaches it, and the workspace table deliberately
 carries no entry for it — but the crate is on the publication roster at row 7, is packaged and
 verify-built by the one publish dry run recorded since it landed (2026-09-05, 14 files / 267.7 KiB,
-run with `--allow-dirty`; the `[0.4.0]` section records no publish dry run at all), and neither its
-rustdoc nor the README says anywhere that it has never spoken to its provider; the README presents it
-symmetrically with the OpenAI adapter, which has passed its live gate. Nothing in the workspace has
+run with `--allow-dirty`; the `[0.4.0]` section records no publish dry run at all). **The
+documentation half of this was fixed 2026-10-13**: the README now carries a provider-evidence table
+naming every surface and marking this one **UNVERIFIED** with its reason, so the README no longer
+presents the adapter symmetrically with the OpenAI one. The crate's own rustdoc still says nothing,
+which is the remaining half of that route. Nothing in the workspace has
 been pushed to a registry yet, which is exactly the window in which this is still cheap to decide.
 Type 3: the prerequisite is external, concrete, and not an agent's to supply — both 2026-09-13
 lenses agreed on the type, noting a real type-2 component (the owner must still pick a route, and
@@ -1593,9 +1619,17 @@ environment. One caveat priced honestly: the effort estimate holds only if it pa
 adapter repair of unknown size in a rostered crate.
 
 **Mark the adapter unverified against its live provider in its own rustdoc and the README**
-*(proposed by reopen)* — needs no key at all, which is its distinguishing point. Effort is two doc
-edits; blast radius is prose plus the Korean mirrors that track it. It makes the record honest
-without making the adapter proven.
+*(proposed by reopen; — **README half DONE 2026-10-13**)* — needs no key at all, which is its
+distinguishing point. Effort is two doc edits; blast radius is prose plus the Korean mirrors that
+track it. It makes the record honest without making the adapter proven. The README half shipped as
+a provider-evidence table covering all six surfaces rather than a sentence about this one; the
+rustdoc half is still open.
+
+**Give the adapter an optional `anthropic-workspace-id`** *(the 2026-10-13 run's own finding)* —
+the only route that makes an organization-scoped key usable, which is the key class the owner
+actually holds. It is a new surface on a published crate, so it needs a record, and it composes
+with every route above. Its cheap alternative needs no code at all: **obtain a workspace-scoped
+key**, which the provider's own refusal message offers as the first remedy.
 
 **Replace the live leg with a contract test against captured real provider responses** *(proposed by
 reopen)* — gives a refusable server without a standing key, but the capture itself needs one live

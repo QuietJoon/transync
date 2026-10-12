@@ -300,6 +300,47 @@ the evidence rather than a bare claim. Three were genuinely open and are fixed h
   release-prep: `scripts/smoke.sh` now runs **eight** command steps plus its `OK` summary
   line, where the `[0.5.0]` entry below correctly records seven for that cut.
 
+### Also in this window — the live-endpoint gate ran (2026-10-13)
+
+The DCR-0015 Part C gate (OI-0030) was executed with real credentials for the
+first time since 2026-08-20, and for the first time ever against more than one
+provider. Four legs ran; two surfaces had no credential here and were not run.
+
+- **`chat` — PASSED.** One round-trip against `gpt-4o-mini` on Chat Completions.
+- **`responses` — PASSED.** One round-trip against `gpt-5-mini` on the Responses
+  API. Together with the leg above this re-proves `transync-openai`, whose
+  dispatch heuristic changed in this window (DCR-0059).
+- **`google-vertex-express` — PASSED.** One round-trip against
+  `gemini-3.8-flash` through Vertex AI express mode, the surface DCR-0060 added.
+  This is `transync-google`'s first live evidence of any kind, and it settles a
+  question the adapter had to guess at: express mode **accepts the key as an
+  `x-goog-api-key` header**, not only as the `?key=` query parameter Google's
+  published examples use. The header is the form DCR-0030 requires, because a
+  query parameter carries the key into URLs, logs and proxies; the note in
+  `scripts/smoke-live-gate.sh` that recorded the guess now records the answer,
+  and no `?key=` fallback is needed.
+- **`anthropic` — RAN AND DID NOT PASS.** The first request this repository has
+  ever sent to the real Messages API, against `claude-haiku-4-5`, came back
+  `400 invalid_request_error`: the key is organization-scoped, so the API
+  requires an `anthropic-workspace-id` header naming the workspace, and this
+  adapter sends none. The status code is the useful part — a 400 rather than a
+  401 means `x-api-key`, `anthropic-version`, the model name and the request
+  body were all accepted as written, and what is missing is workspace routing
+  rather than request shape. Clearing it takes either a workspace-scoped key
+  (no code) or an optional `anthropic-workspace-id` on the adapter (a new
+  surface on a published crate, so a record first). Until then the leg is
+  **UNVERIFIED** and `transync-anthropic` cannot ride a release tag.
+- **`google-developer` and `google-vertex` (ADC) — NOT RUN.** No Developer API
+  key exists here, and Google's Cloud Welcome credit does not pay for that
+  surface; the ADC credentials live on another account and are deferred to
+  their own track. Both are **UNVERIFIED**.
+
+The owner's ruling for this run, recorded because it governs the next cut as
+well: unverified endpoints are **recorded as unverified** — in the README's
+provider-evidence table, not only here — and a tag may be cut once some legs
+pass, but **a provider-specific adapter whose own leg has not passed may not
+ride it**.
+
 ### Decisions recorded
 
 - **ADR-0029 — the `--out-dir` ownership marker is a name, not a credential.**

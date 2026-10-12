@@ -105,6 +105,28 @@ credit does **not** pay Developer API / AI Studio charges. The
 [Developer Guide](docs/Developer_Guide.md#google-gemini-provider) has commands,
 provider defaults and a dated price snapshot.
 
+### Which provider surfaces have answered a real request
+
+Every adapter carries an offline end-to-end suite that drives `transync::translate`
+against a loopback socket answering the request the adapter actually sent, so
+request shaping, transport, headers, envelope reading and every validation layer
+are proven for all of them. Only a live call proves the *provider* accepts that
+request as written, and `scripts/smoke-live-gate.sh` is the gate that makes one.
+What it has established:
+
+| Surface | Leg | Evidence |
+| --- | --- | --- |
+| OpenAI Chat Completions | `chat` | **VERIFIED** 2026-10-13 — round-trip against `gpt-4o-mini` |
+| OpenAI Responses | `responses` | **VERIFIED** 2026-10-13 — round-trip against `gpt-5-mini` |
+| Vertex AI express mode | `google-vertex-express` | **VERIFIED** 2026-10-13 — round-trip against `gemini-3.8-flash`; also the first confirmation that express mode accepts the key as an `x-goog-api-key` header rather than Google's documented `?key=` query parameter |
+| Anthropic Messages | `anthropic` | **UNVERIFIED** — run 2026-10-13 and rejected `400`: the key was organization-scoped and this adapter sends no `anthropic-workspace-id` header, so it cannot name a workspace. A 400 rather than a 401 means the key, `anthropic-version` and the request body were accepted; no response has ever been read |
+| Gemini Developer API | `google-developer` | **UNVERIFIED** — never run; no Developer-API key here, and the Cloud Welcome credit does not pay for that surface |
+| Vertex AI with ADC | `google-vertex` | **UNVERIFIED** — never run; credentials live on another account, deferred to its own track |
+
+**UNVERIFIED** is a statement about evidence, not a defect report: it means this
+repository has never watched that endpoint answer. Treat such an adapter as
+untested against its provider, and prefer a verified surface in production.
+
 `smoke.sh` is not the getting-started script: it builds the workspace,
 runs the standing wasm gate, both test suites and the rustdoc gate,
 then `scripts/build-wasm.sh`, and only then the CLI dry run. It needs
