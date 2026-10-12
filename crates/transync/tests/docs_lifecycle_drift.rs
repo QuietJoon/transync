@@ -145,13 +145,17 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 /// `CHANGELOG.md` records which provider surfaces answered a real request and
 /// which did not.
 ///
-/// `docs/backlog.md` went the other way the same day and its ceiling comes
-/// **down**, which is the direction this table is supposed to move. Three
-/// entries resolved at once — both live-gate entries and the unopened
-/// breaking window — and each left for `backlog-archive.md` under the
-/// Register rule. The archive is unbudgeted on purpose: it is append-only and
-/// never read for current truth, so growth there is not the growth this gate
-/// exists to stop.
+/// `docs/backlog.md` moved twice on 2026-10-13 and the pair is worth reading
+/// together. It came **down** first, which is the direction this table is
+/// supposed to move: three entries resolved at once — both live-gate entries
+/// and the unopened breaking window — and each left for `backlog-archive.md`
+/// under the Register rule. (The archive is unbudgeted on purpose: it is
+/// append-only and never read for current truth, so growth there is not the
+/// growth this gate exists to stop.) It then went back up by 3 KiB for the
+/// owner's stated v0.6.0 release condition and for the recorded deferral on
+/// `v050-live-gate-unrun` — interface rules again, not history: the header
+/// now has to say that its counts are **not** a gate verdict, and an entry
+/// the owner set aside has to carry the trigger that would wake it.
 const BUDGETS: &[(&str, u64)] = &[
     ("CLAUDE.md", 23_552), // wave 1 done; the rest is rules, not history; +1 KiB DCR-0060's `--google-auth` selector and the manifest version line
     ("docs/index.md", 27_648), // wave 1 landed, → 22_528 not reached; +1 KiB DCR-0061
@@ -160,7 +164,7 @@ const BUDGETS: &[(&str, u64)] = &[
     ("docs/project/release-checklist.md", 48_128), // wave 2; +1 KiB DCR-0058
     ("docs/project/phase-state.yaml", 7_168),    // wave 2 done; +1 KiB DCR-0054..DCR-0060 roster
     ("docs/project/open-issues.md", 60_416),     // wave 2 done
-    ("docs/backlog.md", 104_448), // wave 2 done; LOWERED 2026-10-13 — three entries resolved and archived in one day (both live-gate entries and the breaking window) took it below the old ceiling, and a budget that no longer ratchets is not a budget
+    ("docs/backlog.md", 107_520), // wave 2 done; lowered to 102 KiB on 2026-10-13 when three entries archived in one day, then +3 KiB the same day for v0.6.0's stated release condition and the recorded deferral its gate verdict depends on
     ("CHANGELOG.md", 108_544), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes
     ("docs/Developer_Guide.md", 94_208), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9
     ("docs/Troubleshooting.md", 40_960), // wave 3

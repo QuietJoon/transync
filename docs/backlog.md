@@ -21,7 +21,21 @@ round 0001 and `README.md` are committed, later rounds are left untracked until 
 archives them; see `untracked-analysis-bundles` in the Type 2 removal note kept in
 `docs/backlog-archive.md`).
 
-**The v0.5.0 release gate — the rule this file is the census for (owner, stated
+**A second gate exists as of 2026-10-13, and this file is not yet the census for it.**
+The owner stated v0.6.0's window-closing condition that day: *the manifest stays
+`0.6.0-dev` for now; it goes to `0.6.0` once what is to be implemented is **complete and
+verified**.* It is recorded where every such condition is checked — `release-checklist.md`
+step 2a — and it adds a term v0.5.0's did not have: **verified**, not merely resolved.
+What it does **not** yet say is which set "what is to be implemented" names: the three
+items queued against the v0.6.0 window (OI-0051, OI-0052, OI-0054), or the whole
+non-deferred union below, the way v0.5.0's condition did. **That is exactly the question
+this file's census answers, so until it is settled the counts below carry no gate verdict
+for v0.6.0** — they are a count of open work, which is what they were before any gate
+existed. The v0.5.0 rule is kept verbatim underneath because it is the worked example of
+how such a condition is read, and because its third bullet — the window is not the gate —
+governs v0.6.0 unchanged.
+
+**The v0.5.0 release gate — the rule this file was the census for (owner, stated
 2026-08-24).** **`transync` bumps to 0.5.0 proper only after every registered task and
 every open issue is resolved, excluding those explicitly deferred.** Three parts of that
 sentence are load-bearing and none of them is optional:
@@ -66,8 +80,11 @@ after the 2026-09-12 sweep, and the next sweep adopts them. Until it runs, the q
 `ti list --open`, not this file. The open-issue register holds nine issues: **4 OPEN** (OI-0051
 through OI-0054), **1 DEFERRED** (OI-0049) and four marked RESOLVED (OI-0040, OI-0041, OI-0046,
 OI-0048) that stay in the register because each still has an open ticket against it. **What counts
-against a gate is still the owner's to state**: no gate has been declared since v0.5.0, and
-the **v0.6.0 breaking window is open** (owner, 2026-10-13, DCR-0062; ticket `2d616b6a` closed).
+against a gate is still the owner's to state**, and on 2026-10-13 a v0.6.0 condition was
+stated — complete *and verified* — but its scope is not pinned, so **none of these figures is
+a gate verdict**; the header says why. The **v0.6.0 breaking window is open** the same day
+(DCR-0062; ticket `2d616b6a` closed), which is a separate thing: the window says what may ride
+the release, the condition says whether it may happen.
 
 **What moved since 2026-10-10, and it is all the live-endpoint gate.** The entry count is
 unchanged because one entry left and one arrived. `anthropic-live-leg-never-run` is **RESOLVED**
@@ -77,8 +94,10 @@ Type 2 gains `anthropic-adapter-cannot-name-a-workspace` (ti `3e013e47`) — the
 exposed and that its fix did not remove: the adapter sends no `anthropic-workspace-id`, so it
 needs a workspace-scoped key. The second closure has no entry here and so moves only the
 ticket count: ti `c5b1431a` asked whether Vertex express accepts the `x-goog-api-key` header
-form, and the `google-vertex-express` leg answered yes. `v050-live-gate-unrun` stays open on a
-narrower claim than its title — the run attests the branch, not the released `v0.5.0` tree.
+form, and the `google-vertex-express` leg answered yes. `v050-live-gate-unrun` is **deferred by the owner**, with a
+trigger recorded on the entry: its remaining claim is narrower than its title — the run attests
+the branch, not the released `v0.5.0` tree — and nothing depends on v0.5.0 carrying evidence of
+its own.
 
 **And one more moved the same day, for a different reason.** `unopened-breaking-window` is
 **RESOLVED** and archived: the owner made the next version v0.6, which opens the window the entry
@@ -1395,6 +1414,22 @@ only under ADR-0026 — check that ADR's re-open conditions before the work star
 
 ## v050-live-gate-unrun
 
+- **DEFERRED by the owner 2026-10-13** — *“not particularly important, skip it.”* This is a
+  recorded deferral with a trigger, not an entry left unclassified: the header's three-state rule
+  admits counting, deferred-with-a-recorded-condition, or resolved, and an entry in none of them
+  is a defect in this file.
+  **Why the deferral is defensible rather than merely instructed.** Most of what this entry
+  warned about was answered on the same day it was deferred. The gate ran and four legs passed,
+  so the *code* is known to survive a real provider round-trip; and `smoke-live-gate.sh` gained a
+  `load_key_file` helper that reads each credential from its gitignored root file when the
+  variable is unset, which removes “no session exports it” — the mechanism behind three
+  consecutive unattested cuts — for every leg at once. What is left is the narrow retrospective
+  claim: the run attests the branch, not the released `v0.5.0` tree, and nothing depends on
+  v0.5.0 carrying its own evidence.
+  **Re-counts if any of these fire:** a release is cut from the `v0.5.0` tag rather than from
+  master; a provider-level defect is traced to the v0.5.0 tree; or a cut lands with the
+  DCR-0015 Part C gate triggered and unrun again, which would show the key-file helper did not
+  fix the pattern after all.
 - **Type:** 3
 - **Type contested (reopen verification 2026-09-13):** the two lenses split on the same evidence.
   Lens A keeps type 3 on the tie-break 3 > 2 with the blocker line corrected; lens B holds type 3

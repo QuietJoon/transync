@@ -167,6 +167,25 @@ as it is stated, and a version with none says so.
   `open-issues.md` instead of reading the last sweep's numbers**; a stale census
   answers this step wrongly and silently, which is exactly how the failure below
   happened.
+- **v0.6.0 — stated by the owner 2026-10-13.** *The manifest stays `0.6.0-dev`
+  for now; it goes to `0.6.0` once what is to be implemented is **complete and
+  verified**.* Two terms, and the second is not decoration: v0.5.0's condition
+  asked only that items be **resolved**, and this one asks that the work also
+  be **verified**, which is the term the three preceding cuts could not answer
+  for the live-endpoint gate. Read it with the gate's own vocabulary: an
+  adapter whose leg has not passed is not verified, and an `UNVERIFIED` row in
+  the README's provider-evidence table is a statement that evidence is absent
+  (owner, same day). As of 2026-10-13 four legs pass and two surfaces do not,
+  both of them alternative credential paths into a crate that passed on a
+  third.
+  **One thing this condition does not yet fix is which set "what is to be
+  implemented" names** — the three items queued against the window (OI-0051,
+  OI-0052, OI-0054), or the whole non-deferred union the way v0.5.0's did. The
+  difference decides what `docs/backlog.md`'s census counts, so settle it
+  before the cut rather than at it; until it is settled this step is answerable
+  only for the narrow reading. The **window is not this condition**, as ever:
+  the window (DCR-0062) says what *may* ride v0.6.0, this says whether v0.6.0
+  may happen.
 - **v0.1.0 through v0.4.0 carried no such condition**, which is why this step did
   not exist for them: they were gated by step 2's stability rules and the standing
   gates in section B, and by nothing else.
