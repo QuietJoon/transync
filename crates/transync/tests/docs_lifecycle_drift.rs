@@ -136,6 +136,10 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 /// for the next entry, and the compaction targets in the trailing comments
 /// are unchanged by them.
 ///
+/// DCR-0061 paid for two more — one index line, and §9's corrected exit code,
+/// loopback rule and `MAX_TOKENS` remediation, each of which is an interface
+/// rule a caller has to be able to read.
+///
 /// The 2026-10-13 live-endpoint run paid for two more, and they are the kind
 /// of growth this gate is meant to allow: evidence about the shipped
 /// artifact. `CHANGELOG.md` records which provider surfaces answered a real
@@ -145,14 +149,14 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 /// `anthropic` leg was refused for want of a workspace-scoped key.
 const BUDGETS: &[(&str, u64)] = &[
     ("CLAUDE.md", 23_552), // wave 1 done; the rest is rules, not history; +1 KiB DCR-0060's `--google-auth` selector and the manifest version line
-    ("docs/index.md", 26_624), // wave 1 landed, → 22_528 not reached
-    ("docs/architecture/contracts.md", 306_176), // wave 4 landed, → 163_840 not reached
-    ("docs/project/status.md", 24_576), // wave 2 done; ~2 KiB of working room
+    ("docs/index.md", 27_648), // wave 1 landed, → 22_528 not reached; +1 KiB DCR-0061
+    ("docs/architecture/contracts.md", 308_224), // wave 4 landed, → 163_840 not reached; +2 KiB DCR-0061's §9 corrections
+    ("docs/project/status.md", 24_576),          // wave 2 done; ~2 KiB of working room
     ("docs/project/release-checklist.md", 48_128), // wave 2; +1 KiB DCR-0058
-    ("docs/project/phase-state.yaml", 7_168), // wave 2 done; +1 KiB DCR-0054..DCR-0060 roster
-    ("docs/project/open-issues.md", 60_416), // wave 2 done
+    ("docs/project/phase-state.yaml", 7_168),    // wave 2 done; +1 KiB DCR-0054..DCR-0060 roster
+    ("docs/project/open-issues.md", 60_416),     // wave 2 done
     ("docs/backlog.md", 117_760), // wave 2 done; +4 KiB the 2026-10-13 live-gate results on its two live-gate entries
-    ("CHANGELOG.md", 104_448), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster
+    ("CHANGELOG.md", 108_544), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes
     ("docs/Developer_Guide.md", 94_208), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9
     ("docs/Troubleshooting.md", 40_960), // wave 3
     ("docs/implementation/module-map.md", 40_960), // wave 3; +1 KiB DCR-0058

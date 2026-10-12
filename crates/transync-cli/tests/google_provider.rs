@@ -426,6 +426,83 @@ fn google_auth_requires_the_google_provider() {
     );
 }
 
+/// DCR-0058's first mandated refusal, for the four flags that predate
+/// `--google-auth`: a `--google-*` flag with a non-Google provider is an
+/// argument error, not a flag that is quietly dropped.
+///
+/// `google_auth_requires_the_google_provider` below covers the same rule for
+/// DCR-0060's flag, and covered it alone — the four flags the rule was
+/// *written* for had no test at all, so the guard could have been narrowed to
+/// `--google-auth` and stayed green. Each flag is driven separately rather
+/// than together, because one `||` arm holding the whole condition up reads
+/// identically to five working arms.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn every_google_flag_requires_the_google_provider() {
+    for (flag, value) in [
+        ("--google-surface", "developer"),
+        ("--google-project", "some-project"),
+        ("--google-location", "us"),
+        ("--google-thinking", "high"),
+    ] {
+        let workdir = ScratchDir::new(&format!(
+            "google-cli-openai{}",
+            flag.trim_start_matches('-')
+        ));
+        let output = run(&workdir, &["--provider", "openai", flag, value], &[]);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{flag} with --provider openai should be refused"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("require --provider google"),
+            "{flag} with OpenAI should name the rule: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+/// DCR-0058's second mandated refusal: the Developer API addresses no project
+/// and no location, so passing one is refused rather than silently dropped.
+///
+/// The existing Developer test sets `GOOGLE_CLOUD_LOCATION` in the environment
+/// and asserts the run *succeeds* with a null location — which is the opposite
+/// rule and the correct one, because ambient environment is not a request.
+/// These are the explicitly passed flags, and nothing covered them.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn the_developer_surface_refuses_an_explicit_project_or_location() {
+    for (flag, value) in [
+        ("--google-project", "some-project"),
+        ("--google-location", "us"),
+    ] {
+        let workdir = ScratchDir::new(&format!("google-cli-dev{}", flag.trim_start_matches('-')));
+        let output = run(
+            &workdir,
+            &[
+                "--provider",
+                "google",
+                "--google-surface",
+                "developer",
+                flag,
+                value,
+            ],
+            &[],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{flag} on the Developer surface should be refused"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("require --google-surface vertex"),
+            "{flag} on Developer should name the rule: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 /// An API key in the environment never selects a surface or an auth mode
 /// (DCR-0058, DCR-0060): with `GOOGLE_API_KEY` set and no `--google-auth`, a
 /// Google run is still ADC Vertex.

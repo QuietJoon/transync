@@ -331,7 +331,7 @@ impl TransyncGoogle {
             .await
             .map_err(|e| TranslatorError::Network(e.to_string()))?;
         let bytes = read_response(response).await?;
-        parse_generation_response(&bytes, ceiling)
+        parse_generation_response(&bytes, &self.config.model, ceiling)
     }
 }
 
@@ -409,8 +409,10 @@ fn validate_config(config: &GoogleConfig) -> Result<(), GoogleConfigError> {
         }
     }
     if let Some(url) = &config.base_url {
-        let host = url
-            .host_str()
+        // Bound for the refusal alone: a base URL with no host names no
+        // endpoint. The loopback question below reads the parsed host instead,
+        // because the *string* form of an IPv6 host is bracketed.
+        url.host_str()
             .ok_or_else(|| GoogleConfigError::MalformedUrl("missing host".into()))?;
         if url.username() != ""
             || url.password().is_some()
@@ -421,14 +423,49 @@ fn validate_config(config: &GoogleConfig) -> Result<(), GoogleConfigError> {
                 "base URL cannot contain userinfo, query, or fragment".into(),
             ));
         }
-        let loopback = host == "localhost" || host == "127.0.0.1" || host == "::1";
-        if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
+        if url.scheme() != "https" && !(url.scheme() == "http" && is_loopback_host(url)) {
             return Err(GoogleConfigError::MalformedUrl(
                 "expected HTTPS, or HTTP on loopback".into(),
             ));
         }
     }
     Ok(())
+}
+
+/// Whether a base URL addresses this machine, so cleartext `http` to it
+/// never puts the credential or the document on a wire.
+///
+/// **Matched on the parsed host, never on its string form.** `Url::host_str`
+/// serializes an IPv6 host *with its brackets*, so `host_str() == "::1"` is a
+/// comparison that can never be true and `http://[::1]:8080/` was refused as
+/// remote — a gateway on this very machine, turned away. The IPv4 arm had the
+/// narrower version of the same defect: `127.0.0.1` is one address out of the
+/// whole `127.0.0.0/8` loopback block, and `127.0.0.2` is as local as `.1` is.
+/// Asking the address type closes both, and nothing about this rule is
+/// Gemini-specific.
+///
+/// This is a deliberate twin of `transync_openai`'s
+/// `is_cleartext_to_remote_host` / `is_loopback_name` pair (R0002-0005): the
+/// two provider crates share no dependency that could hold it, and the rule
+/// belongs to neither. Change both together.
+fn is_loopback_host(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(name)) => is_loopback_name(name),
+        None => false,
+    }
+}
+
+/// RFC 6761 §6.3: `localhost` and every name under it are reserved for the
+/// loopback interface, so a request to one never leaves the machine. The
+/// optional fully-qualifying trailing dot names the same host.
+fn is_loopback_name(name: &str) -> bool {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    name.eq_ignore_ascii_case("localhost")
+        || name
+            .rsplit_once('.')
+            .is_some_and(|(_, last)| last.eq_ignore_ascii_case("localhost"))
 }
 
 fn build_http_client() -> Result<reqwest::Client, GoogleConfigError> {
@@ -490,13 +527,73 @@ fn endpoint(config: &GoogleConfig) -> Result<Url, GoogleConfigError> {
     Ok(url)
 }
 
+/// Refuse a `[batching].target_output_tokens` the default model cannot honour,
+/// before a request is built.
+///
+/// **The variant is the point, because the CLI turns it into an exit code.**
+/// This used to raise `Unsupported`, which lands on exit 5 — and `error.rs`
+/// says exactly why it lands there: `Unsupported` is "genuinely ambiguous",
+/// a code that admits it cannot tell a configuration fault from a document
+/// one. That reasoning is right about the variant and wrong about this call
+/// site. Nothing here has read the document; this is a pre-flight comparison
+/// of one profile number against one published model limit, so the fault is
+/// the operator's configuration and nothing else, and the operator's own knob
+/// is the whole remediation. `ProviderRejected` with no status carries that:
+/// the request was refused rather than failed, `status: None` because no
+/// provider was asked, and the CLI maps it to `ConfigurationRejected`. Saying
+/// "I cannot tell" about a question with one possible answer is the
+/// actively-harmful classification DCR-0023 exists to remove.
+///
+/// Only the default model is checked. Another model's ceiling is not ours to
+/// know, so it rides to the provider, which does know.
 fn validate_output_ceiling(model: &ModelId, ceiling: Option<u32>) -> Result<(), TranslatorError> {
-    if model.0 == DEFAULT_MODEL && ceiling.is_some_and(|n| n > FLASH_38_MAX_OUTPUT_TOKENS) {
-        return Err(TranslatorError::Unsupported(format!(
-            "{DEFAULT_MODEL} supports at most {FLASH_38_MAX_OUTPUT_TOKENS} output tokens"
-        )));
+    if model.0 == DEFAULT_MODEL
+        && let Some(n) = ceiling.filter(|n| *n > FLASH_38_MAX_OUTPUT_TOKENS)
+    {
+        return Err(TranslatorError::ProviderRejected {
+            status: None,
+            message: format!(
+                "[batching].target_output_tokens is {n}, and {DEFAULT_MODEL} accepts at most \
+                 {FLASH_38_MAX_OUTPUT_TOKENS} output tokens including thinking; refused before \
+                 sending"
+            ),
+        });
     }
     Ok(())
+}
+
+/// What an operator can actually change when Gemini stops at `MAX_TOKENS`.
+///
+/// Naming `[batching].target_output_tokens` unconditionally is the obvious
+/// phrasing and the wrong one. [`validate_output_ceiling`] refuses a ceiling
+/// above the model's published maximum, so at that maximum "raise it" points
+/// at a knob this very adapter will not let the operator turn — a remediation
+/// that sends them in a circle, which is worse than naming none. Offer the
+/// raise only while there is headroom to raise into; otherwise name the knobs
+/// that still move. Batch size decides how much output one request asks for,
+/// and thinking tokens come out of this same budget, so a lower thinking level
+/// buys answer room without touching the ceiling.
+fn max_tokens_remediation(model: &ModelId, ceiling: Option<u32>) -> String {
+    let at_the_cap =
+        model.0 == DEFAULT_MODEL && ceiling.is_none_or(|n| n >= FLASH_38_MAX_OUTPUT_TOKENS);
+    if at_the_cap {
+        format!(
+            "Gemini stopped at MAX_TOKENS with the output ceiling already at {DEFAULT_MODEL}'s \
+             maximum of {FLASH_38_MAX_OUTPUT_TOKENS}, which this adapter will not let you raise. \
+             Ask for less output per request instead: lower [batching].max_units_per_batch or \
+             the input budget, or lower the thinking level — thinking tokens come out of this \
+             same ceiling"
+        )
+    } else {
+        let detail = ceiling.map_or_else(
+            || "provider output limit".to_string(),
+            |n| format!("configured maxOutputTokens={n}"),
+        );
+        format!(
+            "Gemini stopped at MAX_TOKENS ({detail}); raise [batching].target_output_tokens, or \
+             ask for less output per request. Thinking tokens also consume the limit"
+        )
+    }
 }
 
 /// Transform the shared JSON Schema to Vertex's OpenAPI-like responseSchema
@@ -617,6 +714,7 @@ struct UsageMetadata {
 
 fn parse_generation_response(
     bytes: &[u8],
+    model: &ModelId,
     ceiling: Option<u32>,
 ) -> Result<String, TranslatorError> {
     let response: GenerationResponse = serde_json::from_slice(bytes).map_err(|e| {
@@ -646,13 +744,9 @@ fn parse_generation_response(
     match candidate.finish_reason.as_deref() {
         Some("STOP") => {}
         Some("MAX_TOKENS") => {
-            let detail = ceiling.map_or_else(
-                || "provider output limit".to_string(),
-                |n| format!("configured maxOutputTokens={n}"),
-            );
-            return Err(TranslatorError::OutputCeilingExhausted(format!(
-                "Gemini stopped at MAX_TOKENS ({detail}); thinking tokens also consume the limit"
-            )));
+            return Err(TranslatorError::OutputCeilingExhausted(
+                max_tokens_remediation(model, ceiling),
+            ));
         }
         Some(
             reason @ ("SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII"

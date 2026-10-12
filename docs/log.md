@@ -4,6 +4,12 @@ Newest-first journal of changes to the `docs/` bundle itself. Changes to what
 the documents *say* belong in the documents; this file records the shape of the
 bundle — files added, removed, retired, or re-typed.
 
+## 2026-10-13
+
+* **DCR-0061 added** under `project/design-change-records/`: the Gemini
+  adapter's review fix pass, which also records what the first live Vertex
+  express call settled. The bundle index links it.
+
 ## 2026-10-10
 
 * **DCR-0059 and DCR-0060 added** under `project/design-change-records/`: the

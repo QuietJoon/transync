@@ -2023,14 +2023,35 @@ same request to `publishers/google/models/{model}:generateContent` with no
 project or location, keyed by an `x-goog-api-key` header. Google request
 shaping and response classification remain inside this provider crate. All
 three surfaces use the shared
-prompt/schema/result parsers and ask Gemini for structured JSON. The
+prompt/schema/result parsers and ask Gemini for structured JSON. Express mode's
+header form is **live-verified** (2026-10-13): Vertex AI accepts
+`x-goog-api-key`, so the `?key=` query parameter Google's examples use is one
+spelling of this credential rather than the only one, and no fallback to it
+exists (DCR-0061). The
 `gemini-3.8-flash` default has a 65,536-token maximum output including thinking;
-an explicit larger output ceiling is `Unsupported` before any request. An
-absent or zero output ceiling omits `maxOutputTokens` from the request. The
+an explicit larger output ceiling is refused before any request as
+`ProviderRejected` with no status, which the CLI maps to exit `2` — it is the
+operator's `[batching].target_output_tokens` and nothing else, so it must not
+land on the code that means a configuration fault and a document fault are
+indistinguishable (DCR-0061). An absent or zero output ceiling omits
+`maxOutputTokens` from the request. A `MAX_TOKENS` stop raises
+`OutputCeilingExhausted`, whose message offers the raise only while the ceiling
+is below that maximum; at the maximum it names batch size and thinking level
+instead, because the raise it would otherwise advise is one this adapter
+refuses. The
 separate 20,000-token input target and 65,536-token output ceiling are CLI
 batching defaults, not one combined model budget; §6's explicit profile and
 flag values override them. The Google default expansion factor is 2.0 and
 the hard batch limit is 32 units.
+
+A base URL override is refused unless it is `https`, or `http` to a host that
+is **this machine** — `127.0.0.0/8`, `::1`, and RFC 6761's `localhost` /
+`*.localhost`, matched on the parsed host rather than on its string form
+(DCR-0061). That is the same loopback rule §7 and §8 state for the other two
+adapters, and the same reason: cleartext to somewhere else puts the key and the
+document on a wire. The Google adapter differs from those two in what it does
+with a non-loopback `http` URL — it **refuses**, where they accept and warn —
+and that difference is deliberate and unchanged.
 
 `fingerprint()` includes the chosen surface, model, effective endpoint and
 thinking level; Vertex additionally includes project and location. It excludes

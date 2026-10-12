@@ -258,33 +258,146 @@ fn offline_validates_axes_and_preserves_live_fingerprint() {
     );
 }
 
+/// The envelope's three signals, in the order the parser consults them: a
+/// blocked **prompt** outranks the candidate's `finishReason`, which outranks
+/// whatever partial text came with it.
+///
+/// This test was called `finish_reason_precedes_partial_text_and_policy_block`,
+/// which names the opposite of the implemented precedence — `promptFeedback`
+/// is read first. Nothing caught it because no case carried both signals, so
+/// the name was the only statement of an ordering and it was wrong. The order
+/// in the code is the right one: `promptFeedback.blockReason` says the
+/// **input** was refused, which is why there is no candidate worth reading,
+/// while `finishReason` describes a candidate that was at least attempted.
+/// Reporting the attempt would name the wrong cause. The both-present case
+/// below is what pins it.
 #[test]
-fn finish_reason_precedes_partial_text_and_policy_block() {
+fn a_blocked_prompt_outranks_finish_reason_which_outranks_partial_text() {
+    let model = ModelId::new(DEFAULT_MODEL);
     let partial = json!({"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[{"text":"{\"terms\":[]}"}]}}]});
     assert!(matches!(
-        parse_generation_response(partial.to_string().as_bytes(), Some(1024)),
+        parse_generation_response(partial.to_string().as_bytes(), &model, Some(1024)),
         Err(TranslatorError::OutputCeilingExhausted(_))
     ));
     let blocked = json!({"promptFeedback":{"blockReason":"SAFETY"},"candidates":[]});
     assert!(matches!(
-        parse_generation_response(blocked.to_string().as_bytes(), None),
+        parse_generation_response(blocked.to_string().as_bytes(), &model, None),
         Err(TranslatorError::ContentFiltered(_))
     ));
+    let both = json!({
+        "promptFeedback":{"blockReason":"SAFETY"},
+        "candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[{"text":"partial"}]}}]
+    });
+    assert!(
+        matches!(
+            parse_generation_response(both.to_string().as_bytes(), &model, Some(1024)),
+            Err(TranslatorError::ContentFiltered(_))
+        ),
+        "a refused prompt is the cause; the candidate's own finishReason is a consequence"
+    );
+    let unspecified = json!({
+        "promptFeedback":{"blockReason":"BLOCK_REASON_UNSPECIFIED"},
+        "candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"{\"terms\":[]}"}]}}]
+    });
+    assert_eq!(
+        parse_generation_response(unspecified.to_string().as_bytes(), &model, None).unwrap(),
+        "{\"terms\":[]}",
+        "BLOCK_REASON_UNSPECIFIED is the absence of a block, not a block"
+    );
     let split = json!({"candidates":[{"finishReason":"STOP","content":{"parts":[
         {"text":"private reasoning","thought":true},{"text":"{\"terms\":"},{"text":"[]}"}
     ]}}]});
     assert_eq!(
-        parse_generation_response(split.to_string().as_bytes(), None).unwrap(),
+        parse_generation_response(split.to_string().as_bytes(), &model, None).unwrap(),
         "{\"terms\":[]}"
     );
 }
 
+/// A ceiling the default model cannot honour is the **operator's**
+/// configuration, so it must not land on the exit code that means "I cannot
+/// tell a configuration fault from a document one". `ProviderRejected` with no
+/// status is the one that says a request was refused with nothing asked.
+#[test]
+fn an_impossible_output_ceiling_is_a_configuration_refusal_not_an_ambiguous_one() {
+    let err = validate_output_ceiling(&ModelId::new(DEFAULT_MODEL), Some(65_537)).unwrap_err();
+    let TranslatorError::ProviderRejected { status, message } = err else {
+        panic!("an impossible ceiling must be a request refusal, got {err:?}");
+    };
+    assert_eq!(status, None, "no provider was asked, so there is no status");
+    assert!(
+        message.contains("65537") && message.contains("target_output_tokens"),
+        "the refusal names the value it rejected and the knob that set it: {message}"
+    );
+    assert!(validate_output_ceiling(&ModelId::new(DEFAULT_MODEL), Some(65_536)).is_ok());
+    assert!(
+        validate_output_ceiling(&ModelId::new("gemini-some-future-model"), Some(1_000_000)).is_ok(),
+        "another model's ceiling is not ours to know"
+    );
+}
+
+/// At the model's own maximum, "raise the ceiling" names a knob this adapter
+/// refuses to let the operator turn. The message must name one that moves.
+#[test]
+fn the_max_tokens_remediation_is_never_circular() {
+    let model = ModelId::new(DEFAULT_MODEL);
+    for ceiling in [None, Some(FLASH_38_MAX_OUTPUT_TOKENS)] {
+        let m = max_tokens_remediation(&model, ceiling);
+        assert!(
+            !m.contains("raise [batching].target_output_tokens"),
+            "at the cap the raise is impossible, so it must not be offered: {m}"
+        );
+        assert!(
+            m.contains("max_units_per_batch") && m.contains("thinking"),
+            "it must name the knobs that do still move: {m}"
+        );
+    }
+    let headroom = max_tokens_remediation(&model, Some(1_024));
+    assert!(
+        headroom.contains("raise [batching].target_output_tokens"),
+        "below the cap the raise is the obvious fix and is offered: {headroom}"
+    );
+}
+
+/// `Url::host_str` brackets an IPv6 host, so the old `host == "::1"` could
+/// never be true and a gateway on this machine was refused as remote. The
+/// IPv4 side had the narrower form of the same defect: `127.0.0.1` is one
+/// address in a `/8` that is loopback all the way through.
+#[test]
+fn cleartext_is_allowed_to_every_loopback_spelling_and_no_other() {
+    for allowed in [
+        "http://localhost:8080/v1beta",
+        "http://LocalHost:8080/v1beta",
+        "http://localhost./v1beta",
+        "http://gateway.localhost/v1beta",
+        "http://127.0.0.1:8080/v1beta",
+        "http://127.0.0.2:8080/v1beta",
+        "http://[::1]:8080/v1beta",
+        "https://generativelanguage.googleapis.com/v1beta",
+    ] {
+        assert!(
+            TransyncGoogle::offline(developer(Some(Url::parse(allowed).unwrap()))).is_ok(),
+            "{allowed} should be accepted"
+        );
+    }
+    for refused in [
+        "http://example.com/v1beta",
+        "http://10.0.0.1/v1beta",
+        "http://[2001:db8::1]/v1beta",
+        "http://notlocalhost/v1beta",
+        "http://localhost.example.com/v1beta",
+    ] {
+        assert!(
+            matches!(
+                TransyncGoogle::offline(developer(Some(Url::parse(refused).unwrap()))),
+                Err(GoogleConfigError::MalformedUrl(_))
+            ),
+            "{refused} is not this machine, so cleartext must be refused"
+        );
+    }
+}
+
 #[test]
 fn ceiling_and_http_errors_keep_retry_taxonomy() {
-    assert!(matches!(
-        validate_output_ceiling(&ModelId::new(DEFAULT_MODEL), Some(65_537)),
-        Err(TranslatorError::Unsupported(_))
-    ));
     assert!(validate_output_ceiling(&ModelId::new(DEFAULT_MODEL), None).is_ok());
     assert!(matches!(
         classify_http(

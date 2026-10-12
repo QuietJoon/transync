@@ -154,6 +154,54 @@ section opens one.
 
 ### Fixed
 
+- **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
+  `transync-google` refuses a `[batching].target_output_tokens` above
+  `gemini-3.8-flash`'s published 65,536-token maximum. It raised `Unsupported`,
+  which the CLI maps to exit 5 — and `error.rs` states exactly why that mapping
+  exists: `Unsupported` "is genuinely ambiguous … a code that guesses is worse
+  than one that admits it does not know". True of the variant, false of this
+  call site. Nothing here has read the document; it is a pre-flight comparison
+  of one profile number against one published limit, so there is one possible
+  fault and one remediation and both are the operator's. It now raises
+  `ProviderRejected { status: None, .. }` → `ConfigurationRejected`, and the
+  message names the value it rejected and the knob that set it.
+
+- **The Gemini `MAX_TOKENS` message stops sending operators in a circle**
+  (DCR-0061). `OutputCeilingExhausted`'s contract names
+  `[batching].target_output_tokens` as the knob, so at `gemini-3.8-flash`'s
+  maximum — which is the CLI batching default, so the common case — the advice
+  pointed at a knob the entry above refuses to let the operator turn. The raise
+  is now offered only while there is headroom to raise into; at the cap the
+  message names batch size and thinking level, the two that still move, and
+  keeps the old message's one useful fact: thinking tokens come out of this
+  same ceiling.
+
+- **`http://[::1]` is loopback again for the Gemini base URL** (DCR-0061).
+  `validate_config` allows cleartext only to this machine and tested
+  `host_str() == "::1"`, but `Url::host_str` serializes an IPv6 host **with its
+  brackets**, so the comparison could never be true and a gateway on the local
+  machine was refused as remote. The IPv4 arm had the narrower form of the same
+  defect — `127.0.0.1` is one address in a `/8` that is loopback throughout, so
+  `127.0.0.2` was refused too. Both fail closed, so neither is a security
+  defect; both turn away legitimate local gateways. The rule now matches on the
+  parsed `url::Host` and asks the address type, with RFC 6761's `localhost` /
+  `*.localhost` by name — which is what `transync-openai` already did, and what
+  `contracts.md` §7 and §8 already documented. §9 was the odd one out.
+
+- **Two refusals DCR-0058 mandated, and one test name, get their coverage**
+  (DCR-0061). A `--google-*` flag without `--provider google`, and
+  `--google-project` / `--google-location` on the Developer surface, were both
+  specified and both untested; DCR-0060's `--google-auth` arrived with tests
+  for itself under both rules, which is how the gap stayed invisible — the
+  first guard could have been narrowed to that one flag and stayed green. Each
+  flag is now driven separately. Separately,
+  `finish_reason_precedes_partial_text_and_policy_block` named the opposite of
+  the precedence the parser implements (`promptFeedback` is read first, and
+  rightly: a refused *prompt* is why there is no candidate worth reading). No
+  case carried both signals, so the name was the only statement of an ordering
+  and it was wrong. Renamed, with the both-present case and
+  `BLOCK_REASON_UNSPECIFIED` now pinned.
+
 - **GPT generations past 5, and any `o<N>`, reach Responses and `o200k_base`
   without being listed** (DCR-0059). Surface dispatch and both encoder
   guesses matched prefixes (`gpt-5`, `o1`, `o3`, `o4`), so `gpt-6` and later
