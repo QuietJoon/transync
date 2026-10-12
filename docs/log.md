@@ -6,9 +6,10 @@ bundle — files added, removed, retired, or re-typed.
 
 ## 2026-10-13
 
-* **DCR-0061 added** under `project/design-change-records/`: the Gemini
-  adapter's review fix pass, which also records what the first live Vertex
-  express call settled. The bundle index links it.
+* **DCR-0061 and DCR-0062 added** under `project/design-change-records/`: the
+  Gemini adapter's review fix pass, which also records what the first live
+  Vertex express call settled, and the opening of the v0.6.0 breaking window.
+  The bundle index links both.
 
 ## 2026-10-10
 

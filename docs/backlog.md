@@ -51,23 +51,23 @@ as much as the census that answers it, which is why every entry below has to be 
 three states — counting, deferred-with-a-recorded-condition, or resolved/historical — and
 why an entry that is in none of them is a defect in this file, not an ambiguity.
 
-**Census (2026-10-13) — a count, not a sweep, and this is the current one.** Re-derived from
+**Census (2026-10-13b) — a count, not a sweep, and this is the current one.** Re-derived from
 `ti list --open --json` and the section headings of this file; `docs/project/open-issues.md` was
 not re-scanned and its figures below carry over from the 2026-10-10 count. No other source was
-re-scanned either, so the last full sweep is still the 2026-09-12 one. **44 entries; 41 are live**
+re-scanned either, so the last full sweep is still the 2026-09-12 one. **43 entries; 40 are live**
 — each carrying at least one open TicGit ticket. By section: Type 1 holds 1 entry and it is live,
-Type 2 holds 20 of which **18 are live**, Type 3 holds 23 of which **22 are live**. The same three
+Type 2 holds 19 of which **17 are live**, Type 3 holds 23 of which **22 are live**. The same three
 entries carry no open ticket: `anthropic-leg-outside-the-release-gate-trigger` and
 `oversize-tombstones-point-at-a-closed-oi-0008` cite none, and
 `phrasing-extension-list-for-custom-elements` cites only a closed one. **The two registers still
-do not agree in both directions.** TicGit holds **73 open tickets** (18 new, 55 blocked, none in
-progress). Forty-one are cited by an entry and **32 have no entry here**; those 32 were all filed
+do not agree in both directions.** TicGit holds **72 open tickets** (18 new, 54 blocked, none in
+progress). Forty are cited by an entry and **32 have no entry here**; those 32 were all filed
 after the 2026-09-12 sweep, and the next sweep adopts them. Until it runs, the queue is
 `ti list --open`, not this file. The open-issue register holds nine issues: **4 OPEN** (OI-0051
 through OI-0054), **1 DEFERRED** (OI-0049) and four marked RESOLVED (OI-0040, OI-0041, OI-0046,
 OI-0048) that stay in the register because each still has an open ticket against it. **What counts
 against a gate is still the owner's to state**: no gate has been declared since v0.5.0, and
-whether a v0.6.0 breaking window is open is undecided (ticket `2d616b6a`).
+the **v0.6.0 breaking window is open** (owner, 2026-10-13, DCR-0062; ticket `2d616b6a` closed).
 
 **What moved since 2026-10-10, and it is all the live-endpoint gate.** The entry count is
 unchanged because one entry left and one arrived. `anthropic-live-leg-never-run` is **RESOLVED**
@@ -79,6 +79,11 @@ needs a workspace-scoped key. The second closure has no entry here and so moves 
 ticket count: ti `c5b1431a` asked whether Vertex express accepts the `x-goog-api-key` header
 form, and the `google-vertex-express` leg answered yes. `v050-live-gate-unrun` stays open on a
 narrower claim than its title — the run attests the branch, not the released `v0.5.0` tree.
+
+**And one more moved the same day, for a different reason.** `unopened-breaking-window` is
+**RESOLVED** and archived: the owner made the next version v0.6, which opens the window the entry
+existed for (DCR-0062, ti `2d616b6a`). Nothing replaces it, which is why the entry total drops by
+one here while the live-gate pair above left it unchanged.
 
 Re-derive these figures on each sweep rather than trusting them — an entry counts unless it
 carries a resolution or a dated deferral line. The release-side half of this rule is
@@ -534,102 +539,6 @@ assigns to the demo.
   the decision.
 - **Sources:** ticgit:6fb6dab2-a2ac-486c-b06b-932b6a4d9796
 - **Last seen:** 2026-09-12
-
-## unopened-breaking-window
-
-- **Type:** 2
-- **Verified:** yes — reopen verified 2026-09-12 first-hand: `LineOffsets::offsets` is private
-  with `line_starts()` in its place, and CHANGELOG `[Unreleased]` carries both changes under
-  Changed (BREAKING). **Second pass 2026-09-13** — two adversarial lenses plus a completeness
-  critic, both *partly-confirmed*: every quoted record, both commits, the closed window, the
-  manifest at `0.5.0` and all six ticket ids reproduced first-hand, and **type 2 upheld,
-  uncontested**. Three facts in this entry were wrong and are corrected below — both sibling
-  checkouts pin tag `v0.5.0`, not `v0.4.0`; nothing is published to a registry, so there is no
-  release to yank; and carrying OI-0051/0052/0054 is the first route's chosen content rather
-  than a precondition of opening a window. A sixth route was added, here and in the ticket.
-- **Sources:** ticgit:2d616b6a, CHANGELOG.md `[Unreleased]`, docs/project/status.md,
-  docs/project/phase-state.yaml, docs/project/open-issues.md#OI-0051,
-  docs/project/open-issues.md#OI-0052, docs/project/open-issues.md#OI-0054
-- **First seen:** 2026-09-12
-- **Last seen:** 2026-09-13
-
-### Description
-
-Two API changes are already committed to the tree and cannot ship, because v0.5.0 closed the
-sanctioned breaking window on 2026-09-05 and nobody has opened another.
-`transync_syntax::intake::markdown::ranges::LineOffsets::offsets` went private with a read-only
-`line_starts()` accessor in its place (review finding R0010-0023), and the Markdown intake moved
-from `parser` to `intake::markdown` (DCR-0053). Both are invisible through the `transync` facade —
-`public_surface.rs` pins the module hidden — and breaking only for a program depending on
-`transync-syntax` directly. Three registered items are queued on the same unopened window:
-OI-0051, OI-0052 and OI-0054. So **five records are gated by one decision nobody has taken**, and
-that decision is the owner's; no amount of work clears it.
-
-### Background
-
-A "breaking window" here is an owner decision that a given release may carry breaking API changes.
-The rule is stated in `CLAUDE.md`, in `phase-state.yaml` and in the release checklist, and it is
-unchanged: a further breaking change needs a **new** window and the owner decision that opens one.
-The two parked changes are not equivalent and the asymmetry decides the question. The private-field
-change **has a revert fallback** — the field can go back to `pub` and only the accessor ships — and
-the CHANGELOG says so explicitly. The rename has none: reverting it would re-open the asymmetry
-DCR-0035 exists to explain, and it was itself the discharge of a deferral that record wrote down.
-The three queued register entries each name the same blocker in their own words, and the owner has
-already recorded that OI-0051 and OI-0052 *may be deferred again* when v0.6.0's window opens —
-so opening a window does not automatically consume them. Type 2 rather than type 3: the
-prerequisite is not external and unmet, it is a choice nobody has made, and the tie-break does not
-apply because nothing outside the decision has to land first.
-
-### Options
-
-**Open a v0.6.0 window carrying both parked changes plus the three queued items** *(proposed by
-reopen)* — the only route that clears all five records at once. Effort is three implementations
-plus the release ritual: both parked changes are already committed, but OI-0051, OI-0052 and
-OI-0054 are code, and carrying them is this route's own content rather than a precondition of
-opening a window — the owner has recorded that two of the three may be deferred again when
-v0.6.0's window opens, which is what option 6 below takes up. Blast radius reaches every direct
-`transync-syntax` consumer, of which the roster names one (`dynwebserver`), plus anything naming
-`transync::TranslationBatch` for OI-0051's tier (a) change; both sibling checkouts pin tag
-`v0.5.0` (re-read 2026-09-13 — this entry had said `v0.4.0`) and so are unaffected until they
-bump. Irreversible in one respect only: an annotated tag is outward-facing and is not withdrawn,
-and nothing is published to a registry, so there is nothing to yank. Record needed: the owner decision that opens the window, plus the checklist's step 2a.
-
-**Revert the private field to `pub` and ship only the accessor** *(source: `CHANGELOG.md`
-`[Unreleased]`, which names this route)* — smallest blast radius and the cheapest to undo, but it
-leaves the rename still needing a window, so it narrows the problem rather than closing it, and it
-re-admits a field whose own doc comment argues the field and its source are one fact.
-
-**Cut a non-breaking 0.5.x — only possible from a release branch off the `v0.5.0` tag — and defer
-the decision again** *(proposed by reopen; restated 2026-09-13, since both breaks are already on
-master and no 0.5.x cut from this tree is non-breaking)* — zero blast radius now and it forecloses
-nothing, but it would be this repository's first release branch (`git branch` lists `master`
-alone, and the release checklist has no rule about branches or cherry-picks), `43cc19c` carries
-the `LineOffsets` break in the same two-file commit as an unrelated `transync-html` fix and so
-would have to be split, and every deferral adds another record to the five while `[Unreleased]`
-grows changes that cannot ship.
-
-**Declare deep `transync-syntax` module paths unsupported, so neither change counts as breaking by
-policy** *(proposed by reopen)* — needs no window at all, which is its distinguishing point. It is
-the only route requiring a new or amended ADR, because it changes what the workspace promises
-about a published crate's surface, and it is the hardest to reverse: a support promise withdrawn
-is not re-made cheaply.
-
-**Declare the window open on master now and decide what rides it later** *(proposed by reopen,
-research pass 2026-09-12)* — separates the two questions the other routes fuse. Effort is one
-recorded decision; it unblocks work immediately, at the cost of an open window, which the project's
-own history shows is a state it has twice had to close deliberately.
-
-**Open v0.6.0 and cut it promptly with the committed set, re-deferring the three queued items**
-*(proposed by reopen verification 2026-09-13)* — the only route that unfreezes both pinned sibling
-checkouts quickly, which is the first consequence the ticket names. Effort is the release ritual
-alone: the two parked changes and the 31 commits since `v0.5.0` need no further code, though the
-DCR-0015 Part C live-endpoint gate is already recorded as triggered and unrun at the last cut and
-needs a real key and network, and the tag is the owner's act. Blast radius is the one direct
-`transync-syntax` consumer, whose `parser::parse` call sites break when it bumps — the same break
-every window route hands it, taken sooner. Record needed: the window opening as `ff788f7` recorded
-it, step 2a's condition for the new number, and a dated, falsifiably-triggered deferral for each of
-OI-0051, OI-0052 and OI-0054.
-
 
 ## disk-cache-meta-records-evictability
 

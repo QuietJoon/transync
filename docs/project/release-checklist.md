@@ -124,9 +124,13 @@ free where it belonged.
    sanctioned window. The 0.3.0, 0.4.0 and 0.5.0 windows are **all used and
    closed** — v0.5.0's was opened by `ff788f7` (2026-08-24) and closed by the
    v0.5.0 release itself on 2026-09-05, with **seven** breaking-by-policy
-   changes on it. **The next break needs a new window and the owner decision
-   that opens one.** Additions protected by `#[non_exhaustive]`, new defaulted
-   trait methods, and new modules are additive and need no window.
+   changes on it. **The v0.6.0 window is OPEN** (owner, 2026-10-13, DCR-0062):
+   it admits the two changes parked on `master` since before v0.5.0 closed, and
+   makes OI-0051, OI-0052 and OI-0054 eligible without requiring any of them.
+   The rule is unchanged for what comes after — the next break past v0.6.0
+   needs a new window and the owner decision that opens one. Additions
+   protected by `#[non_exhaustive]`, new defaulted trait methods, and new
+   modules are additive and need no window.
 
    **What counts as "riding the window" is decided at commit time, not at the
    release boundary** (DCR-0047's Semver paragraph is the worked example, and

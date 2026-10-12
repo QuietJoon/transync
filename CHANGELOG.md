@@ -13,24 +13,26 @@ between them). 63 were routed `fix` and applied here; 3 were recorded as ADRs
 waiting on a breaking window; the rest were rejected or dropped, most of them
 against a record that already ruled on the question.
 
-**Two breaking changes are sitting in this section, and they need a window.**
-v0.5.0 closed the sanctioned window it had carried since 2026-08-24, and the
-rule is unchanged: a further breaking change needs a **new** window and the
-owner decision that opens one. Both are below, both are invisible through the
-`transync` facade, and both are breaking only for a consumer that depends on
-`transync-syntax` directly: `LineOffsets::offsets` becoming private
+**Two breaking changes are sitting in this section, and they now have a
+window.** v0.5.0 closed the sanctioned window it had carried since 2026-08-24,
+and for five weeks these two had nowhere to ship: both are invisible through
+the `transync` facade and breaking only for a consumer that depends on
+`transync-syntax` directly — `LineOffsets::offsets` becoming private
 (R0010-0023), and the Markdown intake's move from `parser` to
-`intake::markdown` (DCR-0053). They are recorded here rather than held back so
-the decision is taken deliberately — either the next release is the minor bump
-that carries them (alongside OI-0051 and OI-0052, which are queued for exactly
-that window), or the field goes back to `pub` and only the accessor ships. The
-rename has no such fallback: it is the discharge of a deferral DCR-0035 wrote
-down, and reverting it would re-open the asymmetry that record exists to
-explain.
+`intake::markdown` (DCR-0053) — but narrow is not the same as permitted. They
+were recorded here rather than held back so the decision would be taken
+deliberately, and on **2026-10-13 the owner took it**: the next version is
+v0.6, which under this project's own rule is the decision that opens the
+v0.6.0 window (DCR-0062, closing ticket `2d616b6a`). Both ride it. The
+alternative that is now moot: putting the field back to `pub` and shipping only
+the accessor. The rename never had that fallback — it discharges a deferral
+DCR-0035 wrote down, and reverting it would re-open the asymmetry that record
+exists to explain.
 
-The workspace manifest reads `0.6.0-dev` (`7190be3`). Whether a v0.6.0
-breaking window is open is undecided (ticket `2d616b6a`); nothing in this
-section opens one.
+The workspace manifest reads `0.6.0-dev` (`7190be3`). OI-0051, OI-0052 and
+OI-0054 are **eligible** for this window and not required by it: the owner's
+recorded right to defer them again stands, so what the `[0.6.0]` section
+finally enumerates is decided per item, not by this preamble.
 
 ### Changed (BREAKING)
 

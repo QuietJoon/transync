@@ -98,6 +98,7 @@ design:
     - DCR-0059-model-generation-is-a-floor
     - DCR-0060-vertex-express-mode
     - DCR-0061-gemini-review-fix-pass
+    - DCR-0062-v060-breaking-window-opens
   rewind_required_to_phase: null
   status: handoff_complete
 

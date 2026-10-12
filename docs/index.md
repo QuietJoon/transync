@@ -110,6 +110,7 @@ Archived records — DCR-0001–0004, 0006, 0007, 0010, 0011, 0013–0015, 0017�
 - [DCR-0058 — Gemini 3.8 Flash through the Google Developer and Vertex APIs](project/design-change-records/DCR-0058-transync-google-gemini-provider.md) — one `transync-google` crate, explicit CLI provider/surface selection, Vertex the Google default.
 - [DCR-0059 — A model's generation is a floor, not a roster](project/design-change-records/DCR-0059-model-generation-is-a-floor.md) — any `o<N>`, and `gpt-<N>` from 5 up, reach Responses and `o200k_base` unlisted.
 - [DCR-0060 — Vertex AI express mode is a third Google surface](project/design-change-records/DCR-0060-vertex-express-mode.md) — `--google-auth api-key` with `GOOGLE_API_KEY`; an ambient key never selects it.
+- [DCR-0062 — The v0.6.0 breaking window is open](project/design-change-records/DCR-0062-v060-breaking-window-opens.md) — the two parked changes may ship; the three queued items are eligible, not required.
 - [DCR-0061 — Five corrections to the Gemini adapter, and what the first live call settled](project/design-change-records/DCR-0061-gemini-review-fix-pass.md) — an impossible ceiling is exit 2, the `MAX_TOKENS` advice stops being circular, `[::1]` is loopback again, and express mode's header form is live-verified.
 
 ## Project state
