@@ -163,7 +163,7 @@ const BUDGETS: &[(&str, u64)] = &[
     ("docs/project/status.md", 24_576),          // wave 2 done; ~2 KiB of working room
     ("docs/project/release-checklist.md", 48_128), // wave 2; +1 KiB DCR-0058
     ("docs/project/phase-state.yaml", 7_168),    // wave 2 done; +1 KiB DCR-0054..DCR-0060 roster
-    ("docs/project/open-issues.md", 60_416),     // wave 2 done
+    ("docs/project/open-issues.md", 49_152), // wave 2 done; lowered on 2026-10-14 when OI-0041 moved verbatim to the archive under the Register rule
     ("docs/backlog.md", 113_664), // wave 2 done; lowered to 102 KiB on 2026-10-13 when three entries archived in one day, then +3 KiB the same day for v0.6.0's stated release condition and the recorded deferral its gate verdict depends on, +4 KiB on 2026-10-14 for the two 4B-verdicted claims the agreement rule adopts, +2 KiB when the reviews entry was corrected: a Type 1 filed on a false premise became a Type 2 carrying why, which is the growth a register is for
     ("CHANGELOG.md", 108_544), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes
     ("docs/Developer_Guide.md", 95_232), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9, +1 KiB SMOOTHING_FACTOR is a per-elapsed-ms lerp (R0011-0094, ti 336bf0c6)
@@ -174,8 +174,9 @@ const BUDGETS: &[(&str, u64)] = &[
 /// `docs/project/open-issues.md` is a live register: a resolved entry belongs
 /// in `open-issues-archive.md`. Wave 2 moved the ten whose resolution verified
 /// against code or a shipped artifact, one clause at a time. Four stayed: a
-/// `RESOLVED` label is not itself evidence, and those four still owe something.
-const RESOLVED_INLINE_HIGH_WATER: usize = 4;
+/// `RESOLVED` label is not itself evidence, and those four still owed
+/// something. OI-0041's residual then landed, so three do.
+const RESOLVED_INLINE_HIGH_WATER: usize = 3;
 
 const RESOLVED_MARKER: &str = "**Status:** RESOLVED";
 

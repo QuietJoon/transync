@@ -9,7 +9,7 @@ generated:
 ---
 # Backlog — WIP / deferred / open items
 
-Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-10-13** (the live-endpoint gate's results: one entry resolved and archived, one filed, and the census re-counted; earlier in-place passes 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit, 2026-09-12, 2026-10-10).
+Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-10-14** (the Type 1 section emptied: its one entry completed and archived with its open-issue entry, and the census re-counted; earlier in-place passes 2026-10-13 the live-endpoint gate, 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit, 2026-09-12, 2026-10-10).
 The 2026-08-07 refresh was derived from
 `ti list --all` and `git log`, not from this file's own previous text — the review-0001
 arc produced several tickets whose root cause was one document restating another, and the
@@ -65,50 +65,49 @@ as much as the census that answers it, which is why every entry below has to be 
 three states — counting, deferred-with-a-recorded-condition, or resolved/historical — and
 why an entry that is in none of them is a defect in this file, not an ambiguity.
 
-**Census (2026-10-13b) — a count, not a sweep, and this is the current one.** Re-derived from
+**Census (2026-10-14) — a count, not a sweep, and this is the current one.** Re-derived from
 `ti list --open --json` and the section headings of this file; `docs/project/open-issues.md` was
-not re-scanned and its figures below carry over from the 2026-10-10 count. No other source was
-re-scanned either, so the last full sweep is still the 2026-09-12 one. **43 entries; 40 are live**
-— each carrying at least one open TicGit ticket. By section: Type 1 holds 1 entry and it is live,
-Type 2 holds 19 of which **17 are live**, Type 3 holds 23 of which **22 are live**. The same three
-entries carry no open ticket: `anthropic-leg-outside-the-release-gate-trigger` and
-`oversize-tombstones-point-at-a-closed-oi-0008` cite none, and
-`phrasing-extension-list-for-custom-elements` cites only a closed one. **The two registers still
-do not agree in both directions.** TicGit holds **72 open tickets** (18 new, 54 blocked, none in
-progress). Forty are cited by an entry and **32 have no entry here**; those 32 were all filed
-after the 2026-09-12 sweep, and the next sweep adopts them. Until it runs, the queue is
-`ti list --open`, not this file. The open-issue register holds nine issues: **4 OPEN** (OI-0051
-through OI-0054), **1 DEFERRED** (OI-0049) and four marked RESOLVED (OI-0040, OI-0041, OI-0046,
-OI-0048) that stay in the register because each still has an open ticket against it. **What counts
-against a gate is still the owner's to state**, and on 2026-10-13 a v0.6.0 condition was
-stated — complete *and verified* — but its scope is not pinned, so **none of these figures is
-a gate verdict**; the header says why. The **v0.6.0 breaking window is open** the same day
-(DCR-0062; ticket `2d616b6a` closed), which is a separate thing: the window says what may ride
-the release, the condition says whether it may happen.
+re-read for its own figures, which moved today. No other source was re-scanned, so the last full
+sweep is still the 2026-09-12 one. **44 entries; 43 are live** — each carrying at least one open
+TicGit ticket. By section: **Type 1 is empty**, Type 2 holds 21 and all 21 are live, Type 3 holds
+23 of which **22 are live**. The one entry carrying no open ticket is
+`phrasing-extension-list-for-custom-elements`, which cites only a closed one. **The two registers
+still do not agree in both directions.** TicGit holds **76 open tickets** (22 new, 54 blocked, none
+in progress). Forty-three are cited by an entry and **33 have no entry here**; those 33 were all
+filed after the 2026-09-12 sweep, and the next sweep adopts them. Until it runs, the queue is
+`ti list --open`, not this file. The open-issue register holds **eight** issues: **4 OPEN** (OI-0051
+through OI-0054), **1 DEFERRED** (OI-0049) and three marked RESOLVED (OI-0040, OI-0046, OI-0048)
+that stay in the register because each still has an open ticket against it. **What counts against a
+gate is still the owner's to state**, and on 2026-10-13 a v0.6.0 condition was stated — complete
+*and verified* — but its scope is not pinned, so **none of these figures is a gate verdict**; the
+header says why. The **v0.6.0 breaking window is open** since that day (DCR-0062), which is a
+separate thing: the window says what may ride the release, the condition says whether it may
+happen.
 
-**What moved since 2026-10-10, and it is all the live-endpoint gate.** The entry count is
-unchanged because one entry left and one arrived. `anthropic-live-leg-never-run` is **RESOLVED**
-and moved verbatim to `docs/backlog-archive.md`: the leg ran on 2026-10-13 and passed, against
-`claude-haiku-4-5`, closing ti `40b29a9d` and a standing gap open since 2026-08-10. In its place,
-Type 2 gains `anthropic-adapter-cannot-name-a-workspace` (ti `3e013e47`) — the limit that run
-exposed and that its fix did not remove: the adapter sends no `anthropic-workspace-id`, so it
-needs a workspace-scoped key. The second closure has no entry here and so moves only the
-ticket count: ti `c5b1431a` asked whether Vertex express accepts the `x-goog-api-key` header
-form, and the `google-vertex-express` leg answered yes. `v050-live-gate-unrun` is **deferred by the owner**, with a
-trigger recorded on the entry: its remaining claim is narrower than its title — the run attests
-the branch, not the released `v0.5.0` tree — and nothing depends on v0.5.0 carrying evidence of
-its own.
+**What moved since 2026-10-13b, and it is the Type 1 section emptying.**
+`pre-network-recomputation (OI-0041)` is **COMPLETED** and moved verbatim to
+`docs/backlog-archive.md`: Required Action 1's `greedy_plan` per-row re-encode hoist landed in
+`314d43f` with split points proved unchanged, closing ti `b3e8d80c` and the last thing that entry
+owed. Its open-issue entry moved the same way, to `docs/project/open-issues-archive.md`, so the
+register drops from nine issues to eight and from four RESOLVED-but-held-back entries to three.
+That is the whole of the entry movement; the Type 1 section is now empty, and an entry reaches it
+only when its fix shape is settled and nothing must land first.
 
-**And one more moved the same day, for a different reason.** `unopened-breaking-window` is
-**RESOLVED** and archived: the owner made the next version v0.6, which opens the window the entry
-existed for (DCR-0062, ti `2d616b6a`). Nothing replaces it, which is why the entry total drops by
-one here while the live-gate pair above left it unchanged.
+**The ticket count moved for a second reason, and it is not entry movement.** Six documentation
+drift tickets were verified and closed in `1d18bef` — `a641c5e0`, `1e24db08`, `2dc23c07`,
+`66023fa9`, `9d6dd34c` and `9f746aac`, each a Type 1 item the `/reopen` 4B pass had confirmed with
+the wrong side identified. None had an entry here, which is why the figures above move without any
+section changing. One new ticket was filed from the same verification, `98410989`: the CLI's
+oversize-unit warning tells the operator to lower `--output-expansion-factor`, which only silences
+the preflight. It is a shipped user-visible string and needs a decision, so it is a ticket rather
+than a drift repair, and it is one of the 33 with no entry here.
 
 Re-derive these figures on each sweep rather than trusting them — an entry counts unless it
 carries a resolution or a dated deferral line. The release-side half of this rule is
 `docs/project/release-checklist.md` step 2a, which is where a release actually consults
 the census. Each census replaces the previous one (release-checklist step 20b): the superseded
-censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut), 2026-09-08, 2026-09-12 and 2026-10-10, and
+censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut), 2026-09-08, 2026-09-12, 2026-10-10 and
+2026-10-13b, and
 the TicGit snapshots of 2026-08-08 and 2026-08-24, are kept verbatim in
 `docs/backlog-archive.md`. An entry moves there too, under its own heading, once its resolution is
 verified against code or a shipped artifact.
@@ -154,57 +153,8 @@ Types:
 
 # Type 1 — Ready
 
-## pre-network-recomputation (OI-0041)
-
-> **RESOLVED 2026-09-04 (partial), and COMPLETED 2026-10-14 — the residual Required Action 1 landed, so nothing is now owed on this entry.** The `greedy_plan` per-row re-encode is gone: each piece is encoded once and their running sum guards the exact call, which still decides every split. **Split points are provably unchanged** — the sum is an upper bound on encoding the same bytes whole and `output_estimate` is monotone in its payload, so the guard may only skip an encode it did not need. That is load-bearing rather than incidental: a window boundary sets its `source_hash`, a `CacheKey` axis, so a moved split point would silently invalidate cached translations. The property is asserted over a corpus by `the_cheap_bound_never_undercounts` rather than assumed, and that test corrected the change — the bound was expected to be *exact* on a pre-token-boundary argument and is not, a merge crossing the join at 36 tokens whole against 37 summed. Workspace 1642 passed / 0 failed; commit `314d43f`. **`docs/project/open-issues.md` still gives “residual obligation (ti `b3e8d80c`)” as OI-0041's reason for not being archived; that reason is now spent, and this command does not edit that register.** Six of eight were declined on this entry's own severity verdict, two deferred.
-
-- **Type:** 1
-- **Verified:** yes — Review 0009 findings (R0009-0044, R0009-0045, R0009-0046,
-  R0009-0047, R0009-0049, R0009-0050, R0009-0051, R0009-0073), gate-accepted,
-  user-routed track
-- **Sources:** docs/project/open-issues.md#OI-0041, reviews/reviewed/0009.md#R0009-0044,
-  reviews/reviewed/0009.md#R0009-0045, reviews/reviewed/0009.md#R0009-0046,
-  reviews/reviewed/0009.md#R0009-0047, reviews/reviewed/0009.md#R0009-0049,
-  reviews/reviewed/0009.md#R0009-0050, reviews/reviewed/0009.md#R0009-0051,
-  reviews/reviewed/0009.md#R0009-0073, ticgit:b3e8d80c
-- **First seen:** 2026-08-26 · **Last seen:** 2026-10-14
-
-### Description
-
-Eight findings in `transync-core`'s once-per-run, pre-network phase, each
-recomputing something it already had. Two edits cover all eight. In
-`unit/split.rs`, `split_oversize_tables` prices the window plan twice —
-`if !units.iter().any(|u| windows_of(…).is_some()) { return; }` immediately
-followed by the same `windows_of` call in the loop — and `window_units` then
-re-parses the parent a third time (`split_table_rows(&parent.source_payload)`,
-a full comrak parse, under a comment reading `// Re-sliced rather than threaded
-through:`). In `profile.rs`, `default_profile()` re-parses the embedded TOML
-with no `OnceLock`, `load_profile` decodes the same text twice (typed
-`toml::from_str`, then `toml_text.parse::<toml::Value>()` for the unknown-key
-warnings), `entry_applies_to_section` allocates a fresh canonical `String` per
-comparison, `effective_glossary` canonicalizes each term twice per section, and
-`unit.rs` walks the glossary twice per section for two different questions.
-
-### Background
-
-Type 1: every fix shape is settled and nothing must land first. Six of the
-eight were filed above their verified severity, and the register exists partly
-to say so — all eight run before the first provider request and are invisible
-next to one round trip; the glossary loop is dwarfed even locally by the
-tiktoken encode in the same loop. Verification also corrected three claims that
-would otherwise misdirect the work. R0009-0073's headline ("`SplitPlan` owns
-cloned `TranslationUnit` values") is **refuted** — `merge.rs`'s `Window` holds
-only `unit_id` and `source_payload`, and the copy is documented as deliberate —
-but verification found a bigger clone the review walked past in the same file,
-`window_records.push(vu.clone())` on a whole `ValidatedUnit`. R0009-0044's
-double planning is bounded by `.any()`'s short-circuit, so a document with no
-oversize table pays one pass; the unnamed and genuinely quadratic cost is
-`greedy_plan` re-encoding the whole growing window payload once per body row.
-And R0009-0051's two glossary passes must **not** be merged by reusing
-`cohort_key`: `ever_applied` is DCR-0027's G7 obligation and must count entries
-that applied but were shadowed, which `cohort_key` excludes. The sharpest thing
-in the cluster is not a cost at all — `impl Default for ProfileMetadata` parses
-TOML and can panic.
+No entries. An item belongs here when its fix shape is settled and nothing must land first;
+one whose shape is still a question is Type 2, and one waiting on something else is Type 3.
 
 # Type 2 — Needs decision
 
@@ -215,9 +165,9 @@ states. An entry with an `OI-` id or an `Unfiled:` line instead of a ticket wait
 gate registers documents only. An entry whose resolution is verified against code or a shipped
 artifact moves verbatim to `docs/backlog-archive.md`, naming the record that settled it.
 
-Four entries carry a `RESOLVED` banner and stay because their open-issue entries do: OI-0041
-(Type 1) and OI-0040, OI-0046 and OI-0048 below. Each has a residual obligation named on its
-Sources line (`ticgit:b3e8d80c`, `ticgit:26238261`, `ticgit:a736f3fd`, `ticgit:830de884`).
+Three entries carry a `RESOLVED` banner and stay because their open-issue entries do: OI-0040,
+OI-0046 and OI-0048 below. Each has a residual obligation named on its Sources line
+(`ticgit:26238261`, `ticgit:a736f3fd`, `ticgit:830de884`).
 
 The ten items below were reviewed by the owner on 2026-08-06 and **deferred as a group**
 ("이번에는 보류" — hold for now). They stay listed so the next sweep re-surfaces them;

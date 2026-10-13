@@ -154,149 +154,6 @@ would make the code worse:
 
 ***
 
-## OI-0041: Pre-network setup recomputes derived values it could compute once
-
-- **Source:** R0009-0044, R0009-0045, R0009-0046, R0009-0047, R0009-0049,
-  R0009-0050, R0009-0051, R0009-0073 (Review 0009)
-- **Date:** 2026-08-26
-- **Decision:** ACCEPT (track — user routing in the Review 0009 gate)
-- **Status:** RESOLVED 2026-09-04 (partial — the rest declined or deferred, with evidence)
-- **Not archived — residual obligation (ti `b3e8d80c`).** Required Action 1's `greedy_plan` per-row re-encode hoist is neither done nor recorded as declined or deferred anywhere.
-- **Resolution:** `unit/split.rs` now plans in one pass and carries the sliced parent with the plan: `windows_of` runs once per unit instead of once per unit plus once more up to the first splitting table, a whole comrak `split_table_rows` per splitting table is gone, and **a panic site is deleted** — the invariant rides the signature instead of an `.expect`. `impl Default for ProfileMetadata` gained a `# Panics` section: the panic is real but unreachable for any caller of a built crate (the input is an `include_str!` compile-time constant, and 85 in-tree call sites plus three content assertions fail first), and all three structural fixes are worse than the disease — a `build.rs` duplicates `load_profile`'s rules, Rust literals violate the single-source rule `default_profile_single_source.rs` enforces, and a `Default` that stops equalling `default_profile()` hands out `prompt_body: ""`, converting an unreachable panic into a reachable silent-empty-prompt run. Six of the eight filed redundancies are **declined**, on this entry's own verdict that they were filed above their verified severity. R0009-0049 / R0009-0050 are **deferred**: their prescribed fix needs a new field on `GlossaryEntry`, a tier-(a) public type without `#[non_exhaustive]` whose serde shape is operator-edited profile TOML — a breaking wire change for a loop this entry itself records as dwarfed by the tiktoken encode beside it. Re-trigger: the next breaking window that is already moving `GlossaryEntry`.
-
-### Problem
-
-Eight findings in `transync-core`, all in the phase that runs **once per run,
-before any provider call**: profile loading, glossary resolution, unit
-building and oversize-table split planning. Each recomputes something it
-already had. They are recorded together because that shared verdict — *this
-is pre-network CPU, not a defect* — is the most useful thing the register can
-say about all eight at once. They divide into two distinct edits.
-
-**Split planning (`crates/transync-core/src/unit/split.rs`, plus
-`pipeline/merge.rs`).**
-
-- **R0009-0044** — `split_oversize_tables` does
-  `if !units.iter().any(|u| windows_of(u, target, factor, &bpe).is_some()) { return; }`
-  and then, immediately, `for unit in units.drain(..) { match windows_of(&unit, target, factor, &bpe) { … } }`.
-  `windows_of` runs `estimate_unit_output_tokens`, then `split_table_rows`
-  (a full comrak `parse_document`, in `transync-syntax/src/regen.rs`), then
-  `greedy_plan`. Verification bounded it: `.any()` short-circuits at the
-  **first** splitting unit, so only the prefix is priced twice and the common
-  no-oversize-table document pays exactly one pass — the comment above the
-  code already says so. It also found a **larger cost in the same path that
-  the review missed**: `greedy_plan` rebuilds and re-encodes the whole growing
-  window payload once per body row
-  (`estimate_payload_output_tokens(&rows.window(&current), …)` inside the row
-  loop). That one is quadratic in row count.
-- **R0009-0045** — `window_units` re-parses the parent it was planned from:
-  `let rows = split_table_rows(&parent.source_payload).expect("the plan was built from this payload's own slice");`,
-  under a comment that begins `// Re-sliced rather than threaded through:`.
-  Deliberate and stated; same edit as R0009-0044.
-- **R0009-0073** — **the headline is refuted.** The review said "`SplitPlan`
-  owns cloned `TranslationUnit` values". `pipeline/merge.rs` defines
-  `struct Window { unit_id: BlockId, source_payload: String }` — not a
-  `TranslationUnit` — and `of_batches` clones exactly those two fields, with
-  a doc comment justifying it ("the row boundaries are the packer's and are
-  not recoverable from the source alone"). What survives is smaller: it could
-  be a borrow, since the batches outlive the plan. Verification found the
-  larger avoidable clone the review walked past, in the same file:
-  `window_records.push(vu.clone())` copies the whole `ValidatedUnit` —
-  accepted payload included — immediately before the original is consumed
-  field by field.
-
-**Profile loading and glossary resolution (`crates/transync-core/src/profile.rs`,
-plus `unit.rs`).**
-
-- **R0009-0046** — `default_profile()` is
-  `load_profile(DEFAULT_PROFILE_TOML).unwrap_or_else(|e| panic!(…))` with no
-  `OnceLock`, and `impl Default for ProfileMetadata` calls it. Verification
-  bounded the cost hard: the live path touches it at most twice per run
-  (`pipeline.rs`'s `opts.profile.clone().unwrap_or_else(default_profile)` and
-  `CacheKeyContext::for_run`, whose doc comment reads "Computed once per
-  pipeline run") — never per unit or per batch. **The sharper smell the
-  finding missed is not the parsing: it is a `Default` impl that parses TOML
-  and can panic.**
-- **R0009-0047** — `load_profile` decodes the same text twice:
-  `toml::from_str(toml_text)` for the typed profile, and
-  `toml_text.parse::<toml::Value>()` inside `collect_unknown_key_warnings`.
-  The fix does not need `serde_ignored`, as the review suggests: parse
-  `toml::Value` once and deserialize the typed profile from that value,
-  keeping the warning scan on the same tree.
-- **R0009-0049** — `entry_applies_to_section` canonicalizes on every
-  comparison:
-  `heading_stack.iter().any(|heading| { let heading = section_key(heading); entry.sections.iter().any(|selector| section_key(selector) == heading) })`,
-  where `canonical_key` is `text.trim().to_lowercase()` plus an NFC fold for
-  non-ASCII — a fresh `String` per comparison. Called per (section, entry)
-  from `unit.rs` and again from `effective_glossary`, giving
-  O(sections × entries × headings × selectors) allocations.
-- **R0009-0050** — `effective_glossary` canonicalizes the same term twice per
-  section: `section_winner.entry(glossary_key(&entries[i].source_term)).or_insert(i)`
-  in the winner loop, then `section_winner.get(&glossary_key(&entry.source_term))`
-  in the keep loop — on top of `normalize_glossary` and `merge_auto_glossary`.
-- **R0009-0051** — `unit.rs` walks the glossary twice per section:
-  `for (i, e) in raw_profile.glossary.iter().enumerate() { if matches!(e.scope, ConditionalOnSection) && crate::profile::entry_applies_to_section(e, &sec.heading_stack) { ever_applied.insert(i); } }`
-  immediately followed by
-  `crate::profile::effective_glossary(&raw_profile.glossary, &sec.heading_stack)`,
-  whose first statement re-filters on `entry_applies_to_section`. **The two
-  passes answer different questions**, and a naive merge would break one:
-  `ever_applied` is DCR-0027's G7 obligation ("did this selector match
-  anywhere") and must count entries that applied but were **shadowed**, which
-  `cohort_key` excludes.
-
-### Impact
-
-None observable. Every item here runs before the first provider request and
-is dwarfed by it; the glossary loop is dwarfed even locally by the tiktoken
-encode of every unit in the same loop. Six of the eight were filed above
-their verified severity. The reasons to do the work are that the split-side
-re-parses are pure waste on exactly the documents that are already large,
-and that `Default for ProfileMetadata` can panic — which is a defect of shape
-even though nothing reaches it today.
-
-### Required Actions
-
-1. **Split planning, one edit:** thread a `TableRows` value and the plan
-   through `split_oversize_tables` → `window_units` instead of re-deriving
-   them, which closes R0009-0044 and R0009-0045 together. While in there,
-   hoist the per-row re-encode out of `greedy_plan`'s row loop — the
-   unnamed quadratic is the bigger win — and turn `Window`'s owned fields
-   into borrows plus remove the `ValidatedUnit` clone in `merge.rs`
-   (R0009-0073).
-2. **Profile, one edit:** store a canonical source key on the normalized
-   glossary entry at load time and canonicalize selectors and heading stacks
-   once at partition time, which closes R0009-0049 and R0009-0050. Have
-   `effective_glossary` also return the applicable set so `unit.rs` can drop
-   its own scan (R0009-0051) — **not** by reusing `cohort_key`, which omits
-   shadowed entries.
-3. Parse the profile TOML once into a `toml::Value` and deserialize from it
-   (R0009-0047); memoize `default_profile()` behind a `OnceLock`
-   (R0009-0046).
-4. Separately from the memoization, decide whether `impl Default for
-   ProfileMetadata` should be able to panic at all.
-
-### Verification
-
-*(Filled in 2026-09-09, ticket `13fcede1` — resolved in the 2026-09-02/04 review-0009 wave with the boxes left unticked.)*
-
-- [x] Code change applied — **partially, by decision**, as the Status line says.
-      `unit/split.rs` now plans in one pass and carries the sliced parent with the
-      plan, so `windows_of` runs once per unit instead of once per unit plus once
-      more up to the first splitting table, and a whole comrak `split_table_rows`
-      per splitting table is gone. **A panic site was deleted** — the invariant
-      rides the signature instead of an `.expect`. The remainder is declined or
-      deferred with the evidence recorded above.
-- [x] Tests pass (if applicable) — the standing workspace gate is green (2026-09-09: 47 targets, 1,359 passed, 0 failed, 8 ignored).
-- [x] No regressions observed — the one-pass plan produces the same windows; the
-      deleted `.expect` was the only behavioural difference, and it removed a panic
-      rather than adding one.
-
-### Related
-
-- DCR-0026 — the row-window split whose planning path R0009-0044/0045/0073
-  sit in.
-- DCR-0027 — obligation G7, which is why R0009-0051's two passes are not
-  interchangeable.
 
 ***
 
@@ -919,7 +776,6 @@ can be made crate-private — in which case nothing blocks it.
 | Issue ID | Title                                                  | Status   | Severity |
 |----------|--------------------------------------------------------|----------|----------|
 | OI-0040  | Same bytes parsed/spliced repeatedly on the accepted path | RESOLVED (2026-09-04) — prefilter + tripwire; seam deferred; residual owed (ti `26238261`) | Low (R0009-0035 Medium) |
-| OI-0041  | Pre-network setup recomputes derived values              | RESOLVED (2026-09-04) — partial; rest declined/deferred except one action still owed (ti `b3e8d80c`) | Low |
 | OI-0046  | Three holes in the checking apparatus itself             | RESOLVED (2026-09-04) — all three; (3) found a live defect; Action 2's second half still owed (ti `a736f3fd`) | Low |
 | OI-0048  | Four boundary checks weaker than the inferred contract   | RESOLVED (2026-09-04) — R0009-0052 deferred, on a premise the code contradicts (ti `830de884`) | Low |
 | OI-0049  | Review 0010's non-blocking survivors (16 findings)       | DEFERRED (2026-09-05) — re-trigger recorded | Low |
@@ -928,10 +784,10 @@ can be made crate-private — in which case nothing blocks it.
 | OI-0053  | Shells have no small-screen layout and no visible pane headings | OPEN (2026-09-06) — needs a scope decision | Low |
 | OI-0054  | The NUL/nesting guard is reachable as `intake::markdown::intake` | OPEN (2026-09-08) — needs a decision; rename needs a window | Low |
 
-The table lists the issues that have an entry above. Eleven resolved issues have none, because
-their entries are archived: OI-0016, OI-0035, OI-0037, OI-0038, OI-0039, OI-0042, OI-0043, OI-0044,
-OI-0045, OI-0047 and OI-0050 are in `open-issues-archive.md`, with the rows this table carried for
-them.
+The table lists the issues that have an entry above. Twelve resolved issues have none, because
+their entries are archived: OI-0016, OI-0035, OI-0037, OI-0038, OI-0039, OI-0041, OI-0042, OI-0043,
+OI-0044, OI-0045, OI-0047 and OI-0050 are in `open-issues-archive.md`, with the rows this table
+carried for them.
 
 ***
 

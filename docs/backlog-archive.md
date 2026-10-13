@@ -2732,3 +2732,108 @@ needs a real key and network, and the tag is the owner's act. Blast radius is th
 every window route hands it, taken sooner. Record needed: the window opening as `ff788f7` recorded
 it, step 2a's condition for the new number, and a dated, falsifiably-triggered deferral for each of
 OI-0051, OI-0052 and OI-0054.
+
+## pre-network-recomputation (OI-0041)
+
+**Settled by commit `314d43f` (2026-10-14), which landed the one Required Action this entry
+still owed.** `greedy_plan` encodes each piece once and a running sum guards the exact call,
+with split points proved unchanged by `the_cheap_bound_never_undercounts` — load-bearing,
+because a window boundary sets its `source_hash`, a `CacheKey` axis. Ticket `b3e8d80c` closed
+with it, and OI-0041 moved to `docs/project/open-issues-archive.md` in the same pass, which
+emptied this file's Type 1 section. Entry verbatim below.
+
+> **RESOLVED 2026-09-04 (partial), and COMPLETED 2026-10-14 — the residual Required Action 1 landed, so nothing is now owed on this entry.** The `greedy_plan` per-row re-encode is gone: each piece is encoded once and their running sum guards the exact call, which still decides every split. **Split points are provably unchanged** — the sum is an upper bound on encoding the same bytes whole and `output_estimate` is monotone in its payload, so the guard may only skip an encode it did not need. That is load-bearing rather than incidental: a window boundary sets its `source_hash`, a `CacheKey` axis, so a moved split point would silently invalidate cached translations. The property is asserted over a corpus by `the_cheap_bound_never_undercounts` rather than assumed, and that test corrected the change — the bound was expected to be *exact* on a pre-token-boundary argument and is not, a merge crossing the join at 36 tokens whole against 37 summed. Workspace 1642 passed / 0 failed; commit `314d43f`. **`docs/project/open-issues.md` still gives “residual obligation (ti `b3e8d80c`)” as OI-0041's reason for not being archived; that reason is now spent, and this command does not edit that register.** Six of eight were declined on this entry's own severity verdict, two deferred.
+
+- **Type:** 1
+- **Verified:** yes — Review 0009 findings (R0009-0044, R0009-0045, R0009-0046,
+  R0009-0047, R0009-0049, R0009-0050, R0009-0051, R0009-0073), gate-accepted,
+  user-routed track
+- **Sources:** docs/project/open-issues.md#OI-0041, reviews/reviewed/0009.md#R0009-0044,
+  reviews/reviewed/0009.md#R0009-0045, reviews/reviewed/0009.md#R0009-0046,
+  reviews/reviewed/0009.md#R0009-0047, reviews/reviewed/0009.md#R0009-0049,
+  reviews/reviewed/0009.md#R0009-0050, reviews/reviewed/0009.md#R0009-0051,
+  reviews/reviewed/0009.md#R0009-0073, ticgit:b3e8d80c
+- **First seen:** 2026-08-26 · **Last seen:** 2026-10-14
+
+### Description
+
+Eight findings in `transync-core`'s once-per-run, pre-network phase, each
+recomputing something it already had. Two edits cover all eight. In
+`unit/split.rs`, `split_oversize_tables` prices the window plan twice —
+`if !units.iter().any(|u| windows_of(…).is_some()) { return; }` immediately
+followed by the same `windows_of` call in the loop — and `window_units` then
+re-parses the parent a third time (`split_table_rows(&parent.source_payload)`,
+a full comrak parse, under a comment reading `// Re-sliced rather than threaded
+through:`). In `profile.rs`, `default_profile()` re-parses the embedded TOML
+with no `OnceLock`, `load_profile` decodes the same text twice (typed
+`toml::from_str`, then `toml_text.parse::<toml::Value>()` for the unknown-key
+warnings), `entry_applies_to_section` allocates a fresh canonical `String` per
+comparison, `effective_glossary` canonicalizes each term twice per section, and
+`unit.rs` walks the glossary twice per section for two different questions.
+
+### Background
+
+Type 1: every fix shape is settled and nothing must land first. Six of the
+eight were filed above their verified severity, and the register exists partly
+to say so — all eight run before the first provider request and are invisible
+next to one round trip; the glossary loop is dwarfed even locally by the
+tiktoken encode in the same loop. Verification also corrected three claims that
+would otherwise misdirect the work. R0009-0073's headline ("`SplitPlan` owns
+cloned `TranslationUnit` values") is **refuted** — `merge.rs`'s `Window` holds
+only `unit_id` and `source_payload`, and the copy is documented as deliberate —
+but verification found a bigger clone the review walked past in the same file,
+`window_records.push(vu.clone())` on a whole `ValidatedUnit`. R0009-0044's
+double planning is bounded by `.any()`'s short-circuit, so a document with no
+oversize table pays one pass; the unnamed and genuinely quadratic cost is
+`greedy_plan` re-encoding the whole growing window payload once per body row.
+And R0009-0051's two glossary passes must **not** be merged by reusing
+`cohort_key`: `ever_applied` is DCR-0027's G7 obligation and must count entries
+that applied but were shadowed, which `cohort_key` excludes. The sharpest thing
+in the cluster is not a cost at all — `impl Default for ProfileMetadata` parses
+TOML and can panic.
+
+## docs/backlog.md header — superseded census (2026-10-13b)
+
+**Superseded by the 2026-10-14 census**, which stays in the `backlog.md` header
+(release-checklist step 20b: each census replaces the previous one). Moved from the
+`docs/backlog.md` header on 2026-10-14. Three paragraphs verbatim below, in their original
+order: the census, and the two paragraphs that recorded what had moved beside it.
+
+**Census (2026-10-13b) — a count, not a sweep, and this is the current one.** Re-derived from
+`ti list --open --json` and the section headings of this file; `docs/project/open-issues.md` was
+not re-scanned and its figures below carry over from the 2026-10-10 count. No other source was
+re-scanned either, so the last full sweep is still the 2026-09-12 one. **43 entries; 40 are live**
+— each carrying at least one open TicGit ticket. By section: Type 1 holds 1 entry and it is live,
+Type 2 holds 19 of which **17 are live**, Type 3 holds 23 of which **22 are live**. The same three
+entries carry no open ticket: `anthropic-leg-outside-the-release-gate-trigger` and
+`oversize-tombstones-point-at-a-closed-oi-0008` cite none, and
+`phrasing-extension-list-for-custom-elements` cites only a closed one. **The two registers still
+do not agree in both directions.** TicGit holds **72 open tickets** (18 new, 54 blocked, none in
+progress). Forty are cited by an entry and **32 have no entry here**; those 32 were all filed
+after the 2026-09-12 sweep, and the next sweep adopts them. Until it runs, the queue is
+`ti list --open`, not this file. The open-issue register holds nine issues: **4 OPEN** (OI-0051
+through OI-0054), **1 DEFERRED** (OI-0049) and four marked RESOLVED (OI-0040, OI-0041, OI-0046,
+OI-0048) that stay in the register because each still has an open ticket against it. **What counts
+against a gate is still the owner's to state**, and on 2026-10-13 a v0.6.0 condition was
+stated — complete *and verified* — but its scope is not pinned, so **none of these figures is
+a gate verdict**; the header says why. The **v0.6.0 breaking window is open** the same day
+(DCR-0062; ticket `2d616b6a` closed), which is a separate thing: the window says what may ride
+the release, the condition says whether it may happen.
+
+**What moved since 2026-10-10, and it is all the live-endpoint gate.** The entry count is
+unchanged because one entry left and one arrived. `anthropic-live-leg-never-run` is **RESOLVED**
+and moved verbatim to `docs/backlog-archive.md`: the leg ran on 2026-10-13 and passed, against
+`claude-haiku-4-5`, closing ti `40b29a9d` and a standing gap open since 2026-08-10. In its place,
+Type 2 gains `anthropic-adapter-cannot-name-a-workspace` (ti `3e013e47`) — the limit that run
+exposed and that its fix did not remove: the adapter sends no `anthropic-workspace-id`, so it
+needs a workspace-scoped key. The second closure has no entry here and so moves only the
+ticket count: ti `c5b1431a` asked whether Vertex express accepts the `x-goog-api-key` header
+form, and the `google-vertex-express` leg answered yes. `v050-live-gate-unrun` is **deferred by the owner**, with a
+trigger recorded on the entry: its remaining claim is narrower than its title — the run attests
+the branch, not the released `v0.5.0` tree — and nothing depends on v0.5.0 carrying evidence of
+its own.
+
+**And one more moved the same day, for a different reason.** `unopened-breaking-window` is
+**RESOLVED** and archived: the owner made the next version v0.6, which opens the window the entry
+existed for (DCR-0062, ti `2d616b6a`). Nothing replaces it, which is why the entry total drops by
+one here while the live-gate pair above left it unchanged.
