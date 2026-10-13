@@ -8,7 +8,7 @@
 //! `detected_source_language` echo behaviors so each scenario can drive
 //! the real pipeline through its expected path.
 //!
-//! TRACE: SCN-01..SCN-15
+//! TRACE: SCN-01..SCN-16
 
 mod common;
 

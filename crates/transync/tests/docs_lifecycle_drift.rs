@@ -166,7 +166,7 @@ const BUDGETS: &[(&str, u64)] = &[
     ("docs/project/open-issues.md", 60_416),     // wave 2 done
     ("docs/backlog.md", 107_520), // wave 2 done; lowered to 102 KiB on 2026-10-13 when three entries archived in one day, then +3 KiB the same day for v0.6.0's stated release condition and the recorded deferral its gate verdict depends on
     ("CHANGELOG.md", 108_544), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes
-    ("docs/Developer_Guide.md", 94_208), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9
+    ("docs/Developer_Guide.md", 95_232), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9, +1 KiB SMOOTHING_FACTOR is a per-elapsed-ms lerp (R0011-0094, ti 336bf0c6)
     ("docs/Troubleshooting.md", 40_960), // wave 3
     ("docs/implementation/module-map.md", 40_960), // wave 3; +1 KiB DCR-0058
 ];

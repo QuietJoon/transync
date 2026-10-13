@@ -935,12 +935,17 @@ transync translate
                             a 1 GiB byte budget and no entry cap — with no flag
                             to change either. `DiskCacheOptions` stays a
                             library knob for a program that embeds the crate.
-                            The load-bearing reason is OI-0044: `trim_to_budget`
+                            The load-bearing reason was OI-0044: `trim_to_budget`
                             drops only entries while meta bytes count toward the
-                            total, so a budget set below header+meta discards
-                            everything on every open and never converges. That
-                            is unreachable at 1 GiB and one typo away behind a
-                            flag, so a lever needs OI-0044's floor first.
+                            total, so a budget set below header+meta would
+                            discard everything on every open and never converge.
+                            **That floor shipped** — a `max_bytes` at or below
+                            the bytes eviction cannot reclaim is now detected,
+                            warned with its arithmetic, and ignored for that
+                            open, keeping the entries and applying `max_entries`
+                            alone. So the hazard a lever would have exposed is
+                            closed, and the lever is a scope question rather
+                            than a blocked one.
                             Revisit when an operator reports a real 1 GiB cache,
                             or when an --offline run (DCR-0046) fails at a miss
                             for entries an open-time trim evicted.)

@@ -134,9 +134,10 @@ The mechanism:
   the active pane's reference line (4 px below the top) determines
   the active block and the user's `progress ∈ [0, 1]` within it. The
   partner pane's `scrollTop` is set so the matching block displays the
-  same proportional offset. A per-frame lerp closes
-  `SMOOTHING_FACTOR = 0.2` of the gap each RAF tick — the partner
-  glides into place over ~250 ms.
+  same proportional offset. A lerp closes `SMOOTHING_FACTOR = 0.2` of the
+  gap per `NOMINAL_FRAME_MS` of **elapsed** time rather than once per
+  callback (R0011-0094), so the partner glides into place over ~250 ms at
+  any refresh rate — at 120 Hz each callback closes ~0.106, not 0.2.
 - **No oscillation.** A per-pane programmatic-scroll lock (90 ms)
   absorbs the cascade scroll event each pane fires when *we* set its
   `scrollTop`, without blocking the other pane's user input.
@@ -1588,7 +1589,7 @@ Tunables at the top of `web/js/sync.js`:
 |-----------------------------------|--------:|------------------|
 | `PROGRAMMATIC_SCROLL_LOCK_MS`     | 90      | How long after our `pane.scrollTop = …` assignment we ignore that pane's own scroll events. Stops feedback loops. |
 | `REFERENCE_OFFSET_PX`             | 4       | "Currently being read" line, measured from the top of the pane. |
-| `SMOOTHING_FACTOR`                | 0.2     | Fraction of the gap closed per RAF frame. Lower = softer trail; higher = snappier follow. |
+| `SMOOTHING_FACTOR`                | 0.2     | Fraction of the gap closed per `NOMINAL_FRAME_MS` (1000/60) of **elapsed** time, applied as `1 - (1 - f) ** (elapsed / NOMINAL_FRAME_MS)` — so a gesture settles in the same wall-clock time at any refresh rate (R0011-0094). Lower = softer trail; higher = snappier follow. |
 | `SETTLE_THRESHOLD_PX`             | 0.5     | When `|target − current|` drops below this, snap and end the animation loop. |
 
 After editing, mirror the change to `crates/transync-cli/web/sync.js`

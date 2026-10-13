@@ -156,7 +156,7 @@ Types:
 
 ## pre-network-recomputation (OI-0041)
 
-> **RESOLVED 2026-09-04 (partial); six of eight declined on this entry's own severity verdict, two deferred.** `unit/split.rs` plans in one pass and carries the sliced parent with the plan — one `windows_of` per unit, one fewer whole comrak parse per splitting table, and **a panic site deleted** because the invariant now rides the signature. `ProfileMetadata::default` is documented rather than restructured: the panic is unreachable for any caller of a built crate, and each structural alternative is worse (a `build.rs` duplicates `load_profile`'s rules; Rust literals violate the single-source rule; a `Default` that stops equalling `default_profile()` hands out an empty system prompt). R0009-0049 / R0009-0050 **deferred** — their fix needs a new field on `GlossaryEntry`, a tier-(a) public type *without* `#[non_exhaustive]` whose serde shape is operator-edited profile TOML, i.e. a breaking wire change for a loop this entry records as dwarfed by the tiktoken encode beside it. **Re-trigger: the next breaking window already moving `GlossaryEntry`.** **Does not count against the v0.5.0 gate.**
+> **RESOLVED 2026-09-04 (partial), and COMPLETED 2026-10-14 — the residual Required Action 1 landed, so nothing is now owed on this entry.** The `greedy_plan` per-row re-encode is gone: each piece is encoded once and their running sum guards the exact call, which still decides every split. **Split points are provably unchanged** — the sum is an upper bound on encoding the same bytes whole and `output_estimate` is monotone in its payload, so the guard may only skip an encode it did not need. That is load-bearing rather than incidental: a window boundary sets its `source_hash`, a `CacheKey` axis, so a moved split point would silently invalidate cached translations. The property is asserted over a corpus by `the_cheap_bound_never_undercounts` rather than assumed, and that test corrected the change — the bound was expected to be *exact* on a pre-token-boundary argument and is not, a merge crossing the join at 36 tokens whole against 37 summed. Workspace 1642 passed / 0 failed; commit `314d43f`. **`docs/project/open-issues.md` still gives “residual obligation (ti `b3e8d80c`)” as OI-0041's reason for not being archived; that reason is now spent, and this command does not edit that register.** Six of eight were declined on this entry's own severity verdict, two deferred.
 
 - **Type:** 1
 - **Verified:** yes — Review 0009 findings (R0009-0044, R0009-0045, R0009-0046,
@@ -167,7 +167,7 @@ Types:
   reviews/reviewed/0009.md#R0009-0047, reviews/reviewed/0009.md#R0009-0049,
   reviews/reviewed/0009.md#R0009-0050, reviews/reviewed/0009.md#R0009-0051,
   reviews/reviewed/0009.md#R0009-0073, ticgit:b3e8d80c
-- **First seen:** 2026-08-26 · **Last seen:** 2026-08-26
+- **First seen:** 2026-08-26 · **Last seen:** 2026-10-14
 
 ### Description
 

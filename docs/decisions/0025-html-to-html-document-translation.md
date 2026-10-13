@@ -303,7 +303,7 @@ while several shipped records still name it.
 inside `transync-syntax` is the crate now called **`transync-html`**. ADR-0018,
 ADR-0003, `docs/project/stub-manifest.md`, `docs/project/status.md`,
 `docs/project/open-issues-archive.md` and
-`docs/implementation/implementation-slice-checklists.md` still say `htmlseg`.
+`docs/project/implementation-slice-checklists.md` still say `htmlseg`.
 Those records are **dated and are not rewritten** — this repository's records are
 append-only — so this sentence is the mapping, and it lives here because ADR-0025
 is where a reader looking up "htmlseg" will land.
