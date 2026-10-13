@@ -206,6 +206,37 @@ that applied but were shadowed, which `cohort_key` excludes. The sharpest thing
 in the cluster is not a cost at all — `impl Default for ProfileMetadata` parses
 TOML and can panic.
 
+## reviews-0012-0013-undispositioned
+
+- **Type:** 1
+- **Verified:** yes — reopen verified 2026-10-14 first-hand: `git ls-files reviews/` returns ten paths
+  (`README.md` plus `reviewed/` holding 0001, 0009, 0010, 0011) while `git status --porcelain reviews/`
+  shows `?? reviews/0012.md`, `?? 0012.patch`, `?? 0013.md`, `?? 0013.patch`, `?? .claims/`, `?? .gating/`;
+  `git check-ignore -v` exits 1 on each, so they are untracked by omission, not by design. Finding ids
+  counted mechanically: 27 distinct `R0012-` and 11 distinct `R0013-`, each matching its file's `### `
+  header count. `grep -rl -E 'R0012-|R0013-' docs crates CHANGELOG.md` exits 1 with zero hits.
+  `ls reviews/.gating/` = 0009, 0010, 0011; `ls reviews/.claims/` = 0009..0013, the last two holding only
+  an `owner` file — claimed and written, never gated.
+- **Sources:** ticgit:56dd1140, reviews/0012.md, reviews/0013.md, reviews/README.md
+- **First seen:** 2026-10-14 · **Last seen:** 2026-10-14
+
+### Description
+
+Two COMPLETED independent reviews carrying **38 substantiated findings** — 27 (4 high) and 11 (2 High) —
+sit outside every tracking mechanism this repository uses. They are untracked in git, absent from the
+`reviews/README.md` round registry, uncited anywhere in `docs/`, `crates/` or `CHANGELOG.md`, and have no
+`.gating/` entry. `CHANGELOG.md` records the last gate as being over rounds 0010 and 0011.
+
+### Background
+
+Type 1 on the only step that is unambiguous and needs no decision: **committing them**. Every earlier round
+reached `reviews/reviewed/` and was committed — commit `cc20f4f` is the precedent, titled "archive rounds
+0010 and 0011, and register them so their finding ids resolve". Until that happens these two are one
+`git clean -fd` away from being deleted with no trace, and losing them is nobody's decision. What comes
+after — gate the 38 findings, or declare them not owed and archive the rounds — is a separate and larger
+question that should be sized before it is started. Both audit passes that could have caught this scoped
+their eligibility predicate to `docs/**`, so `reviews/` was outside it by construction.
+
 # Type 2 — Needs decision
 
 Each entry here needs a decision or discussion before work can start: a posture, scope or
@@ -945,6 +976,38 @@ being a remote 400 and becomes a local error that says what to do. Its limit is 
 is not reliably readable from the key itself, so this may only be achievable as a better message
 on the provider's 400 rather than as a pre-flight check.
 
+
+## manual-prose-drift-unguarded
+
+- **Type:** 2
+- **Verified:** partly — reopen verified 2026-10-14 first-hand. **Instance (2) reproduces**:
+  `manual/explanation/developer/en/validation-retry-fallback-model.md:4` says "seven independent layers"
+  and `:78` says "a six-layer stack", against the page's own enumeration at :50-68, which lists seven.
+  **Instances (1) and (3) were refuted.** (1) `implement-a-custom-translator.md:497-498` is literally true:
+  the v0.4.0 and v0.5.0 windows *are* both used and closed, and the two breaks parked in `[Unreleased]` are
+  `transync-syntax`-only and invisible through the facade — the v0.6.0 window being open does not falsify
+  that sentence. (3) the compaction-temp claim did not reproduce as filed.
+- **Sources:** ticgit:1e0ba235, manual/explanation/developer/en/validation-retry-fallback-model.md
+- **First seen:** 2026-10-14 · **Last seen:** 2026-10-14
+
+### Description
+
+One manual page gives the validation stack two different layer counts, seven in its frontmatter
+description and six in its body, and its own enumeration says seven. The surrounding question is larger
+than the typo: `manual/` prose has **no machine guard**. `crates/transync/tests/manual_source_refs.rs:22-24`
+says so outright — "this does **not** catch prose drift: a manual page that describes a flag wrongly, or
+omits one, still passes here" — and `docs/backlog.md` already records that `manual/reference/user/en/cli.md`
+is a third full CLI reference with no guard.
+
+### Background
+
+Type 2 rather than Type 1 because of the repair mechanism, not the content. These pages carry
+`generated.by: codex/gpt-6`, and `docs/superpowers/specs/2026-09-13-docs-compaction-design.md:426` records
+that `manual/` prose drift is fixed "only `write-diataxis-manual` regeneration". A hand edit would diverge
+the page from its generator, so the decision owed is whether to regenerate the page, hand-edit it and
+accept the divergence, or build the missing guard first. `manual/log.md` separately concedes the bundle is
+already out of sync with its own `synced_hash` values, and nothing outside `manual/` reads that field — a
+declared re-sync mechanism with no in-repo verifier.
 
 # Type 3 — Blocked
 
