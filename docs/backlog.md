@@ -783,9 +783,9 @@ served. Needs an in-place edit of ADR-0002's Decision Outcome plus one dated `##
   (the gate's trigger set), docs/project/status.md (the standing-gap bullet that carries the
   obligation instead), tickets `40b29a9d` and `342e028d` (both compose with this one; provenance,
   not this entry's ticket)
-- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
-  selection gate had already run, so it was never offered there. No ticket is owed until a
-  human picks it at a gate
+- **Filed:** selected at the 4C gate on 2026-10-14 and filed as `ticgit:ce6eff3b`; it had been
+  surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12 selection gate had
+  already run, so 2026-10-14 was the first gate it reached
 - **First seen:** 2026-09-13
 - **Last seen:** 2026-09-13
 
@@ -836,9 +836,9 @@ the status quo, made explicit)*.
   docs/project/open-issues-archive.md (OI-0008's status line and the dated Related list in the
   DCR-0018/OI-0027 entry), docs/project/open-issues.md (no successor entry),
   ticket `2183fbbb` (which flags it as out of its own scope; provenance, not this entry's ticket)
-- **Unfiled:** surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12
-  selection gate had already run, so it was never offered there. No ticket is owed until a
-  human picks it at a gate
+- **Filed:** selected at the 4C gate on 2026-10-14 and filed as `ticgit:642f0a1d`; it had been
+  surfaced by the 2026-09-13 reopen verification pass, after the 2026-09-12 selection gate had
+  already run, so 2026-10-14 was the first gate it reached
 - **First seen:** 2026-09-13
 - **Last seen:** 2026-09-13
 
