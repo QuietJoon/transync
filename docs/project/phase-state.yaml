@@ -7,12 +7,23 @@ project:
   name: transync
   local_run_target: clean-checkout-local
   active_scope_label: MVP-D
-  last_updated: 2026-10-10-dcr-roster-0054-0060
+  last_updated: 2026-10-13-dcr-0062-window-open
   notes: |
     v0.5.0 released 2026-09-05 (annotated tag `v0.5.0`), which closed the
     sanctioned v0.5.0 breaking window. Seven breaking-by-policy changes rode
     it. A further breaking change needs a new window and the owner decision
     that opens one.
+    That decision was taken on 2026-10-13: the owner made the next version
+    v0.6, which opens the v0.6.0 breaking window (DCR-0062, closing ticket
+    2d616b6a). It admits the two changes parked on master since before
+    v0.5.0 closed - LineOffsets::offsets becoming private (R0010-0023) and
+    the Markdown intake's move from parser to intake::markdown (DCR-0053) -
+    and makes OI-0051, OI-0052 and OI-0054 eligible without requiring any of
+    them. The cut has its own separate condition, stated the same day: the
+    manifest stays 0.6.0-dev and goes to 0.6.0 once what is to be
+    implemented is complete and verified. release-checklist.md step 2a holds
+    that condition; the window says what may ride the release, the condition
+    says whether it may happen.
     The narrated run log for every earlier wave and release is
     docs/project/phase-state-notes.md. It is an archive: verbatim,
     append-only, and not read for current truth. This scalar states the
