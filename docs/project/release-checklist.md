@@ -157,7 +157,7 @@ as it is stated, and a version with none says so.
   (`docs/project/open-issues.md`) — an item closed in one and open in the other
   still counts. "Explicitly deferred" means a **recorded** deferral naming a
   falsifiable trigger, not merely blocked and not merely unqueued; such an item
-  **re-counts the moment its trigger fires**. The open v0.5.0 breaking window is
+  **re-counts the moment its trigger fires**. The v0.5.0 breaking window is
   not this condition — the window says what *may* ride the release, this says
   whether the release may happen.
 - **Where the answer lives:** `docs/backlog.md`. Its header states this rule and

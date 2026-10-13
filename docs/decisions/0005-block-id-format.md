@@ -42,7 +42,9 @@ We chose **option 2**, kind-prefixed sequential.
 <kind>-<NNNN>
 ```
 
-- `<kind>` ∈ `{h1, h2, h3, h4, h5, h6, p, t, c, li, q, hr, img}`. Inline runs are not assigned IDs.
+- `<kind>` ∈ `{h1, h2, h3, h4, h5, h6, p, t, c, li, q, hr, img, title, html, x}` — sixteen codes,
+  enumerated by `BlockKind::id_code` in `crates/transync-syntax/src/id.rs`, which is the authority
+  (`rough-schema.md` defers to it the same way). Inline runs are not assigned IDs.
 - `<NNNN>` is a zero-padded decimal sequence assigned by source-order AST traversal, starting at `0001`. Zero padding is to four digits; documents with more than 9999 sync-relevant blocks bump to five digits and beyond on demand (no separate format flag needed — readers parse the trailing integer).
 - Numbers are not reused within a document; each `BlockKind` increments its own counter (so `p-0001` and `h1-0001` can coexist) — wait, no: see below.
 
@@ -62,7 +64,8 @@ Status: Decided 2026-05-01 (Phase 2). Shipped — `<kind>-<NNNN>` IDs flow end-t
 
 - **Good:** A human reading `data-sync-id="t-0007"` immediately knows it's a table.
 - **Good:** Validator can do simple set-equality on `unit_id`s.
-- **Good:** Length is bounded: prefix ≤ 3 chars, dash, four digits — typically 7–8 characters.
+- **Good:** Length is bounded: prefix ≤ 5 chars, dash, four digits — typically 7–8 characters, and
+  at most 10 (`title-0001`).
 - **Good:** No HTML attribute escaping needed (no `/` or `:`).
 - **Bad:** ID does not encode hierarchy. Recovered via `parent_id` and `section_path` in `AlignmentMap`. Acceptable.
 - **Bad:** ID does not survive source edits. Documented as a non-goal (NG4).

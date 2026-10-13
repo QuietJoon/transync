@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Inline Markdown content is LLM-owned; inline-structure constraints are advisory
-description: Validation enforces outer block structure plus, since the 2026-07 amendment, link/image destinations and profile-pledged inline code spans, and since the 2026-08-04 amendment, raw inline-HTML tag identity (always on, no policy gate); other inline markup belongs to the model.
+description: Validation enforces outer block structure, link/image destinations, profile-pledged inline code spans, and raw inline-HTML tag identity (always on, no policy gate); other inline markup belongs to the model.
 tags: [decision, ADR-0012]
 status: active
 ---

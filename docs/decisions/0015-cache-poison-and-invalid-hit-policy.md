@@ -1,7 +1,7 @@
 ---
 type: ADR
-title: Cache poison policy is miss-on-get / recover-on-put; invalid cache hits re-dispatch
-description: A poisoned cache mutex is cleared once and resumed empty (amended 2026-07-13, external review P2-8; superseding the original miss-on-get / recover-on-put split), and a cached result that fails validation on reuse is rejected and re-translated.
+title: Cache poison policy is clear-once-and-resume; invalid cache hits re-dispatch
+description: A poisoned cache mutex is cleared once and resumed empty through one locked() helper, and a cached result that fails validation on reuse is rejected and re-translated.
 tags: [decision, ADR-0015]
 status: active
 ---

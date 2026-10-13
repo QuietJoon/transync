@@ -80,7 +80,7 @@ The decision is paired with a prevention-side mitigation wave (DCR-0012):
 output-aware batch packing shrinks batches so a full batch cannot outgrow the
 output ceiling in the first place; an at-risk preflight names any single
 oversize unit before dispatch; and five CLI batching flags let an operator
-raise the ceiling, lower the expansion factor, or split the input without
+raise the ceiling, raise the expansion factor, or split the input without
 authoring a profile TOML. Abort stays the terminal behavior; prevention makes
 the terminal case rare and self-diagnosing.
 

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: Whole-document-in-memory is inherent; CLI reads are admission-capped at the boundary
-description: The pipeline is architecturally whole-document (parse → full AST → full-document reparse), so the whole-document-in-memory stance stands for ACCEPTED inputs. Amended 2026-07-13 (external review P1-7) — a limit+1 admission cap ships at the CLI boundary to reject absurd inputs before parse; it is boundary hygiene, not a peak-memory guard.
+description: The pipeline is architecturally whole-document (parse → full AST → full-document reparse), so the whole-document-in-memory stance stands for ACCEPTED inputs. A limit+1 admission cap ships at the CLI boundary to reject absurd inputs before parse; it is boundary hygiene, not a peak-memory guard.
 tags: [decision, ADR-0016]
 status: active
 ---
