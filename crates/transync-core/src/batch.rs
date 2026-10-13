@@ -547,7 +547,7 @@ fn estimate_unit(
 /// too — a factor large enough to saturate the cast would otherwise overflow
 /// on the very next line, which is the panic the cast's own comment claims to
 /// have avoided.
-fn output_estimate(payload_tokens: usize, id_tokens: usize, factor: f64) -> usize {
+pub(crate) fn output_estimate(payload_tokens: usize, id_tokens: usize, factor: f64) -> usize {
     let expanded_payload = (payload_tokens as f64 * factor.max(0.0)).ceil() as usize;
     expanded_payload
         .saturating_add(id_tokens)

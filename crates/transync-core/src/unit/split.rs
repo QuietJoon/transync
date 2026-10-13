@@ -169,20 +169,51 @@ fn greedy_plan(
     factor: f64,
     bpe: &CoreBPE,
 ) -> Vec<Vec<String>> {
+    // Each piece is encoded exactly once, and the running `bound` below is
+    // their sum (OI-0041 Required Action 1). `TableRows::window` emits
+    // `header \n delimiter (\n row)*`, so these pieces are that string cut at
+    // the row joins and nowhere else.
+    let prefix_tokens = bpe
+        .encode_with_special_tokens(&format!("{}\n{}", rows.header, rows.delimiter))
+        .len();
+    let row_tokens: Vec<usize> = rows
+        .body
+        .iter()
+        .map(|row| bpe.encode_with_special_tokens(&format!("\n{row}")).len())
+        .collect();
+
     let mut plan: Vec<Vec<String>> = Vec::new();
     let mut current: Vec<String> = Vec::new();
-    for row in &rows.body {
+    let mut bound = prefix_tokens;
+    let mut id = window_unit_id(parent_id, 0);
+    let mut id_tokens = bpe.encode_with_special_tokens(&id.0).len();
+    for (i, row) in rows.body.iter().enumerate() {
         if current.is_empty() {
             current.push(row.clone());
+            bound += row_tokens[i];
             continue;
         }
         current.push(row.clone());
-        let id = window_unit_id(parent_id, plan.len() as u32);
+        bound += row_tokens[i];
+        // The cheap guard, and the reason the exact call below is still the
+        // one that decides. `bound` can only over-count: encoding a string
+        // whole never yields more tokens than encoding it in pieces, because
+        // a merge across a join can only replace two tokens with one. And
+        // `output_estimate` is monotone in its payload argument. So a `bound`
+        // that fits proves the real payload fits, and skipping the encode
+        // cannot move a split point — only the exact value may close a
+        // window. Asserted over a corpus by `the_cheap_bound_never_undercounts`.
+        if crate::batch::output_estimate(bound, id_tokens, factor) <= target {
+            continue;
+        }
         if estimate_payload_output_tokens(&rows.window(&current), &id.0, bpe, factor) > target {
             // The row that broke the window starts the next one.
             let overflow = current.pop().expect("just pushed");
             plan.push(std::mem::take(&mut current));
             current.push(overflow);
+            bound = prefix_tokens + row_tokens[i];
+            id = window_unit_id(parent_id, plan.len() as u32);
+            id_tokens = bpe.encode_with_special_tokens(&id.0).len();
         }
     }
     if !current.is_empty() {
@@ -294,6 +325,73 @@ mod tests {
             ));
         }
         src
+    }
+
+    /// The contract that makes `greedy_plan`'s cheap guard sound.
+    ///
+    /// The guard skips the exact encode whenever the running sum of
+    /// separately-encoded pieces already fits. That is only safe while the sum
+    /// is an **upper bound** on encoding the same bytes whole: if it ever
+    /// undercounted, a window that does not fit would be waved through and a
+    /// split point would move — which changes each window's `source_hash`, and
+    /// so its cache key.
+    ///
+    /// Equality does **not** hold, and this test is where that was settled.
+    /// The join was expected to land on a pre-token boundary — `window` joins
+    /// on `\n`, and tiktoken's pre-tokenizer splits whitespace from
+    /// non-whitespace — but a merge does cross it: measured here, a window
+    /// encodes to 36 tokens where its pieces sum to 37. That is the direction
+    /// the guard requires, so it is a tightness fact rather than a defect, and
+    /// the second assertion below pins the slack instead of pinning equality.
+    /// A loose bound would be sound and useless: the guard would never fire
+    /// and every row would pay the exact encode again.
+    ///
+    /// TRACE: OI-0041
+    #[test]
+    fn the_cheap_bound_never_undercounts() {
+        for bpe in [
+            tiktoken_rs::o200k_base().expect("o200k"),
+            tiktoken_rs::cl100k_base().expect("cl100k"),
+        ] {
+            for shape in [
+                table(1),
+                table(7),
+                table(40),
+                // Rows whose content stresses the join: leading/trailing
+                // spaces, CJK, emoji, entities and backticks all tokenize
+                // differently beside a newline than alone.
+                "| a | b |\n|---|---|\n|  padded  | 한국어 텍스트 |\n| `code` | &amp; |\n| 🙂🙂 | x |"
+                    .to_string(),
+                "| h |\n|---|\n| |\n| |\n| |".to_string(),
+            ] {
+                let rows = transync_syntax::regen::split_table_rows(&shape)
+                    .expect("fixture is a table");
+                let prefix = bpe
+                    .encode_with_special_tokens(&format!("{}\n{}", rows.header, rows.delimiter))
+                    .len();
+                let mut sum = prefix;
+                let mut taken: Vec<String> = Vec::new();
+                for row in &rows.body {
+                    sum += bpe.encode_with_special_tokens(&format!("\n{row}")).len();
+                    taken.push(row.clone());
+                    let whole = bpe.encode_with_special_tokens(&rows.window(&taken)).len();
+                    assert!(
+                        sum >= whole,
+                        "the guard would undercount and could move a split point: \
+                         sum={sum} < whole={whole} after {} row(s) of {shape:?}",
+                        taken.len()
+                    );
+                    // At most one merged token per join, which is what keeps
+                    // the bound tight enough for the guard to fire.
+                    assert!(
+                        sum - whole <= taken.len(),
+                        "the bound drifted too loose to be useful: sum={sum}, \
+                         whole={whole}, {} row(s) of {shape:?}",
+                        taken.len()
+                    );
+                }
+            }
+        }
     }
 
     /// A profile that splits: `row-window-first` plus a ceiling low enough
