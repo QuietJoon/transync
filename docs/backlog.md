@@ -206,37 +206,6 @@ that applied but were shadowed, which `cohort_key` excludes. The sharpest thing
 in the cluster is not a cost at all — `impl Default for ProfileMetadata` parses
 TOML and can panic.
 
-## reviews-0012-0013-undispositioned
-
-- **Type:** 1
-- **Verified:** yes — reopen verified 2026-10-14 first-hand: `git ls-files reviews/` returns ten paths
-  (`README.md` plus `reviewed/` holding 0001, 0009, 0010, 0011) while `git status --porcelain reviews/`
-  shows `?? reviews/0012.md`, `?? 0012.patch`, `?? 0013.md`, `?? 0013.patch`, `?? .claims/`, `?? .gating/`;
-  `git check-ignore -v` exits 1 on each, so they are untracked by omission, not by design. Finding ids
-  counted mechanically: 27 distinct `R0012-` and 11 distinct `R0013-`, each matching its file's `### `
-  header count. `grep -rl -E 'R0012-|R0013-' docs crates CHANGELOG.md` exits 1 with zero hits.
-  `ls reviews/.gating/` = 0009, 0010, 0011; `ls reviews/.claims/` = 0009..0013, the last two holding only
-  an `owner` file — claimed and written, never gated.
-- **Sources:** ticgit:56dd1140, reviews/0012.md, reviews/0013.md, reviews/README.md
-- **First seen:** 2026-10-14 · **Last seen:** 2026-10-14
-
-### Description
-
-Two COMPLETED independent reviews carrying **38 substantiated findings** — 27 (4 high) and 11 (2 High) —
-sit outside every tracking mechanism this repository uses. They are untracked in git, absent from the
-`reviews/README.md` round registry, uncited anywhere in `docs/`, `crates/` or `CHANGELOG.md`, and have no
-`.gating/` entry. `CHANGELOG.md` records the last gate as being over rounds 0010 and 0011.
-
-### Background
-
-Type 1 on the only step that is unambiguous and needs no decision: **committing them**. Every earlier round
-reached `reviews/reviewed/` and was committed — commit `cc20f4f` is the precedent, titled "archive rounds
-0010 and 0011, and register them so their finding ids resolve". Until that happens these two are one
-`git clean -fd` away from being deleted with no trace, and losing them is nobody's decision. What comes
-after — gate the 38 findings, or declare them not owed and archive the rounds — is a separate and larger
-question that should be sized before it is started. Both audit passes that could have caught this scoped
-their eligibility predicate to `docs/**`, so `reviews/` was outside it by construction.
-
 # Type 2 — Needs decision
 
 Each entry here needs a decision or discussion before work can start: a posture, scope or
@@ -1008,6 +977,65 @@ the page from its generator, so the decision owed is whether to regenerate the p
 accept the divergence, or build the missing guard first. `manual/log.md` separately concedes the bundle is
 already out of sync with its own `synced_hash` values, and nothing outside `manual/` reads that field — a
 declared re-sync mechanism with no in-repo verifier.
+
+## reviews-0012-0013-ungated
+
+- **Type:** 2
+- **Verified:** yes — reopen verified 2026-10-14 first-hand, and the first framing was **wrong**.
+  `ls reviews/.gating/` returns 0009, 0010, 0011 only, while `ls reviews/.claims/` returns 0009..0013:
+  rounds 0012 and 0013 were claimed and written but **never gated**. `git ls-files reviews/` returns
+  `README.md` and nine paths under `reviews/reviewed/` — every tracked round file is an *archived* one.
+  Finding counts verified mechanically: 27 distinct `R0012-` ids and 11 distinct `R0013-`, matching each
+  file's `### ` header count. `grep -rl -E 'R0012-|R0013-' docs crates CHANGELOG.md` exits 1 with zero hits.
+- **Sources:** ticgit:56dd1140, reviews/0012.md, reviews/0013.md, reviews/README.md,
+  docs/project/status.md (the 2026-08-08 owner decision)
+- **First seen:** 2026-10-14 · **Last seen:** 2026-10-14
+
+### Description
+
+Two independent review rounds read `STATUS: COMPLETED` and carry **38 substantiated findings** — 27
+(4 high) and 11 (2 High). Neither has been gated: `reviews/.gating/` stops at 0011, `reviews/README.md`'s
+round table stops at 0011, and `CHANGELOG.md` records the last gate as covering rounds 0010 and 0011. No
+`R0012-` or `R0013-` id is cited anywhere in `docs/`, `crates/` or the CHANGELOG. They have been in that
+state since 2026-09-19/20.
+
+### Background
+
+**This entry was filed as Type 1 on a false premise and is corrected here.** The original reading was that
+the two files are untracked "by omission, not by design", inferred from `git check-ignore` exiting 1, and
+that the obvious unblocked step was to commit them before a `git clean -fd` destroyed them.
+
+Not gitignored is not the same as not deliberate. `docs/project/status.md` records an **owner decision of
+2026-08-08**: under `reviews/`, the registry and the archived rounds in `reviews/reviewed/` are tracked,
+"only the in-flight round files and the `.claims/` / `.gating/` state are not." The tracked-file listing
+shows exactly that shape, and the lifecycle it implies is claimed → written at `reviews/NNNN.md`,
+untracked → gated → archived into `reviews/reviewed/NNNN.md`, tracked and registered, which is what commit
+`cc20f4f` did for 0010 and 0011. Rounds 0012 and 0013 sit at the ungated step, so their untracked state is
+the recorded design rather than a defect, and committing them in place would contravene that decision and
+assert a lifecycle position they have not reached.
+
+The exposure is real but it is an **accepted** consequence of that design: an ungated round lives
+untracked, so it is lost if the working tree is cleaned. That trade was made on 2026-08-08.
+
+What survives is a gating backlog, not a tracking defect — and it is Type 2 because the choice is the
+owner's and nothing an agent can settle: run `indy-review-gate` over the two rounds and disposition 38
+findings, or declare them not owed and record that in `reviews/README.md` so the next reader does not
+rediscover them. Sizing matters to the choice: the gate over rounds 0010 and 0011 covered 188 findings and
+produced the `[Unreleased]` decision block, so 38 is a substantial but far smaller piece of work.
+
+### Options
+
+**Gate them** *(source: the lifecycle `reviews/README.md` and `cc20f4f` establish)* — runs
+`indy-review-gate` over both rounds, dispositions each finding, then archives them to `reviews/reviewed/`
+and registers them so their ids resolve. The only route that produces evidence about the 38 findings.
+
+**Declare them not owed and archive the rounds** *(proposed by reopen)* — cheaper and honest if the
+findings have been overtaken; needs the decision written into `reviews/README.md`, or the next sweep
+rediscovers two completed rounds nobody has dispositioned.
+
+**Leave them ungated** *(the status quo)* — costs nothing today and keeps the 38 findings one `git clean`
+from deletion, which is the exposure the 2026-08-08 decision accepted for in-flight rounds but which
+compounds the longer a *completed* round sits at that step.
 
 # Type 3 — Blocked
 
