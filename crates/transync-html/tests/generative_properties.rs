@@ -138,6 +138,11 @@ const ATOMS: &[&str] = &[
     "<script/>",
     "<textarea/>",
     "</scripty>",
+    // Script data's escape states (R0012-0004, DCR-0063): `<!--` inside a
+    // script enters ESCAPED, and a `<script` spelling inside that enters
+    // DOUBLE-ESCAPED, where `</script>` closes nothing.
+    "<!--<script>",
+    "<script><!--",
     // The four names R0010-0031 added to the set (DCR-0050). `iframe` is the
     // one CommonMark hands over directly: `div` and `iframe` are both type-6
     // start-condition names, so `<div><iframe></div></iframe>` is ONE html
@@ -180,6 +185,9 @@ const ATOMS: &[&str] = &[
     // DCR-0050). A browser decodes an attribute value before the
     // integration-point test, so this IS `text/html`.
     "<annotation-xml encoding=\"text&#47;html\">",
+    // …and a valueless FIRST `encoding` before a duplicate (R0012-0009,
+    // DCR-0063). HTML keeps the first, so this is NOT an integration point.
+    "<annotation-xml encoding encoding=\"text/html\">",
     // Breakout, and `font`'s attribute-conditional breakout.
     "<font>",
     "<font color=\"r\">",
@@ -272,7 +280,7 @@ const ATOMS: &[&str] = &[
 /// shapes" as one of its two gaps. So the shapes are drawn directly rather
 /// than hoped for.
 ///
-/// Four classes, each named by the coverage state it reaches and each
+/// Five classes, each named by the coverage state it reaches and each
 /// required by `the_generator_reaches_every_state_the_september_fixes_lived_in`
 /// — a phrase list that quietly stopped producing a class would otherwise
 /// leave this whole section decorative:
@@ -294,6 +302,12 @@ const ATOMS: &[&str] = &[
 /// * `stale-frame:implied-close` — the [`transync_html::implicitly_closes`]
 ///   pairs, spelled as real sequences: a `<p>` followed by a block-level
 ///   start tag, and the `<li>` / `<dt>` / `<dd>` / `<tr>` / `<td>` runs.
+/// * `script-escape:double-escaped` — not a stale frame but a tokenizer
+///   shape: the legacy `document.write` idiom, whose inner `</script>` is
+///   double-escaped script text and whose outer one is the closer
+///   (R0012-0004, DCR-0063), and the same state left open at EOF. The two
+///   atoms above can draw it too; the phrase is what guarantees the browser
+///   oracle sees it.
 ///
 /// **Two families are deliberately absent, and that is a bound rather than an
 /// oversight.** `<select>` / `<option>` and `<ruby>` / `<rt>` / `<rp>` are
@@ -387,6 +401,12 @@ const PHRASES: &[(&str, &str)] = &[
     ("stale-frame:implied-close", "<td>x</tr>"),
     ("stale-frame:implied-close", "<dl><dt>a<dd>b</dl>"),
     ("stale-frame:implied-close", "<p><table><tr><td>c"),
+    // Script data's double-escaped state, closed and left open.
+    (
+        "script-escape:double-escaped",
+        "<script><!--<script></script>x</script>",
+    ),
+    ("script-escape:double-escaped", "<script><!--<script>x"),
 ];
 
 /// One draw in this many reaches for a `PHRASES` entry instead of an `ATOMS`
@@ -800,6 +820,11 @@ fn reached(html: &str, out: &mut BTreeSet<&'static str>) {
     if html.contains("encoding=\"text&#47;html\"") {
         out.insert("integration-point:decoded-encoding");
     }
+    // R0012-0009 / DCR-0063: a valueless first `encoding` before a duplicate,
+    // read lexically for the same reason.
+    if html.contains("encoding encoding=") {
+        out.insert("integration-point:duplicate-encoding");
+    }
 
     // The stale-frame classes (ti `ec235f`). Read LEXICALLY, by looking for the
     // phrase's own bytes, and deliberately not through `scan_tags` /
@@ -852,6 +877,10 @@ fn the_generator_reaches_every_state_the_september_fixes_lived_in() {
         "skip:comment:bang-terminated",
         "raw-text-beyond-the-original-four",
         "integration-point:decoded-encoding",
+        // DCR-0063's two tokenizer readings: the first `encoding` wins, and
+        // script data has escape states.
+        "integration-point:duplicate-encoding",
+        "script-escape:double-escaped",
         // The content-mode model (DCR-0041 / 0042 / 0043).
         "foreign-child",
         "breakout-to-html",

@@ -32,7 +32,7 @@ Four things sit outside the rule on purpose, because they are not this index's t
 - [Persistence and Files](architecture/persistence-and-files.md) — file lifecycle + atomic-write contract.
 - [Contracts](architecture/contracts.md) — `Translator`, profile TOML, alignment-map JSON, HTML attrs, retry policy, CLI args.
 - [Settled Questions](architecture/settled-questions.md) — recurring review findings the record already answers, each with its citation.
-- [transync-html divergences](architecture/transync-html-divergences.md) — the nineteen deliberate divergences from the retired `htmlseg`, with date, ticket, record.
+- [transync-html divergences](architecture/transync-html-divergences.md) — the twenty-two deliberate divergences from the retired `htmlseg`, with date, ticket, record.
 
 ## Implementation
 

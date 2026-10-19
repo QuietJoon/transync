@@ -254,43 +254,62 @@ const KNOWN_DIVERGENT = [
 //
 // One entry is NEW rather than moved, and it was FILED before it was pinned,
 // per this file's own instruction: see ti `bb961a` on the last one.
+//
+// **Re-blessed by DCR-0063 (R0012-0004, R0012-0009) on a larger alphabet, by
+// the same rule.** Two atoms reach script data's escaped and double-escaped
+// states (`<!--<script>`, `<script><!--`), one reaches a valueless first
+// `encoding` before a duplicate, and a fifth `PHRASES` class
+// (`script-escape:double-escaped`) guarantees the legacy `document.write`
+// shape is drawn. Proof that the fixes alone moved NOTHING here: the fixed
+// crate's corpus over the OLD alphabet is byte-identical (sha256 `2b0491ca…`)
+// to the one the pre-fix crate emitted. The movement below is the new draws,
+// not the crate changing its mind about an input: agreement 8_619 -> 8_814,
+// mechanisms 9 -> 10, and still no `sec4a:break-absent` and no
+// `reserved:dom-only`. The tenth key is not a new mechanism; see ti `525bef`
+// below.
 const DIVERGENCE_CENSUS = {
-  "open@input:crate-has-more": 971,
-  //   e.g. "data-sync-id=\"p-9\"><font color=\"r\"><p></font></p>\n\ndiv<annotation-xml><p><div></p>"
-  //        input -font
-  "open@input:dom-has-more open@balanced:dom-has-more": 218,
-  //   e.g. "<p><mtext><textarea/><meta></textarea><!-- c --><!doctype html><font color=\"r\"><div /<ul>"
-  //        input +font; balanced +font
-  "open@balanced:dom-has-more": 93,
-  //   e.g. "a < b<ul><li><b></ul><iframe><!--<b><div></b></div>"
+  "open@input:crate-has-more": 841,
+  //   e.g. "<keygen><div><span></div></span></p>< div><b><div></b></div>"
+  //        input -b
+  "open@input:dom-has-more open@balanced:dom-has-more": 178,
+  //   e.g. "!-- z<keygen/><p><table><tr><td>c</scripty><p><ul><svg></p><title><div>k</div></title></svg>"
+  //        input +p,+tbody; balanced +p
+  "open@balanced:dom-has-more": 100,
+  //   e.g. "div<ul><li><b></ul><<xmp></script><p><ul><svg></p><title><div>k</div></title></svg>"
   //        balanced +b
-  "open@input:dom-has-more": 39,
-  //   e.g. "<div>data-sync-id=\"p-9\"><span/></g><p><table><tr><td>c<blockquote><div><span></blockquote><svg/>"
-  //        input +p,+tbody
-  "open@input:both-ways open@balanced:dom-has-more": 36,
-  //   e.g. "<!x<svg><g><br></g></svg><p><table><tr><td>c&amp;<![CDATA[<b>x</b>]]>  <b><td>x</tr></image>"
-  //        input +p,-table; balanced +p
-  "open@input:both-ways": 13,
-  //   e.g. "<!doctype html><blockquote><div><span></blockquote><a href=\"x\"><div>y</a><div>z</a><svg><desc><div></desc><![CDATA[y<p><table><tr><td>c<?pi<!doctype html><div/data-sync-id=\"p-1\"></>"
-  //        input -a,+tbody
-  // The three entries below are ONE mechanism and one ticket — ti `525bef`,
+  "open@input:dom-has-more": 26,
+  //   e.g. "<rect/></ <p><table><tr><td>c<div=x><textarea></link><link></textarea>"
+  //        input +tbody
+  "open@input:both-ways open@balanced:dom-has-more": 19,
+  //   e.g. "<b><i><div></b></i><p/><a href=https://example.com/><![CDATA[y]]><p/>\n\n</script><table><tr><td></table>"
+  //        input +a,-b,-i,+p; balanced +a
+  "open@input:both-ways": 10,
+  //   e.g. "<div /<a href=\"x\"><div>y</a><div>z</a><circle><div\"x><div class=\"x</1 ><annotation-xml encoding=\"text&#47;html\"><math><div>y</math></div><font color=\"r\"><p></font></p><p><table><tr><td>c"
+  //        input -font,+p,+tbody
+  // The four entries below are ONE mechanism and one ticket — ti `525bef`,
   // filed the moment these lines were written and not after, per this file's
   // own instruction. DCR-0051 gave the crate HTML's open-element stack but
   // deliberately not the list of active formatting elements, so a browser's
   // RECONSTRUCTED `<b>` is a frame the crate never has. `open@input:order` is
-  // new; the two `sec4a:break-nested` lines are what is left of the 1358 this
-  // census carried before DCR-0051, and the ticket carries the measurement
-  // that shows why an appended `</foreignobject>` cannot get past a
-  // reconstructed formatting element.
+  // that ticket's too; the `sec4a:break-nested` lines are what is left of the
+  // 1358 this census carried before DCR-0051, and the ticket carries the
+  // measurement that shows why an appended `</foreignobject>` cannot get past
+  // a reconstructed formatting element. The `open@input:both-ways ...
+  // sec4a:break-nested` key is DCR-0063's new draw of the same thing: the
+  // reconstructed `font` of the last entry, behind an adoption-agency
+  // `<b><div></b></div>` that adds the `both-ways` input half.
   "open@input:dom-has-more open@balanced:dom-has-more sec4a:break-nested": 7,
-  //   e.g. "</scripty><math><mtext><b>q</mtext></math><ul><li><b></ul></b>"
-  //        input +b; balanced +b,+math,+mtext; sec4a dom=parent-b crate=ok
+  //   e.g. "<svg><foreignObject><p></foreignObject></svg><a href=https://example.com/></b></style><math><div><p><span></div><div=x>"
+  //        input +a; balanced +a,+foreignobject,+svg; sec4a dom=parent-a crate=ok
   "open@input:order": 3,
-  //   e.g. "</foreignObject><font></image><img src=\"x\"><b><div></b></div><a href=https://example.com/><p<div><p><span></div><blockquote><div><span></blockquote><ul><li><b></ul>"
-  //        input order(font>a>p<div>b vs font>b>a>p<div)
+  //   e.g. "</i><annotation-xml encoding encoding=\"text/html\"><2026 rows><br/><div a=<plaintext><b><div></b></div><div / ><ul><li><b></ul>"
+  //        input order(annotation-xml>div>div>b vs annotation-xml>div>b>div)
+  "open@input:both-ways open@balanced:dom-has-more sec4a:break-nested": 1,
+  //   e.g. "<b><div></b></div><br/><math><mtext><b>q</mtext></math><font><![CDATA[<b>x</b>]]><hr><p><ul><svg></p><title><div>k</div></title></svg>"
+  //        input -b,+font; balanced +font,+math,+mtext; sec4a dom=parent-font crate=ok
   "open@balanced:dom-has-more sec4a:break-nested": 1,
-  //   e.g. "<b><div></b></div><span><svg><foreignObject><p></foreignObject></svg><keygen/><ul><li><b></ul><div<svg><p>x</svg></p><p><ul><li>a<li>b</ul><rect/><title>"
-  //        balanced +foreignobject,+span,+svg; sec4a dom=parent-foreignobject crate=ok
+  //   e.g. "<math><mtext><b>q</mtext></math><font></mi><!-- a --!><mi>div<![CDATA[<b>x</b>]]><script/>"
+  //        balanced +font,+math,+mtext; sec4a dom=parent-font crate=ok
 };
 
 // Bounds, so agreement cannot be reported vacuously. A change that made every
@@ -308,8 +327,13 @@ const DIVERGENCE_CENSUS = {
 // DCR-0051 then moved agreement to 8_619 while abstentions barely shifted
 // (3_874 -> 3_863), on an unchanged alphabet. That pairing is the claim: 922
 // more cases agree, and it is not because 922 more cases went unanswered.
-const AGREEING_CASES = 8_619;
-const ABSTENTIONS = 3_863;
+//
+// DCR-0063's alphabet moved both again (8_619 -> 8_814 agreeing, 3_863 ->
+// 4_336 abstentions), and for DCR-0050's reason: `<!--<script>` opens a
+// comment and `<script><!--` an escaped script run, and a fragment that ends
+// inside either swallows the sentinel by construction.
+const AGREEING_CASES = 8_814;
+const ABSTENTIONS = 4_336;
 
 // ---------------------------------------------------------------------------
 // Falsification: cases where the CRATE COLUMN IS A LIE
@@ -700,7 +724,7 @@ test.describe("transync-html vs Chromium — the browser oracle", () => {
         `${g.seeds.length} pinned seeds feeds the Rust bounded run; ` +
         `${g.seeds.length * (g.bounded_per_seed - g.browser_per_seed)} generated ` +
         `inputs are NOT browser-checked), drawn from ${g.atoms} atoms and ` +
-        `${g.phrases} stale-frame phrases at 1-in-${g.phrase_odds}`,
+        `${g.phrases} phrases at 1-in-${g.phrase_odds}`,
     );
 
     const dom = await askChromium(page, corpus.generated);

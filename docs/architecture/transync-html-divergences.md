@@ -1,7 +1,7 @@
 ---
 type: reference
-title: The nineteen divergences of transync-html from the retired htmlseg
-description: "transync-html was lifted out of transync-syntax::htmlseg verbatim and has deliberately diverged from it nineteen times since. This is the enumeration — each divergence with its date, ticket and record — and the rule it exists to serve: a difference from the old htmlseg in any of the nineteen is the fix, not a regression to restore."
+title: The twenty-two divergences of transync-html from the retired htmlseg
+description: "transync-html was lifted out of transync-syntax::htmlseg verbatim and has deliberately diverged from it twenty-two times since. This is the enumeration — each divergence with its date, ticket and record — and the rule it exists to serve: a difference from the old htmlseg in any of the twenty-two is the fix, not a regression to restore."
 tags: [reference, architecture, transync-html, DCR-0032]
 generated:
   by: claude-code/claude-opus-5
@@ -9,14 +9,14 @@ generated:
 status: stable
 ---
 
-# The nineteen divergences of `transync-html` from `htmlseg`
+# The twenty-two divergences of `transync-html` from `htmlseg`
 
 DCR-0032 lifted the HTML mechanics out of `transync-syntax::htmlseg` into the
 `transync-html` crate. At the extraction the new crate was verbatim. It is
 deliberately not verbatim any more.
 
 **The rule this list exists to serve:** a difference between `transync-html` and
-the old `htmlseg` in any of the nineteen below is the **fix**, not a regression
+the old `htmlseg` in any of the twenty-two below is the **fix**, not a regression
 to restore. Anyone comparing the two crates — or reading an old test, an old
 fixture, or `git show` of a pre-extraction file — needs to be able to tell a
 deliberate correction from a bug, and that is what this table is for.
@@ -32,7 +32,9 @@ Every divergence is measured against a browser, not against this crate's own
 expectations — `web/tests/html-oracle.spec.js` drives headless Chromium over
 generated fragments, with the corpus emitted by the double-gated
 `emit_browser_oracle_corpus` in `crates/transync-html/tests/generative_properties.rs`
-so `cargo test --workspace` never needs a browser.
+so `cargo test --workspace` never needs a browser. That oracle reads the scanner,
+the walk, the balancer and the strip; a row about the extraction walk, which it
+does not exercise, names the Chromium measurement it rests on.
 
 ## The enumeration
 
@@ -57,6 +59,9 @@ so `cargo test --workspace` never needs a browser.
 | 17 | 2026-09-05 | `895fb7` et al. | DCR-0051 | Foreign content's end-tag dispatch is followed **in the spec's step order**, with `</p>` and `</br>` as breakout end tags — the rule that makes `<p><ul><svg></p><title>` read `<title>` as HTML RCDATA on purpose rather than by accident. |
 | 18 | 2026-09-05 | `da6bb5` et al. | DCR-0051 | The start tags that "in body" **ignores** — `<td>`, `<tr>`, `<tbody>` and friends outside a table — open no element and earn no invented closer. |
 | 19 | 2026-09-05 | `a7e625` | DCR-0051 | `mglyph` and `malignmark` keep their children in MathML. Filed as spec-traced, and the browser oracle **confirmed** it. |
+| 20 | 2026-10-19 | `c46a35b8` | DCR-0063 | `scan_tags` models script data's **escaped** and **double-escaped** states in the one scanner, so in the legacy `<script><!-- document.write('<script></script>') //--></script>` idiom the inner `</script>` is script text and the outer one closes the element; `balance_fragment` repairs a script left double-escaped at EOF with `-->` before its closer. The orphan pass had deleted the real closer, leaving a browser in an escaped script that swallowed the wrapper's `</div>` and every following anchor. |
+| 21 | 2026-10-19 | `5864f813` | DCR-0063 | The extraction walk takes each HTML template's extent from the one walk instead of from lol_html's selector stack, and asks lol_html's `can_have_content` instead of its syntactic `is_self_closing` for labels. So `<template/>` opens a template whose text stays out of the payload, a template's content runs to its own `</template>` past an ancestor's end tag (which a browser ignores there), and `<p/>Hello</p>` labels its segment `p`. Measured in headless Chromium: `<template/>hidden</template>` puts `hidden` in the template's content, and `<div><template>a</div>b</template>c</div>` puts `ab` there and leaves `c` in the `div`. |
+| 22 | 2026-10-19 | `f9e6f874` | DCR-0063 | `tag_attr_value` reads the **first** attribute of a name, a valueless one as empty, because HTML drops a later duplicate. `<annotation-xml encoding encoding="text/html">` is therefore not an integration point, and a MathML `<style>` after it stops hiding a live `data-sync-id` from the strip. |
 
 ## What "orphan close tags are dropped" now means
 
@@ -71,7 +76,7 @@ since a browser turns each into content.
   scripting flag, which is context rather than a name, so the crate does not
   treat the name as raw text. Ticket `16721e90` carries the open question of
   what the panes should do about it.
-- **The adoption agency algorithm is not implemented.** The residual is **8 of
+- **The adoption agency algorithm is not implemented.** The residual is **9 of
   10,000** generated fragments, recorded in `contracts.md` §4b and owned by
   ticket `525bef`.
 

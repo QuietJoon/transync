@@ -156,6 +156,47 @@ finally enumerates is decided per item, not by this preamble.
 
 ### Fixed
 
+- **A `</script>` inside a commented-out script no longer ends the script in
+  a pane** (R0012-0004, DCR-0063). `transync-html`'s scanner models script
+  data's escaped and double-escaped states, so the legacy `<script><!--
+  document.write('<script></script>') //--></script>` idiom keeps its real
+  closer instead of losing it to the orphan pass, which left a browser inside
+  the script swallowing the wrapper's `</div>` and every later anchor. A script
+  left double-escaped at EOF is closed with `-->` then `</script>`. In an HTML
+  document the script's tail no longer mints a Paragraph sent for translation,
+  so the block ids after it renumber and their cached entries miss once.
+- **A pane anchor no longer lands inside an unquoted attribute value**
+  (R0012-0007). Injection read a `/>` suffix as the self-closing flag, so
+  `<a href=/>` became `<a href= data-sync-id=…>`, which a browser reads as the
+  href's value: the block lost its anchor. It reads the scanner's flag now.
+- **Template content is no longer extracted when the template is spelled
+  `<template/>` or outlives an ancestor's end tag** (R0012-0008, DCR-0063). A
+  `/` on a non-void HTML tag is ignored, so `<template/>` opens a template; the
+  extraction walk read the syntactic flag and sent its text for translation.
+  A template also ends only at its own `</template>` or at EOF, because a
+  browser ignores an ancestor's end tag inside one; the walk ended it where
+  lol_html's selector stack popped it, so in `<div><template>a</div>b` the `b`
+  was translated. The walk now takes template extents from the scanner's own
+  walk. Labels follow (`<p/>Hello</p>` is labelled `p`), an HTML document's
+  template block holding only template content is `PreservedZeroSegment`, an
+  unclosed template keeps the rest of its block inert as a browser does, a
+  `<template>` inside `<svg>` is an ordinary SVG element whose text is
+  extracted, and affected cached entries miss once.
+- **`</template>` closes its template through whatever is open inside it**
+  (R0012-0008, DCR-0063). The scanner's walk stopped the end tag at a `<p>` or
+  a table cell inside the template and kept the template open, so the pane
+  balancer appended closers a browser does not need: in
+  `<div><template><p>a</template>b</div>` the appended `</p>` minted an empty
+  paragraph and the appended `</div>` closed the sync wrapper, moving the
+  content after the block out of it. In an HTML document the template block
+  ran past its end tag and absorbed the blocks after it. Those blocks are
+  their own again, so the block ids after the template renumber and their
+  cached entries miss once.
+- **A duplicate `encoding` no longer overrides a valueless first one**
+  (R0012-0009, DCR-0063). HTML keeps the first attribute, so `<annotation-xml
+  encoding encoding="text/html">` is not an HTML integration point; reading it
+  as one hid a live `data-sync-id` after a MathML `<style>` from the pane strip.
+
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above
   `gemini-3.8-flash`'s published 65,536-token maximum. It raised `Unsupported`,

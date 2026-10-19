@@ -247,7 +247,9 @@ fn emit_block(
 /// end, or — for a closeless extent: self-closed in foreign content, or
 /// force-closed at EOF — the extent's own end per the landed
 /// `ElementExtent` contract). Then the four attributes splice into that open
-/// tag just before its `>` or `/>`; the open span here IS
+/// tag just before its `>`, or before its `/>` when the scanner's
+/// `TagToken::Open.self_closing` says that slash IS the flag — a `/` that
+/// ends an unquoted value is data (R0012-0007); the open span here IS
 /// `TagToken::Open.span` — `element_extents` is the same walk (§5), so the
 /// spec's instrument is what is read.
 ///
@@ -267,7 +269,27 @@ fn injected_fragment(trimmed: &str, attrs_str: &str, self_injectable: bool) -> S
                 .map_or(only.content_end.max(only.open.1), |c| c.1);
             if only.open.0 == 0 && coverage_end == trimmed.len() {
                 let (_, open_end) = only.open;
-                let insert_at = if trimmed[..open_end].ends_with("/>") {
+                // The scanner's own flag for this open tag, never a `/>`
+                // suffix: a `/` that ends an unquoted value (`href=/>`) is
+                // data, and splicing before it moved it out of the value —
+                // or, after `href=`, made our `data-sync-id` the href's value
+                // (R0012-0007). Re-scanning the prefix yields the same token
+                // `element_extents` paired, since a tag ends at its first
+                // `>` outside a quoted value; and the flag is set only when
+                // that `/` is the byte right before `>`.
+                let self_closing = transync_html::scan_tags(&trimmed[..open_end])
+                    .iter()
+                    .any(|t| {
+                        matches!(
+                            t,
+                            transync_html::TagToken::Open {
+                                span: (0, end),
+                                self_closing: true,
+                                ..
+                            } if *end == open_end
+                        )
+                    });
+                let insert_at = if self_closing {
                     open_end - 2
                 } else {
                     open_end - 1
@@ -667,5 +689,77 @@ mod html_pane_tests {
         };
         assert_eq!(ids(&s), ids(&t), "same ids, same order, both panes");
         assert_eq!(ids(&s).len(), 4, "h2 + two li + p");
+    }
+
+    /// R0012-0007: a `/` that ends an UNQUOTED attribute value is part of the
+    /// value, not a self-closing flag, so the anchor goes after it. Choosing
+    /// the insertion point from a `/>` suffix moved the slash out of the
+    /// author's value.
+    #[test]
+    fn a_slash_ending_an_unquoted_value_stays_in_the_value() {
+        let r = rig("<p data-path=x/>Hello</p>\n");
+        let pane = render_source_html(&r.doc, &r.map, &r.outcomes).expect("renders");
+        assert!(
+            pane.contains("<p data-path=x/ data-sync-id=\"p-"),
+            "the value keeps its slash and the anchor follows it:\n{pane}"
+        );
+        assert!(!pane.contains("data-path=x data-sync-id"), "{pane}");
+    }
+
+    /// The same mistake on a minified root link lost the anchor outright:
+    /// inserting after `href=` made a browser read our `data-sync-id=".."` as
+    /// the href's unquoted value, so the block had no anchor in the pane.
+    #[test]
+    fn an_unquoted_root_href_keeps_its_anchor() {
+        let r = rig("<div><a href=/>Home</a></div>\n");
+        let pane = render_source_html(&r.doc, &r.map, &r.outcomes).expect("renders");
+        assert!(
+            pane.contains("<a href=/ data-sync-id=\"p-"),
+            "the anchor is an attribute of its own:\n{pane}"
+        );
+        assert!(!pane.contains("href= data-sync-id"), "{pane}");
+    }
+
+    /// The linked-image population of the same route: an Image block whose
+    /// one top-level element is the link.
+    #[test]
+    fn an_unquoted_root_href_around_an_image_keeps_its_anchor() {
+        let r = rig("<div><a href=/><img src=logo.png></a></div>\n");
+        assert_eq!(r.doc.blocks[0].kind.wire_str(), "image");
+        let pane = render_source_html(&r.doc, &r.map, &r.outcomes).expect("renders");
+        assert!(
+            pane.contains("<a href=/ data-sync-id=\"img-"),
+            "the anchor is an attribute of its own:\n{pane}"
+        );
+        assert!(!pane.contains("href= data-sync-id"), "{pane}");
+    }
+
+    /// The flag case still takes the attributes before its slash: a real
+    /// whitespace- or quote-delimited `/>` is the self-closing syntax, and
+    /// the attributes belong inside it.
+    #[test]
+    fn a_real_self_closing_flag_still_takes_the_attributes_before_its_slash() {
+        for src in ["<p class=\"k\"/>Hello</p>\n", "<p class=x />Hello</p>\n"] {
+            let r = rig(src);
+            let pane = render_source_html(&r.doc, &r.map, &r.outcomes).expect("renders");
+            assert!(
+                pane.contains("data-fallback=\"preserved\"/>Hello</p>"),
+                "{src:?}:\n{pane}"
+            );
+        }
+    }
+
+    /// On a foreign root the moved slash became a flag the walk HONOURS, so
+    /// the svg closed at once and its author's `</svg>` was deleted as an
+    /// orphan — a changed tree, not just a changed value.
+    #[test]
+    fn a_slash_ending_an_unquoted_value_on_a_foreign_root_changes_no_tree() {
+        let r = rig("<div><svg class=icon/><text>Hi</text></svg></div>\n");
+        let pane = render_source_html(&r.doc, &r.map, &r.outcomes).expect("renders");
+        assert!(pane.contains("<svg class=icon/ data-sync-id=\""), "{pane}");
+        assert!(
+            pane.contains("</text></svg>"),
+            "the author's closer survives:\n{pane}"
+        );
     }
 }

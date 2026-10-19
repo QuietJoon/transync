@@ -1267,7 +1267,8 @@ honest answer requires either a context parameter or an exception to the name-on
 - **Type:** 3
 - **Description:** Text inside `<template>` elements (and web-component content) is
   bucketed with `script`/`style` and left untranslated (`transync-html`'s
-  segment scan tracks `template_depth` specifically to exclude it).
+  segment scan excludes every text node that starts inside an HTML template's
+  extent in the one walk).
 - **Background:** DCR-0016 / 2026-08-03 design §9.
 - **Blocked by:** stated gate — "revisit only on demonstrated need"; none demonstrated.
 - **Cross-reference (ti `490d97` wave 7):** an HTML document's `<template>` is

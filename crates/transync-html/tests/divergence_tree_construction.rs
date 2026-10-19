@@ -5,7 +5,7 @@
 //! §4a/§4b, DCR-0041, DCR-0043 and DCR-0051 all assert that this crate's walk
 //! and balancer answer "which element does this closer close, and what is still
 //! open at the end?" **differently from the pre-extraction `htmlseg`, on
-//! purpose**, and that "a difference from it in any of the nineteen is the
+//! purpose**, and that "a difference from it in any of the twenty-two is the
 //! **fix**, not a regression to restore". Those sentences are what stops the
 //! next maintainer "repairing" a deliberate browser-fidelity change back into a
 //! `contracts.md` §4a break.
@@ -1037,7 +1037,7 @@ fn close_p_and_close_br_are_never_orphans_because_a_browser_makes_content_of_eac
 ///   it for. That is the residual's real shape, and it is not a divergence: it
 ///   is a thing both versions get wrong the same way.
 ///
-/// The census figure itself (8 of 10,000) is **not** asserted here: it is
+/// The census figure itself (9 of 10,000) is **not** asserted here: it is
 /// produced by `web/tests/html-oracle.spec.js` with Chromium in the loop, and
 /// these tests must run without a browser. What is asserted is the mechanism the
 /// figure counts.

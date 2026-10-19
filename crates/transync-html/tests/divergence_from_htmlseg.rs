@@ -1,6 +1,6 @@
 //! Differential proof of the claimed divergences from the retired `htmlseg`.
 //!
-//! `docs/architecture/transync-html-divergences.md` enumerates **nineteen**
+//! `docs/architecture/transync-html-divergences.md` enumerates **twenty-two**
 //! deliberate behavioural divergences of `transync-html` from
 //! `transync-syntax::htmlseg`, and `CLAUDE.md` carries the rule they serve:
 //! "a difference from `htmlseg` in any of them is the **fix**, not a
@@ -46,10 +46,10 @@
 //! A claim about a function that postdates the extraction is **not a divergence
 //! from `htmlseg`**; it is a fix to code `htmlseg` never had. Those are recorded
 //! as `NotComparable` rather than silently counted, because counting them is how
-//! nineteen stops being checkable.
+//! twenty-two stops being checkable.
 //!
 //! TRACE: ti 3f0879ef
-//! TRACE: DCR-0032, DCR-0050
+//! TRACE: DCR-0032, DCR-0050, DCR-0063
 
 #[allow(dead_code, clippy::all, clippy::pedantic)]
 #[path = "reference/htmlseg_1d6f19d.rs"]
@@ -154,5 +154,53 @@ fn the_bang_comment_close_hid_a_live_div_and_no_longer_does() {
         new_.iter().any(|t| t == "div"),
         "`--!>` closes the comment, so the `<div>` is live markup — which is what \
          a browser does with it: {new_:?}"
+    );
+}
+
+/// **Claim (R0012-0008 / DCR-0063):** the extraction walk reads lol_html's
+/// semantic `can_have_content` instead of its syntactic `is_self_closing`, so a
+/// `<template/>` opens a template — the `/` is a parse error HTML ignores on a
+/// non-void element — and its content stays out of the payload (spec §9 /
+/// DCR-0016's template exclusion).
+///
+/// `extract` is one of htmlseg's four public items, so the comparison is on
+/// the published surface rather than a render-path channel.
+#[test]
+fn a_slash_spelled_template_leaked_its_content_and_no_longer_does() {
+    let html = "<template/>hidden</template><p>visible</p>";
+    let old = htmlseg_old::extract(html).expect("old extract runs").texts;
+    let new_ = new::extract(html).expect("new extract runs").texts;
+    assert_eq!(
+        old,
+        vec!["hidden".to_string(), "visible".to_string()],
+        "old htmlseg never raised the template depth for `<template/>`: {old:?}"
+    );
+    assert_eq!(
+        new_,
+        vec!["visible".to_string()],
+        "the template is open and its text is inert content: {new_:?}"
+    );
+}
+
+/// **Claim (R0012-0008 / DCR-0063), the same row's second half:** where a
+/// template ENDS is read from the one walk, not from lol_html's selector
+/// stack. That stack pops any element an ancestor's end tag names, so old
+/// htmlseg ended the template at `</div>` and extracted `b`; a browser ignores
+/// that `</div>` (`template` is special and terminates every scope) and keeps
+/// `b` inert until `</template>`.
+#[test]
+fn a_template_ended_at_an_ancestors_end_tag_and_no_longer_does() {
+    let html = "<div><template>a</div>b</template>c</div>";
+    let old = htmlseg_old::extract(html).expect("old extract runs").texts;
+    let new_ = new::extract(html).expect("new extract runs").texts;
+    assert_eq!(
+        old,
+        vec!["b".to_string(), "c".to_string()],
+        "old htmlseg ended the template where lol_html popped it: {old:?}"
+    );
+    assert_eq!(
+        new_,
+        vec!["c".to_string()],
+        "only `</template>` ends the template: {new_:?}"
     );
 }

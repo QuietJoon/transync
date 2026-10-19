@@ -1092,6 +1092,37 @@ mod classification_tests {
             vec!["paragraph"],
         );
     }
+
+    /// R0012-0004: the legacy `document.write` idiom holds a `</script>`
+    /// inside script-data double-escaped text, which does not close the
+    /// script. The VERBATIM cursor follows the script's extent, so it must
+    /// run to the OUTER closer — ending it at the inner one turned the
+    /// script's tail (`');//-->`) into a Paragraph sent for translation.
+    #[test]
+    fn a_double_escaped_script_mints_no_block_from_its_own_code() {
+        let src = "<body><script><!--\ndocument.write('<script src=\"x.js\"></script>');\n\
+                   //--></script><p>x</p></body>";
+        assert_eq!(kinds_of(src), vec!["paragraph"]);
+        let doc = parse(src);
+        let range = &doc.blocks[0].source_range;
+        assert_eq!(&doc.source_text[range.start..range.end], "<p>x</p>");
+    }
+
+    /// `</template>` ends the template through a `<p>` still open inside it
+    /// (DCR-0063), so the template leaf ends there and the paragraph after it
+    /// is its own block. The scanner used to stop the end tag at the `p`, run
+    /// the template to EOF and fold the paragraph into the template leaf.
+    #[test]
+    fn a_template_end_tag_ends_the_template_leaf_through_an_open_paragraph() {
+        let src = "<body><template><p>t</template><p>x</p></body>";
+        assert_eq!(kinds_of(src), vec!["html", "paragraph"]);
+        let doc = parse(src);
+        let range = &doc.blocks[0].source_range;
+        assert_eq!(
+            &doc.source_text[range.start..range.end],
+            "<template><p>t</template>"
+        );
+    }
 }
 
 // Head mode and the D5 title (spec §4's <title> paragraph).
@@ -1183,6 +1214,25 @@ mod head_tests {
             doc.warnings.iter().any(|w| w.contains("<head>")),
             "the unclosed head still warns at EOF: {:?}",
             doc.warnings,
+        );
+    }
+
+    /// R0012-0004, head mode: a `<title>` spelled inside a double-escaped
+    /// script is script text, so it is not the page title. Head mode moves
+    /// its cursor by the same script extent, which used to end at the inner
+    /// `</script>` and hand the `<title>` to the Title rule.
+    #[test]
+    fn a_title_inside_a_double_escaped_head_script_is_not_a_title() {
+        let doc = parse(
+            "<head><script><!--<script></script><title>t</title></script></head>\
+             <body><p>y</p></body>",
+        );
+        assert_eq!(
+            doc.blocks
+                .iter()
+                .map(|b| b.kind.wire_str())
+                .collect::<Vec<_>>(),
+            vec!["paragraph"],
         );
     }
 }

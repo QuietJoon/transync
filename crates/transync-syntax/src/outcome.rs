@@ -147,3 +147,69 @@ mod title_translatability_tests {
         assert!(!is_translatable(&BlockKind::Image));
     }
 }
+
+// R0012-0008: the outcome follows `transync_html::extract`, so a template
+// spelled `<template/>` is inert content here too — no unit, no request.
+#[cfg(test)]
+mod template_outcome_tests {
+    use super::*;
+    use crate::id::assign_block_ids;
+
+    #[test]
+    fn a_slash_spelled_template_block_is_preserved_with_zero_segments() {
+        let mut doc = crate::intake::html::parse("<template/>hidden</template><p>visible</p>");
+        assign_block_ids(&mut doc);
+        let outcomes = html_outcomes(&doc);
+        let template = doc
+            .blocks
+            .iter()
+            .find(|b| b.kind == BlockKind::Html)
+            .expect("the template is a DEFAULT-STOP html block");
+        assert_eq!(
+            outcomes.get(&template.block_id),
+            Some(&HtmlOutcome::PreservedZeroSegment),
+            "its text is template content, so nothing in it is translatable"
+        );
+        let paragraph = doc
+            .blocks
+            .iter()
+            .find(|b| b.kind == BlockKind::Paragraph)
+            .expect("the paragraph is its own block");
+        assert_eq!(outcomes.get(&paragraph.block_id), Some(&HtmlOutcome::Unit));
+    }
+
+    /// A template whose own end tag is missing keeps everything after it
+    /// inert, ignored ancestor end tags included, so the block that holds it
+    /// sends nothing. Chromium: the first document's template content is
+    /// `aafter`. In the second the template's ancestor `div` is inside the
+    /// block's own payload, which is where lol_html's selector stack ended
+    /// the template at `</div>` and sent `b`.
+    #[test]
+    fn an_unclosed_template_block_sends_nothing_after_it() {
+        for src in [
+            "<body><div><template/><p>a</p></div><p>after</p></body>",
+            "<body><address><div><template>a</div>b</address></body>",
+        ] {
+            let mut doc = crate::intake::html::parse(src);
+            assign_block_ids(&mut doc);
+            let outcomes = html_outcomes(&doc);
+            assert!(
+                doc.blocks.iter().all(|b| b.kind == BlockKind::Html),
+                "{src}: what follows the ignored end tag is template content, \
+                 not a block: {:?}",
+                doc.blocks
+                    .iter()
+                    .map(|b| b.kind.wire_str())
+                    .collect::<Vec<_>>()
+            );
+            for block in &doc.blocks {
+                assert_eq!(
+                    outcomes.get(&block.block_id),
+                    Some(&HtmlOutcome::PreservedZeroSegment),
+                    "{src}: {:?}",
+                    &doc.source_text[block.source_range.start..block.source_range.end]
+                );
+            }
+        }
+    }
+}

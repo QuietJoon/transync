@@ -54,7 +54,7 @@
 //! them would double-count the ledger they exist to make checkable.
 //!
 //! TRACE: ti 549b20, ti e20490, ti 415cdb, ti 2e2453, ti bebebe
-//! TRACE: DCR-0032, DCR-0042, DCR-0050
+//! TRACE: DCR-0032, DCR-0042, DCR-0050, DCR-0063
 
 #[allow(dead_code, clippy::all, clippy::pedantic)]
 #[path = "reference/htmlseg_1d6f19d.rs"]
@@ -790,7 +790,7 @@ fn plaintext_is_an_html_content_rule_only() {
 /// This is a claim about what the code deliberately does NOT do, so the test
 /// exists to stop the exclusion being "fixed" by accident. It is not a
 /// divergence: old and new agree, and the test asserts that too, so the
-/// nineteen-divergence ledger cannot absorb it.
+/// ledger of twenty-two divergences cannot absorb it.
 ///
 /// Ticket `16721e90` argues the exclusion is nonetheless a divergence from
 /// browsers (every pane this crate feeds is mounted by JavaScript, so the
@@ -824,4 +824,126 @@ fn noscript_is_deliberately_not_raw_text() {
          to RAW_TEXT_ELEMENTS — read ti 16721e90 and DCR-0050 first: the change is \
          defensible but it is a DECISION, not a bug fix, and it moves the ledger"
     );
+}
+
+// ---------------------------------------------------------------------------
+// DCR-0063 (R0012-0004, R0012-0009). Two tokenizer readings that changed after
+// every claim above was filed.
+// ---------------------------------------------------------------------------
+
+/// **Claim 7 (R0012-0004 / DCR-0063):** "`scan_tags` models HTML's script-data
+/// escaped and double-escaped states, so a `</script>` inside double-escaped
+/// script text steps back to escaped instead of closing the element, and a
+/// script left double-escaped at EOF is repaired with `-->` before its closer."
+///
+/// `<script><!--<script></script>payload</script>` is the legacy
+/// `document.write` idiom at its smallest. Old `htmlseg` ended every raw-text
+/// region at its first delimited closer, so the final `</script>` was an
+/// orphan its balancer deleted — leaving, in a browser, a script still open in
+/// escaped state. Both channels move: the inventory loses that phantom
+/// `/script`, and the pane keeps the closer a browser needs.
+#[test]
+fn a_close_tag_inside_double_escaped_script_text_closes_nothing() {
+    let html = "<script><!--<script></script>payload</script>";
+
+    let (old, new_) = inventories(html);
+    assert_eq!(
+        old,
+        vec![
+            "script".to_string(),
+            "/script".to_string(),
+            "/script".to_string(),
+        ],
+        "old htmlseg closed the script at the inner `</script>`: {old:?}"
+    );
+    assert_eq!(
+        new_,
+        vec!["script".to_string(), "/script".to_string()],
+        "the inner `</script>` is double-escaped script text: {new_:?}"
+    );
+
+    let (old_pane, new_pane) = balanced(html);
+    assert_eq!(
+        old_pane, "<script><!--<script></script>payload",
+        "old htmlseg deleted the real closer as an orphan: {old_pane}"
+    );
+    assert_eq!(
+        new_pane, html,
+        "the fragment is well formed and passes through unchanged: {new_pane}"
+    );
+
+    // The repair half: a script left double-escaped at EOF. Old appended a
+    // bare `</script>`, which in that state only steps back to escaped.
+    let open = "<script><!--<script>x";
+    let (old_open, new_open) = balanced(open);
+    assert_eq!(old_open, "<script><!--<script>x</script>");
+    assert_eq!(new_open, "<script><!--<script>x--></script>");
+}
+
+/// **Claim 7, the boundary:** escaping is a SCRIPT rule. `style` has no escape
+/// states, so here old and new AGREE: the region ends at its first closer and
+/// the last `</style>` is an orphan in both.
+#[test]
+fn the_escape_states_are_script_only_and_this_arm_is_not_a_divergence() {
+    let html = "<style><!--<style></style>x</style>";
+    let (old, new_) = inventories(html);
+    assert_eq!(old, new_, "style is untouched by the change");
+    let (old_pane, new_pane) = balanced(html);
+    assert_eq!(old_pane, new_pane);
+    assert_eq!(new_pane, "<style><!--<style></style>x");
+}
+
+/// **Claim 8 (R0012-0009 / DCR-0063):** "`tag_attr_value` returns the FIRST
+/// attribute of the wanted name, and a valueless one has the empty value", so
+/// `<annotation-xml encoding encoding="text/html">` is not an HTML integration
+/// point — HTML's tokenizer drops the later duplicate.
+///
+/// The observable is the raw-text one, not claim 5c's CDATA terminator. In
+/// MathML content `<style>` is an ordinary foreign element whose contents are
+/// markup (DCR-0042), and `<p>` is a breakout tag, so the `p` is a live HTML
+/// element carrying a live reserved attribute. Read as an integration point,
+/// the `<style>` opened raw text and hid it from the strip.
+///
+/// Old `htmlseg` entered raw text for `<style>` in every context, so it reads
+/// `[math, annotation-xml, style]` — and so did this crate before the fix,
+/// which is what makes the divergence attributable to it.
+#[test]
+fn a_valueless_first_encoding_is_not_overridden_by_a_duplicate() {
+    let html =
+        r#"<math><annotation-xml encoding encoding="text/html"><style><p data-sync-id="x">y"#;
+    let (old, new_) = inventories(html);
+    assert_eq!(
+        old,
+        vec![
+            "math".to_string(),
+            "annotation-xml".to_string(),
+            "style".to_string(),
+        ],
+        "old htmlseg read style raw text everywhere: {old:?}"
+    );
+    assert_eq!(
+        new_,
+        vec![
+            "math".to_string(),
+            "annotation-xml".to_string(),
+            "style".to_string(),
+            "p".to_string(),
+        ],
+        "the first `encoding` is empty, so this is MathML content and the `p` is \
+         live markup: {new_:?}"
+    );
+    // NOT_COMPARABLE (htmlseg had no strip), pinned: the live plant is cut.
+    assert_eq!(
+        new::strip_reserved_sync_attrs(html),
+        r#"<math><annotation-xml encoding encoding="text/html"><style><p>y"#
+    );
+
+    // The mirror: here the FIRST encoding is `text/html`, so this is a real
+    // integration point, `<style>` opens raw text in a browser too, and old
+    // and new agree.
+    let mirror =
+        r#"<math><annotation-xml encoding="text/html" encoding><style><p data-sync-id="x">y"#;
+    let (old_m, new_m) = inventories(mirror);
+    assert_eq!(old_m, new_m, "the mirror is not a divergence");
+    assert_eq!(new::strip_reserved_sync_attrs(mirror), mirror);
 }

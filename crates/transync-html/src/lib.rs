@@ -110,6 +110,11 @@ const VOID_ELEMENTS: &[&str] = &[
 /// facts hold at once: it closes an open `<p>` *and* its contents are raw
 /// text. Being on this list does not remove it from that one.
 ///
+/// Seven of the eight end at their first delimited closer. `script` alone has
+/// script data's escaped and double-escaped states, in which a `</script>`
+/// can be script text, and the scanner walks them (`script_data_end`,
+/// R0012-0004, DCR-0063).
+///
 /// **`noscript` is deliberately NOT here.** HTML makes it generic raw text
 /// only *when the scripting flag is enabled*, which is a property of the
 /// parsing context and not of the name — and this predicate answers the NAME
@@ -260,34 +265,63 @@ fn scan_chunks(chunks: &[&str], max_bytes: usize) -> Result<Vec<NodeRecord>, Str
     let records: Rc<RefCell<Vec<NodeRecord>>> = Rc::new(RefCell::new(Vec::new()));
     let stack: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let pending: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+    // Where the text node being coalesced in `pending` begins, as a byte
+    // offset into the whole input (lol_html's source locations are absolute
+    // across `write()` calls).
+    let node_start: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
     // Spec §9: `<template>` text is NOT extracted — same bucket as
     // script/style. lol_html's lexer delivers template contents as
-    // `TextType::Data`, so `wanted_text_type` cannot see the difference; the
-    // element handler has to tell the text handler when it is inside one.
-    // A depth counter (not a bool) so nested templates close correctly, and
-    // the decrement is tied to the same pop-by-name check the label stack
-    // uses — an outer end tag that truncates a `<template>` off the stack
-    // leaves the depth elevated, which is what browsers do too (the rest of
-    // the block stays inside template content).
-    let template_depth: Rc<Cell<usize>> = Rc::new(Cell::new(0));
+    // `TextType::Data`, so `wanted_text_type` cannot see the difference, and
+    // where a template ENDS is a tree question lol_html's selector stack does
+    // not answer the way a browser does: it pops whatever an end tag names, so
+    // it ended `<div><template>a</div>b` at `</div>`, which a browser ignores.
+    // THE walk answers it (DCR-0051), so the text handler asks whether a node
+    // starts inside one of [`template_contents`]' ranges (R0012-0008,
+    // DCR-0063). No template start tag means no range, and the walk is skipped.
+    let template_content = {
+        let source: Cow<'_, str> = match chunks {
+            [one] => Cow::Borrowed(*one),
+            _ => Cow::Owned(chunks.concat()),
+        };
+        if source
+            .as_bytes()
+            .windows(b"<template".len())
+            .any(|w| w.eq_ignore_ascii_case(b"<template"))
+        {
+            template_contents(&source)
+        } else {
+            Vec::new()
+        }
+    };
 
     let records_t = records.clone();
     let stack_t = stack.clone();
     let pending_t = pending.clone();
+    let node_start_t = node_start.clone();
     let stack_e = stack.clone();
-    let template_t = template_depth.clone();
-    let template_e = template_depth.clone();
 
     let settings = rewriter_settings(
         vec![element!("*", move |el| {
             let name = el.tag_name().to_ascii_lowercase();
-            // spec §3.2 step 6: never push void/self-closing tags — they get
-            // no end tag, and would poison later labels.
-            if is_void(&name) || el.is_self_closing() {
+            // Never push an element that gets no end tag: it would poison the
+            // label of every later text node. Which elements those are is a
+            // tree question, not a syntax one. A `/` on a non-void HTML start
+            // tag is a parse error a browser ignores, so `<template/>` opens a
+            // template and `<p/>Hello</p>` is one `p` (divergence #2,
+            // DCR-0016's tree reading of the flag); only in foreign content
+            // does `/` close the element. `is_self_closing` reports the syntax,
+            // and reading it here mislabelled the text after a slash-spelled
+            // tag (R0012-0008, DCR-0063). `can_have_content` is lol_html's own
+            // answer to whether an end tag will come, from its namespace model
+            // rather than this crate's content modes, so the two can still
+            // differ on labels inside exotic foreign content. The
+            // HTML-namespace void guard covers `frame`, void here and absent
+            // from lol_html's list.
+            let html_ns = el.namespace_uri() == "http://www.w3.org/1999/xhtml";
+            if !el.can_have_content() || (html_ns && is_void(&name)) {
                 return Ok(());
             }
             let stack_end = stack_e.clone();
-            let template_end = template_e.clone();
             let popped = name.clone();
             let on_end: EndTagHandler<'static> = Box::new(move |_end| {
                 // Pop by name so mismatched markup cannot corrupt labels of
@@ -295,9 +329,6 @@ fn scan_chunks(chunks: &[&str], max_bytes: usize) -> Result<Vec<NodeRecord>, Str
                 let mut s = stack_end.borrow_mut();
                 if let Some(pos) = s.iter().rposition(|t| *t == popped) {
                     s.truncate(pos);
-                    if popped == "template" {
-                        template_end.set(template_end.get().saturating_sub(1));
-                    }
                 }
                 Ok(())
             });
@@ -306,25 +337,29 @@ fn scan_chunks(chunks: &[&str], max_bytes: usize) -> Result<Vec<NodeRecord>, Str
             // content, and an unpaired push would leak into later labels.
             if let Some(handlers) = el.end_tag_handlers() {
                 handlers.push(on_end);
-                if name == "template" {
-                    template_e.set(template_e.get() + 1);
-                }
                 stack_e.borrow_mut().push(name);
             }
             Ok(())
         })],
         vec![doc_text!(move |t| {
             if wanted_text_type(t.text_type()) {
+                if node_start_t.get().is_none() {
+                    node_start_t.set(Some(t.source_location().bytes().start));
+                }
                 pending_t.borrow_mut().push_str(t.as_str());
                 if t.last_in_text_node() {
                     // Entities can straddle chunk boundaries, so decode only
                     // after the whole text node has been coalesced.
                     let raw = std::mem::take(&mut *pending_t.borrow_mut());
                     let decoded = htmlize::unescape(raw.as_str()).into_owned();
+                    let start = node_start_t.take().unwrap_or_default();
                     // The drop decision is made on the DECODED form: an
                     // `&nbsp;`-only node decodes to whitespace and is dropped.
                     // Template content is dropped outright (spec §9).
-                    let kept = template_t.get() == 0 && !decoded.chars().all(char::is_whitespace);
+                    let in_template = template_content
+                        .iter()
+                        .any(|&(from, to)| from <= start && start < to);
+                    let kept = !in_template && !decoded.chars().all(char::is_whitespace);
                     let label = stack_t
                         .borrow()
                         .last()
@@ -818,8 +853,10 @@ struct ScannedTag {
 /// tokenized in — so the walk reads it here rather than voting a second time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StackEffect {
-    /// A start tag that inserted an element.
-    Push,
+    /// A start tag that inserted an element, in this namespace. The walk
+    /// needs the namespace for one question an [`ElementExtent`] cannot
+    /// answer: whether a `template` is HTML's inert one (DCR-0063).
+    Push(ContentMode),
     /// An end tag that closed `n` frames. The DEEPEST of the `n` is the
     /// element this tag closed; the rest were closed implicitly by it.
     Close(usize),
@@ -852,27 +889,202 @@ fn current_mode(stack: &[Frame]) -> ContentMode {
     stack.last().map_or(ContentMode::Html, |f| f.child)
 }
 
+/// Does `bytes[at..]` spell a start tag `<name` — or, with `end`, an end tag
+/// `</name` — followed by one of the three bytes that end HTML's tag-name
+/// state: ASCII whitespace, `/` or `>`?
+///
+/// `name` is lowercase ASCII (the scanner lowercases every name it records,
+/// and every raw-text name is ASCII) and the source bytes are folded against
+/// it in place, so a probe allocates nothing: a script holding `a < b`
+/// comparisons pays no heap allocation per `<` (R0013-0009). The comparison
+/// is on BYTES, because slicing the `str` would panic when a multibyte char
+/// straddles the window. The delimiter is what keeps `</scripty>` from ending
+/// a `<script>` body (and from then being deleted as an orphan close tag).
+fn spells_tag_at(bytes: &[u8], at: usize, end: bool, name: &str) -> bool {
+    let name_start = at + if end { 2 } else { 1 };
+    let name_end = name_start + name.len();
+    bytes.get(at) == Some(&b'<')
+        && (!end || bytes.get(at + 1) == Some(&b'/'))
+        && bytes
+            .get(name_start..name_end)
+            .is_some_and(|n| n.eq_ignore_ascii_case(name.as_bytes()))
+        && matches!(
+            bytes.get(name_end),
+            Some(c) if c.is_ascii_whitespace() || *c == b'/' || *c == b'>'
+        )
+}
+
+/// Where a raw-text / RCDATA element's content ends, as [`raw_text_end`]
+/// finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RawTextEnd {
+    /// The element's own end tag begins at this offset (its `<`), and the
+    /// scanner tokenizes it from there like any other end tag.
+    Close(usize),
+    /// The fragment ran out first. `script_double_escaped` is true only for
+    /// a `<script>` whose content ended in HTML's script-data DOUBLE-ESCAPED
+    /// state, the one place a bare `</script>` does not close the element.
+    Eof { script_double_escaped: bool },
+}
+
+/// Where the content of the raw-text / RCDATA element `name`, starting at
+/// `from`, ends. Called ONCE per raw-text start tag, so the closing probe is
+/// set up once per element rather than rebuilt at every `<` (R0013-0009).
+///
+/// Every name but `script` ends at its first delimited, ASCII-case-insensitive
+/// `</name` — HTML's raw-text and RCDATA end-tag rule, and the same one the
+/// scanner always applied. `script` has three more tokenizer states, and
+/// [`script_data_end`] walks them.
+fn raw_text_end(bytes: &[u8], from: usize, name: &str) -> RawTextEnd {
+    if name == "script" {
+        return script_data_end(bytes, from);
+    }
+    let mut i = from;
+    while i < bytes.len() {
+        if bytes[i] == b'<' && spells_tag_at(bytes, i, true, name) {
+            return RawTextEnd::Close(i);
+        }
+        i += 1;
+    }
+    RawTextEnd::Eof {
+        script_double_escaped: false,
+    }
+}
+
+/// HTML's script-data automaton, folded to the three modes that decide where
+/// a script ends (R0012-0004, DCR-0063).
+///
+/// * **Script data.** `</script` + delimiter closes the element. `<!--`
+///   enters ESCAPED with two dashes already counted, so `<!-->` and
+///   `<!--->` come straight back.
+/// * **Escaped.** Consecutive `-` are counted; `>` after two or more returns
+///   to script data. `</script` + delimiter still closes the element.
+///   `<script` + delimiter (the delimiter consumed) enters DOUBLE-ESCAPED.
+/// * **Double-escaped.** Dashes are counted the same way, and `>` after two
+///   or more returns to script data — not to escaped. `</script` +
+///   delimiter (consumed) steps back to ESCAPED and **closes nothing**.
+///
+/// So in the legacy `<script><!-- document.write('<script></script>')
+/// //--></script>` idiom the inner `</script>` is script text and the outer
+/// one is the closer. Ending the region at the first one, as the plain
+/// raw-text rule does, made the outer closer an orphan the balancer deleted,
+/// which left a browser inside an escaped script that swallowed the sync
+/// wrapper's own `</div>` and every following block (`contracts.md` §4a,
+/// invariant 7).
+///
+/// The automaton is the specification's, sub-states folded: the dash, dash-dash
+/// and less-than-sign states are the dash count and the `<` probes, and the
+/// double-escape start and end states are [`spells_tag_at`]'s name-plus-
+/// delimiter test. It therefore never ends a script LATER than a browser does,
+/// which is the bound that matters to [`strip_reserved_sync_attrs`]: bytes this
+/// function calls script text are script text in a browser, so a reserved
+/// attribute among them is never live.
+fn script_data_end(bytes: &[u8], from: usize) -> RawTextEnd {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Mode {
+        Data,
+        Escaped,
+        DoubleEscaped,
+    }
+    const NAME: &str = "script";
+    // `<script` / `</script`, then the one delimiter byte the state consumes.
+    const START_LEN: usize = "<script".len() + 1;
+    const END_LEN: usize = "</script".len() + 1;
+
+    let mut mode = Mode::Data;
+    let mut dashes = 0usize;
+    let mut i = from;
+    while i < bytes.len() {
+        let c = bytes[i];
+        match mode {
+            Mode::Data => {
+                if c == b'<' {
+                    if spells_tag_at(bytes, i, true, NAME) {
+                        return RawTextEnd::Close(i);
+                    }
+                    if bytes[i..].starts_with(b"<!--") {
+                        mode = Mode::Escaped;
+                        dashes = 2;
+                        i += "<!--".len();
+                        continue;
+                    }
+                }
+                i += 1;
+            }
+            Mode::Escaped | Mode::DoubleEscaped => match c {
+                b'-' => {
+                    dashes += 1;
+                    i += 1;
+                }
+                b'>' if dashes >= 2 => {
+                    mode = Mode::Data;
+                    dashes = 0;
+                    i += 1;
+                }
+                b'<' => {
+                    dashes = 0;
+                    if mode == Mode::Escaped {
+                        if spells_tag_at(bytes, i, true, NAME) {
+                            return RawTextEnd::Close(i);
+                        }
+                        if spells_tag_at(bytes, i, false, NAME) {
+                            mode = Mode::DoubleEscaped;
+                            i += START_LEN;
+                            continue;
+                        }
+                    } else if spells_tag_at(bytes, i, true, NAME) {
+                        mode = Mode::Escaped;
+                        i += END_LEN;
+                        continue;
+                    }
+                    i += 1;
+                }
+                _ => {
+                    dashes = 0;
+                    i += 1;
+                }
+            },
+        }
+    }
+    RawTextEnd::Eof {
+        script_double_escaped: mode == Mode::DoubleEscaped,
+    }
+}
+
 /// Minimal tag tokenizer for balancing: understands comments, CDATA
 /// sections, the raw-text and RCDATA states every [`is_raw_text`] element
-/// opens **in HTML content**, and quoted attribute values. NOT a general HTML
+/// opens **in HTML content** (with `script`'s escaped and double-escaped
+/// states, DCR-0063), and quoted attribute values. NOT a general HTML
 /// parser — it is one self-consistent opinion about HTML tokenization, shared
 /// by the render-path balancer (spec 2026-08-03 §3.4), the layer-3 inventory
-/// check, and the HTML intake to come.
+/// check, and the HTML intake.
 pub fn scan_tags(html: &str) -> Vec<TagToken> {
     scan_tags_with_state(html)
+        .tags
         .into_iter()
         .map(|t| t.token)
         .collect()
 }
 
+/// What [`scan_tags_with_state`] produced: the tokens with their tree state,
+/// plus the one fact about the END of the fragment that no token can carry.
+struct Scan {
+    tags: Vec<ScannedTag>,
+    /// The fragment ended inside a `<script>` in HTML's script-data
+    /// double-escaped state (R0012-0004). Only [`balance_fragment`] reads it:
+    /// there an appended `</script>` would not close the element, so the
+    /// repair first leaves the double escape. The script is then always the
+    /// innermost unclosed element, because nothing opens inside raw text.
+    script_double_escaped_at_eof: bool,
+}
+
 /// [`scan_tags`] with the scanner's tree state still attached — the form
 /// [`walk_elements`] consumes.
-fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
+fn scan_tags_with_state(html: &str) -> Scan {
     let bytes = html.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0usize;
-    // Inside a raw-text / RCDATA element: only its own close tag ends it.
-    let mut raw_until: Option<String> = None;
+    let mut script_double_escaped_at_eof = false;
     // THE open-element stack. Not "the scanner's" — there is one, and
     // [`walk_elements`] replays the mutations reported on each [`ScannedTag`]
     // instead of keeping a second one.
@@ -899,28 +1111,6 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
         if bytes[i] != b'<' {
             i += 1;
             continue;
-        }
-        if let Some(close_name) = &raw_until {
-            // Only the matching close tag ends raw-text state. The probe
-            // compares BYTES: `html[i..][..want.len()]` would panic when a
-            // multibyte char straddles the window. HTML also requires a
-            // delimiter right after the name, otherwise `</scripty>` would
-            // end a `<script>` body (and get deleted as an orphan close).
-            let want = format!("</{close_name}");
-            let rest = &bytes[i..];
-            let delimited = matches!(
-                bytes.get(i + want.len()),
-                Some(c) if c.is_ascii_whitespace() || *c == b'/' || *c == b'>'
-            );
-            if delimited
-                && rest.len() >= want.len()
-                && rest[..want.len()].eq_ignore_ascii_case(want.as_bytes())
-            {
-                raw_until = None; // fall through: tokenize the close tag
-            } else {
-                i += 1;
-                continue;
-            }
         }
         if html[i..].starts_with("<!--") {
             // Both of HTML's closing forms, decided in one place — see
@@ -1362,9 +1552,12 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
             // disagreeing with the balancer over user-visible RCDATA text,
             // all of it in HTML content — and the fix is narrower than the
             // rule it refines, not a revert of it.
-            if parent_mode == ContentMode::Html && is_raw_text(&name) {
-                raw_until = Some(name.clone());
-            }
+            //
+            // Where the region ends is decided once, here, by [`raw_text_end`]
+            // — the plain first-closer rule for every name but `script`, and
+            // HTML's script-data escape states for `script` (DCR-0063).
+            let raw_end = (parent_mode == ContentMode::Html && is_raw_text(&name))
+                .then(|| raw_text_end(bytes, j + 1, &name));
 
             // HTML honours the self-closing flag in exactly two places:
             // inside foreign content, and on the `<svg>`/`<math>` start tags
@@ -1410,15 +1603,34 @@ fn scan_tags_with_state(html: &str) -> Vec<ScannedTag> {
                 },
                 pre_pops,
                 effect: if opens_element {
-                    StackEffect::Push
+                    StackEffect::Push(own_mode)
                 } else {
                     StackEffect::Inert
                 },
             });
+            match raw_end {
+                None => {}
+                // Resume AT the closer's `<`: it is an ordinary end tag from
+                // here, and the end-tag arm above pops the element.
+                Some(RawTextEnd::Close(close_at)) => {
+                    i = close_at;
+                    continue;
+                }
+                // Everything left is the element's text, so no token follows.
+                Some(RawTextEnd::Eof {
+                    script_double_escaped,
+                }) => {
+                    script_double_escaped_at_eof = script_double_escaped;
+                    break;
+                }
+            }
         }
         i = j + 1;
     }
-    tokens
+    Scan {
+        tags: tokens,
+        script_double_escaped_at_eof,
+    }
 }
 
 /// Lowercase tag-name sequence (`div`, `/div`, …) in document order — the
@@ -2015,6 +2227,10 @@ struct EndTagEffect {
 ///   closing anything, and `</br>` minting a `<br>`. Both are `Inert` rather
 ///   than `Orphan`: a browser turns them into content, so deleting them edits
 ///   what the reader sees.
+/// * `</template>`, which "in head" handles for every insertion mode: it pops
+///   up to the nearest HTML template through whatever is open inside it
+///   (DCR-0063). No other end tag crosses an open template, because
+///   `template` is special and terminates every scope.
 ///
 /// **What is NOT modelled, and why the omission is safe.** The **adoption
 /// agency algorithm** is absent: a formatting end tag is routed through "any
@@ -2108,6 +2324,23 @@ fn html_end_tag_effect(stack: &[Frame], name: &str) -> EndTagEffect {
         Search::Blocked => keep,
         Search::RanOut => drop_it,
     };
+    // `</template>` is the one end tag every insertion mode hands to "in
+    // head", and "in head" pops up to and including the nearest HTML template
+    // on the stack, whatever is still open above it: no scope search and no
+    // special-element guard (DCR-0063). Routed through "any other end tag" it
+    // stopped at a `p` or a table cell inside the template, so the walk kept
+    // the template open and the balancer appended closers that, in a pane,
+    // minted an empty paragraph and closed the sync wrapper (§4a). With no
+    // HTML template open a browser ignores the tag, and the verdict below
+    // (inert where a special element stops it, an orphan where nothing does)
+    // stands as it was.
+    if name == "template"
+        && let Some(i) = stack
+            .iter()
+            .rposition(|f| f.own == ContentMode::Html && f.name == "template")
+    {
+        return pop(i);
+    }
     match name {
         // Out of button scope HTML inserts an empty `<p>` and closes it, so
         // the token is content rather than a pop — and never reaches the
@@ -2210,6 +2443,13 @@ struct Walk {
     orphan_closes: Vec<(usize, usize)>,
     /// Names still open at EOF, outermost first.
     unclosed: Vec<String>,
+    /// [`Scan::script_double_escaped_at_eof`], carried through for the
+    /// balancer's repair.
+    script_double_escaped_at_eof: bool,
+    /// Indices into `extents` of the `template` elements in the HTML
+    /// namespace — the ones whose content is inert. Read by
+    /// [`template_contents`].
+    html_templates: Vec<usize>,
 }
 
 /// THE stack walk. [`element_extents`] reads its structure and
@@ -2230,12 +2470,13 @@ struct Walk {
 /// The parallel stack below therefore carries no mode and does no searching —
 /// only the name and the extent index each frame belongs to.
 fn walk_elements(html: &str) -> Walk {
-    let tokens = scan_tags_with_state(html);
+    let scan = scan_tags_with_state(html);
     let mut extents: Vec<ElementExtent> = Vec::new();
     let mut open_stack: Vec<(String, usize)> = Vec::new();
     let mut orphan_closes: Vec<(usize, usize)> = Vec::new();
+    let mut html_templates: Vec<usize> = Vec::new();
 
-    for tag in &tokens {
+    for tag in &scan.tags {
         let (span, opened_name) = match &tag.token {
             TagToken::Open { name, span, .. } => (*span, Some(name)),
             TagToken::Close { span, .. } => (*span, None),
@@ -2254,8 +2495,11 @@ fn walk_elements(html: &str) -> Walk {
         }
 
         match tag.effect {
-            StackEffect::Push => {
+            StackEffect::Push(own) => {
                 let name = opened_name.expect("only a start tag pushes a frame");
+                if own == ContentMode::Html && name == "template" {
+                    html_templates.push(extents.len());
+                }
                 extents.push(ElementExtent {
                     name: name.clone(),
                     depth: open_stack.len(),
@@ -2291,7 +2535,28 @@ fn walk_elements(html: &str) -> Walk {
         extents,
         orphan_closes,
         unclosed,
+        script_double_escaped_at_eof: scan.script_double_escaped_at_eof,
+        html_templates,
     }
+}
+
+/// The byte range of every HTML `<template>`'s content: from the end of its
+/// start tag to wherever THE walk ends the element — its own `</template>`,
+/// an outer template's, or EOF. Never an ancestor's end tag: `template` is
+/// special and terminates every scope, so a browser ignores those inside one
+/// and so does the walk. A `template` in foreign content is an ordinary
+/// foreign element, and its content is not here.
+///
+/// The extraction walk reads this instead of lol_html's selector stack, which
+/// is not a tree builder: it pops whatever an end tag names, so it ended
+/// `<div><template>a</div>b` at `</div>` and handed `b` over for translation
+/// (R0012-0008, DCR-0063).
+fn template_contents(html: &str) -> Vec<(usize, usize)> {
+    let walk = walk_elements(html);
+    walk.html_templates
+        .iter()
+        .map(|&i| (walk.extents[i].open.1, walk.extents[i].content_end))
+        .collect()
 }
 
 /// Every element in `html`, in source order by open tag, with its nesting
@@ -2585,9 +2850,20 @@ fn tag_has_any_attr(html: &str, span: (usize, usize), wanted: &[&str]) -> bool {
     found
 }
 
-/// The value of `wanted` on this start tag, if it has one, **decoded**. Used
-/// for `annotation-xml`, an HTML integration point only at two `encoding`
-/// values.
+/// The value of the FIRST attribute on this start tag whose name
+/// ASCII-case-insensitively equals `wanted`, **decoded**: `None` when there
+/// is no such attribute, and `Some("")` when the first one is present without
+/// a value. Used for `annotation-xml`, an HTML integration point only at two
+/// `encoding` values.
+///
+/// First, because HTML's tokenizer drops a later duplicate of an attribute
+/// name (a duplicate-attribute parse error), so the first is the only one the
+/// tree builder ever reads; and a valueless attribute's value is the empty
+/// string. Treating "no value" as "not seen yet" let
+/// `<annotation-xml encoding encoding="text/html">` read as an integration
+/// point a browser does not make it, which entered raw text for a MathML
+/// `<style>` and hid the live markup after it from the strip (R0012-0009,
+/// DCR-0063).
 ///
 /// Decoding is not a nicety here, it is the comparison's premise (R0010-0034 /
 /// DCR-0050). A browser decodes character references in an attribute value
@@ -2620,9 +2896,9 @@ fn tag_attr_value(html: &str, span: (usize, usize), wanted: &str) -> Option<Stri
     let mut out = None;
     walk_attrs(html, span, |attr| {
         if out.is_none() && attr.name.eq_ignore_ascii_case(wanted) {
-            out = attr
-                .value
-                .map(|(a, b)| htmlize::unescape_attribute(&html[a..b]).into_owned());
+            out = Some(attr.value.map_or_else(String::new, |(a, b)| {
+                htmlize::unescape_attribute(&html[a..b]).into_owned()
+            }));
         }
     });
     out
@@ -2750,7 +3026,10 @@ fn orphan_cut_would_weld(bytes: &[u8], run_start: usize, run_end: usize) -> bool
 /// bogus comment, raw-text run or tag is **not** kept. The append is
 /// re-scanned and truncated when the scanner cannot see it as markup,
 /// because bytes buried in such a region close nothing and each re-balance
-/// would add another copy without limit.
+/// would add another copy without limit. One raw-text run is left rather
+/// than given up on: a `<script>` that ends in script data's double-escaped
+/// state, where a bare `</script>` is script text, gets `-->` in front of its
+/// closer so the closer closes (R0012-0004, DCR-0063).
 /// `out.md` never sees this — it exists so an unbalanced fragment cannot
 /// consume the sync wrapper's own `</div>` and swallow later anchors.
 ///
@@ -2856,6 +3135,19 @@ pub fn balance_fragment(html: &str) -> String {
     }
 
     let seam = out.len();
+    // R0012-0004 / DCR-0063: a script left in script-data DOUBLE-ESCAPED
+    // state is not closed by `</script>` — in that state the end tag only
+    // steps back to escaped, so the re-scan below would rightly see the
+    // appended closer as script text and truncate it, leaving the script
+    // open. `-->` returns every double-escaped sub-state to script data,
+    // where the closer that follows closes. It goes AFTER the seam, so a
+    // truncation would take it too. This is "terminate where a browser
+    // terminates" with one more step in front, not a third repair kind:
+    // deleting the region, the PLAINTEXT arm, would remove author bytes a
+    // browser keeps.
+    if walk.script_double_escaped_at_eof {
+        out.push_str("-->");
+    }
     for name in walk.unclosed.iter().rev() {
         out.push_str("</");
         out.push_str(name);
@@ -3027,6 +3319,179 @@ mod extract_tests {
             scan_chunks(&["<p>a &co", "py; b</p>"], DEFAULT_MAX_MEMORY_BYTES).expect("scans");
         assert_eq!(records.len(), 1, "one text node, not one per write");
         assert_eq!(records[0].decoded, "a © b");
+    }
+
+    /// R0012-0008 — a `/` on a non-void HTML start tag is a parse error a
+    /// browser ignores, so `<template/>` OPENS a template and its content is
+    /// inert. The extraction walk read lol_html's syntactic self-closing flag
+    /// as "no end tag will come" and never counted the template open, so the
+    /// text the spec §9 exclusion covers was extracted and spliced.
+    #[test]
+    fn a_slash_spelled_template_still_suppresses_its_content() {
+        for block in [
+            "<template/>hidden</template><p>visible</p>",
+            "<template />hidden</template><p>visible</p>",
+        ] {
+            let segs = extract(block).expect("extracts");
+            assert_eq!(segs.texts, vec!["visible".to_string()], "{block}");
+            assert_eq!(segs.labels, vec!["p".to_string()], "{block}");
+            let records = scan(block).expect("scans");
+            assert_eq!(records.len(), 2, "{block}");
+            assert!(!records[0].kept, "{block}");
+            assert_eq!(records[0].decoded, "hidden");
+        }
+        let segs =
+            extract("<div>before<template/><p>inside</p></template>after</div>").expect("extracts");
+        assert_eq!(segs.texts, vec!["before".to_string(), "after".to_string()]);
+        assert_eq!(segs.labels, vec!["div".to_string(), "div".to_string()]);
+    }
+
+    /// The same template left without its end tag. `template` is special and
+    /// terminates every scope, so no ancestor's end tag reaches past it and
+    /// only `</template>` or EOF ends it: a browser keeps every later node in
+    /// the template's inert content. Chromium, measured: the first input's
+    /// template content is `abafter`, the second's `abc`, the third's
+    /// `aafter`. lol_html's selector stack ended the template at the
+    /// parent's end tag, so the walk extracted what followed.
+    #[test]
+    fn an_unclosed_slash_spelled_template_keeps_the_rest_of_the_block_inert() {
+        for block in [
+            "<div><template/><p>a</p><p>b</p></div><p>after</p>",
+            "<div><span><template/>a</span>b</div>c",
+            // The plain spelling is the same rule.
+            "<div><template><p>a</p></div><p>after</p>",
+        ] {
+            let segs = extract(block).expect("extracts");
+            assert!(segs.texts.is_empty(), "{block}: {:?}", segs.texts);
+            assert!(
+                scan(block).expect("scans").iter().all(|r| !r.kept),
+                "{block}"
+            );
+        }
+    }
+
+    /// The ignored end tag does not end the template, and the template's OWN
+    /// end tag does: `b` is template content and `c` is the div's again.
+    /// Chromium: template content `ab`, and `c` a child of the `div`.
+    #[test]
+    fn a_template_ends_at_its_own_end_tag_and_not_at_an_ancestors() {
+        let segs = extract("<div><template>a</div>b</template>c</div>").expect("extracts");
+        assert_eq!(segs.texts, vec!["c".to_string()]);
+        // Nested templates end one at a time.
+        let segs = extract("<template><template>a</template>b</template>c").expect("extracts");
+        assert_eq!(segs.texts, vec!["c".to_string()]);
+    }
+
+    /// `</template>` closes its template through whatever is still open inside
+    /// it, `p` and table cells included — "in head"'s rule, which every
+    /// insertion mode defers to and which no scope stops. Chromium: `b` lands
+    /// outside the template in each.
+    #[test]
+    fn a_template_end_tag_releases_the_text_after_it() {
+        for block in [
+            "<template><p>a</template>b",
+            "<div><template><p>a<span>x</template>b</div>",
+            "<template><table><tr><td>a</template>b",
+            "<template><svg><g>a</template>b",
+        ] {
+            assert_eq!(
+                extract(block).expect("extracts").texts,
+                vec!["b".to_string()],
+                "{block}"
+            );
+        }
+    }
+
+    /// Only an HTML `template` is inert. Inside `<svg>` the name is an ordinary
+    /// foreign element whose text is read like any other SVG text; inside a
+    /// MathML text integration point it is an HTML template again. Chromium:
+    /// the first is an `SVGElement` with no `content`, the second an
+    /// `HTMLTemplateElement` whose content is `x`.
+    #[test]
+    fn only_an_html_namespace_template_is_inert() {
+        assert_eq!(
+            extract("<svg><template>x</template></svg>")
+                .expect("extracts")
+                .texts,
+            vec!["x".to_string()]
+        );
+        assert!(
+            extract("<math><mi><template>x</template></mi></math>")
+                .expect("extracts")
+                .texts
+                .is_empty()
+        );
+    }
+
+    /// The template ranges are byte offsets into the whole input, so a
+    /// boundary between `write()` chunks — even one cutting the start tag in
+    /// half — moves nothing.
+    #[test]
+    fn template_content_survives_a_write_boundary() {
+        let records = scan_chunks(
+            &["<div>x<templ", "ate>a</div>b</template>c</div>"],
+            DEFAULT_MAX_MEMORY_BYTES,
+        )
+        .expect("scans");
+        let kept: Vec<&str> = records
+            .iter()
+            .filter(|r| r.kept)
+            .map(|r| r.decoded.as_str())
+            .collect();
+        assert_eq!(kept, vec!["x", "c"]);
+    }
+
+    /// The label half of the same rule: `<p/>Hello</p>` is one `p` holding
+    /// `Hello`, so the segment's label is `p`, not the enclosing context.
+    #[test]
+    fn a_slash_on_a_non_void_html_tag_keeps_its_label() {
+        assert_eq!(
+            extract("<p/>Hello</p>").expect("extracts").labels,
+            vec!["p".to_string()]
+        );
+        assert_eq!(
+            extract("<div><span/>x</span></div>")
+                .expect("extracts")
+                .labels,
+            vec!["span".to_string()]
+        );
+        // Foreign content honours the flag, so `<g/>` opens nothing and the
+        // text's parent stays the `svg`.
+        assert_eq!(
+            extract("<svg><g/>a</svg>").expect("extracts").labels,
+            vec!["svg".to_string()]
+        );
+        // A void name with a slash still opens nothing, and `frame` — void
+        // to this crate, absent from lol_html's own list — opens nothing
+        // either way.
+        for block in [
+            "<div><br/>x</div>",
+            "<div><frame>x</div>",
+            "<div><frame/>x</div>",
+        ] {
+            assert_eq!(
+                extract(block).expect("extracts").labels,
+                vec!["div".to_string()],
+                "{block}"
+            );
+        }
+    }
+
+    /// The splice reads the same plan, so the template's text is passed
+    /// through byte-verbatim and only the two real segments are replaced.
+    #[test]
+    fn the_splice_leaves_a_slash_spelled_template_untouched() {
+        let block = "<div>before<template/><p>inside &amp; hidden</p></template>after</div>";
+        let out = splice(
+            block,
+            &["앞".to_string(), "뒤".to_string()],
+            BlankLinePolicy::Keep,
+        )
+        .expect("two kept segments, two translations");
+        assert_eq!(
+            out,
+            "<div>앞<template/><p>inside &amp; hidden</p></template>뒤</div>"
+        );
     }
 }
 
@@ -3564,6 +4029,34 @@ mod extent_tests {
             names("<math><annotation-xml encoding=\"image/svg+xml\"><foo/>x"),
             vec!["math", "annotation-xml"],
             "an encoding that is not one of the two is not an island"
+        );
+    }
+
+    /// R0012-0009 — HTML's tokenizer drops a later duplicate of an attribute
+    /// name and keeps the FIRST, and a valueless attribute's value is the
+    /// empty string. So `<annotation-xml encoding encoding="text/html">` has
+    /// encoding `""` and is not an HTML integration point; reading "no value"
+    /// as "not seen yet" let the duplicate win.
+    #[test]
+    fn the_first_encoding_attribute_decides_even_when_it_has_no_value() {
+        let mode =
+            |h: &str| child_content_mode(ContentMode::MathMl, "annotation-xml", h, (0, h.len()));
+        assert_eq!(
+            mode("<annotation-xml encoding encoding=\"text/html\">"),
+            ContentMode::MathMl
+        );
+        assert_eq!(
+            mode("<annotation-xml ENCODING encoding=\"application/xhtml+xml\">"),
+            ContentMode::MathMl
+        );
+        // First-wins in the other direction, and an explicit empty value.
+        assert_eq!(
+            mode("<annotation-xml encoding=\"text/html\" encoding>"),
+            ContentMode::Html
+        );
+        assert_eq!(
+            mode("<annotation-xml encoding=\"\" encoding=\"text/html\">"),
+            ContentMode::MathMl
         );
     }
 
@@ -4821,6 +5314,23 @@ mod balance_tests {
         assert_eq!(tag_inventory(html), vec!["script", "/script"]);
     }
 
+    /// R0013-0009's equivalence guard: the close-tag probe compares the
+    /// source bytes ASCII-case-insensitively against the lowercased name the
+    /// scanner recorded on entry, so an uppercase closer still closes and a
+    /// literal `<` before it is still text.
+    #[test]
+    fn the_raw_text_close_probe_folds_case_against_the_recorded_name() {
+        let html = "<script>a<b</SCRIPT><p>x</p>";
+        assert_eq!(balance_fragment(html), html);
+        assert_eq!(tag_inventory(html), vec!["script", "/script", "p", "/p"]);
+        let html = "<TEXTAREA>a<b</textarea><p>x</p>";
+        assert_eq!(balance_fragment(html), html);
+        assert_eq!(
+            tag_inventory(html),
+            vec!["textarea", "/textarea", "p", "/p"]
+        );
+    }
+
     #[test]
     fn unquoted_attribute_value_ending_in_slash_is_not_self_closing() {
         // Per HTML tokenization the trailing `/` is part of the unquoted
@@ -5223,6 +5733,182 @@ mod balance_tests {
             balance_fragment("<div>x<!-- a --!"),
             "<div>x<!-- a --!--></div>"
         );
+    }
+
+    /// R0012-0004 — script data has two more tokenizer states than the
+    /// other raw-text elements, and the closing tag a browser honours
+    /// depends on them (DCR-0063).
+    ///
+    /// `<!--` inside a script enters script-data ESCAPED, and a `<script`
+    /// start-tag spelling inside that enters DOUBLE-ESCAPED, where `</script>`
+    /// only steps back to escaped. So in the legacy `document.write` idiom
+    /// the inner `</script>` is script text and the LAST one closes the
+    /// element. Ending the region at the first one deleted the real closer as
+    /// an orphan and appended nothing, leaving the script open in escaped
+    /// state, where it swallows the sync wrapper's own `</div>` and every
+    /// following block (`contracts.md` §4a, invariant 7).
+    #[test]
+    fn an_inner_script_close_in_double_escaped_text_does_not_close_the_script() {
+        let html = "<script><!--<script></script>payload</script>";
+        assert_eq!(
+            balance_fragment(html),
+            html,
+            "the fragment is well formed: the final `</script>` is the closer"
+        );
+        assert_eq!(tag_inventory(html), vec!["script", "/script"]);
+        let extents = element_extents(html);
+        assert_eq!(extents.len(), 1, "{extents:?}");
+        assert_eq!(
+            extents[0].close,
+            Some((html.len() - "</script>".len(), html.len())),
+            "the script closes at the LAST `</script>`"
+        );
+        // ASCII-case-insensitive in all three probes, and every delimiter.
+        let mixed = "<SCRIPT><!--<ScRiPt\n></SCRIPT >payload</script>";
+        assert_eq!(balance_fragment(mixed), mixed);
+        assert_eq!(tag_inventory(mixed), vec!["script", "/script"]);
+    }
+
+    /// The legacy shape itself, with a following sibling: the sibling is
+    /// markup at depth 0, not script text and not nested.
+    #[test]
+    fn the_document_write_idiom_ends_its_script_at_the_outer_closer() {
+        let html = "<script><!--\ndocument.write('<script src=\"x.js\"></script>');\n\
+                    //--></script><p>x</p>";
+        let extents = element_extents(html);
+        let script = &extents[0];
+        assert_eq!(script.name, "script");
+        assert_eq!(
+            script.close.map(|(_, end)| end),
+            html.find("<p>"),
+            "the script's closer is the `</script>` right before `<p>`: {extents:?}"
+        );
+        let p = extents
+            .iter()
+            .find(|e| e.name == "p")
+            .expect("the paragraph is markup");
+        assert_eq!(p.depth, 0, "a sibling of the script, not inside it");
+        assert_eq!(balance_fragment(html), html);
+    }
+
+    /// A script left in ESCAPED state still closes on a bare `</script>`, so
+    /// the closer is owed — the scanner used to think the inner `</script>`
+    /// had already closed it and appended nothing.
+    #[test]
+    fn a_script_left_in_escaped_state_is_still_owed_its_closer() {
+        let html = "<script><!--<script></script>";
+        let balanced = balance_fragment(html);
+        assert_eq!(balanced, "<script><!--<script></script></script>");
+        assert_eq!(balance_fragment(&balanced), balanced, "a fixed point");
+        assert!(wrapper_survives(&balanced));
+        // Escaped state reached without any double escape, at EOF.
+        assert_eq!(balance_fragment("<script><!--x"), "<script><!--x</script>");
+    }
+
+    /// A script left in DOUBLE-ESCAPED state is not closed by `</script>` at
+    /// all: that tag only steps back to escaped. `-->` returns every
+    /// double-escaped sub-state to script data, where the closer closes, so
+    /// the repair is `-->` and then the closer. The cases walk each sub-state
+    /// a fragment can stop in.
+    #[test]
+    fn a_script_left_in_double_escaped_state_leaves_it_before_closing() {
+        for (src, want) in [
+            ("<script><!--<script>x", "<script><!--<script>x--></script>"),
+            // dash
+            (
+                "<script><!--<script>x-",
+                "<script><!--<script>x---></script>",
+            ),
+            // less-than sign
+            (
+                "<script><!--<script>x<",
+                "<script><!--<script>x<--></script>",
+            ),
+            // double-escape end, name complete but no delimiter yet
+            (
+                "<script><!--<script>x</script",
+                "<script><!--<script>x</script--></script>",
+            ),
+            // entered on a whitespace delimiter
+            ("<script><!--<script ", "<script><!--<script --></script>"),
+            ("<SCRIPT><!--<Script>x", "<SCRIPT><!--<Script>x--></script>"),
+        ] {
+            let balanced = balance_fragment(src);
+            assert_eq!(balanced, want, "input {src:?}");
+            assert_eq!(
+                balance_fragment(&balanced),
+                balanced,
+                "fixed point: {src:?}"
+            );
+            assert!(wrapper_survives(&balanced), "{src:?}");
+        }
+    }
+
+    /// The controls: shapes the escape states must leave exactly as they
+    /// were, because the browser does too.
+    #[test]
+    fn script_escapes_that_close_nothing_new_change_nothing() {
+        for html in [
+            "<script><!-- c --></script>",
+            "<script><!-- <div> --></script>",
+            // `<!-->` and `<!--->` return straight to script data.
+            "<script><!--></script>x",
+            "<script><!---></script>x",
+            // `<scripty` is not `<script` + a delimiter: no double escape.
+            "<script><!--<scripty></script>",
+            // `-->` after the double escape returns to script data.
+            "<script><!--<script>--></script>x",
+        ] {
+            assert_eq!(balance_fragment(html), html, "input {html:?}");
+            assert_eq!(
+                tag_inventory(html),
+                vec!["script", "/script"],
+                "input {html:?}"
+            );
+        }
+        // A `<script` spelling in plain script data does not double-escape:
+        // after `-->` the region is script data again, the first closer
+        // closes, and the last one is the orphan.
+        assert_eq!(
+            balance_fragment("<script><!-- --><script></script>x</script>"),
+            "<script><!-- --><script></script>x"
+        );
+        assert_eq!(
+            balance_fragment("<script><!--<script>--></script>x</script>"),
+            "<script><!--<script>--></script>x"
+        );
+    }
+
+    /// Escaping is a SCRIPT rule. `style`, `textarea` and the other raw-text
+    /// names still end at their first delimited closer, so here the final
+    /// `</style>` is an orphan exactly as before.
+    #[test]
+    fn the_escape_states_are_script_only() {
+        assert_eq!(
+            balance_fragment("<style><!--<style></style>x</style>"),
+            "<style><!--<style></style>x"
+        );
+        assert_eq!(
+            balance_fragment("<textarea><!--<textarea></textarea>x</textarea>"),
+            "<textarea><!--<textarea></textarea>x"
+        );
+    }
+
+    /// The bound the other way: the escape states never extend a script past
+    /// where a browser ends it. A `data-sync-id` after a script that LEFT its
+    /// double escape is live markup and must still be stripped; one inside
+    /// double-escaped text is script text in a browser and is left alone.
+    #[test]
+    fn the_strip_sees_exactly_the_markup_a_browser_sees_around_an_escaped_script() {
+        assert_eq!(
+            strip_reserved_sync_attrs(
+                "<script><!--<script>--></script><div data-sync-id=\"x\">y</div>"
+            ),
+            "<script><!--<script>--></script><div>y</div>"
+        );
+        let inside = "<script><!--<script></script><div data-sync-id=\"x\">y</div></script>";
+        assert_eq!(strip_reserved_sync_attrs(inside), inside);
+        assert_eq!(tag_inventory(inside), vec!["script", "/script"]);
     }
 }
 
@@ -5636,6 +6322,69 @@ mod tree_construction_tests {
         assert_eq!(
             balance_fragment("<math><svg><desc><div>"),
             "<math><svg><desc><div></div>"
+        );
+    }
+
+    // -- R0012-0008 follow-through: `</template>` -----------------------------
+
+    /// `</template>` is processed by "in head"'s rule from every insertion
+    /// mode: with an HTML template on the stack, it pops up to and including
+    /// the nearest one, whatever is open above it. No scope search and no
+    /// special-element guard applies. Routing it through "any other end tag"
+    /// stopped it at the `p` (special), so the walk kept the template, the
+    /// `p` and the `div` open and the balancer owed all three a closer.
+    /// Chromium, mounted in a pane: the appended `</p>` mints an empty
+    /// paragraph and the appended `</div>` closes the sync wrapper, so the
+    /// content after the block lands outside it (§4a). The input alone keeps
+    /// the wrapper.
+    #[test]
+    fn a_template_end_tag_closes_through_the_elements_open_inside_it() {
+        for input in [
+            "<div><template><p>a</template>b</div>",
+            "<template><p>a<span>x</template>b",
+            "<template><table><tr><td>a</template>b",
+            "<template><svg><g>a</template>b",
+        ] {
+            assert_eq!(balance_fragment(input), input, "{input}");
+            let template = element_extents(input)
+                .into_iter()
+                .find(|e| e.name == "template")
+                .expect("the template is an element");
+            let close_at = input.find("</template>").expect("the input closes it");
+            assert_eq!(
+                template.close,
+                Some((close_at, close_at + "</template>".len())),
+                "{input}"
+            );
+        }
+    }
+
+    /// The other half of the same rule, unchanged: while a template is open no
+    /// OTHER end tag crosses it, because `template` is special and terminates
+    /// every scope. `</div>` here is ignored, so the div and the template are
+    /// both still open at EOF. Chromium agrees (`openAtEnd ==
+    /// ["div","template"]`).
+    #[test]
+    fn no_other_end_tag_crosses_an_open_template() {
+        let input = "<div><template>a</div>b";
+        assert_eq!(balance_fragment(input), format!("{input}</template></div>"));
+    }
+
+    /// `</template>` with no HTML template open is ignored by a browser, and
+    /// the walk keeps its existing verdict for it: stopped by a special
+    /// element inside the fragment, it is inert and stays; with nothing to
+    /// stop it, it is an orphan and goes. A foreign `template` is closed by
+    /// foreign content's own name test, as before.
+    #[test]
+    fn a_template_end_tag_with_no_html_template_open_keeps_its_verdict() {
+        assert_eq!(
+            balance_fragment("<div></template>x"),
+            "<div></template>x</div>"
+        );
+        assert_eq!(balance_fragment("x</template>y"), "xy");
+        assert_eq!(
+            balance_fragment("<svg><template>a</template></svg>"),
+            "<svg><template>a</template></svg>"
         );
     }
 }
