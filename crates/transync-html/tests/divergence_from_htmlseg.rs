@@ -1,6 +1,6 @@
 //! Differential proof of the claimed divergences from the retired `htmlseg`.
 //!
-//! `docs/architecture/transync-html-divergences.md` enumerates **twenty-two**
+//! `docs/architecture/transync-html-divergences.md` enumerates **twenty-three**
 //! deliberate behavioural divergences of `transync-html` from
 //! `transync-syntax::htmlseg`, and `CLAUDE.md` carries the rule they serve:
 //! "a difference from `htmlseg` in any of them is the **fix**, not a
@@ -46,7 +46,7 @@
 //! A claim about a function that postdates the extraction is **not a divergence
 //! from `htmlseg`**; it is a fix to code `htmlseg` never had. Those are recorded
 //! as `NotComparable` rather than silently counted, because counting them is how
-//! twenty-two stops being checkable.
+//! twenty-three stops being checkable.
 //!
 //! TRACE: ti 3f0879ef
 //! TRACE: DCR-0032, DCR-0050, DCR-0063
@@ -203,4 +203,25 @@ fn a_template_ended_at_an_ancestors_end_tag_and_no_longer_does() {
         vec!["c".to_string()],
         "only `</template>` ends the template: {new_:?}"
     );
+}
+
+/// **Claim (R0013-0002 / DCR-0063), divergence 23:** `extract` refuses a block
+/// that holds more than `MAX_NESTING_DEPTH` elements open at once, where old
+/// htmlseg extracted it. The refusal is what sends such a block down the
+/// caller's extraction-failure path instead of through a scanner whose scope
+/// searches walk the whole open stack at every block-level start tag.
+#[test]
+fn a_block_nested_past_the_ceiling_was_extracted_and_is_now_refused() {
+    let depth = new::MAX_NESTING_DEPTH + 1;
+    let html = format!("{}x{}", "<div>".repeat(depth), "</div>".repeat(depth));
+    let old = htmlseg_old::extract(&html)
+        .expect("old htmlseg had no ceiling")
+        .texts;
+    assert_eq!(
+        old,
+        vec!["x".to_string()],
+        "old htmlseg extracted it: {old:?}"
+    );
+    let err = new::extract(&html).expect_err("past the ceiling the block is refused");
+    assert!(err.contains("nesting too deep"), "{err}");
 }

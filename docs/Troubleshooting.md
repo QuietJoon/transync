@@ -372,6 +372,40 @@ inline tree over two million levels deep on a stack a quarter the size of
 the smallest one the library ever runs on, and a regression pin in
 `intake::markdown::depth` fails if that ever stops being true (ticket `f69e83`).
 
+## `HTML nesting too deep` / exit code 2 on an HTML document
+
+```
+transync: translation failed: parse error: HTML nesting too deep: the
+element opening at byte 2560 nests past the 512-element maximum
+```
+
+An `--input-format html` run refuses a document that holds more than
+512 elements open at once (`transync_html::MAX_NESTING_DEPTH`, DCR-0063)
+before the intake parses it. 512 is where Chromium's parser stops
+nesting: it attaches anything deeper as a sibling, so the page you see
+there is not the tree the file spells.
+
+The count is transync's HTML scanner's, not your browser's. Both apply
+implied end tags (`<p>a<p>b` is one deep), voids never open, and markup
+inside `<script>` or a comment is not counted. Unclosed `<span>`,
+`<font>` or `<div>` tags pile up in both, which is the usual cause in
+generated or corrupted HTML. The scanner does not repair every malformed
+run the way a browser does, though. A run of unclosed `<a>` tags (legacy
+`<a name>` anchors), `<nobr>` or `<button>` tags, headings opened over an
+unclosed heading, a `<table>` opened directly inside an open table, or a
+`<form>` or `<body>` opened inside an open one counts one level per tag
+where a browser closes or ignores the previous one. Such a document can
+be refused while your browser builds it a few levels deep, so the
+browser's element tree is no check. Inspect the bytes before the offset
+in the message, then add the end tags a browser infers (`</a>` before the
+next `<a>`, `</h3>` at the end of each heading), close the runaway tags,
+or split the file. There is no flag to raise the limit.
+
+In a Markdown document the same depth inside a raw-HTML block is not a
+refusal: the block is kept verbatim, shown as an escaped placeholder,
+and named in the run's skipped-node notes (`segment extraction failed
+(html nesting too deep: …)`).
+
 ## Translation is slow (~30 s on a small document)
 
 Almost always: sequential dispatch + tiny batches. v0.1.0+ uses

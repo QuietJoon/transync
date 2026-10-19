@@ -436,8 +436,9 @@ design (ADR-0016): one whole-document parse over the entire source (a
 Comrak AST for Markdown, the `intake::html` scanner for an HTML run),
 exact source byte ranges spliced during regeneration, and the layer-6
 gate over the *complete* regenerated document (`full_reparse` /
-`full_rescan_html`). Peak memory therefore tracks document size, and
-the `--max-input-bytes` admission cap is boundary hygiene — it rejects
+`full_rescan_html`). Peak memory therefore tracks document size (for an
+HTML run, under the nesting ceiling described at the end of this
+section), and the `--max-input-bytes` admission cap is boundary hygiene — it rejects
 absurd inputs before parse, it does not lower the peak for anything it
 admits.
 
@@ -491,6 +492,26 @@ stub holds no provider response buffers and has no round-trip in flight,
 so a live run at `max_concurrent_batches = 6` carries that much more on
 top. Raising concurrency or batch size raises the in-flight bytes with
 it.
+
+**For an HTML run, "tracks document size" needs a nesting ceiling as
+well (DCR-0063).** The intake keeps one ordinal per open container, but
+every block it emits carries an `ast_path` with one entry per enclosing
+container, so depth multiplies memory, and the scanner's scope searches,
+which walk the open-element stack, multiply time the same way. Uncapped,
+`<div><p>x</p>` repeated 20,000 times is 380 KB holding about 1.6 GB of
+paths. A document that holds more than 512 elements open at once
+(`transync_html::MAX_NESTING_DEPTH`, the depth where Chromium's parser
+stops nesting) is therefore refused with exit `2` before the intake
+runs. The count is the scanner's stack, because that stack's depth is
+the cost; on a malformed run a browser repairs, such as unclosed `<a>`
+tags, it exceeds a browser's (`Troubleshooting.md`).
+Under the ceiling a block's path is at most 513 words, 4 KiB on a
+64-bit target, and that bound is the residual: a document made of short
+blocks all nested near the ceiling (an `<hr>` is four bytes) can still
+hold about a thousand times its own size in paths. A raw-HTML block
+nested past the ceiling inside a Markdown document is not a refusal; it
+is kept verbatim as an extraction failure and presented escaped, and
+nothing walks it.
 
 ## Cross-reference
 

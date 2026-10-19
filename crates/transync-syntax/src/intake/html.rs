@@ -33,8 +33,18 @@
 //! `debug_assert_block_invariants` tripwire (named, not linked: the fn is
 //! `pub(crate)` and this module doc is public).
 //!
+//! **Nesting ceiling** (R0013-0002, DCR-0063): [`check_nesting_depth`]
+//! refuses a document that opens an element deeper than
+//! [`MAX_NESTING_DEPTH`] (512, Blink's own tree-depth cap, counted on the
+//! scanner's stack rather than a browser's), and the pipeline
+//! runs it before [`parse`], which stays infallible. An open container keeps
+//! only its own child ordinal, and a block's `ast_path` is built from the open
+//! stack when the block is emitted, so under the ceiling it has at most
+//! `MAX_NESTING_DEPTH + 1` entries.
+//!
 //! TRACE: ADR-0025
 
+use crate::error::ParseError;
 use crate::id::{BlockId, BlockKind, SourceFormat, Spelling};
 use crate::intake::markdown::ranges::ByteRange;
 use crate::intake::markdown::sections::SectionStack;
@@ -108,12 +118,55 @@ fn semantic_stop_kind(name: &str) -> Option<BlockKind> {
     })
 }
 
+/// The HTML intake's nesting ceiling: `transync-html`'s own, re-exported so a
+/// caller of this module names it here (R0013-0002, DCR-0063).
+pub use transync_html::MAX_NESTING_DEPTH;
+
+/// Refuse an HTML document that opens an element deeper than
+/// [`MAX_NESTING_DEPTH`], with [`ParseError::HtmlTooDeeplyNested`]
+/// (R0013-0002, DCR-0063). The pipeline runs it before [`parse`]; a caller
+/// reaching [`parse`] directly should too.
+///
+/// [`parse`] stays infallible, so this is a separate step rather than a
+/// `Result` on it. What it guards is cost that grows with depth, not a call
+/// stack: the scanner's scope searches walk the open stack on every
+/// block-level start tag, and every block this intake emits carries an
+/// `ast_path` one entry longer than its nesting, so a few hundred kilobytes
+/// nested twenty thousand deep cost gigabytes of paths and seconds of
+/// scanning. Bounding depth caps both, per start tag and per block.
+///
+/// The depth is the scanner's stack, not a browser's: a run of unclosed
+/// `<a>`, `<nobr>`, `<button>` or headings counts one level per tag where a
+/// browser closes the previous one (see [`MAX_NESTING_DEPTH`]).
+///
+/// One run of the scanner that stops at the first element past the ceiling.
+/// It reads the caller's bytes, so the error's offset indexes them; NUL
+/// normalization cannot move the answer, because NUL and U+FFFD are both
+/// plain text to the scanner wherever they sit.
+///
+/// TRACE: ADR-0025
+pub fn check_nesting_depth(source: &str) -> Result<(), ParseError> {
+    match transync_html::nesting_ceiling_breach(source) {
+        Some(offset) => Err(ParseError::HtmlTooDeeplyNested {
+            offset,
+            limit: MAX_NESTING_DEPTH,
+        }),
+        None => Ok(()),
+    }
+}
+
 /// Parse an HTML document into the block IR. Infallible: `scan_tags` and
 /// `element_extents` are total, malformed input force-closes with
 /// [`Document::warnings`] notes (spec §4), and NUL is normalized — the same
 /// `normalize_source` the Markdown intake applies, so both intakes mean the
 /// same string by "source bytes". The CLI's fallible boundary (exit-2
 /// `InputReadFailure`, spec §9) is file IO, which is not this function.
+///
+/// **Run [`check_nesting_depth`] first.** This function accepts any depth,
+/// and its memory grows with depth times block count: a block's `ast_path`
+/// holds one entry per enclosing container, so `<div><p>x</p>` repeated `N`
+/// times holds `N²/2` entries. The pipeline refuses such a document before
+/// calling this; a direct caller that skips the check pays that cost.
 ///
 /// Identity contract, pinned by `tests/html_intake_identity.rs`:
 /// `regen::regenerate(&parse(s), &HashMap::new()).0 == parse(s).source_text`.
@@ -180,8 +233,12 @@ struct Container {
     /// Whole-element end: the close tag's end, or `content_end` when the
     /// extents walk closed it implicitly / left it open at EOF.
     end: usize,
-    /// The container's own `ast_path` (ancestors' child ordinals + its own).
-    path: Vec<usize>,
+    /// This container's child ordinal at its parent's level. Its ancestors'
+    /// ordinals are the containers below it on the stack, so its `ast_path`
+    /// is the stack's ordinals up to and including this one — held once, not
+    /// copied into every open container (R0013-0002: a copy per container is
+    /// `N(N+1)/2` words live at nesting depth `N`).
+    ordinal: usize,
     /// Whether the source closed it with a real end tag.
     explicitly_closed: bool,
 }
@@ -596,33 +653,41 @@ impl<'s> HtmlWalk<'s> {
         id
     }
 
-    /// The child-index convention that mirrors comrak's (spec §4): every
-    /// emitted block and every entered container takes the next ordinal at
-    /// its level, so an `<li>`'s path is its list container's path plus the
-    /// item ordinal — `walk::normalize_top_level`'s prefix collapse stays
-    /// total and adjacent lists can never merge.
-    fn next_child_path(&mut self) -> Vec<usize> {
+    /// Take the next child ordinal at the innermost open level.
+    fn next_child_ordinal(&mut self) -> usize {
         let counter = self
             .child_counts
             .last_mut()
             .expect("the root level always exists");
         let ordinal = *counter;
         *counter += 1;
-        let mut path = self
-            .containers
-            .last()
-            .map(|c| c.path.clone())
-            .unwrap_or_default();
+        ordinal
+    }
+
+    /// The child-index convention that mirrors comrak's (spec §4): every
+    /// emitted block and every entered container takes the next ordinal at
+    /// its level, so an `<li>`'s path is its list container's path plus the
+    /// item ordinal — `walk::normalize_top_level`'s prefix collapse stays
+    /// total and adjacent lists can never merge.
+    ///
+    /// Built only for an emitted block, from the ordinals of the open
+    /// containers (R0013-0002). Sized exactly, so the block keeps no spare
+    /// capacity. Its length is its nesting depth plus one, which is what the
+    /// HTML nesting ceiling bounds (`check_nesting_depth`).
+    fn next_child_path(&mut self) -> Vec<usize> {
+        let ordinal = self.next_child_ordinal();
+        let mut path = Vec::with_capacity(self.containers.len() + 1);
+        path.extend(self.containers.iter().map(|c| c.ordinal));
         path.push(ordinal);
         path
     }
 
     fn enter_container(&mut self, name: &str, end: usize, explicitly_closed: bool) {
-        let path = self.next_child_path();
+        let ordinal = self.next_child_ordinal();
         self.containers.push(Container {
             name: name.to_string(),
             end,
-            path,
+            ordinal,
             explicitly_closed,
         });
         self.child_counts.push(0);
@@ -1370,6 +1435,61 @@ mod invariant_tests {
     }
 }
 
+// R0013-0002 (DCR-0063): the guard the pipeline runs before `parse`.
+#[cfg(test)]
+mod nesting_tests {
+    use super::*;
+
+    /// At the ceiling the document is accepted; one element past it is
+    /// refused with the offset of that element's start tag, in the caller's
+    /// bytes, and the HTML variant rather than the Markdown one.
+    #[test]
+    fn check_nesting_depth_refuses_one_element_past_the_ceiling() {
+        let at = format!(
+            "{}<p>x</p>{}",
+            "<div>".repeat(MAX_NESTING_DEPTH - 1),
+            "</div>".repeat(MAX_NESTING_DEPTH - 1)
+        );
+        assert!(check_nesting_depth(&at).is_ok());
+
+        let past = format!(
+            "{}<p>x</p>{}",
+            "<div>".repeat(MAX_NESTING_DEPTH),
+            "</div>".repeat(MAX_NESTING_DEPTH)
+        );
+        let err = check_nesting_depth(&past).expect_err("one past the ceiling");
+        let ParseError::HtmlTooDeeplyNested { offset, limit } = err else {
+            panic!("expected HtmlTooDeeplyNested, got {err:?}");
+        };
+        assert_eq!(limit, MAX_NESTING_DEPTH);
+        assert_eq!(offset, MAX_NESTING_DEPTH * "<div>".len());
+        assert_eq!(&past[offset..offset + 3], "<p>", "the offset is the <p>");
+    }
+
+    /// The shape the per-block paths made quadratic: one paragraph at every
+    /// level. Refused on depth, whatever the block count.
+    #[test]
+    fn a_paragraph_at_every_level_is_refused_past_the_ceiling() {
+        let per_level = |n: usize| format!("{}{}", "<div><p>x</p>".repeat(n), "</div>".repeat(n));
+        assert!(check_nesting_depth(&per_level(MAX_NESTING_DEPTH - 1)).is_ok());
+        assert!(check_nesting_depth(&per_level(MAX_NESTING_DEPTH)).is_err());
+    }
+
+    /// NUL is plain text to the scanner, normalized or not, so the guard
+    /// reading the caller's bytes gives the answer `parse`'s normalized bytes
+    /// would, and its offset indexes the bytes the caller holds.
+    #[test]
+    fn a_nul_in_the_source_moves_neither_the_answer_nor_the_offset() {
+        let past = format!("\0{}", "<div>".repeat(MAX_NESTING_DEPTH + 1));
+        let Err(ParseError::HtmlTooDeeplyNested { offset, .. }) = check_nesting_depth(&past) else {
+            panic!("refused");
+        };
+        assert_eq!(offset, 1 + MAX_NESTING_DEPTH * "<div>".len());
+        let normalized = crate::intake::markdown::normalize_source(&past);
+        assert!(check_nesting_depth(&normalized).is_err());
+    }
+}
+
 // Ids, sections and paths (spec §4 "Ids, hashes, paths").
 #[cfg(test)]
 mod id_and_path_tests {
@@ -1406,6 +1526,22 @@ mod id_and_path_tests {
         let doc = parse("<ul><li>a</li><li>b</li></ul><ul><li>c</li></ul>");
         let paths: Vec<&[usize]> = doc.blocks.iter().map(|b| &b.ast_path.0[..]).collect();
         assert_eq!(paths, vec![&[0, 0][..], &[0, 1][..], &[1, 0][..]]);
+    }
+
+    /// R0013-0002: an open container keeps only its own ordinal, and an
+    /// emitted block's path is materialized from the open stack. The path
+    /// convention is unchanged by that: a list item nested two and three
+    /// containers deep still carries every ancestor's ordinal, and two lists
+    /// under different parents still differ in their prefix.
+    #[test]
+    fn nested_containers_carry_every_ancestor_ordinal_in_a_block_path() {
+        let doc =
+            parse("<div><ul><li>a</li></ul><section><ul><li>b</li><li>c</li></ul></section></div>");
+        let paths: Vec<&[usize]> = doc.blocks.iter().map(|b| &b.ast_path.0[..]).collect();
+        assert_eq!(
+            paths,
+            vec![&[0, 0, 0][..], &[0, 1, 0, 0][..], &[0, 1, 0, 1][..]]
+        );
     }
 
     /// "the same global-ordinal scheme … the pipeline's existing

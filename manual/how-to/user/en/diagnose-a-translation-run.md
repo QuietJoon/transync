@@ -33,7 +33,7 @@ shows up, a table that came back half-translated.
 |---:|---|
 | `0` | Success. Note that a successful run can still print advisory `transync: note:` lines — see step 4. |
 | `1` | Argument error — nothing ran. Also covers the CLI's own refusals: a blank language label, `--output` without `--map`, a malformed `--base-url`, a missing API key. |
-| `2` | Input could not be read. Also covers an oversize `--input`, non-UTF-8 input, an oversize `--profile` or `--system-prompt-file`, and the parse-time block-nesting refusal. |
+| `2` | Input could not be read. Also covers an oversize `--input`, non-UTF-8 input, an oversize `--profile` or `--system-prompt-file`, and the parse-time nesting refusals: Markdown nested past 128 block levels, or an `--input-format html` document holding more than 512 elements open at once as transync's HTML scanner counts them, where a run of unclosed `<a>` or heading tags counts a level per tag even though a browser closes each one at the next. |
 | `3` | Every translatable unit fell back to source. Outputs *were* written — go to step 2. |
 | `4` | Write failure — an atomic write or bundle write errored. The filesystem, not the translation. |
 | `5` | The residual: an unclassified translator error, a malformed provider response, or — for `transync serve` — an address that could not be bound. |

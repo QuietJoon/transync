@@ -262,6 +262,23 @@ pub(crate) fn scan_with_memory_cap(
 /// contract (an entity cut in half by a write boundary) can be pinned by test
 /// instead of hoped for.
 fn scan_chunks(chunks: &[&str], max_bytes: usize) -> Result<Vec<NodeRecord>, String> {
+    let source: Cow<'_, str> = match chunks {
+        [one] => Cow::Borrowed(*one),
+        _ => Cow::Owned(chunks.concat()),
+    };
+    // R0013-0002 (DCR-0063): a block nested past the ceiling is refused here,
+    // before anything walks it, and the refusal is an ordinary rewriter-style
+    // error: every caller already turns one into the extraction-failure
+    // outcome (no unit, the escaped placeholder, a note on the report) or the
+    // splice-failure fallback. Both [`extract`] and [`splice`] come through
+    // this function, so a payload is never spliced into a block extraction
+    // would not read.
+    if let Some(at) = nesting_ceiling_breach(&source) {
+        return Err(format!(
+            "html nesting too deep: the element opening at byte {at} nests past the \
+             {MAX_NESTING_DEPTH}-element ceiling"
+        ));
+    }
     let records: Rc<RefCell<Vec<NodeRecord>>> = Rc::new(RefCell::new(Vec::new()));
     let stack: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let pending: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
@@ -278,20 +295,14 @@ fn scan_chunks(chunks: &[&str], max_bytes: usize) -> Result<Vec<NodeRecord>, Str
     // THE walk answers it (DCR-0051), so the text handler asks whether a node
     // starts inside one of [`template_contents`]' ranges (R0012-0008,
     // DCR-0063). No template start tag means no range, and the walk is skipped.
-    let template_content = {
-        let source: Cow<'_, str> = match chunks {
-            [one] => Cow::Borrowed(*one),
-            _ => Cow::Owned(chunks.concat()),
-        };
-        if source
-            .as_bytes()
-            .windows(b"<template".len())
-            .any(|w| w.eq_ignore_ascii_case(b"<template"))
-        {
-            template_contents(&source)
-        } else {
-            Vec::new()
-        }
+    let template_content = if source
+        .as_bytes()
+        .windows(b"<template".len())
+        .any(|w| w.eq_ignore_ascii_case(b"<template"))
+    {
+        template_contents(&source)
+    } else {
+        Vec::new()
     };
 
     let records_t = records.clone();
@@ -393,6 +404,11 @@ fn scan_chunks(chunks: &[&str], max_bytes: usize) -> Result<Vec<NodeRecord>, Str
 }
 
 /// The kept records of `scan`, split into parallel text/label vectors.
+///
+/// `Err` when the rewriter fails, and when `block` nests elements past
+/// [`MAX_NESTING_DEPTH`] (R0013-0002, DCR-0063): such a block is refused
+/// before anything walks it, so it takes the caller's extraction-failure path
+/// rather than costing a whole-stack scope search per start tag.
 pub fn extract(block: &str) -> Result<HtmlSegments, String> {
     let records = scan(block)?;
     let mut out = HtmlSegments::default();
@@ -501,6 +517,9 @@ pub(crate) fn collapse_blank_lines(text: &str) -> String {
 /// same `rewriter_settings` and the same `wanted_text_type` filter,
 /// replacing kept nodes whose translation differs from the decoded source
 /// (identity-skip) and passing everything else through byte-verbatim.
+///
+/// Phase A is [`extract`]'s scan, so a block past [`MAX_NESTING_DEPTH`] is
+/// refused here exactly as it is there.
 pub fn splice(
     block: &str,
     translated: &[String],
@@ -1059,15 +1078,79 @@ fn script_data_end(bytes: &[u8], from: usize) -> RawTextEnd {
 /// by the render-path balancer (spec 2026-08-03 §3.4), the layer-3 inventory
 /// check, and the HTML intake.
 pub fn scan_tags(html: &str) -> Vec<TagToken> {
-    scan_tags_with_state(html)
+    scan_tags_with_state(html, None)
         .tags
         .into_iter()
         .map(|t| t.token)
         .collect()
 }
 
+/// THE HTML nesting ceiling: the most elements the scanner lets be open at
+/// once (R0013-0002, DCR-0063).
+///
+/// **What it bounds.** Every start tag of a block-level name asks whether a
+/// `p` is open in button scope, and a stack holding only `div`s neither
+/// matches nor stops that search, so each such tag walks the whole stack:
+/// `N` nested `<div>`s cost `N²/2` frame visits per scan, on each of the
+/// several scans a run makes. Beside it, `transync-syntax`'s HTML intake gives
+/// every block an `ast_path` one entry longer than its nesting. A bound on
+/// depth caps both, per tag and per block, and this is the bound.
+///
+/// **Why 512.** It is where Chromium's HTML parser stops nesting: Blink's
+/// tree builder caps the open-element stack at `kMaximumHTMLParserDOMTreeDepth`
+/// (512, `html_construction_site.h`), and a node inserted past it is attached
+/// as a sibling of the current parent instead of its child. Nokogiri's HTML5
+/// parser, built on Gumbo, refuses a document deeper than its default
+/// `max_tree_depth` outright (`Nokogiri::Gumbo::DEFAULT_MAX_TREE_DEPTH`, 400).
+///
+/// **Counted on this scanner's stack, not a browser's.** The number is the
+/// browser's; the stack it is counted on is this scanner's, because the cost
+/// above is that stack's depth. The scanner applies implied end tags, but not
+/// every rule a browser uses to close or ignore a start tag. It does not run
+/// the adoption agency, which closes an open `<a>` or `<nobr>` when the next
+/// one starts. It does not close an open `<button>` at the next `<button>`, a
+/// current heading at the next heading, an open table at a `<table>` start tag
+/// outside its cells, or a ruby base at the next base. And it does not ignore
+/// a second `<form>`, `<body>` or `<html>`. A run of any of these left unclosed
+/// therefore counts one level per tag where a browser stays a few levels
+/// deep: a page of 520 unclosed `<a name>` anchors is past the ceiling here
+/// and four elements deep in Chrome. The count can also be lower than a
+/// browser's, because a browser reopens the formatting elements a `</p>`
+/// closed and the scanner does not.
+///
+/// **Who enforces it.** The scanner counts against it only when asked,
+/// through [`nesting_ceiling_breach`], and stops at the first element that
+/// crosses it. [`extract`] and [`splice`] refuse a block past it, which gives
+/// the block the extraction-failure presentation. `transync-syntax` refuses an
+/// HTML document past it before its intake runs, and its renderers present a
+/// fragment past it as the escaped placeholder rather than balancing it. The
+/// other public functions here still scan whatever they are given, at the
+/// quadratic cost above.
+pub const MAX_NESTING_DEPTH: usize = 512;
+
+/// Where `html` first nests an element past [`MAX_NESTING_DEPTH`]: the byte
+/// offset of the start tag that would open the `MAX_NESTING_DEPTH + 1`-th
+/// simultaneously open element, or `None` when no element ever opens that
+/// deep.
+///
+/// "Open" is THE scanner's stack after the tree-construction rules it models:
+/// an implied end tag closes before the next element opens (`<p>a<p>b` is
+/// never two deep), void elements and self-closed foreign elements never
+/// open, and nothing inside raw text or a comment is an element at all. On
+/// malformed markup that is not a browser's stack: a run of unclosed `<a>`,
+/// `<nobr>`, `<button>` or headings counts one level per tag where a browser
+/// closes the previous one ([`MAX_NESTING_DEPTH`] lists the rules the scanner
+/// does not model).
+///
+/// One run of the scanner that stops at the breach, so no scope search in it
+/// walks more than [`MAX_NESTING_DEPTH`] frames and a refused document is not
+/// read past the breach.
+pub fn nesting_ceiling_breach(html: &str) -> Option<usize> {
+    scan_tags_with_state(html, Some(MAX_NESTING_DEPTH)).ceiling_breach
+}
+
 /// What [`scan_tags_with_state`] produced: the tokens with their tree state,
-/// plus the one fact about the END of the fragment that no token can carry.
+/// plus the facts about the END of the fragment that no token can carry.
 struct Scan {
     tags: Vec<ScannedTag>,
     /// The fragment ended inside a `<script>` in HTML's script-data
@@ -1076,11 +1159,20 @@ struct Scan {
     /// repair first leaves the double escape. The script is then always the
     /// innermost unclosed element, because nothing opens inside raw text.
     script_double_escaped_at_eof: bool,
+    /// The scan stopped at this start tag because opening it would have put
+    /// more elements on the stack than the ceiling it was given (R0013-0002).
+    /// Always `None` without a ceiling. When set, `tags` stops before the
+    /// token, so only [`nesting_ceiling_breach`] reads a scan that has one.
+    ceiling_breach: Option<usize>,
 }
 
 /// [`scan_tags`] with the scanner's tree state still attached — the form
 /// [`walk_elements`] consumes.
-fn scan_tags_with_state(html: &str) -> Scan {
+///
+/// `ceiling`, when given, is the most elements that may be open at once: the
+/// scan stops at the first start tag that would open one more, and records its
+/// offset in [`Scan::ceiling_breach`] (R0013-0002).
+fn scan_tags_with_state(html: &str, ceiling: Option<usize>) -> Scan {
     let bytes = html.as_bytes();
     let mut tokens = Vec::new();
     let mut i = 0usize;
@@ -1589,6 +1681,18 @@ fn scan_tags_with_state(html: &str) -> Scan {
             let own_mode = own_content_mode(parent_mode, &name);
             let child_mode = child_content_mode(own_mode, &name, html, span);
             if opens_element {
+                // R0013-0002: the ceiling is tested where the stack grows and
+                // nowhere else, after the implied end tags above have popped
+                // what this tag closes, so it counts exactly what this stack
+                // holds once this one is inserted. That is not always what a
+                // browser holds: `MAX_NESTING_DEPTH` lists the rules it skips.
+                if ceiling.is_some_and(|limit| open_elements.len() >= limit) {
+                    return Scan {
+                        tags: tokens,
+                        script_double_escaped_at_eof: false,
+                        ceiling_breach: Some(start),
+                    };
+                }
                 open_elements.push(Frame {
                     name: name.clone(),
                     own: own_mode,
@@ -1630,6 +1734,7 @@ fn scan_tags_with_state(html: &str) -> Scan {
     Scan {
         tags: tokens,
         script_double_escaped_at_eof,
+        ceiling_breach: None,
     }
 }
 
@@ -2470,7 +2575,7 @@ struct Walk {
 /// The parallel stack below therefore carries no mode and does no searching —
 /// only the name and the extent index each frame belongs to.
 fn walk_elements(html: &str) -> Walk {
-    let scan = scan_tags_with_state(html);
+    let scan = scan_tags_with_state(html, None);
     let mut extents: Vec<ElementExtent> = Vec::new();
     let mut open_stack: Vec<(String, usize)> = Vec::new();
     let mut orphan_closes: Vec<(usize, usize)> = Vec::new();
@@ -3032,6 +3137,11 @@ fn orphan_cut_would_weld(bytes: &[u8], run_start: usize, run_end: usize) -> bool
 /// closer so the closer closes (R0012-0004, DCR-0063).
 /// `out.md` never sees this — it exists so an unbalanced fragment cannot
 /// consume the sync wrapper's own `</div>` and swallow later anchors.
+///
+/// Its cost grows with the fragment's nesting as well as its length (see
+/// [`MAX_NESTING_DEPTH`]). `transync-syntax`'s renderers ask
+/// [`nesting_ceiling_breach`] first and present a fragment past the ceiling
+/// as the escaped placeholder instead of balancing it (R0013-0002).
 ///
 /// R0002-0061: elements whose end tag HTML makes optional are closed
 /// implicitly by the start tag that ends them (see [`implicitly_closes`]),
@@ -6385,6 +6495,164 @@ mod tree_construction_tests {
         assert_eq!(
             balance_fragment("<svg><template>a</template></svg>"),
             "<svg><template>a</template></svg>"
+        );
+    }
+}
+
+// R0013-0002 (DCR-0063): THE nesting ceiling. The scanner is the only thing
+// that knows how deep an element opens, so the ceiling is asked of it.
+#[cfg(test)]
+mod nesting_tests {
+    use super::*;
+
+    /// `depth` nested `<div>`s around `inner`.
+    fn nested(depth: usize, inner: &str) -> String {
+        format!("{}{inner}{}", "<div>".repeat(depth), "</div>".repeat(depth))
+    }
+
+    /// A block nested past the ceiling is refused by extraction, so it takes
+    /// the existing extraction-failure path: never a unit, presented escaped.
+    /// Splice reads the same scan and refuses alike, so a payload can never
+    /// be spliced into a block extraction would not read.
+    #[test]
+    fn extraction_and_splice_refuse_a_block_nested_past_the_ceiling() {
+        let deep = nested(513, "x");
+        let err = extract(&deep).expect_err("513 nested elements are past the ceiling");
+        assert!(err.contains("nesting"), "the reason names the cause: {err}");
+        assert!(err.contains("512"), "the reason names the ceiling: {err}");
+        let err = splice(&deep, &["y".to_string()], BlankLinePolicy::Keep)
+            .expect_err("splice refuses what extraction refuses");
+        assert!(err.contains("nesting"), "{err}");
+
+        let at = nested(512, "x");
+        let segs = extract(&at).expect("512 nested elements are at the ceiling, not past it");
+        assert_eq!(segs.texts, vec!["x".to_string()]);
+    }
+
+    /// The breach is the start tag of the element one past the ceiling, and
+    /// the ceiling itself is not a breach.
+    #[test]
+    fn the_breach_is_the_first_element_one_past_the_ceiling() {
+        assert_eq!(
+            nesting_ceiling_breach(&nested(MAX_NESTING_DEPTH, "x")),
+            None
+        );
+        assert_eq!(
+            nesting_ceiling_breach(&nested(MAX_NESTING_DEPTH + 1, "x")),
+            Some(MAX_NESTING_DEPTH * "<div>".len())
+        );
+        // A document that comes back up from the ceiling and goes down again
+        // is never more than the ceiling deep at once.
+        let twice = nested(MAX_NESTING_DEPTH, "a").repeat(2);
+        assert_eq!(nesting_ceiling_breach(&twice), None);
+        assert_eq!(nesting_ceiling_breach(""), None);
+    }
+
+    /// The count is THE stack's rather than a count of start tags: implied end
+    /// tags close first, voids and self-closed foreign elements never open,
+    /// raw text holds no elements, and foreign content nests like anything
+    /// else.
+    #[test]
+    fn the_count_is_what_the_scanner_holds_open() {
+        let many = MAX_NESTING_DEPTH * 4;
+        // Each `<p>` closes the one before it, and each `<li>` its sibling.
+        assert_eq!(nesting_ceiling_breach(&"<p>a".repeat(many)), None);
+        assert_eq!(
+            nesting_ceiling_breach(&format!("<ul>{}", "<li>a".repeat(many))),
+            None
+        );
+        // Voids and self-closed foreign elements open nothing.
+        assert_eq!(nesting_ceiling_breach(&"<br><img>".repeat(many)), None);
+        assert_eq!(
+            nesting_ceiling_breach(&format!("<svg>{}</svg>", "<g/>".repeat(many))),
+            None
+        );
+        // Markup inside raw text and comments is not markup.
+        let script = format!("<script>{}</script>", "<div>".repeat(many));
+        assert_eq!(nesting_ceiling_breach(&script), None);
+        let comment = format!("<!--{}-->", "<div>".repeat(many));
+        assert_eq!(nesting_ceiling_breach(&comment), None);
+        // Unclosed `<span>`s nest here as they do in a browser, and foreign
+        // content nests too.
+        assert_eq!(
+            nesting_ceiling_breach(&"<span>".repeat(MAX_NESTING_DEPTH + 1)),
+            Some(MAX_NESTING_DEPTH * "<span>".len())
+        );
+        let svg = format!("<svg>{}", "<g>".repeat(MAX_NESTING_DEPTH));
+        assert_eq!(
+            nesting_ceiling_breach(&svg),
+            Some("<svg>".len() + (MAX_NESTING_DEPTH - 1) * "<g>".len())
+        );
+    }
+
+    /// The count is THE scanner's stack, not a browser's, and the two part on
+    /// malformed markup in both directions. The scanner does not model the
+    /// rules a browser uses to close or ignore these start tags, so each
+    /// repetition below opens one more frame here. Headless Chrome 155 builds
+    /// each of these shapes, repeated 520 times as a whole document, 2 to 6
+    /// elements deep, `html` and `body` included. In the other direction, a
+    /// browser reopens each formatting element a `</p>` closed, so the last
+    /// shape, a paragraph per `<b>`, reaches the browser's own cap (513 deep
+    /// in Chrome 155) while the scanner stays two deep.
+    ///
+    /// This pins the disagreement that `MAX_NESTING_DEPTH`'s rustdoc,
+    /// `contracts.md` and `Troubleshooting.md` describe. Once the scanner
+    /// learns one of these rules, its line here flips, and those three
+    /// documents change with it.
+    #[test]
+    fn the_count_is_the_scanners_stack_not_a_browsers() {
+        let past = MAX_NESTING_DEPTH + 1;
+        for (repeated, what_a_browser_does) in [
+            (
+                "<a name=x><h2>t</h2><p>t</p>",
+                "the adoption agency closes the open `a`",
+            ),
+            ("<nobr>t", "the adoption agency closes the open `nobr`"),
+            ("<button>t", "a `button` start tag closes the open one"),
+            ("<h3>t", "a heading start tag pops a current heading"),
+            ("<h2>t<h3>t", "a heading start tag pops a current heading"),
+            (
+                "<table><tr><td>t</td></tr>",
+                "a `table` start tag in a table closes it",
+            ),
+            ("<form>t", "a second `form` is ignored"),
+            ("<body>t", "a second `body` is ignored"),
+        ] {
+            assert!(
+                nesting_ceiling_breach(&repeated.repeat(past)).is_some(),
+                "{repeated:?} counts one level per repetition here, where {what_a_browser_does}"
+            );
+        }
+        let ruby = format!("<ruby>{}", "<rb>t".repeat(past));
+        assert!(
+            nesting_ceiling_breach(&ruby).is_some(),
+            "a ruby base counts one level per base here, where a browser closes the previous one"
+        );
+
+        let reopened: String = (0..past).map(|i| format!("<p><b id=b{i}>t</p>")).collect();
+        assert_eq!(
+            nesting_ceiling_breach(&reopened),
+            None,
+            "the scanner pops the `b` with its `p` and never reopens it"
+        );
+    }
+
+    /// The early exit: the scan that finds the breach stops there, so no
+    /// token after it is read and no scope search in it walks more than the
+    /// ceiling's frames. Counted on the scan's own token list rather than by
+    /// timing: a probe that recorded the breach and scanned on would hold every
+    /// token of the document. The input is eight times the ceiling deep, small
+    /// enough that a scan without the early exit fails here instead of
+    /// running long.
+    #[test]
+    fn the_probe_stops_at_the_breach() {
+        let deep = nested(MAX_NESTING_DEPTH * 8, "x");
+        let scan = scan_tags_with_state(&deep, Some(MAX_NESTING_DEPTH));
+        assert_eq!(scan.ceiling_breach, Some(MAX_NESTING_DEPTH * "<div>".len()));
+        assert_eq!(
+            scan.tags.len(),
+            MAX_NESTING_DEPTH,
+            "the scan holds the {MAX_NESTING_DEPTH} start tags before the breach and nothing after it"
         );
     }
 }

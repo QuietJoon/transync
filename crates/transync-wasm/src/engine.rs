@@ -743,6 +743,56 @@ mod tests {
         }
     }
 
+    /// R0013-0002 (DCR-0063): a raw-HTML island nested past the HTML nesting
+    /// ceiling reaches this module through the Markdown it is part of, and
+    /// both modes present it as the escaped placeholder. Edit mode derives
+    /// the extraction-failure row itself; the caller here also claims
+    /// `preserved` for it, the status a view-mode map or an edit could carry,
+    /// and the renderer still declines to mount it live. Nothing panics, the
+    /// block's bytes are shown rather than dropped, and the paragraph after
+    /// it keeps its anchor.
+    #[test]
+    fn an_html_island_nested_past_the_ceiling_renders_escaped_in_both_modes() {
+        let md = format!(
+            "{}deep{}\n\nafter\n",
+            "<div>".repeat(513),
+            "</div>".repeat(513)
+        );
+        let html_id = first_block_id_of(&md, "html");
+        let derived = rebuild_impl(&md, "{}", "{}", "en", "ko", None).expect("edit mode renders");
+        let claimed = rebuild_impl(
+            &md,
+            "{}",
+            &serde_json::json!({ html_id.clone(): "preserved" }).to_string(),
+            "en",
+            "ko",
+            None,
+        )
+        .expect("edit mode renders a caller-claimed status");
+        let viewed =
+            render_pair_impl(&md, &md, &claimed.alignment_json).expect("view mode renders");
+        for (mode, source, target) in [
+            ("derived", &derived.source_html, &derived.target_html),
+            ("claimed", &claimed.source_html, &claimed.target_html),
+            ("view", &viewed.source_html, &viewed.target_html),
+        ] {
+            for html in [source, target] {
+                assert!(
+                    html.contains("data-skipped=\"html-block\"") && html.contains("deep"),
+                    "{mode}: the island is shown escaped:\n{html}"
+                );
+                assert!(
+                    !html.contains("<div><div>"),
+                    "{mode}: no live markup from the island:\n{html}"
+                );
+                assert!(
+                    html.contains(">after</p>"),
+                    "{mode}: the next block renders:\n{html}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn schema_version_is_the_wire_constant() {
         assert_eq!(

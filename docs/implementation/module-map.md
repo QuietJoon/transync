@@ -37,6 +37,7 @@ crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017
     ├── intake/
     │   ├── html.rs                     # HTML document intake: five-class classification,
     │   │                               #   rule T, ids/sections/ast_path (ti 490d97 wave 3)
+    │   │                               #   + check_nesting_depth: the 512-element ceiling, before parse
     │   ├── markdown.rs                 # IR types + thin parse; WalkState walker (DCR-0019)
     │   └── markdown/
     │       ├── options.rs              # Comrak GFM option set

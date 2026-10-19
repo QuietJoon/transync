@@ -21,9 +21,13 @@ pub enum HtmlOutcome {
     Unit,
     /// Zero translatable segments — preserved, live-rendered, uncounted.
     PreservedZeroSegment,
-    /// The rewriter errored — placeholder presentation, uncounted. The
-    /// message is surfaced into `ValidationReport::skipped_source_nodes` so
-    /// the degrade is visible rather than silent.
+    /// Extraction refused the block, for one of two causes: the rewriter
+    /// errored, or the block holds more than
+    /// [`transync_html::MAX_NESTING_DEPTH`] elements open at once, which
+    /// `transync_html::extract` checks before the rewriter runs (DCR-0063).
+    /// Placeholder presentation, uncounted. The message names the cause and
+    /// is surfaced into `ValidationReport::skipped_source_nodes` so the
+    /// degrade is visible rather than silent.
     ExtractionFailed(String),
 }
 
@@ -211,5 +215,41 @@ mod template_outcome_tests {
                 );
             }
         }
+    }
+}
+
+// R0013-0002 (DCR-0063): a raw-HTML island in a Markdown document nested past
+// the HTML nesting ceiling is not refused — the document is Markdown — but the
+// island never becomes a unit. It takes the extraction-failure outcome, whose
+// presentation is the escaped placeholder in both panes and whose reason
+// reaches the report, so nothing is dropped and nothing is mounted live.
+#[cfg(test)]
+mod nesting_outcome_tests {
+    use super::*;
+    use crate::id::assign_block_ids;
+
+    #[test]
+    fn an_html_island_nested_past_the_ceiling_is_an_extraction_failure() {
+        let src = format!(
+            "para\n\n{}deep{}\n",
+            "<div>".repeat(513),
+            "</div>".repeat(513)
+        );
+        let mut doc = crate::intake::markdown::parse(&src).expect("a Markdown document parses");
+        assign_block_ids(&mut doc);
+        let outcomes = html_outcomes(&doc);
+        let island = doc
+            .blocks
+            .iter()
+            .find(|b| b.kind == BlockKind::Html)
+            .expect("the island is one html block");
+        let Some(HtmlOutcome::ExtractionFailed(reason)) = outcomes.get(&island.block_id) else {
+            panic!(
+                "past the ceiling the island is not a unit: {:?}",
+                outcomes.get(&island.block_id)
+            );
+        };
+        assert!(reason.contains("nesting"), "{reason}");
+        assert!(!is_translatable_block(island, &outcomes));
     }
 }

@@ -78,6 +78,11 @@ finally enumerates is decided per item, not by this preamble.
   model with no project or location. Only the flag selects it; a key in the
   environment never does. The `x-goog-api-key` header form awaits its first
   live run (`scripts/smoke-live-gate.sh google-vertex-express`).
+- **`transync_html::MAX_NESTING_DEPTH` (512) and `nesting_ceiling_breach`,
+  `transync_syntax::intake::html::check_nesting_depth`, and
+  `ParseError::HtmlTooDeeplyNested { offset, limit }`** (R0013-0002, DCR-0063).
+  Additive: `ParseError` is `#[non_exhaustive]`, and `intake::html::parse`
+  stays infallible, so a direct `transync-syntax` caller runs the check first.
 
 ### Changed
 
@@ -343,6 +348,24 @@ finally enumerates is decided per item, not by this preamble.
 
 ### Security
 
+- **A small HTML document can no longer exhaust memory through its nesting**
+  (R0013-0002, DCR-0063). Every open container in the HTML intake held a copy
+  of its ancestor path, so `N` nested `<div>`s held `N(N+1)/2` ordinals: a
+  220 KB file asked for about 1.6 GB, and allocation failure aborts the
+  process. A container now keeps one ordinal. A block's path is still as long
+  as its nesting and the scanner's scope searches still walk the open stack,
+  so an `--input-format html` run refuses a document holding more than 512
+  elements open at once — where Blink stops nesting — before the intake runs:
+  `HtmlTooDeeplyNested`, exit `2`. The count is the scanner's stack, where a
+  run of unclosed `<a>`, `<nobr>`, `<button>` or headings gains a level per
+  tag that a browser closes, so such a page that translated is refused until
+  those tags are closed. The same depth in a Markdown document's
+  raw-HTML block is not refused: `extract` refuses the block, so it is kept
+  verbatim as an extraction failure, shown escaped in both panes and named in
+  the skipped-node notes, and no renderer mounts a fragment that deep live,
+  whatever its row says. Such a block that used to translate now falls back.
+  Residual: a path is at most 513 words, so short blocks all nested near the
+  cap can still hold about a thousand times their size (`docs/Performance.md`).
 - **Sanitized inline styles can no longer cover trusted chrome** (R0011-0032).
   DOMPurify's default profile keeps the `style` attribute — the shells' CSP
   comment explicitly accommodates it — so a type-6 html block carried in from

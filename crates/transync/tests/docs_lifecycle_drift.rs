@@ -159,13 +159,13 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 const BUDGETS: &[(&str, u64)] = &[
     ("CLAUDE.md", 23_552), // wave 1 done; the rest is rules, not history; +1 KiB DCR-0060's `--google-auth` selector and the manifest version line
     ("docs/index.md", 27_648), // wave 1 landed, → 22_528 not reached; +1 KiB DCR-0061
-    ("docs/architecture/contracts.md", 308_224), // wave 4 landed, → 163_840 not reached; +2 KiB DCR-0061's §9 corrections
+    ("docs/architecture/contracts.md", 311_296), // wave 4 landed, → 163_840 not reached; +2 KiB DCR-0061's §9 corrections, +3 KiB DCR-0063 (R0013-0002)
     ("docs/project/status.md", 24_576),          // wave 2 done; ~2 KiB of working room
     ("docs/project/release-checklist.md", 48_128), // wave 2; +1 KiB DCR-0058
     ("docs/project/phase-state.yaml", 7_168),    // wave 2 done; +1 KiB DCR-0054..DCR-0060 roster
     ("docs/project/open-issues.md", 49_152), // wave 2 done; lowered on 2026-10-14 when OI-0041 moved verbatim to the archive under the Register rule
     ("docs/backlog.md", 113_664), // wave 2 done; lowered to 102 KiB on 2026-10-13 when three entries archived in one day, then +3 KiB the same day for v0.6.0's stated release condition and the recorded deferral its gate verdict depends on, +4 KiB on 2026-10-14 for the two 4B-verdicted claims the agreement rule adopts, +2 KiB when the reviews entry was corrected: a Type 1 filed on a false premise became a Type 2 carrying why, which is the growth a register is for
-    ("CHANGELOG.md", 109_568), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes, +1 KiB DCR-0063 (R0012-0004, R0012-0007, R0012-0008, R0012-0009)
+    ("CHANGELOG.md", 110_592), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes, +1 KiB DCR-0063 (R0012-0004, R0012-0007, R0012-0008, R0012-0009), +1 KiB DCR-0063 (R0013-0002)
     ("docs/Developer_Guide.md", 95_232), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9, +1 KiB SMOOTHING_FACTOR is a per-elapsed-ms lerp (R0011-0094, ti 336bf0c6)
     ("docs/Troubleshooting.md", 40_960), // wave 3
     ("docs/implementation/module-map.md", 40_960), // wave 3; +1 KiB DCR-0058

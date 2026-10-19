@@ -2578,6 +2578,58 @@ fn cli_input_format_conflict_is_an_argument_error() {
     );
 }
 
+/// R0013-0002 (DCR-0063): an HTML document nested past the HTML nesting
+/// ceiling is refused with exit 2 — the parse-refusal code — before any
+/// provider call, and nothing is written. The stub provider would have
+/// translated it, so a run that reaches the provider exits 0 instead.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_html_document_nested_past_the_ceiling_exits_2() {
+    let workdir = ScratchDir::new("transync-cli-html-nesting");
+    let input = workdir.join("deep.html");
+    std::fs::write(
+        &input,
+        format!(
+            "<!DOCTYPE html>\n<html><body>{}<p>Hello.</p>{}</body></html>\n",
+            "<div>".repeat(600),
+            "</div>".repeat(600)
+        ),
+    )
+    .unwrap();
+    let out_md = workdir.join("out.html");
+    let out_json = workdir.join("out.json");
+
+    let output = translate_command()
+        .arg("translate")
+        .arg("--input")
+        .arg(&input)
+        .arg("--output")
+        .arg(&out_md)
+        .arg("--map")
+        .arg(&out_json)
+        .arg("--target-language")
+        .arg("ko")
+        .arg("--input-format")
+        .arg("html")
+        .output()
+        .expect("transync binary must run");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a parse refusal exits 2; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("HTML nesting too deep") && stderr.contains("512"),
+        "stderr names the cause and the ceiling: {stderr}"
+    );
+    assert!(
+        !out_md.exists() && !out_json.exists(),
+        "no output on a refused run"
+    );
+}
+
 /// §9: `--input-format markdown` alone RE-TRIPS the sniff — the flag names
 /// the arm, not a waiver. The bug this catches: keying the sniff on the
 /// flag's PRESENCE instead of on the Markdown arm.

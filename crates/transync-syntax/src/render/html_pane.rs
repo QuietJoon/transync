@@ -78,9 +78,11 @@
 //! emitted — only row ranges are read, so they are unreachable rather than
 //! filtered. A `fallback_source` block renders LIVE (its bytes are source
 //! bytes, already valid HTML) with `data-fallback="fallback_source"`;
-//! ONLY an extraction-failure block (per the run's `HtmlOutcome` map)
-//! takes the escaped `<pre data-skipped="html-block">` placeholder,
-//! mirroring DCR-0016's failure presentation. Non-sync rows — the
+//! ONLY an extraction-failure block (per the run's `HtmlOutcome` map), or a
+//! block whose bytes nest past `transync_html::MAX_NESTING_DEPTH` — which is
+//! what extraction refuses — takes the escaped
+//! `<pre data-skipped="html-block">` placeholder, mirroring DCR-0016's
+//! failure presentation (R0013-0002, DCR-0063). Non-sync rows — the
 //! `<title>` and `<hr>` — reach no pane at all: §8's own per-row rule
 //! (`sync_role != "non-sync"`), with D5/D6 as its grounds and §13 item 6
 //! recording the title's half.
@@ -195,8 +197,9 @@ fn emit_list_group(
     let _ = writeln!(out, "</{tag}>");
 }
 
-/// One row: skip non-sync, key the placeholder on the OUTCOME (Deviation 3),
-/// otherwise strip → inject-or-wrap → balance (§8 steps 2–5).
+/// One row: skip non-sync, key the placeholder on the OUTCOME (Deviation 3)
+/// or on the nesting ceiling, otherwise strip → inject-or-wrap → balance
+/// (§8 steps 2–5).
 fn emit_block(
     out: &mut String,
     block: &Block,
@@ -211,20 +214,30 @@ fn emit_block(
     }
     let bytes = block_text(ctx.md, ctx.pane.range(row, block));
     let attrs_str = attrs::write_attrs(row);
-    match outcomes.get(&block.block_id) {
-        Some(HtmlOutcome::ExtractionFailed(_)) => {
-            // The FAILURE presentation (DCR-0016's placeholder): extraction
-            // failed, so live-mounting markup the rewriter could not read is
-            // not on offer. This is the ONLY escaped arm — a fallback_source
-            // block whose extraction succeeded renders live below.
-            let _ = writeln!(
-                out,
-                "<pre{attrs_str} data-skipped=\"html-block\">{}</pre>",
-                html_escape(bytes),
-            );
-            return;
+    let placeholder = match outcomes.get(&block.block_id) {
+        // The FAILURE presentation (DCR-0016's placeholder): extraction
+        // refused the block (the rewriter errored, or the block nests past
+        // the ceiling), so live-mounting it is not on offer. This and the
+        // ceiling below are the ONLY escaped arms — a
+        // fallback_source block whose extraction succeeded renders live.
+        Some(HtmlOutcome::ExtractionFailed(_)) => true,
+        // R0013-0002 (DCR-0063): bytes nested past the HTML nesting ceiling
+        // are what extraction refuses, so they take its placeholder even when
+        // the caller's outcome map says otherwise — the Markdown pane's rule,
+        // and it keeps the strip and the balancer off a fragment whose scope
+        // searches grow with its depth. The pipeline refuses a document this
+        // deep before parsing it, so a run never reaches here with one.
+        Some(HtmlOutcome::Unit) | Some(HtmlOutcome::PreservedZeroSegment) | None => {
+            transync_html::nesting_ceiling_breach(bytes).is_some()
         }
-        Some(HtmlOutcome::Unit) | Some(HtmlOutcome::PreservedZeroSegment) | None => {}
+    };
+    if placeholder {
+        let _ = writeln!(
+            out,
+            "<pre{attrs_str} data-skipped=\"html-block\">{}</pre>",
+            html_escape(bytes),
+        );
+        return;
     }
     // §8 step 2 THEN step 3: strip first, and scan the STRIPPED bytes for
     // the injection point, so our injected attributes cannot be stripped and
@@ -760,6 +773,40 @@ mod html_pane_tests {
         assert!(
             pane.contains("</text></svg>"),
             "the author's closer survives:\n{pane}"
+        );
+    }
+
+    /// R0013-0002 (DCR-0063): a block whose own bytes nest past the HTML
+    /// nesting ceiling takes the extraction-failure placeholder even when the
+    /// outcome map a caller hands over calls it a unit, so the two pane
+    /// derivations present such a block alike and the scanner never walks it.
+    /// (The pipeline refuses a document this deep before parsing it; this is
+    /// the direct `transync-syntax` caller.)
+    #[test]
+    fn a_block_nested_past_the_ceiling_takes_the_placeholder_whatever_its_outcome() {
+        let src = format!(
+            "<blockquote>{}deep{}</blockquote>\n<p>after</p>\n",
+            "<div>".repeat(512),
+            "</div>".repeat(512)
+        );
+        let mut r = rig(&src);
+        let quote = r
+            .doc
+            .blocks
+            .iter()
+            .find(|b| b.kind == BlockKind::Blockquote)
+            .expect("the blockquote is one leaf block")
+            .block_id
+            .clone();
+        r.outcomes.insert(quote, HtmlOutcome::Unit);
+        let pane = render_source_html(&r.doc, &r.map, &r.outcomes).expect("renders");
+        assert!(
+            pane.contains("data-skipped=\"html-block\">&lt;blockquote&gt;&lt;div&gt;"),
+            "the deep block is shown escaped, not mounted:\n{pane}"
+        );
+        assert!(
+            pane.contains("<p data-sync-id=\"p-"),
+            "the next block keeps its anchor:\n{pane}"
         );
     }
 }

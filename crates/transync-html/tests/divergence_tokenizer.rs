@@ -790,7 +790,7 @@ fn plaintext_is_an_html_content_rule_only() {
 /// This is a claim about what the code deliberately does NOT do, so the test
 /// exists to stop the exclusion being "fixed" by accident. It is not a
 /// divergence: old and new agree, and the test asserts that too, so the
-/// ledger of twenty-two divergences cannot absorb it.
+/// ledger of twenty-three divergences cannot absorb it.
 ///
 /// Ticket `16721e90` argues the exclusion is nonetheless a divergence from
 /// browsers (every pane this crate feeds is mounted by JavaScript, so the

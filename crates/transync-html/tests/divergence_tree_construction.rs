@@ -5,7 +5,7 @@
 //! §4a/§4b, DCR-0041, DCR-0043 and DCR-0051 all assert that this crate's walk
 //! and balancer answer "which element does this closer close, and what is still
 //! open at the end?" **differently from the pre-extraction `htmlseg`, on
-//! purpose**, and that "a difference from it in any of the twenty-two is the
+//! purpose**, and that "a difference from it in any of the twenty-three is the
 //! **fix**, not a regression to restore". Those sentences are what stops the
 //! next maintainer "repairing" a deliberate browser-fidelity change back into a
 //! `contracts.md` §4a break.

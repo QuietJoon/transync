@@ -342,8 +342,12 @@ pub struct TranslateOptions {
     /// translates the same blocks through the same pipeline, validates the
     /// regenerated document with the scanner-side layer-6 gate
     /// (`full_rescan_html` — never a comrak reparse), and returns HTML in
-    /// [`TranslationOutput::translated_document`]. A Markdown string
-    /// declared `Html` produces one text-heavy block set and translates —
+    /// [`TranslationOutput::translated_document`]. A source that holds more
+    /// than 512 elements open at once on the HTML scanner's stack, where a run
+    /// of unclosed `<a>` or heading tags counts a level per tag, is refused
+    /// before the intake runs, with
+    /// [`ParseError::HtmlTooDeeplyNested`] (R0013-0002, DCR-0063). A Markdown
+    /// string declared `Html` produces one text-heavy block set and translates —
     /// wrong shape, but *explicitly requested*, which is the boundary
     /// ADR-0017's silent-path refusals protect; there is no reverse sniff,
     /// because a body fragment is legitimately accepted HTML.

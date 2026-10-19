@@ -223,6 +223,16 @@ mod tests {
             ExitCode::for_pipeline_failure(&parse),
             ExitCode::InputReadFailure
         );
+        // R0013-0002 (DCR-0063): the HTML intake's nesting refusal is a
+        // parse refusal too, and exits 2 like the Markdown one.
+        let html = TransyncError::Parse(transync::ParseError::HtmlTooDeeplyNested {
+            offset: 2560,
+            limit: 512,
+        });
+        assert_eq!(
+            ExitCode::for_pipeline_failure(&html),
+            ExitCode::InputReadFailure
+        );
         assert_eq!(
             ExitCode::for_pipeline_failure(&TransyncError::Validation("nope".into())),
             ExitCode::Other

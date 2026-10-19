@@ -1,7 +1,7 @@
 ---
 type: reference
-title: The twenty-two divergences of transync-html from the retired htmlseg
-description: "transync-html was lifted out of transync-syntax::htmlseg verbatim and has deliberately diverged from it twenty-two times since. This is the enumeration — each divergence with its date, ticket and record — and the rule it exists to serve: a difference from the old htmlseg in any of the twenty-two is the fix, not a regression to restore."
+title: The twenty-three divergences of transync-html from the retired htmlseg
+description: "transync-html was lifted out of transync-syntax::htmlseg verbatim and has deliberately diverged from it twenty-three times since. This is the enumeration — each divergence with its date, ticket and record — and the rule it exists to serve: a difference from the old htmlseg in any of the twenty-three is the fix, not a regression to restore."
 tags: [reference, architecture, transync-html, DCR-0032]
 generated:
   by: claude-code/claude-opus-5
@@ -9,14 +9,14 @@ generated:
 status: stable
 ---
 
-# The twenty-two divergences of `transync-html` from `htmlseg`
+# The twenty-three divergences of `transync-html` from `htmlseg`
 
 DCR-0032 lifted the HTML mechanics out of `transync-syntax::htmlseg` into the
 `transync-html` crate. At the extraction the new crate was verbatim. It is
 deliberately not verbatim any more.
 
 **The rule this list exists to serve:** a difference between `transync-html` and
-the old `htmlseg` in any of the twenty-two below is the **fix**, not a regression
+the old `htmlseg` in any of the twenty-three below is the **fix**, not a regression
 to restore. Anyone comparing the two crates — or reading an old test, an old
 fixture, or `git show` of a pre-extraction file — needs to be able to tell a
 deliberate correction from a bug, and that is what this table is for.
@@ -62,6 +62,7 @@ does not exercise, names the Chromium measurement it rests on.
 | 20 | 2026-10-19 | `c46a35b8` | DCR-0063 | `scan_tags` models script data's **escaped** and **double-escaped** states in the one scanner, so in the legacy `<script><!-- document.write('<script></script>') //--></script>` idiom the inner `</script>` is script text and the outer one closes the element; `balance_fragment` repairs a script left double-escaped at EOF with `-->` before its closer. The orphan pass had deleted the real closer, leaving a browser in an escaped script that swallowed the wrapper's `</div>` and every following anchor. |
 | 21 | 2026-10-19 | `5864f813` | DCR-0063 | The extraction walk takes each HTML template's extent from the one walk instead of from lol_html's selector stack, and asks lol_html's `can_have_content` instead of its syntactic `is_self_closing` for labels. So `<template/>` opens a template whose text stays out of the payload, a template's content runs to its own `</template>` past an ancestor's end tag (which a browser ignores there), and `<p/>Hello</p>` labels its segment `p`. Measured in headless Chromium: `<template/>hidden</template>` puts `hidden` in the template's content, and `<div><template>a</div>b</template>c</div>` puts `ab` there and leaves `c` in the `div`. |
 | 22 | 2026-10-19 | `f9e6f874` | DCR-0063 | `tag_attr_value` reads the **first** attribute of a name, a valueless one as empty, because HTML drops a later duplicate. `<annotation-xml encoding encoding="text/html">` is therefore not an integration point, and a MathML `<style>` after it stops hiding a live `data-sync-id` from the strip. |
+| 23 | 2026-10-19 | `12230ce8` | DCR-0063 | `extract` and `splice` refuse a block that holds more than `MAX_NESTING_DEPTH` (512) elements open at once, through `nesting_ceiling_breach`, which runs the one scanner with an early exit at the ceiling. Every block-level start tag's scope search walks the open stack, so unbounded depth makes each scan quadratic; the refused block takes the caller's extraction-failure path. Not a fidelity measurement but a cap matched to the browser's own: Chromium's tree builder stops nesting at 512 (Blink's `kMaximumHTMLParserDOMTreeDepth`, `html_construction_site.h`) and attaches a deeper node as a sibling of the current parent, so past it the scanner and a browser disagree about the tree anyway. The count is the scanner's stack, which a run of unclosed `<a>`, `<nobr>`, `<button>` or headings deepens a level per tag where a browser closes the previous one (`MAX_NESTING_DEPTH`'s rustdoc lists the rules). |
 
 ## What "orphan close tags are dropped" now means
 

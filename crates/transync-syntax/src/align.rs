@@ -245,8 +245,11 @@ pub fn build_alignment_map(
             FallbackStatus::FallbackSource
         } else {
             match (block.spelling, html_outcomes.get(&block.block_id)) {
-                // Spec §3.2: the rewriter errored — placeholder presentation,
-                // honest fallback status, uncounted. Keyed on SPELLING since
+                // Spec §3.2: extraction refused the block — the rewriter
+                // errored, or the block nests past
+                // `transync_html::MAX_NESTING_DEPTH` (DCR-0063) — so it gets
+                // placeholder presentation, an honest fallback status, and
+                // is uncounted. Keyed on SPELLING since
                 // ti 490d97 wave 2: an HTML document's `<p>` whose extraction
                 // failed is a `Paragraph`, and a kind-keyed arm would fall
                 // through to `Preserved` and claim the block was carried over

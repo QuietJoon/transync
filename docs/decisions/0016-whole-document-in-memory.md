@@ -29,6 +29,14 @@ file exhausts memory before batching or provider limits apply.
   Streaming is not an option the architecture supports; a read-side cap
   would only relabel "OOM" as "file too large," not reduce peak memory
   for accepted inputs.
+* That memory tracks document size *linearly* is a property each intake
+  has to keep, not a consequence of being whole-document. The HTML intake
+  keeps it under a nesting ceiling (DCR-0063): every emitted block's
+  `ast_path` is as long as its nesting, so depth multiplies memory, and an
+  `--input-format html` document holding more than 512 elements open at
+  once on the scanner's stack is refused before the intake runs. Under
+  the ceiling a block's path is at most 513 words, which bounds that
+  factor without removing it.
 * This is a local CLI reading files the operator chose on their own
   machine — there is no untrusted-uploader boundary. The failure mode
   is self-inflicted and immediately diagnosable.

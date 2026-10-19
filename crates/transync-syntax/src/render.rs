@@ -584,7 +584,17 @@ fn render_block<'a>(
         // out of the pane. The node still advanced the walk.
         let md = block_text(ctx.md, ctx.pane.range(align_block, block));
         let attrs = attrs::write_attrs(align_block);
-        if matches!(align_block.fallback_status, FallbackStatus::FallbackSource) {
+        // R0013-0002 (DCR-0063): a fragment nested past the HTML nesting
+        // ceiling takes the same placeholder, whatever its row says. A run
+        // already gives such a block the extraction-failure row, because
+        // `transync_html::extract` refuses it; the row can also come from a
+        // caller (the wasm demo's view and edit modes take theirs from JS),
+        // and the target pane's bytes are the caller's. Its bytes are shown
+        // rather than dropped, its anchor survives, and the strip and the
+        // balancer, whose scope searches grow with depth, never walk it.
+        if matches!(align_block.fallback_status, FallbackStatus::FallbackSource)
+            || transync_html::nesting_ceiling_breach(md).is_some()
+        {
             let _ = writeln!(
                 out,
                 "<pre{attrs} data-skipped=\"html-block\">{}</pre>",
@@ -1656,6 +1666,51 @@ mod html_render_tests {
             html.matches("data-sync-id=\"p-0002\"").count(),
             1,
             "only the real paragraph may claim p-0002:\n{html}"
+        );
+    }
+
+    /// R0013-0002 (DCR-0063): a raw-HTML block nested past the HTML nesting
+    /// ceiling is never mounted live, whatever its row says. A pipeline run
+    /// already gives it the extraction-failure row; this is the caller-supplied
+    /// row (the wasm demo's view and edit modes take statuses and maps from
+    /// their caller), which says `preserved`. The block presents as the same
+    /// escaped placeholder, so its bytes are shown rather than dropped, its
+    /// anchor survives, and the scanner never walks the deep fragment.
+    #[test]
+    fn an_html_block_nested_past_the_ceiling_never_renders_live() {
+        let src = format!(
+            "{}deep{}\n\npara\n",
+            "<div>".repeat(513),
+            "</div>".repeat(513)
+        );
+        let html = render_with_status(&src, FallbackStatus::Preserved);
+        assert!(
+            html.contains("data-sync-id=\"html-0001\"") && html.contains("data-sync-id=\"p-0002\""),
+            "both anchors survive:\n{html}"
+        );
+        assert!(
+            html.contains("data-skipped=\"html-block\""),
+            "the escaped placeholder, not a live mount:\n{html}"
+        );
+        assert!(
+            html.contains("&lt;div&gt;&lt;div&gt;") && html.contains("deep"),
+            "the block's bytes are shown escaped, not dropped:\n{html}"
+        );
+        assert!(
+            !html.contains("<div><div>"),
+            "no live markup from the block reaches the pane:\n{html}"
+        );
+
+        // The control: at the ceiling the same block still mounts live.
+        let at = format!(
+            "{}deep{}\n\npara\n",
+            "<div>".repeat(512),
+            "</div>".repeat(512)
+        );
+        let html = render_with_status(&at, FallbackStatus::Preserved);
+        assert!(
+            !html.contains("data-skipped=\"html-block\"") && html.contains("<div><div>"),
+            "512 nested elements are at the ceiling, not past it"
         );
     }
 }

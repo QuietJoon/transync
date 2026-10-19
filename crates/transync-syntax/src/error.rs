@@ -1,7 +1,8 @@
 //! Parse-side error type. `transync-core`'s `TransyncError` wraps it via
 //! `#[from]` — the cross-crate From derive works unchanged.
 
-/// Errors from [`crate::intake::markdown::parse`].
+/// Errors from [`crate::intake::markdown::parse`] and from
+/// [`crate::intake::html::check_nesting_depth`], the HTML intake's guard.
 ///
 /// Non-exhaustive: new variants may be added in minor releases; match with
 /// a wildcard arm.
@@ -30,4 +31,51 @@ pub enum ParseError {
          containers, over the {limit}-level maximum"
     )]
     TooDeeplyNested { depth: usize, limit: usize },
+
+    /// The HTML document opens an element deeper than
+    /// [`transync_html::MAX_NESTING_DEPTH`], so
+    /// [`crate::intake::html::check_nesting_depth`] refused it before the
+    /// intake built anything (R0013-0002, DCR-0063).
+    ///
+    /// `offset` is the byte offset, in the source as given, of the start tag
+    /// that would have opened one element more than `limit`. Unlike
+    /// [`Self::TooDeeplyNested`] it is measured, not bounded: the scanner
+    /// walks the document's own stack and stops at the first element past the
+    /// ceiling. Past it the cost is memory and time rather than stack (the
+    /// intake's per-block paths and the scanner's scope searches both grow
+    /// with depth).
+    ///
+    /// The depth is the scanner's stack, which on malformed markup is not a
+    /// browser's: a run of unclosed `<a>`, `<nobr>`, `<button>` or headings
+    /// counts one level per tag where a browser closes the previous one, so
+    /// this can refuse a document a browser builds a few levels deep.
+    /// Closing those tags clears it. [`transync_html::MAX_NESTING_DEPTH`]
+    /// lists the rules the scanner does not model.
+    #[error(
+        "HTML nesting too deep: the element opening at byte {offset} nests past the \
+         {limit}-element maximum"
+    )]
+    HtmlTooDeeplyNested { offset: usize, limit: usize },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The HTML refusal says what it measured, in HTML's terms: an element at
+    /// a byte offset, against the element ceiling. The Markdown variant's
+    /// "pre-scan bound" on "block containers" would be the wrong sentence.
+    #[test]
+    fn the_html_refusal_names_its_offset_and_its_ceiling() {
+        let msg = ParseError::HtmlTooDeeplyNested {
+            offset: 2560,
+            limit: 512,
+        }
+        .to_string();
+        assert_eq!(
+            msg,
+            "HTML nesting too deep: the element opening at byte 2560 nests past the \
+             512-element maximum"
+        );
+    }
 }

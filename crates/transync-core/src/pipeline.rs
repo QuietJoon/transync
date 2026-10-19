@@ -398,15 +398,26 @@ where
     // compiles is the body the batches carry.
 
     // ti 490d97 wave 5: THE format branch on the way in (D8's library half —
-    // explicit routing, no sniff). The HTML intake is infallible (wave 3
-    // deviation 2): malformed input force-closes with warnings, NUL is
-    // normalized, so only the Markdown arm carries a `?`. Named directly, as
-    // full_rescan_html's call site already does — wave 3's open note ("wave
-    // 5 decides how core reaches the intake") is decided: no re-export.
-    // Exhaustive match by charter: a third format must stop the compiler.
+    // explicit routing, no sniff). The HTML intake's `parse` is infallible
+    // (wave 3 deviation 2): malformed input force-closes with warnings and NUL
+    // is normalized. Its refusal is the separate nesting guard in front of it
+    // (R0013-0002, DCR-0063): a document that opens an element past
+    // `MAX_NESTING_DEPTH` is a parse error, exit 2 at the CLI, before the
+    // intake builds anything. Nothing later needs its own guard: every
+    // HTML-document unit is a segment splice, whose translated text is
+    // escaped, and a fallback is source bytes, so the regenerated document
+    // that layer 6 re-parses carries the source's markup and the source's
+    // depth — and layer 6's tag ledger compares the two before its fresh
+    // segmentation runs. Named directly, as full_rescan_html's call site
+    // already does — wave 3's open note ("wave 5 decides how core reaches
+    // the intake") is decided: no re-export. Exhaustive match by charter: a
+    // third format must stop the compiler.
     let mut doc = match opts.input_format {
         crate::id::SourceFormat::Markdown => parse(source)?,
-        crate::id::SourceFormat::Html => transync_syntax::intake::html::parse(source),
+        crate::id::SourceFormat::Html => {
+            transync_syntax::intake::html::check_nesting_depth(source)?;
+            transync_syntax::intake::html::parse(source)
+        }
     };
     id::assign_block_ids(&mut doc);
 
@@ -5501,6 +5512,90 @@ mod html_run_tests {
             "prompt_body is not compiled by this run; a warning about it \
              would be the ed8c57 mirror-image defect: {said:?}",
         );
+    }
+
+    /// R0013-0002 (DCR-0063): an HTML document that nests elements past the
+    /// HTML nesting ceiling is refused as a parse error before the intake
+    /// builds anything, so neither the per-level paths nor the scanner's
+    /// whole-stack scope searches ever see it. Both shapes the finding named:
+    /// one paragraph inside every container, and one paragraph at every
+    /// level. At the ceiling the run completes.
+    #[tokio::test]
+    async fn an_html_document_nested_past_the_ceiling_is_refused_as_a_parse_error() {
+        let echo = DissolvesRun(crate::id::BlockId("none-0000".to_string()));
+        for deep in [
+            format!("{}<p>x</p>{}", "<div>".repeat(512), "</div>".repeat(512)),
+            format!("{}{}", "<div><p>x</p>".repeat(513), "</div>".repeat(513)),
+        ] {
+            let cache = InMemoryCache::new();
+            let cache_dyn: &dyn Cache = &cache;
+            let err = run_pipeline(&deep, &html_opts(), &echo, cache_dyn)
+                .await
+                .expect_err("past the ceiling the document is refused");
+            let crate::TransyncError::Parse(parse) = &err else {
+                panic!("a parse refusal, which the CLI reports as exit 2: {err}");
+            };
+            let msg = parse.to_string();
+            assert!(
+                msg.contains("HTML nesting too deep") && msg.contains("512"),
+                "the refusal names the cause and the ceiling: {msg}"
+            );
+        }
+
+        let at = format!("{}<p>x</p>{}", "<div>".repeat(511), "</div>".repeat(511));
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(&at, &html_opts(), &echo, cache_dyn)
+            .await
+            .expect("512 nested elements are at the ceiling, not past it");
+        assert_eq!(out.translated_document, at);
+    }
+
+    /// R0013-0002 (DCR-0063): the same depth inside a MARKDOWN document's
+    /// raw-HTML island is not a refusal — the document is Markdown and the
+    /// island is one block of it. The island takes the extraction-failure
+    /// path instead: no unit, an honest `fallback_source` row, its source
+    /// bytes in the output, the escaped placeholder in both panes, and the
+    /// reason on the report.
+    #[tokio::test]
+    async fn a_markdown_html_island_past_the_ceiling_falls_back_with_its_reason() {
+        let src = format!(
+            "para\n\n{}deep{}\n",
+            "<div>".repeat(513),
+            "</div>".repeat(513)
+        );
+        let opts = crate::TranslateOptions {
+            target_language: "ko".to_string(),
+            ..crate::TranslateOptions::default()
+        };
+        let echo = DissolvesRun(crate::id::BlockId("none-0000".to_string()));
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(&src, &opts, &echo, cache_dyn)
+            .await
+            .expect("a Markdown run is not refused for its island");
+        assert_eq!(out.translated_document, src, "the island's bytes are kept");
+        let row = out
+            .alignment_map
+            .blocks
+            .iter()
+            .find(|b| b.block_kind == "html")
+            .expect("the island keeps its row");
+        assert_eq!(row.fallback_status, crate::FallbackStatus::FallbackSource);
+        assert!(
+            out.validation_report
+                .skipped_source_nodes
+                .iter()
+                .any(|n| n.contains("segment extraction failed") && n.contains("nesting")),
+            "the reason reaches the report: {:?}",
+            out.validation_report.skipped_source_nodes
+        );
+        for pane in [&out.annotated_source_html, &out.annotated_target_html] {
+            assert!(
+                pane.contains("data-skipped=\"html-block\""),
+                "escaped, never live:\n{pane}"
+            );
+        }
     }
 }
 
