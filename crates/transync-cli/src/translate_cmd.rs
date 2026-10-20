@@ -198,14 +198,16 @@ pub struct TranslateArgs {
     /// profile is used.
     #[arg(long)]
     pub profile: Option<PathBuf>,
-    /// Override the active profile's `[system].prompt` template body
-    /// with this string. Mutually exclusive with `--system-prompt-file`.
-    /// Template variables (`{{source_language}}`, `{{target_language}}`)
-    /// are still substituted before each batch.
+    /// Override the active profile's system prompt template with this
+    /// string: `[system].prompt`, and `[system].prompt_html` for an
+    /// `--input-format html` run. Mutually exclusive with
+    /// `--system-prompt-file`. Template variables (`{{source_language}}`,
+    /// `{{target_language}}`) are still substituted before each batch.
     #[arg(long = "system-prompt", conflicts_with = "system_prompt_file")]
     pub system_prompt: Option<String>,
-    /// Read the system prompt template body from a file. Mutually
-    /// exclusive with `--system-prompt`.
+    /// Read the system prompt template override from a file; it replaces
+    /// the same bodies `--system-prompt` does. Mutually exclusive with
+    /// `--system-prompt`.
     #[arg(long = "system-prompt-file", conflicts_with = "system_prompt")]
     pub system_prompt_file: Option<PathBuf>,
     /// Provider to use for translation. TRANSYNC_PROVIDER may set the default.

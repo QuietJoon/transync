@@ -531,8 +531,12 @@ pub struct GlossaryExtractionRequest {
     pub source_truncated: bool,
     pub source_language: String,
     pub target_language: String,
-    /// Source terms already pinned by the static profile glossary, so the
-    /// model does not waste term slots on them.
+    /// Source terms the static profile glossary already pins for the whole
+    /// document — its `global` entries, in profile order — so the model does
+    /// not waste term slots on them. A section-scoped entry is not listed: it
+    /// claims its term in its own sections only, and the merge keeps an
+    /// extracted global entry for the same term so the rest of the document
+    /// has one (R0012-0013, DCR-0027 G6).
     pub existing_terms: Vec<String>,
     /// Hard cap on returned terms; providers should also stamp it into
     /// their Structured Output schema (`maxItems`).

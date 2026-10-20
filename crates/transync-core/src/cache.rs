@@ -269,8 +269,9 @@ pub struct DocumentMeta {
 /// same discipline `pipeline::InstructionDigest` uses for a batch's
 /// instruction. One axis, derived from the source of truth, covering every
 /// input that reaches the model: the excerpt (and therefore the truncation
-/// ceiling that produced it), both language labels, the static glossary's
-/// source terms as `existing_terms`, the term cap, and the wording of both the
+/// ceiling that produced it), both language labels, the source terms of the
+/// static glossary's `global` entries as `existing_terms` (a section-scoped
+/// entry is not listed, R0012-0013), the term cap, and the wording of both the
 /// system prompt and the instruction.
 ///
 /// Two consequences worth stating, because they are decisions and not
@@ -288,8 +289,8 @@ pub struct DocumentMeta {
 /// The three namespace axes are [`DocumentMetaKey`]'s and [`CacheKey`]'s, and
 /// carry the same meaning: who answered, and under which core contract.
 /// `profile_version` is deliberately absent — the extraction prompt carries no
-/// profile prompt body, and the one profile input it *does* carry (the static
-/// glossary's source terms) is already inside `request_hash`.
+/// profile prompt body, and the one profile input it *does* carry (the source
+/// terms of the static `global` entries) is already inside `request_hash`.
 ///
 /// **Exhaustive by policy**, on [`CacheKey`]'s ground: a disk backend has to
 /// serialize and reconstruct every field, so a field addition is
@@ -318,10 +319,12 @@ pub struct GlossaryExtractionKey {
 /// These are the entries `Translator::extract_glossary` returned, *before*
 /// [`crate::profile::merge_auto_glossary`] ran. Storing the pre-merge answer is
 /// what makes replay honest: the merge folds in the static glossary's target
-/// terms and notes, which `GlossaryExtractionKey` does not cover (only the
-/// source terms reach the prompt, as `existing_terms`), so a replayed run
-/// re-runs the merge against its own profile rather than replaying a merge
-/// decided under a different one.
+/// terms and notes, and its section-scoped entries, none of which
+/// `GlossaryExtractionKey` covers (only the `global` entries' source terms
+/// reach the prompt, as `existing_terms`), so a replayed run re-runs the merge
+/// against its own profile rather than replaying a merge decided under a
+/// different one. The merge's conflict rule keys on exactly those global
+/// source terms, so a replay drops what a live run would have dropped.
 ///
 /// Only a successful `Ok(Some(_))` extraction is ever stored. `Ok(None)`
 /// ("this translator does not support extraction") is a property of the
@@ -345,7 +348,9 @@ pub struct GlossaryExtractionKey {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GlossaryExtraction {
     /// The harvested entries in provider order. An empty vector is a real
-    /// record — "supported, nothing salient found" — and replays as such.
+    /// record — "supported, nothing salient found" — and replays as such. The
+    /// shared parser produces one only from an explicit `{"terms": []}`; a
+    /// reply without the member is malformed and never filed (R0012-0012).
     pub terms: Vec<GlossaryEntry>,
 }
 

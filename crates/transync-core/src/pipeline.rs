@@ -357,7 +357,9 @@ where
         // the body THIS run will compile. An Html run with
         // [system].prompt_html compiles that body (select_prompt_for_format,
         // at the build_batches door); without it, the fallback is prompt_body
-        // verbatim — so that is what gets scanned. Scanning here rather than
+        // verbatim — so that is what gets scanned. The CLI's --system-prompt /
+        // --system-prompt-file fill both bodies (R0012-0006), so on an Html run
+        // an override is the body this arm scans. Scanning here rather than
         // in the loader is what covers a caller-built profile that never
         // passed the loader, and scanning ONLY the effective body is the
         // ed8c57 rule itself: never a warning about a body the run does not
@@ -967,7 +969,9 @@ fn annotate_with_preflight(err: TransyncError, diagnosis: Option<&String>) -> Tr
 /// [`glossary_extraction_key`]. A hit skips the provider entirely; a live
 /// `Ok(Some(_))` is filed for the next run. Only that outcome is stored —
 /// `Ok(None)` costs no call to rediscover and `Err(_)` must not latch a
-/// transient failure — and a replayed harvest is not re-filed. The stored value
+/// transient failure; a reply missing the envelope's `terms` member is an
+/// `Err` from the shared parser (R0012-0012), so it is never filed as an empty
+/// harvest — and a replayed harvest is not re-filed. The stored value
 /// is the provider's answer *before* [`merge_auto_glossary`], so a replay
 /// re-runs the merge against this run's own profile and produces the same
 /// report row a live run produced.
@@ -1009,11 +1013,12 @@ async fn resolve_auto_glossary<'o, T: Translator + ?Sized>(
         source_truncated,
         source_language: opts.source_language.clone(),
         target_language: opts.target_language.clone(),
-        existing_terms: raw_profile
-            .glossary
-            .iter()
-            .map(|e| e.source_term.clone())
-            .collect(),
+        // R0012-0013 (DCR-0027 G6): only a static `global` entry pins its term
+        // for the whole document. A section-scoped one claims its sections,
+        // and the merge below keeps an extracted global entry for the same
+        // term, so naming it here would make a compliant extractor withhold
+        // the very entry the merge accepts. One predicate serves both sides.
+        existing_terms: crate::profile::extraction_existing_terms(&raw_profile.glossary),
         max_terms: DEFAULT_MAX_AUTO_GLOSSARY_TERMS,
     };
 
@@ -3023,6 +3028,10 @@ mod auto_glossary_tests {
         extracted: Vec<GlossaryEntry>,
         /// When set, the extractor fails with this `Network` diagnostic.
         fail_with: Option<String>,
+        /// When set, the extractor answers with the shared parser's reading
+        /// of this provider text — what every in-tree adapter returns —
+        /// instead of `extracted`.
+        raw_output: Option<&'static str>,
         extraction_calls: AtomicU32,
         dispatch_calls: AtomicU32,
         seen_glossaries: Mutex<Vec<Vec<GlossaryEntry>>>,
@@ -3041,6 +3050,13 @@ mod auto_glossary_tests {
         fn failing(msg: &str) -> Self {
             Self {
                 fail_with: Some(msg.to_string()),
+                ..Default::default()
+            }
+        }
+
+        fn answering(raw: &'static str) -> Self {
+            Self {
+                raw_output: Some(raw),
                 ..Default::default()
             }
         }
@@ -3096,6 +3112,9 @@ mod auto_glossary_tests {
             self.seen_requests.lock().unwrap().push(req.clone());
             if let Some(msg) = &self.fail_with {
                 return Err(TranslatorError::Network(msg.clone()));
+            }
+            if let Some(raw) = self.raw_output {
+                return crate::llm::prompt::parse_extraction_output(raw).map(Some);
             }
             Ok(Some(self.extracted.clone()))
         }
@@ -3189,8 +3208,8 @@ mod auto_glossary_tests {
             assert!(body.contains("\"agent\" → \"에이전트\""), "{body}");
         }
 
-        // The request framing: already-pinned terms are named so the model
-        // does not spend slots on them, and the cap travels with it.
+        // The request framing: terms a global entry already pins are named so
+        // the model does not spend slots on them, and the cap travels with it.
         let requests = translator.seen_requests.lock().unwrap();
         assert_eq!(requests[0].existing_terms, vec!["agent".to_string()]);
         assert_eq!(requests[0].max_terms, DEFAULT_MAX_AUTO_GLOSSARY_TERMS);
@@ -3211,6 +3230,69 @@ mod auto_glossary_tests {
             reported,
             vec!["tensor", "agent runtime"],
             "report provenance lists exactly the merged-in entries"
+        );
+    }
+
+    /// R0012-0013 (DCR-0027 G6): a static entry scoped to one section claims
+    /// its term in that section only, and the merge keeps an extracted global
+    /// entry for the same term so the rest of the document still has one. The
+    /// request has to agree with that. Listing the section-scoped term in
+    /// `existing_terms` would tell a compliant extractor the term is already
+    /// pinned, so it would withhold exactly the global entry the merge is built
+    /// to accept, and "tensor" outside "Tables" would have no rendering at all.
+    ///
+    /// The stub returns its harvest whatever it is told, so the request
+    /// assertion is the regression; the rest checks that, once the term is
+    /// harvested, G5 hands each section its own rendering.
+    #[tokio::test]
+    async fn a_section_scoped_static_entry_does_not_withhold_its_term_from_extraction() {
+        let translator = RecordingGlossaryTranslator::returning(vec![entry("tensor", "텐서")]);
+        let tables_only = GlossaryEntry {
+            source_term: "tensor".to_string(),
+            target_term: "텐서(표)".to_string(),
+            note: None,
+            scope: GlossaryScope::ConditionalOnSection,
+            sections: vec!["Tables".to_string()],
+        };
+        let opts = crate::TranslateOptions {
+            target_language: "ko".to_string(),
+            source_language: "en".to_string(),
+            profile: Some(profile_with(vec![entry("agent", "에이전트"), tables_only])),
+            auto_glossary: Some(true),
+            ..Default::default()
+        };
+        let src = "# Guide\n\nThe agent moves a tensor.\n\n## Tables\n\nA tensor table.\n";
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        let out = run_pipeline(src, &opts, &translator, cache_dyn)
+            .await
+            .expect("pipeline completes");
+
+        assert_eq!(
+            translator.seen_requests.lock().unwrap()[0].existing_terms,
+            vec!["agent".to_string()],
+            "only a static global entry pins its term for the whole document"
+        );
+
+        let ag = out
+            .validation_report
+            .auto_glossary
+            .as_ref()
+            .expect("report carries the preflight outcome");
+        assert_eq!(ag.accepted_terms, 1);
+        assert_eq!(ag.dropped_conflicts, 0);
+
+        let prompts = translator.seen_prompts.lock().unwrap();
+        assert!(
+            prompts.iter().any(|b| b.contains("\"tensor\" → \"텐서\"")),
+            "outside Tables the harvested global entry renders: {prompts:?}"
+        );
+        assert!(
+            prompts
+                .iter()
+                .any(|b| b.contains("\"tensor\" → \"텐서(표)\"")
+                    && !b.contains("\"tensor\" → \"텐서\"")),
+            "inside Tables the section entry wins and the global one is not sent: {prompts:?}"
         );
     }
 
@@ -3285,6 +3367,64 @@ mod auto_glossary_tests {
             report_row(&second),
             report_row(&first),
             "the merge really re-ran, so the row is the live run's row"
+        );
+    }
+
+    /// R0012-0012: a provider reply without the envelope's `terms` member is no
+    /// answer, so it takes the `Err` arm — a `Failed` row, the static glossary,
+    /// and **nothing filed**. Read as an empty harvest it would be reported as
+    /// a successful extraction of nothing and cached under the request's key,
+    /// and every later identical run would replay "found nothing" and never
+    /// ask again. Both runs here share one cache and one translator type (and
+    /// so one fingerprint), which is what makes the second run's call count the
+    /// evidence that nothing was filed.
+    #[tokio::test]
+    async fn a_harvest_missing_its_terms_member_degrades_and_is_not_cached() {
+        let opts = crate::TranslateOptions {
+            target_language: "ko".to_string(),
+            source_language: "en".to_string(),
+            profile: Some(profile_with(vec![entry("agent", "에이전트")])),
+            max_units_per_batch: 1,
+            auto_glossary: Some(true),
+            ..Default::default()
+        };
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+
+        let malformed = RecordingGlossaryTranslator::answering("{}");
+        let first = run_pipeline(MULTI_BATCH_SRC, &opts, &malformed, cache_dyn)
+            .await
+            .expect("a malformed harvest must not abort the run");
+        assert_eq!(malformed.extraction_calls.load(Ordering::SeqCst), 1);
+        let ag = first
+            .validation_report
+            .auto_glossary
+            .as_ref()
+            .expect("the feature is enabled, so a row exists");
+        assert_eq!(
+            ag.status,
+            AutoGlossaryStatus::Failed,
+            "an envelope without `terms` is not a successful empty harvest"
+        );
+        assert!(
+            ag.error.as_deref().unwrap_or_default().contains("terms"),
+            "the diagnostic names the missing member: {:?}",
+            ag.error
+        );
+        assert_eq!(
+            malformed.first_batch_terms(),
+            vec!["agent".to_string()],
+            "batches carry the static glossary only"
+        );
+
+        let again = RecordingGlossaryTranslator::answering("{}");
+        run_pipeline(MULTI_BATCH_SRC, &opts, &again, cache_dyn)
+            .await
+            .expect("the second run completes");
+        assert_eq!(
+            again.extraction_calls.load(Ordering::SeqCst),
+            1,
+            "a malformed reply is never filed, so the next run asks the provider again"
         );
     }
 
@@ -3426,10 +3566,11 @@ mod auto_glossary_tests {
         );
     }
 
-    /// The key must fold what changed the extraction prompt. The static
-    /// glossary's source terms reach it as `existing_terms` — the model is told
-    /// not to spend slots on them — so a profile that pins a different set is a
-    /// different question and must not replay the first one's answer.
+    /// The key must fold what changed the extraction prompt. The source terms
+    /// of the static glossary's `global` entries reach it as `existing_terms` —
+    /// the model is told not to spend slots on them — so a profile that pins a
+    /// different set is a different question and must not replay the first
+    /// one's answer.
     ///
     /// This is the failure the key exists to prevent: a harvest extracted under
     /// one set of already-pinned terms being replayed for a run that pinned

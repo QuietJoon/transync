@@ -209,7 +209,8 @@ fn fsync_failure_note(dir: &Path, e: &io::Error) -> String {
     )
 }
 
-/// Scratch-directory helper shared by this module's tests and [`lock`]'s.
+/// Scratch-directory helper shared by this module's tests, [`lock`]'s, and
+/// `translate_cmd::input`'s.
 #[cfg(test)]
 pub(crate) mod testing {
     use std::path::{Path, PathBuf};

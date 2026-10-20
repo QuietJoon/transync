@@ -105,7 +105,9 @@ a key you leave out is not inherited — it is unset. That is harmless for
 `[system]` and `[[glossary]]`, which is the whole point of a profile — with
 one wrinkle worth knowing: a profile that omits `[system].prompt_html` gives
 an `--input-format html` run nothing HTML-specific to compile, so the run
-falls back to your `prompt` verbatim and warns once (DCR-0037). The recipes
+falls back to your `prompt` verbatim and warns once (DCR-0037). A
+`--system-prompt` / `--system-prompt-file` override replaces both bodies, so
+a run given one sends the override and does not warn (DCR-0063). The recipes
 below are Markdown-flavored and omit it deliberately. It is
 consequential for `[batching]`, where the shipped default
 (`crates/transync-core/profiles/default.toml`) carries

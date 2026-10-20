@@ -1360,10 +1360,14 @@ pub fn render_prompt_body(
         } else {
             source_language
         };
-        let mut body = profile
-            .prompt_body
-            .replace("{{source_language}}", source_label)
-            .replace("{{target_language}}", target_language);
+        // R0012-0025: both variables are filled in ONE pass over the authored
+        // template, and an inserted label is never rescanned — the rule
+        // ADR-0006's `fill_template` set for the bundle shell. A replace chain
+        // would let the `{{target_language}}` pass rewrite a source label that
+        // spells it, and the prompt would name a different label from the one
+        // the user payload and the cache key carry.
+        let mut body =
+            substitute_template_vars(&profile.prompt_body, source_label, target_language);
         for section in &sections {
             append_prompt_section(&mut body, section);
         }
@@ -1385,6 +1389,45 @@ pub fn render_prompt_body(
         auto_glossary: profile.auto_glossary,
         load_warnings: profile.load_warnings.clone(),
     }
+}
+
+/// Fill `{{source_language}}` and `{{target_language}}` in `template` in one
+/// left-to-right pass (R0012-0025).
+///
+/// Each label is pushed into the output and never read again, so a label that
+/// spells a template variable reaches the prompt as written — ADR-0013 makes
+/// labels opaque, and contracts.md §2 promises them byte for byte. Only the
+/// two exact tokens match, with no trimming, so the spaced
+/// `{{ source_language }}` stays literal, as it always has (R0010-0061,
+/// deferred under OI-0049).
+///
+/// A `{{` that opens neither token gives up **one** byte, not two, so a token
+/// starting at the next byte still matches: with target `ko`,
+/// `{{{target_language}}}` fills to `{ko}`, which is what `str::replace`'s
+/// leftmost-match scan answers on the authored template. `transync-cli`'s `fill_template` is deliberately not
+/// reused: it reads a `{{` to the first `}}`, which would stop substitution
+/// in exactly those crowded templates.
+fn substitute_template_vars(template: &str, source_label: &str, target_label: &str) -> String {
+    const SOURCE: &str = "{{source_language}}";
+    const TARGET: &str = "{{target_language}}";
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        if let Some(after) = rest.strip_prefix(SOURCE) {
+            out.push_str(source_label);
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix(TARGET) {
+            out.push_str(target_label);
+            rest = after;
+        } else {
+            out.push('{');
+            rest = &rest[1..];
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Select the system prompt for the run's source format — ONE selection
@@ -1528,10 +1571,19 @@ fn strip_compiled_sections<'b>(body: &'b str, sections: &[String]) -> Option<&'b
 /// `pipeline::resolve_auto_glossary`.
 ///
 /// The rewind stops at the substituted template, not at the authored one, so
-/// the next compile has nothing left to substitute — which is also what keeps
-/// the R0001-0014 protection intact: a glossary term containing a literal
-/// `{{target_language}}` lives in a section, and sections are appended after
-/// substitution, never fed back through it.
+/// the next compile has none of the template's own variables left to
+/// substitute — which is also what keeps the R0001-0014 protection intact: a
+/// glossary term containing a literal `{{target_language}}` lives in a
+/// section, and sections are appended after substitution, never fed back
+/// through it. An inserted *label* is not protected the same way, because it
+/// lives in the substituted template itself: a label that spells a template
+/// variable survives its own compile verbatim (R0012-0025), but a recompile of
+/// the rewound body substitutes it as a variable. Only a library caller that
+/// hands in an already-compiled profile reaches that recompile (the
+/// auto-glossary merge, or a section cohort in `unit::build_batches`). The
+/// same happens when a compiled profile with no sections is compiled again:
+/// with no appended suffix to recognize, its body reads as a template. The CLI
+/// passes a template and takes neither path.
 pub(crate) fn template_prompt_body(profile: &ProfileMetadata) -> Option<&str> {
     strip_compiled_sections(&profile.prompt_body, &compiled_sections(profile))
 }
@@ -1760,10 +1812,12 @@ pub fn merge_auto_glossary(
     // same term" is — and, since DCR-0027 G6, restricted to the static claims
     // that actually cover the whole document. A section-scoped static entry
     // claims its term in its sections only, so it cannot silence a
-    // document-wide extracted one.
+    // document-wide extracted one. The extraction request lists its
+    // `existing_terms` through the same predicate (R0012-0013), so the
+    // extractor is never told a term is taken that this merge would accept.
     let static_keys: std::collections::HashSet<String> = static_entries
         .iter()
-        .filter(|e| matches!(e.scope, GlossaryScope::GlobalAcrossDocument))
+        .filter(|e| claims_whole_document(e))
         .map(|e| glossary_key(&e.source_term))
         .collect();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1817,6 +1871,34 @@ pub fn merge_auto_glossary(
         dropped_conflicts,
         dropped_invalid,
     }
+}
+
+/// Whether a static entry claims its source term for the whole document — the
+/// one scope that pins a term everywhere (DCR-0027 G6). The two halves of the
+/// auto-glossary preflight ask this one question: [`merge_auto_glossary`],
+/// which drops an extracted entry only on such a claim, and
+/// [`extraction_existing_terms`], which tells the extractor which terms are
+/// taken. Sharing it is what keeps the request and the merge in agreement
+/// (R0012-0013).
+pub(crate) fn claims_whole_document(entry: &GlossaryEntry) -> bool {
+    matches!(entry.scope, GlossaryScope::GlobalAcrossDocument)
+}
+
+/// The source terms an extraction request lists as `existing_terms`: every
+/// static entry that [`claims_whole_document`], in profile order.
+///
+/// A section-scoped entry is left out (R0012-0013). It claims its term in its
+/// own sections only, and [`merge_auto_glossary`] keeps an extracted global
+/// entry for the same term so the rest of the document has a rendering
+/// (DCR-0027 G6). Listing it would tell a compliant extractor the term is
+/// already pinned, and it would withhold exactly the entry the merge exists to
+/// accept.
+pub(crate) fn extraction_existing_terms(static_entries: &[GlossaryEntry]) -> Vec<String> {
+    static_entries
+        .iter()
+        .filter(|e| claims_whole_document(e))
+        .map(|e| e.source_term.clone())
+        .collect()
 }
 
 /// Truncate to at most `max` characters (never mid-UTF-8). Returns the
@@ -3434,6 +3516,83 @@ mod compiled_prompt_state_tests {
             "{compiled:?}"
         );
     }
+
+    /// R0012-0025: a source label that happens to spell the *other* template
+    /// variable is still a label. A `str::replace` chain — `{{source_language}}`
+    /// first, then `{{target_language}}` over the result — rescans the label
+    /// the first pass inserted and rewrites it, so the system prompt would name
+    /// a different source language from the one the user payload and the cache
+    /// key carry verbatim.
+    #[test]
+    fn a_source_label_spelling_a_template_variable_is_substituted_verbatim() {
+        let p = load_profile(&profile_toml(BOTH_SECTIONS)).expect("loads");
+        let compiled = render_prompt_body(&p, "dialect {{target_language}}", "ko").prompt_body;
+        assert!(
+            compiled.starts_with("Translate from dialect {{target_language}} to ko."),
+            "an inserted label must never be rescanned: {compiled:?}"
+        );
+    }
+
+    /// The symmetric pin. A target label spelling `{{source_language}}` is
+    /// verbatim under a replace chain too, because the target is inserted
+    /// last; this guards the order-independence the single pass makes
+    /// structural.
+    #[test]
+    fn a_target_label_spelling_a_template_variable_is_substituted_verbatim() {
+        let p = load_profile(&profile_toml(BOTH_SECTIONS)).expect("loads");
+        let compiled = render_prompt_body(&p, "en", "x {{source_language}}").prompt_body;
+        assert!(
+            compiled.starts_with("Translate from en to x {{source_language}}."),
+            "{compiled:?}"
+        );
+    }
+
+    /// For plain labels the single pass answers what the replace chain
+    /// answered, **on this corpus** — templates whose braces crowd, nest or
+    /// stay open around the two tokens. The corpus is the claim; equivalence
+    /// is not asserted for every template, because a template whose own text
+    /// and an inserted label together spell a token is exactly what the
+    /// single pass exists to read differently. A profile with no glossary and
+    /// no constraints compiles to the substituted template alone, so the
+    /// compiled body is the substitution's output.
+    #[test]
+    fn single_pass_substitution_matches_the_replace_chain_on_the_listed_corpus() {
+        for template in [
+            "",
+            "plain",
+            "{{{target_language}}}",
+            "{{{{source_language}}}}",
+            "{{ source_language }}",
+            "{{source_language",
+            "x {{ {{target_language}}",
+            "{{target_language}}{{source_language}}",
+            "{{source_language}}{{source_language}} {{target_lang}}",
+            "{{",
+            "}}{{",
+            "{{{",
+        ] {
+            let p = ProfileMetadata {
+                slug: "corpus".into(),
+                version: "1.0.0".into(),
+                prompt_body: template.to_string(),
+                prompt_html: None,
+                glossary: Vec::new(),
+                constraints: ProfileConstraints::default(),
+                batching: ProfileBatching::default(),
+                render: ProfileRender::default(),
+                auto_glossary: None,
+                load_warnings: Vec::new(),
+            };
+            let chain = template
+                .replace("{{source_language}}", "en")
+                .replace("{{target_language}}", "ko");
+            assert_eq!(
+                render_prompt_body(&p, "en", "ko").prompt_body,
+                chain,
+                "template {template:?}"
+            );
+        }
+    }
 }
 
 // ti 28110f: the third state R0001-0014's recognizer cannot name — a profile
@@ -4232,5 +4391,42 @@ mod glossary_section_scope_tests {
             "{:?}",
             loaded.load_warnings
         );
+    }
+
+    /// R0012-0013: the extraction request and the merge read one claim. Every
+    /// static term the request leaves out of `existing_terms` is one the merge
+    /// accepts when it comes back extracted, and every term it lists is one the
+    /// merge drops as a conflict — so the extractor is never told a term is
+    /// taken that the merge would keep (G6), nor left free to spend a slot on
+    /// one the merge would discard.
+    #[test]
+    fn the_extraction_request_lists_exactly_the_terms_the_merge_refuses() {
+        let static_entries = vec![
+            global("agent", "에이전트"),
+            sectioned("tensor", "텐서(표)", &["Tables"]),
+            global("cell", "셀"),
+            sectioned("cell", "감방", &["Prisons"]),
+            sectioned("kernel", "커널", &["OS"]),
+        ];
+        let listed = extraction_existing_terms(&static_entries);
+        assert_eq!(listed, vec!["agent".to_string(), "cell".to_string()]);
+
+        for e in &static_entries {
+            let merged =
+                merge_auto_glossary(&static_entries, vec![global(&e.source_term, "x")], 24);
+            let is_listed = listed.contains(&e.source_term);
+            assert_eq!(
+                merged.dropped_conflicts,
+                u32::from(is_listed),
+                "{:?}: a listed term is the merge's conflict",
+                e.source_term
+            );
+            assert_eq!(
+                merged.accepted,
+                u32::from(!is_listed),
+                "{:?}: an unlisted term is the merge's to accept",
+                e.source_term
+            );
+        }
     }
 }

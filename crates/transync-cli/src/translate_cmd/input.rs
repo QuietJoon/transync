@@ -197,10 +197,18 @@ fn aux_read_error(err: CappedReadError, flag: &str, path: &Path) -> ProfileError
 
 /// Resolve the active profile, layering CLI overrides on top of either a
 /// `--profile` TOML file or the embedded default. `--system-prompt` /
-/// `--system-prompt-file` replace the loaded profile's `prompt_body`
-/// template; template variables are substituted at batch-build time.
-/// `--profile` / `--system-prompt-file` reads are capped at
-/// [`AUX_READ_LIMIT`] (EXT-2026-07 P1-7).
+/// `--system-prompt-file` replace **both** template bodies, `[system].prompt`
+/// (`prompt_body`) and `[system].prompt_html`, so the override is the run's
+/// system prompt whichever input format the run declares (flag > profile;
+/// R0012-0006). Both, because the format selection decides which body a run
+/// compiles: an `--input-format html` run compiles `prompt_html`, which the
+/// embedded default always carries, so an override in `prompt_body` alone
+/// would never reach it. Filling the HTML slot rather than clearing it keeps
+/// the run clear of the "written for Markdown" advisory, which names a
+/// profile's missing key and not an operator's override. `load_warnings` is
+/// left alone — it records what the file said. Template variables are
+/// substituted at batch-build time. `--profile` / `--system-prompt-file`
+/// reads are capped at [`AUX_READ_LIMIT`] (EXT-2026-07 P1-7).
 ///
 /// TRACE: SCN-09
 /// TRACE: contracts.md §2
@@ -219,15 +227,92 @@ pub(crate) fn resolve_profile(
         None => default_profile(),
     };
 
-    if let Some(text) = system_prompt {
-        profile.prompt_body = text.to_string();
+    let override_text = if let Some(text) = system_prompt {
+        Some(text.to_string())
     } else if let Some(path) = system_prompt_file {
-        let text = read_capped(path, AUX_READ_LIMIT)
-            .map_err(|e| aux_read_error(e, "--system-prompt-file", path))?;
+        Some(
+            read_capped(path, AUX_READ_LIMIT)
+                .map_err(|e| aux_read_error(e, "--system-prompt-file", path))?,
+        )
+    } else {
+        None
+    };
+    if let Some(text) = override_text {
+        profile.prompt_html = Some(text.clone());
         profile.prompt_body = text;
     }
 
     Ok(profile)
+}
+
+/// R0012-0006: an explicit `--system-prompt` / `--system-prompt-file` is the
+/// system prompt of the run, whatever the run's input format. An override in
+/// `prompt_body` alone never reaches an `--input-format html` run, which
+/// compiles the profile's `prompt_html` instead — and the embedded default
+/// always carries one — so the operator's text would be replaced without a
+/// word.
+#[cfg(test)]
+mod resolve_profile_tests {
+    use super::resolve_profile;
+    use crate::output::testing::scratch_dir;
+    use transync::profile::ProfileMetadata;
+
+    const OVERRIDE: &str = "Override into {{target_language}}.";
+
+    fn resolved(
+        profile: Option<&std::path::Path>,
+        text: Option<&str>,
+        file: Option<&std::path::Path>,
+    ) -> ProfileMetadata {
+        resolve_profile(profile, text, file)
+            .ok()
+            .expect("the profile resolves")
+    }
+
+    fn assert_overrides_both_bodies(p: &ProfileMetadata, door: &str) {
+        assert_eq!(p.prompt_body, OVERRIDE, "{door}: the Markdown body");
+        assert_eq!(
+            p.prompt_html.as_deref(),
+            Some(OVERRIDE),
+            "{door}: the body an --input-format html run compiles"
+        );
+    }
+
+    #[test]
+    fn the_inline_override_replaces_both_template_bodies() {
+        assert_overrides_both_bodies(&resolved(None, Some(OVERRIDE), None), "--system-prompt");
+    }
+
+    #[test]
+    fn the_file_override_replaces_both_template_bodies() {
+        let dir = scratch_dir("system-prompt-file-both-bodies");
+        let path = dir.join("prompt.txt");
+        std::fs::write(&path, OVERRIDE).expect("prompt file writable");
+        assert_overrides_both_bodies(&resolved(None, None, Some(&path)), "--system-prompt-file");
+    }
+
+    /// Flag beats profile: a `--profile` that writes its own `prompt_html`
+    /// loses that body to the override, exactly as its `prompt` does.
+    #[test]
+    fn the_override_beats_a_profiles_own_prompt_html() {
+        let dir = scratch_dir("system-prompt-over-profile-html");
+        let profile = dir.join("p.toml");
+        std::fs::write(
+            &profile,
+            "slug = \"p\"\nversion = \"1\"\n[system]\nprompt = \"Markdown.\"\n\
+             prompt_html = \"HTML.\"\n",
+        )
+        .expect("profile writable");
+
+        let p = resolved(Some(&profile), None, None);
+        assert_eq!(p.prompt_body, "Markdown.");
+        assert_eq!(p.prompt_html.as_deref(), Some("HTML."));
+
+        assert_overrides_both_bodies(
+            &resolved(Some(&profile), Some(OVERRIDE), None),
+            "--profile + --system-prompt",
+        );
+    }
 }
 
 /// The preamble sniff, both directions: what an HTML document looks like, and

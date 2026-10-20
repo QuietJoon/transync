@@ -22,6 +22,8 @@ mod common;
 #[cfg(feature = "test-stub-provider")]
 use common::ScratchDir;
 #[cfg(feature = "test-stub-provider")]
+use std::ffi::OsStr;
+#[cfg(feature = "test-stub-provider")]
 use std::process::Command;
 
 #[cfg(feature = "test-stub-provider")]
@@ -2072,6 +2074,119 @@ fn cli_prompt_template_warning_follows_the_effective_body() {
             output.status.code()
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            stderr
+                .matches("unknown template variable `{{target_lang}}`")
+                .count(),
+            *expected,
+            "{what}: expected {expected} diagnostic(s): {stderr}"
+        );
+    }
+}
+
+/// One `--input-format html` run of `HTML_DOCUMENT` with `extra` appended to
+/// the argv, returning its stderr. Template diagnostics are what these runs
+/// are read for, so `RUST_LOG` is cleared: the subscriber's level is
+/// flag-derived, and a stray value in the developer's environment must not
+/// decide the count.
+#[cfg(feature = "test-stub-provider")]
+fn html_run_stderr(workdir: &std::path::Path, run: &str, extra: &[&OsStr]) -> String {
+    let input = workdir.join("page.html");
+    std::fs::write(&input, HTML_DOCUMENT).expect("input writable");
+    let dir = workdir.join(run);
+    std::fs::create_dir_all(&dir).expect("run dir creatable");
+    let output = translate_command()
+        .env_remove("RUST_LOG")
+        .arg("translate")
+        .arg("--input")
+        .arg(&input)
+        .arg("--input-format")
+        .arg("html")
+        .arg("--output")
+        .arg(dir.join("out.html"))
+        .arg("--map")
+        .arg(dir.join("out.json"))
+        .arg("--target-language")
+        .arg("ko")
+        .args(extra)
+        .output()
+        .expect("transync binary must run");
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{run} must translate — a template typo is a warning: {stderr}"
+    );
+    stderr
+}
+
+/// R0012-0006: `--system-prompt` / `--system-prompt-file` are the run's system
+/// prompt on an `--input-format html` run too. An HTML run compiles
+/// `[system].prompt_html` — which the embedded default always carries — so an
+/// override landing in `[system].prompt` alone would be dropped and the
+/// shipped HTML prompt sent, with nothing said. The template diagnostic is the
+/// observable: it is taken over the body the run compiles, so a typo in the
+/// override is reported exactly when the override is that body.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_system_prompt_override_reaches_an_html_run() {
+    let workdir = ScratchDir::new("transync-cli-prompt-override-html");
+    let body = "Translate into {{target_lang}}.";
+    let prompt_file = workdir.join("prompt.txt");
+    std::fs::write(&prompt_file, body).expect("prompt file writable");
+
+    let doors = [
+        ("--system-prompt", OsStr::new(body)),
+        ("--system-prompt-file", prompt_file.as_os_str()),
+    ];
+    for (i, (flag, value)) in doors.into_iter().enumerate() {
+        let stderr = html_run_stderr(&workdir, &format!("run{i}"), &[OsStr::new(flag), value]);
+        assert_eq!(
+            stderr
+                .matches("unknown template variable `{{target_lang}}`")
+                .count(),
+            1,
+            "{flag} must be the body an HTML run compiles: {stderr}"
+        );
+    }
+}
+
+/// The converse, and flag-beats-profile: a `--profile` whose own
+/// `[system].prompt_html` carries the typo is reported while it is the body the
+/// HTML run compiles, and a clean override replaces it — typo, warning and all.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_system_prompt_override_replaces_a_profiles_prompt_html() {
+    let workdir = ScratchDir::new("transync-cli-prompt-override-profile-html");
+    let profile_path = workdir.join("html-typo.toml");
+    std::fs::write(
+        &profile_path,
+        "slug = \"html-typo\"\nversion = \"1.0.0\"\n[system]\n\
+         prompt = \"Translate from {{source_language}} to {{target_language}}.\"\n\
+         prompt_html = \"Translate into {{target_lang}}.\"\n",
+    )
+    .expect("profile file writable");
+    let clean = "Translate from {{source_language}} to {{target_language}}.";
+
+    let cases = [
+        (
+            "the profile's prompt_html, nothing over it",
+            vec![OsStr::new("--profile"), profile_path.as_os_str()],
+            1,
+        ),
+        (
+            "a clean override over the profile's prompt_html",
+            vec![
+                OsStr::new("--profile"),
+                profile_path.as_os_str(),
+                OsStr::new("--system-prompt"),
+                OsStr::new(clean),
+            ],
+            0,
+        ),
+    ];
+    for (i, (what, extra, expected)) in cases.iter().enumerate() {
+        let stderr = html_run_stderr(&workdir, &format!("run{i}"), extra);
         assert_eq!(
             stderr
                 .matches("unknown template variable `{{target_lang}}`")

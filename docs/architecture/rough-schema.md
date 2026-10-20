@@ -305,7 +305,7 @@ ProfileMetadata {
   slug: String,           // "default", "technical-docs-ko", ...
   version: String,        // opaque non-empty identifier; any change invalidates cache
   prompt_body: String,    // the compiled system prompt (after profile + glossary substitution)
-  prompt_html: Option<String>,      // the raw [system].prompt_html template an --input-format html run compiles instead of prompt (ti 490d97); None = key absent
+  prompt_html: Option<String>,      // the raw [system].prompt_html template an --input-format html run compiles instead of prompt (ti 490d97); None = key absent; the CLI's --system-prompt / --system-prompt-file replace it too (DCR-0063)
   glossary: Vec<GlossaryEntry>,     // structured entries, also rendered into prompt_body
   constraints: ProfileConstraints,  // typed [constraints] section (OI-0003)
   batching: ProfileBatching,        // typed [batching] section (OI-0003)

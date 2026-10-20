@@ -57,7 +57,9 @@ rest of the document with no rendering at all for a term the document
 demonstrably uses. The two coexist instead, and per-section resolution then
 hands the static entry its own sections and the extracted one everywhere else —
 preserving both intents rather than letting one section's terminology erase the
-document's.
+document's. The preflight is asked to skip only the terms your global entries
+pin, so a term you scoped to one section is still one it may propose for the
+rest of the document.
 
 ## Why a scope a provider returns is ignored
 

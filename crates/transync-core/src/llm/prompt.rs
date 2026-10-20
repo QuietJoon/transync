@@ -1004,9 +1004,14 @@ pub fn extraction_schema_object(max_terms: u32) -> serde_json::Value {
     })
 }
 
+/// The extraction envelope. `terms` is its only result member and the schema
+/// requires it, so it carries no `#[serde(default)]`: an envelope without it
+/// is no answer, not an empty one (R0012-0012). ADR-0008's leniency is for a
+/// member that may legitimately be absent (the translation envelope's
+/// `warnings`; `note` below is optional the same way), and the translation
+/// envelope's own result member, `units`, takes no default either.
 #[derive(Deserialize)]
 struct ApiGlossaryExtraction {
-    #[serde(default)]
     terms: Vec<ApiGlossaryTerm>,
 }
 
@@ -1034,7 +1039,13 @@ struct ApiGlossaryTerm {
 /// Do not "correct" this into honoring a returned scope.
 ///
 /// Malformed JSON yields [`TranslatorError::MalformedResponse`], which the
-/// pipeline degrades (warn + static glossary only) rather than aborts.
+/// pipeline degrades (warn + static glossary only) rather than aborts. That
+/// includes an envelope with no `terms` member — `{}`, or the harvest under
+/// another key, since unknown members are ignored (R0012-0012). `{"terms": []}`
+/// is the only spelling of "supported, nothing salient found": it parses to an
+/// empty vector, and the pipeline files it in the harvest cache as a real
+/// answer. A missing member must not reach that cache, because a filed empty
+/// harvest replays on every later identical run instead of asking again.
 ///
 /// TRACE: OI-0026
 pub fn parse_extraction_output(text: &str) -> Result<Vec<GlossaryEntry>, TranslatorError> {
@@ -2034,5 +2045,36 @@ mod tests {
                 if s.contains("glossary-extraction schema")),
             "got {err:?}"
         );
+    }
+
+    /// R0012-0012: `terms` is the envelope's only result member and the
+    /// schema requires it, so an envelope without it is not "found nothing" —
+    /// it is no answer. Read as an empty harvest, the pipeline would file it as
+    /// one (ti `dca5bf`), and every later identical run would replay that empty
+    /// record instead of asking again. `{"terms": []}` is the one spelling of
+    /// "supported, nothing salient", and it must stay accepted.
+    #[test]
+    fn parse_extraction_output_requires_the_terms_member() {
+        let err =
+            parse_extraction_output("{}").expect_err("an envelope without `terms` is malformed");
+        assert!(
+            matches!(&err, TranslatorError::MalformedResponse(s)
+                if s.contains("glossary-extraction schema") && s.contains("missing field `terms`")),
+            "got {err:?}"
+        );
+
+        // A misnamed member is the same absence: unknown keys are ignored, so
+        // it is `terms` that is missing.
+        let err =
+            parse_extraction_output(r#"{"glossary":[{"source":"a","target":"b","note":null}]}"#)
+                .expect_err("a misnamed result member is malformed");
+        assert!(
+            matches!(&err, TranslatorError::MalformedResponse(s) if s.contains("`terms`")),
+            "got {err:?}"
+        );
+
+        let empty = parse_extraction_output(r#"{"terms":[]}"#)
+            .expect("an explicit empty array is a real answer");
+        assert!(empty.is_empty());
     }
 }

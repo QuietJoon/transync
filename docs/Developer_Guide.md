@@ -484,7 +484,7 @@ transync translate
   [--target-direction <rtl|ltr|auto>]
                                  dir for the bundle's target pane; default auto
   [--profile <path>]             custom Profile TOML
-  [--system-prompt <text>]       overrides profile [system].prompt
+  [--system-prompt <text>]       overrides [system].prompt and prompt_html
   [--system-prompt-file <path>]  same, read from a file
   [--provider <openai|google>]   default: openai; explicit provider selector
   [--google-surface <vertex|developer>]
@@ -1064,9 +1064,10 @@ Two paths, in order of convenience:
 1. **Inline string per run** — `--system-prompt 'Translate from {{source_language}} to {{target_language}}, preserve markdown structure.'`
 2. **External file** — `--system-prompt-file path/to/prompt.txt`
 
-The text overrides the active profile's `[system].prompt` body before
-template substitution. `{{source_language}}` and `{{target_language}}`
-are substituted per call. Any *other* unnamespaced `{{placeholder}}` is a
+The text overrides the active profile's `[system].prompt` body, and its
+`[system].prompt_html` so an `--input-format html` run sends it too
+(DCR-0063), before template substitution. `{{source_language}}` and
+`{{target_language}}` are substituted per call. Any *other* unnamespaced `{{placeholder}}` is a
 typo that reaches the model literally, and it is reported on stderr
 (`WARN transync::profile: unknown template variable …`) whichever way the
 body arrived — profile TOML, `--system-prompt`, or `--system-prompt-file`.

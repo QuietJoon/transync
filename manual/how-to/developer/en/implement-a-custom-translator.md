@@ -381,7 +381,10 @@ approximation looks like.
 it only if your provider can usefully harvest candidate terminology in one
 preflight call. If you do, remember it takes `cancel` too, and that
 `Ok(Some(vec![]))` ("supported, found nothing") is a different answer from
-`Ok(None)`.
+`Ok(None)`. A harvest is cached and replayed on every identical run, so a
+reply you cannot read must be an error, not an empty harvest:
+`transync::llm::prompt::parse_extraction_output` returns
+`MalformedResponse` for a reply with no `terms` member (DCR-0063).
 
 ## 5. Satisfy the behavior contract
 

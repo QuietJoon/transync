@@ -383,8 +383,9 @@ depends entirely on who owns the cache:
   given document, profile, language pair and provider are run together.
   The harvest is then cached in its own document-scoped record — keyed
   on the extraction prompt's bytes, so a changed excerpt, term cap,
-  language label or static glossary is a different question and buys a
-  fresh call — and a fully warm run replays it and calls nothing at all.
+  language label or set of static `global` source terms is a different
+  question and buys a fresh call — and a fully warm run replays it and
+  calls nothing at all.
   The replay also removes what used to be this feature's real cost on
   repeat runs: a nondeterministic extractor no longer lowers the hit
   rate of the runs after it, because the runs after it do not ask again.

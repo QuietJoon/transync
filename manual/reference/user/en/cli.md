@@ -74,7 +74,7 @@ else: `serve` has no provider, no profile, and no verbosity flags.
 | `--source-language <label>\|auto` | no | `auto` | `auto` is the one reserved sentinel for model-side detection: recognized case-insensitively and stored in canonical lowercase. Any other value is an opaque label with its case preserved. |
 | `--target-direction <rtl\|ltr\|auto>` | no | profile `[render].target_direction`, else `auto` | Presentation-only: the bundle's target-pane text direction. `ltr` emits no `dir` attribute at all. Never affects `out.md` or the alignment map. |
 | `--profile <path>` | no | the embedded default profile | Custom Profile TOML. **Replaces** the embedded profile; it is not merged onto it. See [Profile TOML schema](./profile-toml-schema.md). |
-| `--system-prompt <text>` | mutually exclusive with `--system-prompt-file` | — | Replaces the active profile's `[system].prompt` body. Template variables are still substituted. |
+| `--system-prompt <text>` | mutually exclusive with `--system-prompt-file` | — | Replaces the active profile's `[system].prompt` body and its `[system].prompt_html` body, so an `--input-format html` run sends it too. Template variables are still substituted. |
 | `--system-prompt-file <path>` | mutually exclusive with `--system-prompt` | — | The same, read from a file (4 MiB cap). |
 | `--provider <openai\|google>` | no | `openai` | Choose the CLI adapter. The flag beats `TRANSYNC_PROVIDER`. Anthropic remains library-only. |
 | `--google-surface <vertex\|developer>` | no | `vertex` when Google is selected | Vertex uses a Google Cloud project and Application Default Credentials (ADC); Developer uses `GEMINI_API_KEY`. A key never selects the surface implicitly. |

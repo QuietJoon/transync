@@ -252,6 +252,41 @@ finally enumerates is decided per item, not by this preamble.
   (R0012-0009, DCR-0063). HTML keeps the first attribute, so `<annotation-xml
   encoding encoding="text/html">` is not an HTML integration point; reading it
   as one hid a live `data-sync-id` after a MathML `<style>` from the pane strip.
+- **`--system-prompt` and `--system-prompt-file` reach an `--input-format
+  html` run** (R0012-0006, DCR-0063). The override replaced `[system].prompt`
+  only, and an HTML run compiles `[system].prompt_html`, which the embedded
+  default always carries, so the run silently sent the shipped HTML prompt.
+  Both flags now replace both bodies. **Visible:** an HTML run given
+  an override sends it, even over a `--profile`'s own `prompt_html` (flag
+  beats profile), prints no missing-`prompt_html` advisory, reports a typo in
+  it under the `[system].prompt_html:` prefix, and misses its cache once.
+  Markdown runs are unchanged.
+- **A glossary-extraction reply without `terms` is a failed extraction, not an
+  empty one** (R0012-0012, DCR-0063). `parse_extraction_output` read `{}`, or
+  the harvest under another key, as "found nothing": the row said `Extracted`
+  and the empty harvest was filed, so every later identical run replayed it
+  instead of asking. It now returns `MalformedResponse`: the row is `Failed`,
+  the CLI prints `auto-glossary: extraction failed (…)`, and nothing is filed.
+  `{"terms": []}` is still a real empty answer. A non-strict endpoint behind
+  `--base-url` now warns and pays the preflight on every run. A record an
+  earlier build filed this way still replays until the cache is cleared.
+- **A section-scoped glossary entry no longer keeps its term out of the
+  auto-glossary** (R0012-0013, DCR-0063). The extraction request listed every
+  static source term as pinned, so a compliant extractor withheld the global
+  entry DCR-0027 G6 keeps beside a section-scoped one, and the term had no
+  rendering outside its sections. `existing_terms` now lists only static
+  `global` entries' terms, through the merge's own predicate. A profile with
+  section-scoped entries sends a different request, so its harvest misses
+  once.
+- **A source label that spells `{{target_language}}` reaches the system prompt
+  as written** (R0012-0025, DCR-0063). Chained `str::replace` let the second
+  pass rewrite the label the first had inserted, so the prompt named a label
+  the payload and cache key do not carry. Substitution is now one pass that
+  never rescans an inserted label, like ADR-0006's `fill_template`.
+  A compiled prompt moves only where an inserted label, alone or with
+  adjacent template text, spells a variable. An already-compiled library
+  profile can still be re-substituted when a section cohort recompiles it
+  (ticket `1e902c74`).
 
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above

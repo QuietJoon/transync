@@ -123,7 +123,7 @@ continues with the value the warning names.
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `prompt` | string | yes | The system prompt template. Participates in cache identity via the compiled prompt hash. |
-| `prompt_html` | string | no | The system prompt an **HTML-document run** compiles instead of `prompt` (DCR-0037). Selected at the cohort-compile door by the run's source format; a profile without it falls back to `prompt` verbatim plus one advisory warning, never a synthesized merge. Participates in cache identity on the same terms. |
+| `prompt_html` | string | no | The system prompt an **HTML-document run** compiles instead of `prompt` (DCR-0037). Selected at the cohort-compile door by the run's source format; a profile without it falls back to `prompt` verbatim plus one advisory warning, never a synthesized merge. `--system-prompt` / `--system-prompt-file` replace it along with `prompt`. Participates in cache identity on the same terms. |
 
 Template variables substituted at compile time: `{{source_language}}`,
 `{{target_language}}`. Any other unnamespaced `{{name}}` is reported as a
