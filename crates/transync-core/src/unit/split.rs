@@ -169,49 +169,53 @@ fn greedy_plan(
     factor: f64,
     bpe: &CoreBPE,
 ) -> Vec<Vec<String>> {
-    // Each piece is encoded exactly once, and the running `bound` below is
-    // their sum (OI-0041 Required Action 1). `TableRows::window` emits
-    // `header \n delimiter (\n row)*`, so these pieces are that string cut at
-    // the row joins and nowhere else.
-    let prefix_tokens = bpe
-        .encode_with_special_tokens(&format!("{}\n{}", rows.header, rows.delimiter))
-        .len();
-    let row_tokens: Vec<usize> = rows
-        .body
-        .iter()
-        .map(|row| bpe.encode_with_special_tokens(&format!("\n{row}")).len())
-        .collect();
+    // Every row is priced once up front and the growing window is never
+    // re-encoded to find out whether it still fits: the `bound` below is a
+    // sum of those prices (OI-0041 Required Action 1). `None` for a table the
+    // prices cannot bound (`RowPrices::new` says which); every row of it then
+    // pays the exact encode.
+    let prices = RowPrices::new(rows, bpe);
 
     let mut plan: Vec<Vec<String>> = Vec::new();
     let mut current: Vec<String> = Vec::new();
-    let mut bound = prefix_tokens;
+    // The window's prefix plus every row of `current` but the last, each
+    // priced as followed by the next.
+    let mut joined = 0;
     let mut id = window_unit_id(parent_id, 0);
     let mut id_tokens = bpe.encode_with_special_tokens(&id.0).len();
     for (i, row) in rows.body.iter().enumerate() {
         if current.is_empty() {
             current.push(row.clone());
-            bound += row_tokens[i];
+            if let Some(prices) = &prices {
+                joined = prices.prefix(rows, i, bpe);
+            }
             continue;
         }
         current.push(row.clone());
-        bound += row_tokens[i];
-        // The cheap guard, and the reason the exact call below is still the
-        // one that decides. `bound` can only over-count: encoding a string
-        // whole never yields more tokens than encoding it in pieces, because
-        // a merge across a join can only replace two tokens with one. And
-        // `output_estimate` is monotone in its payload argument. So a `bound`
-        // that fits proves the real payload fits, and skipping the encode
-        // cannot move a split point — only the exact value may close a
-        // window. Asserted over a corpus by `the_cheap_bound_never_undercounts`.
-        if crate::batch::output_estimate(bound, id_tokens, factor) <= target {
-            continue;
+        if let Some(prices) = &prices {
+            // The row that ended the window now has a successor.
+            joined += prices.followed[i - 1];
+            let bound = joined + prices.last[i];
+            // The cheap guard, and the reason the exact call below is still
+            // the one that decides. `bound` never under-counts the window
+            // (`RowPrices` says why), and `output_estimate` is monotone in its
+            // payload argument, so a `bound` that fits proves the real payload
+            // fits and skipping the encode cannot move a split point — only
+            // the exact value may close a window. Asserted by
+            // `the_cheap_bound_never_undercounts` and
+            // `the_cheap_guard_never_moves_a_split_point`.
+            if crate::batch::output_estimate(bound, id_tokens, factor) <= target {
+                continue;
+            }
         }
         if estimate_payload_output_tokens(&rows.window(&current), &id.0, bpe, factor) > target {
             // The row that broke the window starts the next one.
             let overflow = current.pop().expect("just pushed");
             plan.push(std::mem::take(&mut current));
             current.push(overflow);
-            bound = prefix_tokens + row_tokens[i];
+            if let Some(prices) = &prices {
+                joined = prices.prefix(rows, i, bpe);
+            }
             id = window_unit_id(parent_id, plan.len() as u32);
             id_tokens = bpe.encode_with_special_tokens(&id.0).len();
         }
@@ -220,6 +224,120 @@ fn greedy_plan(
         plan.push(current);
     }
     plan
+}
+
+/// Each body row's token price, taken once, so that `greedy_plan`'s bound on
+/// a window is a sum: the window's [`prefix`](Self::prefix), then
+/// [`followed`](Self::followed) for every row but the last, then
+/// [`last`](Self::last) for the last.
+///
+/// **Why the sum never under-counts.** tiktoken cuts text into pre-tokens with
+/// its pattern and encodes each pre-token on its own, so pieces cut at
+/// pre-token boundaries add up to the exact count, while a cut anywhere else
+/// can err either way. [`TableRows::window`] emits
+/// `header \n delimiter (\n row)*`. Under both encoders `resolve_encoder`
+/// returns, each join has its boundary in one of two places: just after the
+/// `\n`, or — under o200k_base, when the line before ends in punctuation such
+/// as `|` or `.` — just after the slashes that open the next row. (A row of
+/// nothing but slashes is the exception; [`RowPrices::new`] refuses it.)
+/// o200k's punctuation pre-token, ` ?[^\s\p{L}\p{N}]+[\r\n/]*`, takes a
+/// line's closing punctuation, its line break and the next line's leading
+/// `/`s as one, so `/usr` after ` |` is encoded as ` |\n/` + `usr`. Rather
+/// than model which place applies, each price is taken at every pairing of
+/// the possible cuts at its two ends, and the largest is kept. The real cuts
+/// are one of those pairings, so each price is at least the piece it stands
+/// for and the sum is at least the window's exact count. A row that does not
+/// open with `/` has one possible cut, so a table without such rows is priced
+/// exactly.
+///
+/// One cut place per join is not enough under o200k_base: cutting just after
+/// every `\n` under-counts `/usr` rows, and cutting just before it (pieces
+/// `\nrow`) under-counts rows such as `/gpl`, which o200k encodes shorter
+/// behind a `/` than alone. Both cut places come from the two patterns
+/// tiktoken-rs ships for these encoders; an encoder with another pattern
+/// needs them re-derived, and the two tests named in `greedy_plan` are where
+/// a wrong rule shows.
+struct RowPrices {
+    /// How many `/` open each body row: the second place a cut may fall.
+    slashes: Vec<usize>,
+    /// Row `k` followed by row `k + 1`: the text from a cut at row `k`'s
+    /// start to a cut at row `k + 1`'s, at whichever pairing counts most.
+    followed: Vec<usize>,
+    /// Row `k` ending the window: the text from a cut at its start to its
+    /// end, at whichever cut counts most. A CRLF or lone-CR row keeps its
+    /// `\r` and is priced with it.
+    last: Vec<usize>,
+}
+
+impl RowPrices {
+    /// `None` when a body row is nothing but slashes. When the line before
+    /// such a row ends in punctuation, o200k_base's punctuation pre-token runs
+    /// from that line through the row's slashes and line break into the next
+    /// row, so neither place a cut could fall at the row's start is a
+    /// pre-token boundary.
+    fn new(rows: &TableRows, bpe: &CoreBPE) -> Option<Self> {
+        let slashes: Vec<usize> = rows
+            .body
+            .iter()
+            .map(|row| row.len() - row.trim_start_matches('/').len())
+            .collect();
+        if rows
+            .body
+            .iter()
+            .zip(&slashes)
+            .any(|(row, &n)| n == row.trim_end_matches('\r').len())
+        {
+            return None;
+        }
+        let count = |s: &str| bpe.encode_with_special_tokens(s).len();
+        let mut prices = Self {
+            slashes,
+            followed: Vec::with_capacity(rows.body.len().saturating_sub(1)),
+            last: Vec::with_capacity(rows.body.len()),
+        };
+        for (k, row) in rows.body.iter().enumerate() {
+            let starts: Vec<usize> = prices.cuts(k).collect();
+            prices
+                .last
+                .push(starts.iter().map(|&a| count(&row[a..])).fold(0, usize::max));
+            if let Some(next) = rows.body.get(k + 1) {
+                let mut followed = 0;
+                for &a in &starts {
+                    for b in prices.cuts(k + 1) {
+                        followed = followed.max(count(&format!("{}\n{}", &row[a..], &next[..b])));
+                    }
+                }
+                prices.followed.push(followed);
+            }
+        }
+        Some(prices)
+    }
+
+    /// Where a cut can fall at the start of row `k`, as byte offsets into it:
+    /// `0`, just after the line break before it, and the end of its opening
+    /// slashes when it has any.
+    fn cuts(&self, k: usize) -> impl Iterator<Item = usize> {
+        let slashes = self.slashes[k];
+        std::iter::once(0).chain((slashes > 0).then_some(slashes))
+    }
+
+    /// The header, the delimiter and the line break after it, through a cut
+    /// at row `first`'s start, at whichever cut counts most: what a window
+    /// starting at `first` carries ahead of its rows. Taken when a window
+    /// starts rather than up front, because only window starts need it.
+    fn prefix(&self, rows: &TableRows, first: usize, bpe: &CoreBPE) -> usize {
+        self.cuts(first)
+            .map(|b| {
+                bpe.encode_with_special_tokens(&format!(
+                    "{}\n{}\n{}",
+                    rows.header,
+                    rows.delimiter,
+                    &rows.body[first][..b]
+                ))
+                .len()
+            })
+            .fold(0, usize::max)
+    }
 }
 
 /// One `TranslationUnit` per window, in source row order.
@@ -282,28 +400,37 @@ fn window_units(
 /// 99, the way ADR-0005's own numbers do.
 ///
 /// `.` cannot occur in an ADR-0005 id, so a window id can never collide with a
-/// real block id. It also sorts directly after its parent as a string, which
-/// is what puts a window under its parent in the document-ordered validation
-/// report.
+/// real block id. As a string it sorts after its parent, but past `.w99` not
+/// in window order (`.w10` < `.w100` < `.w11`): the document-ordered
+/// validation report reads the ordinal back as a number through
+/// [`window_parts`] rather than leaning on the string.
 pub(crate) fn window_unit_id(parent: &BlockId, window_index: u32) -> BlockId {
     BlockId(format!("{}.w{:02}", parent.0, window_index + 1))
 }
 
-/// The parent block id inside a window unit id, or `None` when `id` is an
-/// ordinary block id.
+/// The parent block id and the 1-based window ordinal inside a window unit
+/// id, or `None` when `id` is an ordinary block id.
 ///
 /// The inverse of [`window_unit_id`], and its neighbor on purpose: the
-/// validation report has to rank a window at its parent's document index, and
-/// the id convention must be *written* and *read* in one place or the two
-/// drift. Recognizing the shape rather than merely splitting on `.` is what
-/// keeps a hypothetical future id containing a dot from being mistaken for a
-/// window.
-pub(crate) fn parent_id_of(id: &BlockId) -> Option<BlockId> {
+/// validation report ranks a window at its parent's document index and orders
+/// a parent's windows by ordinal, and the id convention must be *written* and
+/// *read* in one place or the two drift. Recognizing the shape rather than
+/// merely splitting on `.` is what keeps a hypothetical future id containing a
+/// dot from being mistaken for a window.
+///
+/// The shape decides whether `id` is a window; the number never does. An
+/// all-digit ordinal too long for `u64` — not one [`window_unit_id`] can
+/// write — still names a window, and reads as `u64::MAX`, after every ordinal
+/// that fits.
+pub(crate) fn window_parts(id: &BlockId) -> Option<(BlockId, u64)> {
     let (parent, ordinal) = id.0.rsplit_once(".w")?;
     if parent.is_empty() || ordinal.is_empty() || !ordinal.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    Some(BlockId(parent.to_string()))
+    Some((
+        BlockId(parent.to_string()),
+        ordinal.parse().unwrap_or(u64::MAX),
+    ))
 }
 
 // DCR-0026 SL-102. The gate (does anything split at all?), the boundaries
@@ -327,28 +454,33 @@ mod tests {
         src
     }
 
-    /// The contract that makes `greedy_plan`'s cheap guard sound.
+    /// The contract that makes `greedy_plan`'s cheap guard sound, checked on
+    /// `RowPrices` itself over every window of every shape here — every first
+    /// row, not just the table's first, because the prefix depends on where a
+    /// window starts.
     ///
-    /// The guard skips the exact encode whenever the running sum of
-    /// separately-encoded pieces already fits. That is only safe while the sum
-    /// is an **upper bound** on encoding the same bytes whole: if it ever
-    /// undercounted, a window that does not fit would be waved through and a
-    /// split point would move — which changes each window's `source_hash`, and
-    /// so its cache key.
+    /// The guard skips the exact encode whenever the sum of the prices already
+    /// fits. That is only safe while the sum is an **upper bound** on encoding
+    /// the window whole: if it ever undercounted, a window that does not fit
+    /// would be waved through and a split point would move, which changes
+    /// each window's `source_hash` and so its cache key.
     ///
-    /// Equality does **not** hold, and this test is where that was settled.
-    /// The join was expected to land on a pre-token boundary — `window` joins
-    /// on `\n`, and tiktoken's pre-tokenizer splits whitespace from
-    /// non-whitespace — but a merge does cross it: measured here, a window
-    /// encodes to 36 tokens where its pieces sum to 37. That is the direction
-    /// the guard requires, so it is a tightness fact rather than a defect, and
-    /// the second assertion below pins the slack instead of pinning equality.
-    /// A loose bound would be sound and useless: the guard would never fire
-    /// and every row would pay the exact encode again.
+    /// The second assertion pins tightness, because a loose bound would be
+    /// sound and useless: the guard would never fire and every row would pay
+    /// the exact encode again. A window none of whose rows opens with `/` is
+    /// priced exactly, since its every cut is a pre-token boundary. A row that
+    /// does open with `/` is priced at its costlier cut place on both sides,
+    /// and the corpus holds that slack to two tokens a row.
     ///
     /// TRACE: OI-0041
     #[test]
     fn the_cheap_bound_never_undercounts() {
+        let crlf = |s: &str| s.replace('\n', "\r\n");
+        let lone_cr = |s: &str| s.replace('\n', "\r");
+        let slash_rows = "| path | desc |\n|---|---|\n/usr | entry 0 |\n/etc | entry 1 |\n\
+                          /var | entry 2 |\n/tmp | entry 3 |";
+        let no_outer_pipes = "path | desc\n--- | ---\n/usr/bin | binaries.\n\
+                              /etc | config files.\n/var/log | logs.\n/tmp | scratch.";
         for bpe in [
             tiktoken_rs::o200k_base().expect("o200k"),
             tiktoken_rs::cl100k_base().expect("cl100k"),
@@ -363,31 +495,209 @@ mod tests {
                 "| a | b |\n|---|---|\n|  padded  | 한국어 텍스트 |\n| `code` | &amp; |\n| 🙂🙂 | x |"
                     .to_string(),
                 "| h |\n|---|\n| |\n| |\n| |".to_string(),
+                // No outer pipes: rows that end in a letter or in spaces, and
+                // rows that start with spaces, meet the line break differently
+                // from a closing `|`.
+                "a | b\n--- | ---\n1 | two\n  3 | 4  \nx | y z".to_string(),
+                crlf("a | b\n--- | ---\n1 | two\n  3 | 4  \nx | y z"),
+                // Lone-CR rows keep their `\r` and `window` re-supplies the
+                // `\n`, so every join is `\r\n`, the same joins a CRLF table
+                // produces (R0012-0018).
+                crlf(&table(7)),
+                lone_cr(&table(7)),
+                // Rows that open with `/`. After a line ending in punctuation,
+                // o200k_base folds their slashes into that line's last
+                // pre-token; after one ending in a letter, it does not.
+                slash_rows.to_string(),
+                crlf(slash_rows),
+                lone_cr(slash_rows),
+                no_outer_pipes.to_string(),
+                crlf(no_outer_pipes),
+                "path | desc\n--- | ---\n/usr | binaries\n/etc | config\n/var | logs".to_string(),
+                // Encoded shorter behind a `/` than alone under o200k_base,
+                // which is what defeats a cut just before each `\n`.
+                "| path | desc |\n|---|---|\n/gpl | GNU |\n/eclipse | EPL |\n/fwlink | link |\n\
+                 /javase | Java |\n/ioutil | Go |"
+                    .to_string(),
+                // Two slashes, a slash inside a cell, trailing spaces before
+                // the line break, and a slash behind indentation.
+                "| path | desc |\n|---|---|\n//note | x |\n| a | /b |\n/x | y |  \n  /indented | z |\n\
+                 /last | w |"
+                    .to_string(),
             ] {
-                let rows = transync_syntax::regen::split_table_rows(&shape)
-                    .expect("fixture is a table");
-                let prefix = bpe
-                    .encode_with_special_tokens(&format!("{}\n{}", rows.header, rows.delimiter))
-                    .len();
-                let mut sum = prefix;
-                let mut taken: Vec<String> = Vec::new();
-                for row in &rows.body {
-                    sum += bpe.encode_with_special_tokens(&format!("\n{row}")).len();
-                    taken.push(row.clone());
-                    let whole = bpe.encode_with_special_tokens(&rows.window(&taken)).len();
+                let rows = split_table_rows(&shape).expect("fixture is a table");
+                let prices = RowPrices::new(&rows, &bpe).expect("no row is only slashes");
+                for first in 0..rows.body.len() {
+                    let mut joined = prices.prefix(&rows, first, &bpe);
+                    for last in first..rows.body.len() {
+                        if last > first {
+                            joined += prices.followed[last - 1];
+                        }
+                        let sum = joined + prices.last[last];
+                        let window = &rows.body[first..=last];
+                        let whole = bpe.encode_with_special_tokens(&rows.window(window)).len();
+                        assert!(
+                            sum >= whole,
+                            "the guard would undercount and could move a split point: \
+                             sum={sum} < whole={whole} on rows {first}..={last} of {shape:?}"
+                        );
+                        let opened = window.iter().filter(|r| r.starts_with('/')).count();
+                        assert!(
+                            sum - whole <= 2 * opened,
+                            "the bound drifted loose: sum={sum}, whole={whole}, {opened} \
+                             slash-opened row(s), rows {first}..={last} of {shape:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// A table with a row that is nothing but slashes gets no prices, so the
+    /// guard stands aside and every row pays the exact encode: under
+    /// o200k_base, after a line ending in punctuation, no cut at that row's
+    /// start is a pre-token boundary.
+    #[test]
+    fn a_slash_only_row_leaves_the_table_unpriced() {
+        let bpe = tiktoken_rs::o200k_base().expect("o200k");
+        for (shape, priced) in [
+            ("| a |\n|---|\n/x |\n///\n/y |", false),
+            ("| a |\n|---|\r\n/x |\r\n///\r\n/y |", false),
+            ("| a |\n|---|\n/x |\n/// |\n/y |", true),
+        ] {
+            let rows = split_table_rows(shape).expect("fixture is a table");
+            assert_eq!(rows.body.len(), 3, "{shape:?}: every line is a row");
+            assert_eq!(RowPrices::new(&rows, &bpe).is_some(), priced, "{shape:?}");
+        }
+    }
+
+    /// `greedy_plan` with the cheap guard taken out: every row after a
+    /// window's first pays the exact encode, and the first one that does not
+    /// fit starts the next window. This is the definition the guard must
+    /// reproduce, written without it.
+    fn exact_plan(
+        rows: &TableRows,
+        parent: &BlockId,
+        target: usize,
+        factor: f64,
+        bpe: &CoreBPE,
+    ) -> Vec<Vec<String>> {
+        let mut plan: Vec<Vec<String>> = Vec::new();
+        let mut current: Vec<String> = Vec::new();
+        for row in &rows.body {
+            current.push(row.clone());
+            if current.len() < 2 {
+                continue;
+            }
+            let id = window_unit_id(parent, plan.len() as u32);
+            if estimate_payload_output_tokens(&rows.window(&current), &id.0, bpe, factor) > target {
+                let overflow = current.pop().expect("just pushed");
+                plan.push(std::mem::take(&mut current));
+                current.push(overflow);
+            }
+        }
+        if !current.is_empty() {
+            plan.push(current);
+        }
+        plan
+    }
+
+    /// The guard only skips work, so it must never change the answer:
+    /// `greedy_plan` cuts every table exactly where the exact encode alone
+    /// cuts it. A guard that under-counts waves a window past the target, and
+    /// the windows after it move with it, so their `source_hash` and cache
+    /// keys move too; enough under-count and the window passes the ceiling
+    /// itself, where the preflight names it and the provider can abort the
+    /// run (ADR-0017).
+    ///
+    /// Rows that open with `/` are the shape that has broken the guard.
+    /// o200k_base folds a line's closing punctuation, its line break and the
+    /// next line's leading slashes into one pre-token, so a piece cut at the
+    /// line break prices those slashes where the whole window does not. For
+    /// the `/usr` rows, a cut after each `\n` under-counts by about a token a
+    /// row; for the `/gpl` rows, which o200k encodes shorter behind a `/`
+    /// than alone, so does a cut before it.
+    ///
+    /// TRACE: OI-0041
+    #[test]
+    fn the_cheap_guard_never_moves_a_split_point() {
+        let paths = [
+            "usr", "etc", "var", "tmp", "api", "home", "opt", "bin", "lib", "src",
+        ];
+        let licenses = ["gpl", "eclipse", "fwlink", "javase", "ioutil"];
+        let lines = |header: &str, delimiter: &str, rows: Vec<String>| {
+            format!("{header}\n{delimiter}\n{}", rows.join("\n"))
+        };
+        let slash_rows = lines(
+            "| path | desc |",
+            "|---|---|",
+            (0..60)
+                .map(|i| format!("/{} | entry {i} |", paths[i % paths.len()]))
+                .collect(),
+        );
+        let shapes = [
+            ("slash-opened rows", slash_rows.clone()),
+            ("slash-opened CRLF rows", slash_rows.replace('\n', "\r\n")),
+            ("slash-opened lone-CR rows", slash_rows.replace('\n', "\r")),
+            (
+                "slash-opened rows, no outer pipes",
+                lines(
+                    "path | desc",
+                    "--- | ---",
+                    (0..60)
+                        .map(|i| format!("/{}/bin | binaries, set {i}.", paths[i % paths.len()]))
+                        .collect(),
+                ),
+            ),
+            (
+                "rows o200k encodes shorter behind a slash",
+                lines(
+                    "| path | desc |",
+                    "|---|---|",
+                    (0..60)
+                        .map(|i| format!("/{} | entry {i} |", licenses[i % licenses.len()]))
+                        .collect(),
+                ),
+            ),
+            (
+                "rows made only of slashes",
+                lines(
+                    "| path | desc |",
+                    "|---|---|",
+                    (0..60)
+                        .map(|i| {
+                            if i % 7 == 3 {
+                                "///".to_string()
+                            } else {
+                                format!("/{} | entry {i} |", paths[i % paths.len()])
+                            }
+                        })
+                        .collect(),
+                ),
+            ),
+            ("pipe-opened rows", table(60)),
+        ];
+        let factor = crate::batch::resolve_expansion_factor(
+            default_profile().batching.output_expansion_factor,
+        );
+        let parent = BlockId("t-0001".to_string());
+        for (encoder, bpe) in [
+            ("o200k", tiktoken_rs::o200k_base().expect("o200k")),
+            ("cl100k", tiktoken_rs::cl100k_base().expect("cl100k")),
+        ] {
+            for (name, src) in &shapes {
+                let rows = split_table_rows(src).expect("fixture is a table");
+                assert_eq!(rows.body.len(), 60, "{name}: every line is a row");
+                for target in [150usize, 200, 300] {
+                    let want = exact_plan(&rows, &parent, target, factor, &bpe);
                     assert!(
-                        sum >= whole,
-                        "the guard would undercount and could move a split point: \
-                         sum={sum} < whole={whole} after {} row(s) of {shape:?}",
-                        taken.len()
+                        want.len() > 2,
+                        "{name} must split into several windows at target {target}"
                     );
-                    // At most one merged token per join, which is what keeps
-                    // the bound tight enough for the guard to fire.
-                    assert!(
-                        sum - whole <= taken.len(),
-                        "the bound drifted too loose to be useful: sum={sum}, \
-                         whole={whole}, {} row(s) of {shape:?}",
-                        taken.len()
+                    assert_eq!(
+                        greedy_plan(&rows, &parent, target, factor, &bpe),
+                        want,
+                        "{encoder}, {name}, target {target}: the cheap guard moved a split point"
                     );
                 }
             }
@@ -486,6 +796,48 @@ mod tests {
         // The paragraph is untouched, and the windows kept document order.
         assert_eq!(units[0].unit_id.0, "p-0001");
         assert_eq!(units[1].unit_id.0, "t-0002.w01");
+    }
+
+    /// R0012-0018: a lone `\r` is a CommonMark line ending, so a classic-Mac
+    /// document's oversize table is one table with every row and splits like
+    /// any other. A slicer that cuts at `\n` alone sees one line where comrak
+    /// sees forty-two, refuses the table, and ships it whole — the preflight
+    /// names it and the provider can abort the run.
+    #[test]
+    fn a_lone_cr_oversize_table_splits_into_windows() {
+        let src = format!("intro paragraph\r\r{}\r", table(40).replace('\n', "\r"));
+        let batches = batches_of(&src, splitting_profile(400));
+        let units = units_of(&batches);
+        let windows: Vec<&&TranslationUnit> = units
+            .iter()
+            .filter(|u| matches!(u.input_mode, InputMode::TableRowWindow { .. }))
+            .collect();
+        assert!(
+            windows.len() > 1,
+            "the lone-CR table must split, got {} window(s)",
+            windows.len()
+        );
+        let mut seen_rows = 0u32;
+        let mut body = String::new();
+        for w in &windows {
+            let (cols, _, rows) =
+                crate::structure::inspect_table(&w.source_payload).expect("a window is a table");
+            assert_eq!(cols, 4);
+            seen_rows += rows;
+            body.extend(
+                split_table_rows(&w.source_payload)
+                    .expect("a window slices")
+                    .body,
+            );
+        }
+        assert_eq!(
+            seen_rows, 40,
+            "every source row lands in exactly one window"
+        );
+        // Every row keeps its own `\r`, so the windows' rows laid end to end
+        // are the source's body bytes exactly, in source order.
+        let source_body = table(40).split('\n').skip(2).collect::<Vec<_>>().join("\r");
+        assert_eq!(body, source_body);
     }
 
     /// Three gates, each closing on its own: no ceiling, whole-block strategy,
@@ -672,8 +1024,9 @@ mod tests {
         assert_eq!(window_unit_id(&parent, 98).0, "t-0007.w99");
         assert_eq!(window_unit_id(&parent, 99).0, "t-0007.w100");
         assert_eq!(window_unit_id(&parent, 999).0, "t-0007.w1000");
-        // Sorting a window directly after its parent is what the report's
-        // document ordering leans on.
+        // As strings, a parent sorts before its windows. That is all the
+        // string gives: past `.w99` the order is lexical, which is why the
+        // report reads the ordinal back through `window_parts`.
         let mut ids = vec![
             "t-0008".to_string(),
             window_unit_id(&parent, 1).0,
@@ -692,10 +1045,22 @@ mod tests {
     fn a_window_id_round_trips_through_its_parent() {
         for parent in ["t-0007", "t-0001", "t-9999"] {
             let p = BlockId(parent.to_string());
-            for index in [0u32, 1, 98, 99, 999] {
-                assert_eq!(parent_id_of(&window_unit_id(&p, index)), Some(p.clone()));
+            for index in [0u32, 1, 98, 99, 999, u32::MAX - 1] {
+                let id = window_unit_id(&p, index);
+                assert_eq!(
+                    window_parts(&id),
+                    Some((p.clone(), u64::from(index) + 1)),
+                    "{id} reads back its 1-based ordinal"
+                );
             }
         }
+        // The shape, not the number, decides: an ordinal past `u64` is still a
+        // window, ordered after every one that fits.
+        let huge = BlockId(format!("t-0007.w{}", "9".repeat(30)));
+        assert_eq!(
+            window_parts(&huge),
+            Some((BlockId("t-0007".to_string()), u64::MAX))
+        );
         for ordinary in [
             "t-0007",
             "p-0001",
@@ -709,7 +1074,7 @@ mod tests {
             "",
         ] {
             assert_eq!(
-                parent_id_of(&BlockId(ordinary.to_string())),
+                window_parts(&BlockId(ordinary.to_string())),
                 None,
                 "{ordinary:?} is not a window id"
             );

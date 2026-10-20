@@ -209,10 +209,15 @@ pub fn top_level_blocks(blocks: &[Block]) -> impl Iterator<Item = &Block> {
 /// The line-level pieces of one GFM table: its header row, its delimiter
 /// row, and its body rows, in source order.
 ///
-/// Lines carry no trailing `\n` — [`TableRows::window`] and
-/// [`regenerate_table`] put the separators back — but they DO carry a
-/// trailing `\r` when the source is CRLF, so a window assembled from them
-/// keeps the source's line endings byte-for-byte.
+/// Lines are cut where comrak cuts them — at `\n`, `\r\n`, or a lone `\r` —
+/// and each keeps every byte of the terminator that ended it except a `\n`.
+/// So lines carry no trailing `\n` — [`TableRows::window`] and
+/// [`regenerate_table`] put it back — but a line that ended in `\r\n` or in a
+/// lone `\r` keeps that `\r`. A window assembled from an LF or CRLF table
+/// therefore keeps the source's line endings byte-for-byte. A lone-CR table's
+/// rows come back `\r\n`-terminated: comrak reads that as the same line ending,
+/// so the rows are the same rows, but the bytes are not the source's
+/// (DCR-0063).
 ///
 /// TRACE: SCN-03
 /// TRACE: DCR-0026
@@ -262,10 +267,12 @@ impl TableRows {
 /// options, as exactly one table and nothing else. The verdict is comrak's,
 /// not a line-shape guess: the payload must produce a single top-level
 /// `Table` node, and the number of lines the slicing finds must equal the
-/// number of rows comrak counted plus the header and delimiter. That second
-/// check is what makes the function safe on payloads whose line endings this
-/// slicing does not model (a lone-`\r` document splits into fewer lines than
-/// comrak saw, and is refused rather than mis-sliced).
+/// number of rows comrak counted plus the header and delimiter. The slicing
+/// takes its line boundaries from the intake's `LineOffsets` — CommonMark's
+/// rule, so `\n`, `\r\n` and a lone `\r` each end a line, as they do for
+/// comrak — and the count check stays as the guard that the two agree. A
+/// payload whose lines do not match what comrak parsed is refused rather than
+/// mis-sliced. Blank lines around the table are not rows and are dropped.
 ///
 /// Pure over strings + comrak, like every other function in this module: it
 /// knows nothing about units, budgets, or windows, and the caller decides how
@@ -304,7 +311,7 @@ pub fn split_table_rows(source: &str) -> Option<TableRows> {
     // payload belongs to it — a blank line would have ended the table and
     // produced a second top-level node. So the table's lines are exactly the
     // span between the first and last non-blank line.
-    let lines: Vec<&str> = source.split('\n').collect();
+    let lines = lines_keeping_cr(source);
     let first = lines.iter().position(|l| !l.trim().is_empty())?;
     let last = lines.iter().rposition(|l| !l.trim().is_empty())?;
     let span = &lines[first..=last];
@@ -321,55 +328,79 @@ pub fn split_table_rows(source: &str) -> Option<TableRows> {
     })
 }
 
-/// Reassemble one GFM table from the translated row windows
-/// [`split_table_rows`] made possible (DCR-0026 §4).
+/// `source` cut into lines on CommonMark's rule, each line keeping every byte
+/// of its terminator except a `\n` — the convention [`TableRows`] documents.
 ///
-/// Window 0 is taken verbatim — its translated header and delimiter are the
-/// table's — and every later window contributes only the lines *after* its
-/// delimiter row. Later windows' headers were context for the model
-/// (architectural invariant 3's header-carrying shape), so a divergent header
-/// translation across windows cannot reach the output.
+/// The boundaries are [`LineOffsets`]'s, which is this crate's one statement
+/// of the rule (`\n`, `\r\n`, or a lone `\r`, matching comrak), so the slicing
+/// cannot drift from the offsets the intake maps comrak's positions through.
+/// For a source with no lone `\r` this is exactly `source.split('\n')`.
+///
+/// [`LineOffsets`]: crate::intake::markdown::ranges::LineOffsets
+fn lines_keeping_cr(source: &str) -> Vec<&str> {
+    let offsets = crate::intake::markdown::ranges::LineOffsets::new(source);
+    let starts = offsets.line_starts();
+    starts
+        .iter()
+        .enumerate()
+        .map(|(i, &start)| {
+            let end = starts.get(i + 1).copied().unwrap_or(source.len());
+            let line = &source[start..end];
+            line.strip_suffix('\n').unwrap_or(line)
+        })
+        .collect()
+}
+
+/// Reassemble one GFM table from the translated row windows
+/// [`split_table_rows`] made possible (DCR-0026 §4, DCR-0063).
+///
+/// Every window is sliced into rows by [`split_table_rows`], the same slicing
+/// the splitter cut the source with, so blank lines a valid window carries
+/// before or after its table are discarded rather than read as rows or as the
+/// end of the table. The merged table is window 0's header and delimiter, then
+/// every window's body rows in window order, joined the way
+/// [`TableRows::window`] joins them. Later windows' headers were context for
+/// the model (architectural invariant 3's header-carrying shape), so a
+/// divergent header translation across windows cannot reach the output.
+///
+/// The result has no trailing line break, like the payload a table block
+/// carries: it ends at the last row's content, so a `\r` the last row kept
+/// from a terminator after it is dropped too.
 ///
 /// A one-element call returns that element unchanged, which is exactly what
 /// the whole-block path wants and what this function did as STUB-017's
-/// identity placeholder.
+/// identity placeholder; an empty call returns an empty string.
 ///
-/// Purely textual, and safe to be so: every input has already passed fragment
-/// reparse as a single table, and the caller re-inspects the merged result
-/// against the source table's column count, alignment, and row total before
-/// it is accepted (DCR-0026 §3).
+/// When any window of two or more does not slice as exactly one table, there
+/// is no table to build and the result is an empty string. `inspect_table`
+/// refuses that, so the caller's merged-shape check — which re-inspects every
+/// result against the source table's column count, alignment, and row total
+/// before it is accepted (DCR-0026 §3) — sends the parent to the source
+/// fallback rather than splicing a guess.
 ///
 /// TRACE: SCN-02
 /// TRACE: SCN-03
 /// TRACE: DCR-0026
 pub fn regenerate_table(windows: &[&str]) -> String {
-    let mut out = String::new();
-    for (i, window) in windows.iter().enumerate() {
-        let contribution = if i == 0 {
-            *window
-        } else {
-            body_rows_of(window)
+    let (first, rest) = match windows {
+        [] => return String::new(),
+        [only] => return (*only).to_string(),
+        [first, rest @ ..] => (first, rest),
+    };
+    let Some(mut table) = split_table_rows(first) else {
+        return String::new();
+    };
+    for window in rest {
+        let Some(rows) = split_table_rows(window) else {
+            return String::new();
         };
-        if contribution.is_empty() {
-            continue;
-        }
-        if !out.is_empty() && !out.ends_with('\n') {
-            out.push('\n');
-        }
-        out.push_str(contribution);
+        table.body.extend(rows.body);
+    }
+    let mut out = table.window(&table.body);
+    if out.ends_with('\r') {
+        out.pop();
     }
     out
-}
-
-/// Everything after a window's delimiter row — i.e. past its second newline.
-/// A window with fewer than two line breaks carries no body rows at all and
-/// contributes nothing.
-fn body_rows_of(window: &str) -> &str {
-    let mut breaks = window.match_indices('\n');
-    match (breaks.next(), breaks.next()) {
-        (Some(_), Some((delimiter_end, _))) => &window[delimiter_end + 1..],
-        _ => "",
-    }
 }
 
 /// Re-wrap a fenced code block: extract the body from `payload` (which may
@@ -610,7 +641,8 @@ mod caller_input_tests {
 // DCR-0026 SL-100: the source-side slice and the target-side reassembly, as
 // a closed pair. The property that matters is that they are inverses under
 // the identity translation — split a table any way the budget could, hand the
-// pieces back unchanged, and the original table comes out byte-for-byte.
+// pieces back unchanged, and the original table comes out byte-for-byte (a
+// lone-CR table's rows come out `\r\n`-terminated; see `TableRows`).
 // Everything the splitter above this layer decides (how many rows a window
 // holds) is a parameter of that property, so every partition is exercised
 // rather than one chosen one.
@@ -700,8 +732,8 @@ mod table_row_window_tests {
         for (_, src) in fixtures() {
             assert_eq!(regenerate_table(&[src.as_str()]), src);
         }
-        // Including payloads that are not tables at all: the function does not
-        // parse its input, it splices it.
+        // Including payloads that are not tables at all: a lone window is
+        // returned as it is, never parsed.
         assert_eq!(regenerate_table(&["not a table"]), "not a table");
         assert_eq!(regenerate_table(&[]), "");
     }
@@ -796,15 +828,161 @@ mod table_row_window_tests {
                 "| a |\n|---|\n| 1 |\n\ntail paragraph",
             ),
             ("a heading", "# not a table"),
-            (
-                // Lone-CR line endings: comrak counts three rows, this
-                // slicing sees one line. Refused, not mis-sliced.
-                "lone-CR line endings",
-                "| a | b |\r|---|---|\r| 1 | 2 |",
-            ),
         ] {
             assert_eq!(split_table_rows(src), None, "{name} must not slice");
         }
+    }
+
+    /// R0012-0010: a translated window is a valid single-table fragment with
+    /// or without blank lines around it — fragment reparse and `inspect_table`
+    /// both accept them — so the reassembly must not read them as rows or as
+    /// the end of the table. Each position is exercised on its own, because a
+    /// leading blank on one window and a trailing one on another can cancel
+    /// out in a row count.
+    #[test]
+    fn blank_lines_around_any_window_are_not_rows() {
+        let two = "| a |\n|---|\n| 1 |\n| 2 |";
+        let three = "| a |\n|---|\n| 1 |\n| 2 |\n| 3 |";
+        for (name, windows, expected) in [
+            (
+                "trailing blank line on window 0",
+                vec!["| a |\n|---|\n| 1 |\n\n", "| a |\n|---|\n| 2 |"],
+                two,
+            ),
+            (
+                "leading blank line on a later window",
+                vec!["| a |\n|---|\n| 1 |", "\n| a |\n|---|\n| 2 |"],
+                two,
+            ),
+            (
+                "leading blank line on window 0",
+                vec!["\n| a |\n|---|\n| 1 |", "| a |\n|---|\n| 2 |"],
+                two,
+            ),
+            (
+                "trailing blank lines on the last window",
+                vec!["| a |\n|---|\n| 1 |", "| a |\n|---|\n| 2 |\n\n\n"],
+                two,
+            ),
+            (
+                "trailing whitespace-only line on a middle window",
+                vec![
+                    "| a |\n|---|\n| 1 |",
+                    "| a |\n|---|\n| 2 |\n  \n",
+                    "| a |\n|---|\n| 3 |",
+                ],
+                three,
+            ),
+            (
+                // The compensating case: the leading blank leaks a `|---|` row
+                // and the trailing one cuts exactly one row off, so a
+                // line-position splice keeps the row count and only a later
+                // layer could notice.
+                "leading and trailing blank lines on a middle window",
+                vec![
+                    "| a |\n|---|\n| 1 |",
+                    "\n| a |\n|---|\n| 2 |\n\n",
+                    "| a |\n|---|\n| 3 |",
+                ],
+                three,
+            ),
+        ] {
+            assert_eq!(regenerate_table(&windows), expected, "{name}");
+        }
+    }
+
+    /// Two blank lines ahead of a later window pushed its translated header
+    /// past the second line break, where a line-position splice took it for a
+    /// body row.
+    #[test]
+    fn a_later_windows_header_never_reaches_the_output_however_it_is_padded() {
+        let merged = regenerate_table(&[
+            "| head | canonical |\n|---|---|\n| r1 | a |",
+            "\n\n| DIVERGENT | HEADER |\n|---|---|\n| r2 | b |",
+        ]);
+        assert_eq!(
+            merged,
+            "| head | canonical |\n|---|---|\n| r1 | a |\n| r2 | b |"
+        );
+        assert!(!merged.contains("DIVERGENT"), "{merged:?}");
+    }
+
+    /// CRLF padding is discarded the same way, and the rows keep their own
+    /// `\r`. The merged table ends at its last row's content, like the source
+    /// payload it replaces, so a CRLF the model put after the last row does
+    /// not leave a bare `\r` behind it.
+    #[test]
+    fn crlf_padding_around_windows_is_discarded_and_rows_keep_their_cr() {
+        let merged = regenerate_table(&[
+            "\r\n| a |\r\n|---|\r\n| 1 |\r\n\r\n",
+            "\r\n\r\n| a |\r\n|---|\r\n| 2 |\r\n",
+        ]);
+        assert_eq!(merged, "| a |\r\n|---|\r\n| 1 |\r\n| 2 |");
+    }
+
+    /// A window that does not slice as exactly one table gives no candidate at
+    /// all: an empty string, which `inspect_table` refuses, so the caller's
+    /// merged-shape check takes the source fallback rather than splicing a
+    /// guess.
+    #[test]
+    fn a_window_that_is_not_one_table_yields_no_candidate() {
+        for windows in [
+            vec!["| a |\n|---|\n| 1 |", "not a table"],
+            vec!["just prose", "| a |\n|---|\n| 1 |"],
+            vec![
+                "| a |\n|---|\n| 1 |",
+                "| a |\n|---|\n| 2 |\n\ntail paragraph",
+            ],
+        ] {
+            assert_eq!(regenerate_table(&windows), "", "{windows:?}");
+        }
+    }
+
+    /// R0012-0018: comrak ends a line at `\n`, at `\r\n`, and at a lone `\r`,
+    /// so a lone-CR payload is one table with every row — and the slicing has
+    /// to see the same lines comrak saw. Each row keeps its own `\r`, exactly
+    /// as a CRLF row does.
+    #[test]
+    fn lone_cr_tables_slice_at_commonmark_line_boundaries() {
+        let src = "| a | b |\r|---|---|\r| 1 | 2 |\r| 3 | 4 |\r| 5 | 6 |";
+        let rows = split_table_rows(src).expect("a lone-CR table slices");
+        assert_eq!(rows.header, "| a | b |\r");
+        assert_eq!(rows.delimiter, "|---|---|\r");
+        assert_eq!(rows.body, ["| 1 | 2 |\r", "| 3 | 4 |\r", "| 5 | 6 |"]);
+        // `window` re-supplies a `\n` after every line, so each lone `\r`
+        // comes back as `\r\n`: the same line ending to comrak, the same rows,
+        // whatever the partition.
+        let as_crlf = src.replace('\r', "\r\n");
+        for windows in windowings(&rows) {
+            let merged = merge(&windows);
+            assert_eq!(merged, as_crlf, "{} window(s)", windows.len());
+            assert_eq!(
+                split_table_rows(&merged).map(|r| r.body.len()),
+                Some(3),
+                "the merged table keeps every row"
+            );
+        }
+    }
+
+    /// A table whose lines end differently slices on each line's own
+    /// terminator; nothing about it needs refusing.
+    #[test]
+    fn mixed_line_endings_slice_on_each_lines_own_terminator() {
+        let rows =
+            split_table_rows("| a | b |\r|---|---|\n| 1 | 2 |\r\n| 3 | 4 |").expect("one table");
+        assert_eq!(rows.header, "| a | b |\r");
+        assert_eq!(rows.delimiter, "|---|---|");
+        assert_eq!(rows.body, ["| 1 | 2 |\r", "| 3 | 4 |"]);
+    }
+
+    /// Later lone-CR windows carry body rows past their delimiter like any
+    /// other window. A line-feed-only splice found no second `\n` in them and
+    /// dropped every row they held.
+    #[test]
+    fn later_lone_cr_windows_contribute_their_body_rows() {
+        let merged = regenerate_table(&["| a |\r|---|\r| 1 |", "| a |\r|---|\r| 2 |\r| 3 |"]);
+        assert_eq!(merged, "| a |\r\n|---|\r\n| 1 |\n| 2 |\r\n| 3 |");
+        assert_eq!(split_table_rows(&merged).map(|r| r.body.len()), Some(3));
     }
 }
 

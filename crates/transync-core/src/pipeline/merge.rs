@@ -19,8 +19,11 @@
 //! 1. Take each window's accepted payload, or — when that window finalized
 //!    `fallback_source` — its own **source** rows (OQ-1(b), resolved
 //!    2026-08-09).
-//! 2. `regen::regenerate_table` splices them: window 0 whole, later windows
-//!    minus their header and delimiter rows.
+//! 2. `regen::regenerate_table` slices each one into rows with
+//!    `split_table_rows`, discarding blank lines around it, and joins window
+//!    0's header and delimiter with every window's body rows in order
+//!    (DCR-0063). A window that will not slice as one table yields no table,
+//!    which step 3 refuses.
 //! 3. Re-inspect the merged table and require the **source** block's column
 //!    count, alignment, and total body-row count. Layered validation
 //!    (invariant 5) holds end to end: no window result reaches the document
@@ -568,6 +571,117 @@ mod tests {
         );
     }
 
+    /// R0012-0010: every window passed its own layers with blank lines around
+    /// it — fragment reparse accepts them — so the merge must not read them as
+    /// rows or as the end of the table. A line-position splice lost the whole
+    /// table to the engine-fault fallback, and evicted every window's paid-for
+    /// cache entry with it.
+    #[test]
+    fn windows_padded_with_blank_lines_still_merge_translated() {
+        let src = format!("{}\n", table(40));
+        let (doc, batches) = split_run(&src);
+        let plan = SplitPlan::of_batches(&batches);
+        assert!(!plan.is_empty(), "the fixture must actually split");
+
+        let mut accepted = accepted_from(&batches, |id, p| translated(id, &format!("\n{p}\n\n")));
+        let outcome = merge_row_windows(&doc, &plan, &mut accepted);
+        assert!(
+            outcome.faulted_parents.is_empty(),
+            "valid padding is not an engine fault"
+        );
+        let vu = accepted
+            .get(&doc.blocks[0].block_id)
+            .expect("merged parent");
+        assert_eq!(vu.final_status, FallbackStatus::Translated);
+        assert_eq!(vu.accepted_payload.as_deref(), Some(table(40).as_str()));
+    }
+
+    /// One middle window padded on both sides: the leading blank line leaks a
+    /// `|---|` row and the trailing one cuts the table short, so a
+    /// line-position splice mangles the table whichever way the counts land.
+    #[test]
+    fn a_middle_window_padded_on_both_sides_merges_exactly() {
+        let src = format!("{}\n", table(40));
+        let (doc, batches) = split_run(&src);
+        let plan = SplitPlan::of_batches(&batches);
+        let parent = doc.blocks[0].block_id.clone();
+        let window_ids = plan.window_ids_of(&parent);
+        assert!(window_ids.len() > 2, "need a middle window");
+        let padded = window_ids[1].clone();
+
+        let mut accepted = accepted_from(&batches, |id, p| {
+            if *id == padded {
+                translated(id, &format!("\n{p}\n\n"))
+            } else {
+                translated(id, p)
+            }
+        });
+        let outcome = merge_row_windows(&doc, &plan, &mut accepted);
+        assert!(outcome.faulted_parents.is_empty());
+        let vu = accepted.get(&parent).expect("merged parent");
+        assert_eq!(vu.final_status, FallbackStatus::Translated);
+        assert_eq!(vu.accepted_payload.as_deref(), Some(table(40).as_str()));
+    }
+
+    /// R0012-0018: a lone-CR table splits, and the identity translation merges
+    /// back row for row. Every row keeps its own `\r`; the `\n` the window
+    /// assembly re-supplies after it is what remains of the split, and comrak
+    /// reads `\r\n` as the same line ending as `\r`.
+    #[test]
+    fn a_lone_cr_table_splits_and_merges_back_row_for_row() {
+        let lone_cr = table(40).replace('\n', "\r");
+        let (doc, batches) = split_run(&format!("{lone_cr}\r"));
+        let plan = SplitPlan::of_batches(&batches);
+        assert!(!plan.is_empty(), "a lone-CR oversize table must split");
+
+        let mut accepted = accepted_from(&batches, translated);
+        let outcome = merge_row_windows(&doc, &plan, &mut accepted);
+        assert!(outcome.faulted_parents.is_empty());
+        let vu = accepted
+            .get(&doc.blocks[0].block_id)
+            .expect("merged parent");
+        assert_eq!(vu.final_status, FallbackStatus::Translated);
+        assert_eq!(
+            vu.accepted_payload.as_deref(),
+            Some(table(40).replace('\n', "\r\n").as_str())
+        );
+    }
+
+    /// A lone-CR table whose translated windows came back with plain `\n`
+    /// endings while one window failed: the failed window's own source rows
+    /// still carry their `\r`, so the merged table mixes line endings. Comrak
+    /// and `inspect_table` read it as one table of every row, so it is a
+    /// partial translation, not an engine fault.
+    #[test]
+    fn a_failed_lone_cr_window_merges_between_lf_translated_ones() {
+        let lone_cr = table(40).replace('\n', "\r");
+        let (doc, batches) = split_run(&format!("{lone_cr}\r"));
+        let plan = SplitPlan::of_batches(&batches);
+        let parent = doc.blocks[0].block_id.clone();
+        let window_ids = plan.window_ids_of(&parent);
+        assert!(window_ids.len() > 2, "need a middle window to fail");
+        let victim = window_ids[1].clone();
+
+        let mut accepted = accepted_from(&batches, |id, p| {
+            if *id == victim {
+                failed(id)
+            } else {
+                translated(id, &p.replace('\r', "").to_uppercase())
+            }
+        });
+        let outcome = merge_row_windows(&doc, &plan, &mut accepted);
+        assert!(outcome.faulted_parents.is_empty(), "this is not a fault");
+        let vu = accepted.get(&parent).expect("merged parent");
+        assert_eq!(vu.final_status, FallbackStatus::PartiallyTranslated);
+        let merged = vu.accepted_payload.as_deref().expect("a merged payload");
+        assert_eq!(inspect_table(merged).map(|(c, _, r)| (c, r)), Some((4, 40)));
+        assert!(merged.contains("item number") && merged.contains("ITEM NUMBER"));
+        assert!(
+            merged.contains('\r'),
+            "the failed window's rows keep their `\\r`"
+        );
+    }
+
     /// The plan is read back off the batches, so a parent's windows are
     /// ordered by their ordinal even when packing spread them across batches.
     #[test]
@@ -583,8 +697,10 @@ mod tests {
         let plan = SplitPlan::of_batches(&batches);
         let parent = doc.blocks[0].block_id.clone();
         let ids = plan.window_ids_of(&parent);
+        // The oracle reads the ordinal as a number: as strings, `.w100` sorts
+        // before `.w11` (R0012-0024).
         let mut sorted = ids.clone();
-        sorted.sort_by_key(|id| id.0.clone());
+        sorted.sort_by_key(|id| crate::unit::split::window_parts(id).map(|(_, n)| n));
         assert_eq!(ids, sorted, "windows come back in source row order");
 
         let mut accepted = accepted_from(&batches, translated);

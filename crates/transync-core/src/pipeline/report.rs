@@ -149,9 +149,12 @@ pub(crate) fn build_validation_report(
 ///
 /// `doc.blocks` is the canonical source-order traversal (see `Block` /
 /// `id::assign_block_ids`), so a block's index within it is the authoritative
-/// order key. Ties cannot occur (indices are unique); the id-string tiebreak
-/// only kicks in for an entry with no matching source block, which keeps the
-/// order deterministic instead of arbitrary should that ever happen.
+/// order key. Blocks never tie (indices are unique). A split table's row
+/// windows do: each ranks at its parent's index, and they are then ordered by
+/// their window ordinal read back as a number, parent first (DCR-0063). The
+/// id string is only the last tiebreak, for an entry that names no source
+/// block, which keeps the order deterministic instead of arbitrary should that
+/// ever happen.
 ///
 /// Runs after the run-level fields are stamped, because
 /// `full_reparse_fallbacks` is one of them.
@@ -169,25 +172,32 @@ pub(crate) fn order_report_by_document(
         .collect();
     // DCR-0026: a row-window unit is not a block, so it has no index of its
     // own — it ranks at its PARENT's, which lists a table's windows directly
-    // under it (the id-string tiebreak below then orders `t-0007` before
-    // `t-0007.w01` before `t-0007.w02`). The convention is parsed by
-    // `unit::split::parent_id_of`, the same module that writes it.
-    let rank = |id: &BlockId| {
-        doc_order.get(id).copied().unwrap_or_else(|| {
-            crate::unit::split::parent_id_of(id)
-                .and_then(|parent| doc_order.get(&parent).copied())
-                .unwrap_or(usize::MAX)
-        })
+    // under it. Within that group the parent comes first (ordinal 0) and the
+    // windows follow by NUMERIC ordinal: the id pads it to two digits and
+    // widens on its own, so as strings `.w100` would sort between `.w10` and
+    // `.w11` (R0012-0024). Grouping on the parent id before the ordinal keeps
+    // the windows of a parent missing from the document under that parent
+    // instead of interleaving them with another's. The convention is parsed by
+    // `unit::split::window_parts`, the same module that writes it.
+    let order_key = |id: &BlockId| -> (usize, String, u64, String) {
+        if let Some(&index) = doc_order.get(id) {
+            return (index, id.0.clone(), 0, id.0.clone());
+        }
+        match crate::unit::split::window_parts(id) {
+            Some((parent, ordinal)) => (
+                doc_order.get(&parent).copied().unwrap_or(usize::MAX),
+                parent.0,
+                ordinal,
+                id.0.clone(),
+            ),
+            None => (usize::MAX, id.0.clone(), 0, id.0.clone()),
+        }
     };
 
-    report.per_unit.sort_by(|a, b| {
-        rank(&a.unit_id)
-            .cmp(&rank(&b.unit_id))
-            .then_with(|| a.unit_id.0.cmp(&b.unit_id.0))
-    });
     report
-        .full_reparse_fallbacks
-        .sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.0.cmp(&b.0)));
+        .per_unit
+        .sort_by_cached_key(|row| order_key(&row.unit_id));
+    report.full_reparse_fallbacks.sort_by_cached_key(order_key);
 }
 
 // DCR-0026: a row window is a real dispatch with real attempts, so it keeps
@@ -249,8 +259,71 @@ mod window_row_order_tests {
                 "p-0003",
                 "t-9999",
             ],
-            "windows rank at their parent's document index, ordered among \
-             themselves by the id-string tiebreak"
+            "windows rank at their parent's document index, the parent first and \
+             its windows by window ordinal"
+        );
+    }
+
+    /// R0012-0024: the window ordinal is zero-padded to two digits and widens
+    /// on its own, so past `.w99` the id strings stop sorting in row order
+    /// (`.w10` < `.w100` < `.w11`). Windows are ordered by the ordinal read
+    /// back as a number. A window whose parent is not in the document still
+    /// lists under that parent, in ordinal order.
+    #[test]
+    fn windows_past_ninety_nine_keep_source_row_order() {
+        use crate::unit::split::window_unit_id;
+        let mut doc =
+            crate::markdown::parse("first paragraph\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\ntail\n")
+                .expect("parses");
+        crate::id::assign_block_ids(&mut doc);
+        let table = doc.blocks[1].block_id.clone();
+        let window = |n: u32| window_unit_id(&table, n).0;
+        let orphan = BlockId("t-9999".to_string());
+        let orphan_window = |n: u32| window_unit_id(&orphan, n).0;
+
+        let mut report = ValidationReport {
+            per_unit: [
+                window(109),
+                orphan_window(10),
+                "p-0003".to_string(),
+                window(9),
+                window(98),
+                orphan_window(99),
+                table.0.clone(),
+                "p-0001".to_string(),
+                window(99),
+                orphan_window(9),
+                window(8),
+                window(10),
+            ]
+            .iter()
+            .map(|id| row(id.as_str()))
+            .collect(),
+            ..ValidationReport::default()
+        };
+        order_report_by_document(&doc, &mut report);
+        let ids: Vec<&str> = report
+            .per_unit
+            .iter()
+            .map(|r| r.unit_id.0.as_str())
+            .collect();
+        let t = &table.0;
+        assert_eq!(
+            ids,
+            vec![
+                "p-0001".to_string(),
+                t.clone(),
+                format!("{t}.w09"),
+                format!("{t}.w10"),
+                format!("{t}.w11"),
+                format!("{t}.w99"),
+                format!("{t}.w100"),
+                format!("{t}.w110"),
+                "p-0003".to_string(),
+                "t-9999.w10".to_string(),
+                "t-9999.w11".to_string(),
+                "t-9999.w100".to_string(),
+            ]
         );
     }
 }

@@ -287,6 +287,30 @@ finally enumerates is decided per item, not by this preamble.
   adjacent template text, spells a variable. An already-compiled library
   profile can still be re-substituted when a section cohort recompiles it
   (ticket `1e902c74`).
+- **Blank lines around a translated row window no longer cost the whole
+  table** (R0012-0010, DCR-0063). Fragment reparse accepts a window with blank
+  lines before or after its table, but the merge spliced by line position, so
+  a trailing blank line ended the table before the next window's rows and a
+  leading one made a later window's delimiter a body row. The shape check then
+  sent the whole parent to the engine-fault fallback and evicted every
+  window's cache entry, so a re-run paid again. Every window is now sliced
+  with `split_table_rows`. **Visible:** a merged table ends at its last row,
+  so a line break after the last window no longer reaches `out.md`, and a
+  window 0 carrying anything besides its table, such as a link-reference
+  definition, now takes that fallback instead of being spliced in.
+- **A lone-CR table splits into row windows** (R0012-0018, DCR-0063). Comrak
+  ends a line at a lone `\r`, but the row slicer split on `\n` only, so a
+  classic-Mac document's oversize table shipped whole under the
+  `row-window-first` default: the preflight named it and the provider could
+  abort the run (ADR-0017). Each row keeps its `\r` and is re-joined with
+  `\n`, so that table's rows reach `out.md` `\r\n`-terminated. LF and CRLF
+  tables slice as before.
+- **Validation-report rows of a table split into 100 or more windows follow
+  source row order** (R0012-0024, DCR-0063). Windows were ordered by id
+  string, and the ordinal widens past two digits, so `.w100` listed between
+  `.w10` and `.w11`. The ordinal is now read as a number.
+  `VALIDATION_REPORT_SCHEMA_VERSION` does not move: §3a already promised
+  document order.
 
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above

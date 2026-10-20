@@ -129,11 +129,12 @@ or a program state, and no shape for a validator to check.
 
 The second half of the rule is what keeps the sync currency intact.
 Windows exist only between packing and merge. Once every window has a
-verdict, they are reassembled into one table — window one whole, later
-windows minus the header and delimiter rows they carried only as
-context — and the merged table is re-inspected against the source block's
-column count, alignment, and body-row count before it is accepted. From
-regeneration onward there is one block again, with the parent's ID.
+verdict, they are reassembled into one table — window one's header and
+delimiter, then every window's body rows, the later windows' headers
+having been context only — and the merged table is re-inspected against
+the source block's column count, alignment, and body-row count before it
+is accepted. From regeneration onward there is one block again, with the
+parent's ID.
 
 So the ID chain described above holds where it matters, with one honest
 qualification: on the *wire*, and in the validation report, an id can now
