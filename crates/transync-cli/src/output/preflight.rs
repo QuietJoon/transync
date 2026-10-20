@@ -10,10 +10,12 @@
 //! TRACE: contracts.md §6
 //! TRACE: DCR-0011
 
-use super::destination::{refuse_lock_marker_alias, vet_destinations};
+use super::destination::{
+    refuse_lock_marker_alias, refuse_unspellable_staging_name, vet_destinations,
+};
 use super::fileset::tmp_pid_suffix;
 use super::lock::PUBLISH_LOCK_NAME;
-use super::publish::{HTML_SUBDIR, OUT_DIR_ENTRIES, out_dir_name};
+use super::publish::{HTML_SUBDIR, OUT_DIR_ENTRIES, longest_out_dir_sibling, out_dir_name};
 use super::{BEFORE_THIS_PUBLICATION, Notify, OUT_DIR_MARKER_NAME, note_cleanup_residue};
 use std::collections::HashSet;
 use std::fs;
@@ -41,6 +43,8 @@ pub fn preflight_html_out(dir: &Path, force: bool, notify: Notify<'_>) -> io::Re
 /// The name check ahead of it is not advisory in the same way — a target whose
 /// final component is not UTF-8 is one this writer can never build its staging
 /// and backup siblings from, whatever the filesystem does next (R0004-0066),
+/// nor is one whose staging sibling the filesystem refuses as a name
+/// (R0013-0006, asked read-only of the longest sibling, [`longest_out_dir_sibling`]),
 /// and a path through the publication-lock marker's reserved name is one no
 /// publication may take (R0012-0005). The identity half of that reservation is
 /// asked here of what exists now, and again by the publication.
@@ -48,6 +52,7 @@ pub fn preflight_html_out(dir: &Path, force: bool, notify: Notify<'_>) -> io::Re
 /// TRACE: contracts.md §6
 pub fn preflight_out_dir(target: &Path, force: bool, notify: Notify<'_>) -> io::Result<()> {
     out_dir_name(target)?;
+    refuse_unspellable_staging_name(target, &longest_out_dir_sibling(target))?;
     refuse_lock_marker_alias(target)?;
     ensure_out_dir_replaceable(target, force, notify)
 }
@@ -60,10 +65,13 @@ pub fn html_bundle_paths(dir: &Path) -> Vec<PathBuf> {
     HTML_BUNDLE_ENTRIES.iter().map(|e| dir.join(e)).collect()
 }
 
-/// Reject a destination set that names one file twice, nests one destination
-/// inside another, names a file this writer cannot build a staging name for,
-/// or runs through the publication-lock marker, before anything is written
-/// (R0008-0005, R0004-0066, R0004-0067, R0012-0005) — and,
+/// Reject a destination set that names one file twice (under the filesystem's
+/// own name equivalence, R0012-0002), nests one destination inside another,
+/// puts one destination in another's staging namespace, names a file this
+/// writer cannot build a staging name for — or one whose staging name the
+/// filesystem refuses — or runs through the publication-lock marker, before
+/// anything is written (R0008-0005, R0004-0066, R0004-0067, R0012-0005,
+/// R0013-0001, R0013-0006) — and,
 /// for a CLI run, before the provider is called (R0002-0029).
 /// [`super::write_fileset_atomic`] repeats the checks on the set it is actually
 /// given; this is the same rule asked early. See [`vet_destinations`] for what

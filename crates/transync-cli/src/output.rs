@@ -49,7 +49,7 @@
 //! * [`publish`] — the `--out-dir` directory publication
 //!   ([`publish_out_dir`]);
 //! * [`preflight`] — the guards that decide whether either one may start;
-//! * [`destination`] — destination vetting and lexical path normalization;
+//! * [`destination`] — destination vetting and the entry identity it compares;
 //! * [`bundle`] — the `--html-out` shell's embedded assets and template;
 //! * [`lock`] — the publish lock both commits take.
 //!
@@ -69,6 +69,7 @@ mod preflight;
 mod publish;
 
 pub use bundle::html_bundle_files;
+pub(crate) use destination::EntryIdentity;
 pub use fileset::write_fileset_atomic;
 pub use preflight::{
     html_bundle_paths, preflight_destination_set, preflight_html_out, preflight_out_dir,
@@ -279,6 +280,75 @@ pub(crate) mod testing {
         fn as_ref(&self) -> &Path {
             &self.path
         }
+    }
+
+    /// Whether the filesystem under `dir` resolves a spelling that differs from
+    /// a stored name only in ASCII letter case to that name — asked of the
+    /// volume (HFS+ and default APFS do, ext4 and case-sensitive APFS do not),
+    /// never of the target triple. Creates and removes one probe file.
+    pub(crate) fn folds_letter_case(dir: &Path) -> bool {
+        let probe = dir.join("case-probe");
+        std::fs::write(&probe, b"").expect("a case probe");
+        let folds = std::fs::symlink_metadata(dir.join("CASE-PROBE")).is_ok();
+        std::fs::remove_file(&probe).expect("remove the case probe");
+        folds
+    }
+
+    /// `é` precomposed (NFC).
+    pub(crate) const NFC_E: &str = "\u{e9}";
+    /// `é` as `e` + COMBINING ACUTE ACCENT (NFD).
+    pub(crate) const NFD_E: &str = "e\u{301}";
+
+    /// Create `caf<é><rest>` in `dir` and return `(stored, alias)`: the path
+    /// spelled the way `read_dir` reports the directory **stores** it, and the
+    /// same name in the other Unicode normalization form — or `None` when the
+    /// filesystem does not resolve the alias to the stored entry (ext4).
+    ///
+    /// The alias is derived from the stored spelling, never assumed: HFS+
+    /// stores NFD whatever it was handed, APFS stores what it was handed, so a
+    /// test that hard-coded one form would compare a name with itself on one
+    /// of the two and pass before any fix.
+    pub(crate) fn plant_with_normalization_alias(
+        dir: &Path,
+        rest: &str,
+    ) -> Option<(PathBuf, PathBuf)> {
+        std::fs::write(dir.join(format!("caf{NFC_E}{rest}")), b"planted")
+            .expect("plant the accented name");
+        let stored = std::fs::read_dir(dir)
+            .expect("list the directory")
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .find(|name| name.starts_with("caf") && name.ends_with(rest))
+            .expect("the planted name is listed");
+        let alias = if stored.contains(NFC_E) {
+            stored.replace(NFC_E, NFD_E)
+        } else {
+            stored.replace(NFD_E, NFC_E)
+        };
+        assert_ne!(stored, alias, "the two forms are different byte strings");
+        std::fs::symlink_metadata(dir.join(&alias)).ok()?;
+        Some((dir.join(stored), dir.join(alias)))
+    }
+
+    /// Whether the filesystem under `dir` resolves the two Unicode
+    /// normalization forms of one name to one entry (HFS+ and APFS do, ext4
+    /// does not). Creates and removes one probe file.
+    pub(crate) fn folds_normalization(dir: &Path) -> bool {
+        let probe = dir.join("normalization-probe");
+        std::fs::create_dir(&probe).expect("a normalization probe directory");
+        let folds = plant_with_normalization_alias(&probe, ".probe").is_some();
+        std::fs::remove_dir_all(&probe).expect("remove the normalization probe");
+        folds
+    }
+
+    /// Whether `path` is a name the filesystem refuses outright
+    /// (`ENAMETOOLONG` and its kin), as opposed to one that merely names
+    /// nothing yet.
+    pub(crate) fn name_is_refused(path: &Path) -> bool {
+        matches!(
+            std::fs::symlink_metadata(path),
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidFilename
+        )
     }
 }
 

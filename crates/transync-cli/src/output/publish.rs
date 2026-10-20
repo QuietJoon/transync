@@ -10,7 +10,9 @@
 //! TRACE: EXT-2026-07 P1-6
 //! TRACE: DCR-0021
 
-use super::destination::{destination_file_name, refuse_lock_marker_alias};
+use super::destination::{
+    destination_file_name, refuse_lock_marker_alias, refuse_unspellable_staging_name,
+};
 use super::fileset::{
     claim_anchor, fsync_created_levels, missing_ancestors, rollback_created_dirs,
 };
@@ -111,6 +113,10 @@ different --out-dir.\n";
 /// guard know transync published this directory instead of inferring it from
 /// the file names (ti `66339b`, OI-0036).
 ///
+/// The target's longest sibling name has to be one the filesystem accepts
+/// (R0013-0006): asked read-only before anything is created, with the
+/// preflight's sentence, rather than met in the staging `create_dir`.
+///
 /// The target may not be the parent's publication-lock marker, nor run through
 /// one (R0012-0005): the swap would rename the locked inode aside and leave a
 /// directory where every later publication into the parent opens its lock.
@@ -151,6 +157,10 @@ pub fn publish_out_dir(
     // sentence the preflight gives rather than whatever a half-made
     // publication would trip over first.
     let name = out_dir_name(target)?;
+    // And the longest sibling built from that name has to be one the
+    // filesystem accepts (R0013-0006) — asked here, read-only, so a target it
+    // refuses creates nothing, rather than in the bare `create_dir` below.
+    refuse_unspellable_staging_name(target, &longest_out_dir_sibling(target))?;
     // staging + backup are siblings of `target`, so every rename below stays
     // within one directory (one filesystem) and is a cheap atomic metadata op.
     // That directory is also the one this publish locks, so it has to exist
@@ -264,8 +274,17 @@ fn publish_into_parent(
 
     // `create_dir`, and nothing blind before it: the random token makes the
     // name unpredictable and this create is what proves the tree is ours to
-    // delete on every failure path below (R0002-0001).
-    fs::create_dir(&staging)?;
+    // delete on every failure path below (R0002-0001). Its failure names the
+    // path, which an operator otherwise never sees (R0013-0006).
+    fs::create_dir(&staging).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!(
+                "could not create the staging directory {}: {e}",
+                staging.display()
+            ),
+        )
+    })?;
     if let Err(e) = stage_out_dir_files(&staging, &staged, notify) {
         discard_staged_tree(&staging, notify);
         return Err(e);
@@ -395,6 +414,10 @@ fn discard_staged_tree(staging: &Path, notify: Notify<'_>) {
     }
 }
 
+/// How many characters [`publish_token`] always produces: a `u64` in
+/// zero-padded hex.
+const PUBLISH_TOKEN_LEN: usize = 16;
+
 /// A random token, one per publication, stamped into the staging and backup
 /// sibling names (R0002-0001).
 ///
@@ -413,7 +436,7 @@ fn publish_token() -> String {
             .map_or(0, |d| d.as_nanos()),
     );
     hasher.write_u32(process::id());
-    format!("{:016x}", hasher.finish())
+    format!("{:0width$x}", hasher.finish(), width = PUBLISH_TOKEN_LEN)
 }
 
 /// Delete the `--out-dir` **staging** trees stamped with this process's own
@@ -619,6 +642,17 @@ fn out_dir_sibling(target: &Path, kind: &str, token: &str) -> PathBuf {
     target.with_file_name(format!(".{name}.{kind}.{}.{token}", process::id()))
 }
 
+/// The longest name a publication into `target` creates beside it: the
+/// staging directory (`staging` is one character longer than `backup`) with a
+/// token as long as every [`publish_token`] is. What
+/// [`refuse_unspellable_staging_name`] asks the filesystem about before
+/// anything is created (R0013-0006); a placeholder token, because the
+/// question is the name's length and a real token is this run's to spend
+/// once.
+pub(super) fn longest_out_dir_sibling(target: &Path) -> PathBuf {
+    out_dir_sibling(target, "staging", &"0".repeat(PUBLISH_TOKEN_LEN))
+}
+
 /// Write every payload into the (freshly created, empty) staged directory,
 /// creating relative subdirectories as needed and fsyncing each file plus
 /// **every** subdirectory level it made. `staging` itself is fsynced by the
@@ -707,6 +741,27 @@ mod tests {
     use crate::output::testing::scratch_dir;
     use crate::output::tests::{Step, out_dir_payloads, silent};
     use std::cell::RefCell;
+
+    /// R0013-0006 asks the filesystem about the longest sibling a publication
+    /// creates before it has a token to build it with, so the placeholder has
+    /// to be as long as every real token — and the staging sibling the longest
+    /// name, which is why it is the one probed.
+    #[test]
+    fn the_probed_sibling_is_as_long_as_any_the_publication_creates() {
+        let target = Path::new("published");
+        let probed = longest_out_dir_sibling(target);
+        for _ in 0..64 {
+            let token = publish_token();
+            assert_eq!(token.len(), PUBLISH_TOKEN_LEN, "{token}");
+            for kind in ["staging", "backup"] {
+                assert!(
+                    out_dir_sibling(target, kind, &token).as_os_str().len()
+                        <= probed.as_os_str().len(),
+                    "the {kind} sibling outgrows the probed name"
+                );
+            }
+        }
+    }
 
     /// The publication writes its own proof of authorship into the tree it
     /// publishes, so the very next run recognizes the target without guessing

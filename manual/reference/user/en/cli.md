@@ -143,6 +143,20 @@ refusal costs no paid translation; and again at publication time, under the
 publication lock for `--out-dir`. Both passes produce the same exit code and the
 same sentence.
 
+Whether two paths are one file is the filesystem's answer, not the spelling's.
+On a volume that folds letter case or Unicode normalization (HFS+, default
+APFS), `--output IN.md` is the `--input in.md` file and is refused, even under
+`--force`; a symlink or a hard link to a file is a file of its own. An output
+may not be another output's staging name (`<name>.tmp.<pid>`), and a name too
+long for the volume once that suffix is added is refused before translating.
+Letter case is the only folding the early pass can ask about while neither
+name exists. Two new names the volume folds another way (the two Unicode forms
+of `café`) are found only at publication, once the run has created the
+directories or temps that make them resolve: two names that are one file, one
+inside the other, and an output that is, or lies inside, another output's
+staging name. The run then exits `4` before replacing any output, and removes
+the directories it created.
+
 ### Argument-boundary refusals
 
 These are the CLI's own refusals, all exit `1`, each printed as

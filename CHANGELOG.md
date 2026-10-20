@@ -363,6 +363,38 @@ finally enumerates is decided per item, not by this preamble.
   says to move or rename the directory instead. **Visible:** the marker's
   bytes change; it is still recognized by name and file type alone
   (ADR-0029), so markers written earlier keep working.
+- **A run can no longer overwrite its own input through another letter case**
+  (R0012-0002, DCR-0063). The destination guards kept the final component as
+  typed, so on HFS+ or default APFS `--output IN.md` passed the read-side
+  guard against `--input in.md` and the translation was renamed over the
+  source; `--profile` and `--system-prompt-file` were exposed the same way,
+  and so were Unicode normalization variants. `out.md` beside `OUT.md` also
+  passed vetting and failed after the paid run. The final component is now
+  the name its directory stores, found through `read_dir` and `dev`+`ino`,
+  with nothing lowercased; two names that do not exist yet compare under
+  ASCII case only where the volume, asked read-only, folds it. **Visible:** new
+  exit-4 refusals before the provider call, the duplicate sentence now names
+  both paths, and a new-name pair the volume folds another way is refused at
+  publication, before any rename: as a duplicate rather than as "refusing
+  existing temp", and one inside the other as nested, with the level it
+  created removed, rather than as a bare "Is a directory" from the rename
+  pass after part of the set was published.
+- **An output can no longer be another output's staging name** (R0013-0001,
+  DCR-0063). `--output out.json.tmp.<pid> --map out.json`, reachable through
+  an `exec` wrapper, exited 0 with the first output gone and `out.json`
+  holding its bytes. The `<name>.tmp.<pid>` namespace is reserved before the
+  provider call, and publication asks again once its levels and its temps
+  exist, so a folded spelling is refused before any rename. **Visible:** a new exit-4
+  refusal naming both paths, in either order, including the reverse order that
+  used to publish correctly, and for a destination inside a staging name,
+  which used to fail late.
+- **A name too long for its staging suffix is refused before translating**
+  (R0013-0006, DCR-0063). A final component the volume accepts can exceed its
+  limit once `.tmp.<pid>`, or the `--out-dir` staging sibling's suffix, is
+  added, and that surfaced after the paid run as "refusing existing temp" or a
+  bare "File name too long". The volume is asked read-only up front; the names
+  are unchanged. **Visible:** a new exit-4 refusal quoting the OS error, and
+  "refusing existing temp" now means an occupied name only.
 
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above

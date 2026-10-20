@@ -2392,6 +2392,9 @@ fn cli_refuses_a_foreign_html_out_before_translating() {
 /// - R0012-0005: a destination path running through `.transync-publish.lock`
 ///   would replace or block the marker the run locks, so the name is
 ///   reserved in either mode.
+/// - R0013-0006: a final component the volume accepts whose staging name it
+///   refuses, which used to fail after the paid run as "refusing existing
+///   temp".
 #[cfg(feature = "test-stub-provider")]
 #[test]
 fn cli_refuses_the_remaining_destination_faults_before_translating() {
@@ -2523,6 +2526,167 @@ fn cli_refuses_the_remaining_destination_faults_before_translating() {
         assert!(
             !reserved.join(leftover).exists(),
             "a refused run leaves nothing behind: {leftover}"
+        );
+    }
+
+    // R0013-0006: a final component the filesystem accepts whose staging name
+    // (`<name>.tmp.<pid>`) it refuses. A 255-byte name is past that limit for
+    // any pid; the probe asks the volume rather than assuming its cap.
+    let long = ScratchDir::new("transync-cli-long-dest");
+    let name = "a".repeat(255);
+    let refuses = |path: std::path::PathBuf| {
+        matches!(std::fs::symlink_metadata(path),
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidFilename)
+    };
+    if !refuses(long.join(&name)) && refuses(long.join(format!("{name}.tmp.1"))) {
+        refuse(
+            "a destination whose staging name the filesystem refuses",
+            &[
+                "--output".as_ref(),
+                long.join(&name).as_os_str(),
+                "--map".as_ref(),
+                long.join("out.json").as_os_str(),
+            ],
+            "staging name",
+        );
+        assert!(
+            !long.join("out.json").exists(),
+            "a refused run publishes nothing"
+        );
+    } else {
+        eprintln!(
+            "note: {} does not cap a component at 255 bytes; R0013-0006's CLI case did not run",
+            long.display()
+        );
+    }
+}
+
+/// R0012-0002, end to end: on a volume that folds letter case (HFS+, default
+/// APFS — this project's development platform), `--output IN.md` is the
+/// `--input in.md` file. The read-side guard compared the input's realpath,
+/// which spells the stored name, against the destination's final component as
+/// typed, so the run exited 0 having renamed the translation over its own
+/// source. It is refused before the provider call now, and the source is
+/// intact.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_refuses_a_letter_case_alias_of_its_own_input() {
+    let workdir = ScratchDir::new("transync-cli-case-alias-input");
+    let probe = workdir.join("case-probe");
+    std::fs::write(&probe, b"").unwrap();
+    let folds = workdir.join("CASE-PROBE").exists();
+    std::fs::remove_file(&probe).unwrap();
+    if !folds {
+        eprintln!(
+            "note: {} is case-sensitive; R0012-0002's CLI case did not run",
+            workdir.display()
+        );
+        return;
+    }
+    let source = std::fs::read(fixture_path()).unwrap();
+    let input = workdir.join("in.md");
+    std::fs::write(&input, &source).unwrap();
+
+    let out = translate_command()
+        .arg("translate")
+        .arg("--input")
+        .arg(&input)
+        .arg("--target-language")
+        .arg("ko")
+        .arg("--output")
+        .arg(workdir.join("IN.md"))
+        .arg("--map")
+        .arg(workdir.join("map.json"))
+        .output()
+        .expect("transync binary must run");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "naming the input in another letter case is a destination refusal: {stderr}"
+    );
+    assert!(
+        stderr.contains("--input") && !stderr.contains("html block"),
+        "refused for the right reason, before the paid run: {stderr}"
+    );
+    assert_eq!(
+        std::fs::read(&input).unwrap(),
+        source,
+        "the source document must be untouched"
+    );
+    assert!(
+        !workdir.join("map.json").exists(),
+        "a refused run publishes nothing"
+    );
+}
+
+/// R0012-0002, end to end, for the containment half no early pass can see: on
+/// a volume that folds Unicode normalization (HFS+, APFS), `--output
+/// caf<NFD é>/y.md --map caf<NFC é>` nests the map's path around the output's
+/// new parent, and neither name exists before the run. The pair passed both
+/// passes, the rename pass published `y.md` and then failed to rename the map
+/// onto the directory it had just created: exit 4 with a bare "Is a directory",
+/// one output published, and the directory and its lock marker left behind.
+/// The publication now asks again once it has created the level, before
+/// anything is staged or locked, and refuses with the containment sentence and
+/// no residue.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_refuses_a_normalization_alias_nesting_one_output_inside_another() {
+    let workdir = ScratchDir::new("transync-cli-normalization-nesting");
+    let probe = workdir.join("caf\u{e9}");
+    std::fs::write(&probe, b"").unwrap();
+    let folds = std::fs::symlink_metadata(workdir.join("cafe\u{301}")).is_ok();
+    std::fs::remove_file(&probe).unwrap();
+    if !folds {
+        eprintln!(
+            "note: {} does not fold Unicode normalization; R0012-0002's nesting CLI case did \
+             not run",
+            workdir.display()
+        );
+        return;
+    }
+
+    for (output, map) in [
+        (
+            workdir.join("cafe\u{301}").join("y.md"),
+            workdir.join("caf\u{e9}"),
+        ),
+        (
+            workdir.join("caf\u{e9}"),
+            workdir.join("cafe\u{301}").join("y.json"),
+        ),
+    ] {
+        let out = translate_command()
+            .arg("translate")
+            .arg("--input")
+            .arg(fixture_path())
+            .arg("--target-language")
+            .arg("ko")
+            .arg("--output")
+            .arg(&output)
+            .arg("--map")
+            .arg(&map)
+            .output()
+            .expect("transync binary must run");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            out.status.code(),
+            Some(4),
+            "one output inside another is a destination refusal: {stderr}"
+        );
+        assert!(
+            stderr.contains("is inside output destination"),
+            "the containment sentence, not a failed rename: {stderr}"
+        );
+        let left: Vec<_> = std::fs::read_dir(workdir.path())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name())
+            .collect();
+        assert!(
+            left.is_empty(),
+            "nothing published, no created directory, no lock marker: {left:?}"
         );
     }
 }

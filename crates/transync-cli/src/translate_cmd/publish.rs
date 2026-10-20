@@ -15,8 +15,8 @@ use super::args::{LanguageLabels, OutputTarget, is_source_language_sentinel};
 use super::report::Reporter;
 use crate::direction;
 use crate::output::{
-    html_bundle_files, html_bundle_paths, preflight_destination_set, preflight_html_out,
-    preflight_out_dir, publish_out_dir, write_fileset_atomic,
+    EntryIdentity, html_bundle_files, html_bundle_paths, preflight_destination_set,
+    preflight_html_out, preflight_out_dir, publish_out_dir, write_fileset_atomic,
 };
 use std::fs;
 use std::io;
@@ -68,7 +68,11 @@ enum Commit<'a> {
 /// translated content, before the provider is called (R0002-0029).
 ///
 /// A foreign `--html-out` directory, an `--out-dir` target that is not a prior
-/// transync out-dir, and a destination set naming one file twice are all
+/// transync out-dir, a destination set naming one file twice — under the
+/// filesystem's own name equivalence, so `OUT.md` beside `out.md` on a volume
+/// that folds letter case (R0012-0002) — a destination that is another one's
+/// staging name (R0013-0001), and a destination whose staging name the
+/// filesystem refuses (R0013-0006) are all
 /// decided by the filesystem and the arguments alone. Learning any of them
 /// after a paid translation run — the run's whole cost, unsalvageable because
 /// the cache is per-run and in-memory — is the expensive way to be told
@@ -121,14 +125,22 @@ pub(crate) fn preflight_destinations(
     }
 }
 
-/// The files a run **reads**, each with the flag that named it and its
-/// canonical identity — the third element absent for a path that resolves to
-/// nothing, which is a run that is about to fail its own read anyway.
+/// The files a run **reads**, each with the flag that named it and the entry
+/// it identifies — a path that resolves to nothing is left out, since that run
+/// is about to fail its own read anyway.
 ///
 /// A read-side path is canonicalized **whole**, final component included,
 /// because the run reads *through* every symlink on it: what must survive is
-/// the file at the end of the chain, not the entry that pointed at it.
-fn read_side_identities(args: &TranslateArgs) -> Vec<(&'static str, &Path, PathBuf)> {
+/// the file at the end of the chain, not the entry that pointed at it. The
+/// result then goes through the same [`EntryIdentity`] as every destination,
+/// so both sides name the final component the way its directory stores it.
+/// macOS's `realpath` already spells the read side that way; Linux's keeps the
+/// typed spelling on a casefolded directory, and comparing one side
+/// normalized against the other raw is exactly the gap R0012-0002 names.
+fn read_side_identities<'a>(
+    args: &'a TranslateArgs,
+    cwd: &Path,
+) -> Vec<(&'static str, &'a Path, EntryIdentity)> {
     [
         Some(("--input", args.input.as_path())),
         args.profile.as_deref().map(|p| ("--profile", p)),
@@ -138,27 +150,17 @@ fn read_side_identities(args: &TranslateArgs) -> Vec<(&'static str, &Path, PathB
     ]
     .into_iter()
     .flatten()
-    .filter_map(|(flag, path)| Some((flag, path, fs::canonicalize(path).ok()?)))
+    .filter_map(|(flag, path)| {
+        let read = fs::canonicalize(path).ok()?;
+        Some((flag, path, EntryIdentity::of(cwd, &read)))
+    })
     .collect()
 }
 
-/// What a destination would land on: its parent resolved, its final component
-/// kept. Deliberately `crate::output::destination`'s rule rather than a whole
-/// canonicalization, and for that module's reason — publication renames over
-/// the final entry rather than through it, so an `alias.md` that symlinks the
-/// input is a different file from the input and refusing the pair would be a
-/// false alarm.
-///
-/// `None` for a destination with no final component, or whose parent does not
-/// exist: neither can name a file that already exists, and a read-side path
-/// that resolved is a file that does.
-fn written_identity(destination: &Path) -> Option<PathBuf> {
-    let name = destination.file_name()?;
-    let parent = match destination.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p,
-        _ => Path::new("."),
-    };
-    Some(fs::canonicalize(parent).ok()?.join(name))
+/// The working directory the identities are made absolute against, on the
+/// destination refusal's channel.
+fn working_dir() -> Result<PathBuf, PublishError> {
+    std::env::current_dir().map_err(PublishError::Commit)
 }
 
 /// Refuse a destination that names a file this run reads (R0010-0003,
@@ -176,17 +178,22 @@ fn written_identity(destination: &Path) -> Option<PathBuf> {
 /// be replaced — a foreign `--html-out` file, an `--out-dir` target that is not
 /// a prior out-dir — and no argv spelling asks for a run to destroy its own
 /// inputs.
+///
+/// "Names" is the filesystem's question (R0012-0002): a destination is the
+/// entry [`EntryIdentity`] resolves, so `--output IN.md` is `--input in.md` on
+/// a volume that folds letter case, while an `alias.md` that *symlinks* the
+/// input is a different entry — publication renames over the link rather than
+/// through it — and so is a hard link of it.
 fn refuse_read_side_aliases(
     destinations: &[PathBuf],
     args: &TranslateArgs,
 ) -> Result<(), PublishError> {
-    let reads = read_side_identities(args);
+    let cwd = working_dir()?;
+    let reads = read_side_identities(args, &cwd);
     for destination in destinations {
-        let Some(written) = written_identity(destination) else {
-            continue;
-        };
+        let written = EntryIdentity::of(&cwd, destination);
         for (flag, path, read) in &reads {
-            if *read == written {
+            if read.same_entry(&written) {
                 return Err(read_side_refusal(format!(
                     "output destination {} is the {flag} file {} this run reads: publishing it \
                      would overwrite the run's own input",
@@ -201,14 +208,23 @@ fn refuse_read_side_aliases(
 
 /// [`refuse_read_side_aliases`] for `--out-dir`, whose destination is the whole
 /// target: a publication replaces the directory, so an input *inside* it is
-/// destroyed without any destination naming that input.
+/// destroyed without any destination naming that input — and an input that
+/// *is* the target (a regular file the publication would replace) is the same
+/// loss.
+///
+/// Inside is asked of the filesystem as well as of the spelling
+/// ([`EntryIdentity::is_inside`]): the target's `dev`+`ino` among the
+/// directories the input's path runs through, so an `--out-dir` spelled in
+/// another letter case is caught on a volume whose `realpath` keeps the typed
+/// spelling (a casefolded Linux directory), not only where it does not.
 fn refuse_read_side_under(dir: &Path, args: &TranslateArgs) -> Result<(), PublishError> {
     let Ok(published) = fs::canonicalize(dir) else {
         return Ok(());
     };
-    for (flag, path, read) in read_side_identities(args) {
-        // Component-wise, so `/a/bc` is not inside `/a/b`.
-        if read.starts_with(&published) {
+    let cwd = working_dir()?;
+    let published = EntryIdentity::of(&cwd, &published);
+    for (flag, path, read) in read_side_identities(args, &cwd) {
+        if read.same_entry(&published) || read.is_inside(&published) {
             return Err(read_side_refusal(format!(
                 "--out-dir {} holds the {flag} file {} this run reads, and publishing replaces \
                  the whole target directory",
@@ -436,7 +452,7 @@ fn pane_source_language<'a>(requested: &'a str, detected: &'a Option<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::testing::scratch_dir;
+    use crate::output::testing::{folds_letter_case, plant_with_normalization_alias, scratch_dir};
     use clap::Parser;
 
     /// Constructing `TranslateArgs` through clap keeps these tests robust to
@@ -556,6 +572,163 @@ mod tests {
             preflight_destinations(&OutputTarget::Dir { dir: sibling }, &args).is_ok(),
             "a target that holds no read-side file must pass"
         );
+    }
+
+    /// R0012-0002: on a volume that folds letter case, `--output IN.md` is the
+    /// `--input in.md` file, and the guard compared the input's realpath
+    /// (which spells the stored `in.md`) with the destination's final
+    /// component *as typed* — so the translation was renamed over the source
+    /// with nothing reported, `--input IN.MD --output IN.MD` included. Both
+    /// sides now name the leaf the way its directory stores it. A symlink to
+    /// the input and a hard link of it are still separate entries the
+    /// publication renames over rather than through, and still publish.
+    #[test]
+    fn a_case_alias_of_a_read_side_file_is_refused() {
+        let root = scratch_dir("read-side-case-alias");
+        if !folds_letter_case(&root) {
+            eprintln!(
+                "note: {} is case-sensitive; R0012-0002's read-side case half did not run on \
+                 this filesystem",
+                root.display()
+            );
+            return;
+        }
+        let input = root.join("in.md");
+        fs::write(&input, "# hi\n").expect("fixture input");
+        let profile = root.join("profile.toml");
+        fs::write(&profile, "").expect("fixture profile");
+        let spelled = |path: &Path| path.to_str().expect("scratch paths are UTF-8").to_string();
+        let args = parse_args(&[
+            "--input",
+            &spelled(&input),
+            "--profile",
+            &spelled(&profile),
+            "--force",
+        ]);
+
+        let onto_input = OutputTarget::Files {
+            output: root.join("IN.md"),
+            map: root.join("alignment.json"),
+        };
+        let message = refusal(
+            preflight_destinations(&onto_input, &args)
+                .expect_err("--output naming --input in another letter case must be refused"),
+        );
+        assert!(message.contains("--input"), "{message}");
+
+        let onto_profile = OutputTarget::Files {
+            output: root.join("out.md"),
+            map: root.join("PROFILE.TOML"),
+        };
+        let message = refusal(
+            preflight_destinations(&onto_profile, &args)
+                .expect_err("--map naming --profile in another letter case must be refused"),
+        );
+        assert!(message.contains("--profile"), "{message}");
+
+        // The identical spelling of an alias: the input's realpath spells the
+        // stored `in.md`, the destination kept `IN.MD`.
+        let shouted = root.join("IN.MD");
+        let same_spelling = parse_args(&["--input", &spelled(&shouted)]);
+        let message = refusal(
+            preflight_destinations(
+                &OutputTarget::Files {
+                    output: shouted,
+                    map: root.join("alignment.json"),
+                },
+                &same_spelling,
+            )
+            .expect_err("--input IN.MD --output IN.MD names one file twice"),
+        );
+        assert!(message.contains("--input"), "{message}");
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&input, root.join("link.md")).expect("symlink the input");
+            fs::hard_link(&input, root.join("hard.md")).expect("hard-link the input");
+            for separate in ["LINK.MD", "hard.md", "HARD.MD"] {
+                preflight_destinations(
+                    &OutputTarget::Files {
+                        output: root.join(separate),
+                        map: root.join("alignment.json"),
+                    },
+                    &args,
+                )
+                .unwrap_or_else(|e| {
+                    panic!("{separate} is an entry of its own: {}", refusal(e));
+                });
+            }
+        }
+
+        let published = root.join("published");
+        fs::create_dir(&published).expect("an existing --out-dir target");
+        let inside = published.join("in.md");
+        fs::write(&inside, "# hi\n").expect("an input inside the target");
+        let message = refusal(
+            preflight_destinations(
+                &OutputTarget::Dir {
+                    dir: root.join("PUBLISHED"),
+                },
+                &parse_args(&["--input", &spelled(&inside), "--force"]),
+            )
+            .expect_err("an --out-dir spelled in another letter case still holds the input"),
+        );
+        assert!(message.contains("--input"), "{message}");
+    }
+
+    /// R0012-0002, the normalization half, with the alias derived from the
+    /// spelling the directory stores (see `plant_with_normalization_alias`):
+    /// on HFS+ the input's realpath spells NFD and the destination NFC, on
+    /// APFS the other way round — either way the comparison was of two byte
+    /// strings naming one file.
+    #[test]
+    fn a_normalization_alias_of_a_read_side_file_is_refused() {
+        let root = scratch_dir("read-side-normalization-alias");
+        let Some((stored, alias)) = plant_with_normalization_alias(&root, ".md") else {
+            eprintln!(
+                "note: {} does not fold Unicode normalization; R0012-0002's read-side \
+                 normalization half did not run on this filesystem",
+                root.display()
+            );
+            return;
+        };
+        for (input, output) in [(&stored, &alias), (&alias, &alias), (&alias, &stored)] {
+            let args = parse_args(&["--input", input.to_str().expect("scratch paths are UTF-8")]);
+            let message = refusal(
+                preflight_destinations(
+                    &OutputTarget::Files {
+                        output: output.clone(),
+                        map: root.join("alignment.json"),
+                    },
+                    &args,
+                )
+                .expect_err("a normalization alias of --input is --input"),
+            );
+            assert!(message.contains("--input"), "{message}");
+        }
+    }
+
+    /// R0013-0001 through the CLI's own preflight: the test process's pid is
+    /// the writer's, so `--output <dir>/out.json.tmp.<pid> --map <dir>/out.json`
+    /// is exactly the pair an `exec`-ing shell wrapper could produce — and it is
+    /// refused here, before the provider call, rather than published wrong.
+    #[test]
+    fn a_staging_name_of_this_run_is_refused_before_the_provider_call() {
+        let root = scratch_dir("staging-name-preflight");
+        let input = root.join("in.md");
+        fs::write(&input, "# hi\n").expect("fixture input");
+        let args = parse_args(&["--input", input.to_str().expect("scratch paths are UTF-8")]);
+        let message = refusal(
+            preflight_destinations(
+                &OutputTarget::Files {
+                    output: root.join(format!("out.json.tmp.{}", std::process::id())),
+                    map: root.join("out.json"),
+                },
+                &args,
+            )
+            .expect_err("a destination that is another's staging name must be refused"),
+        );
+        assert!(message.contains("staging name"), "{message}");
     }
 
     /// R0010-0059 / OI-0018: every bundle-only flag earns the same no-bundle

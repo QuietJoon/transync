@@ -219,8 +219,9 @@ crates/transync-cli/                    # binary; no profiles/ dir — the defau
     │   ├── bundle.rs                   # embedded assets (include_str! of web/sync.js,
     │   │                               #   index.html.tpl, purify.min.js) + index.html
     │   │                               #   template filler + attribute escaping
-    │   ├── destination.rs              # destination vetting + lexical path
-    │   │                               #   normalization (same-destination refusal)
+    │   ├── destination.rs              # destination vetting + EntryIdentity (one
+    │   │                               #   entry under any spelling; the staging-name
+    │   │                               #   derivation and its reserved namespace)
     │   ├── fileset.rs                  # write_fileset_atomic: the staged fileset commit
     │   │                               #   for --output / --map / --html-out
     │   ├── lock.rs                     # cross-process exclusion for publication

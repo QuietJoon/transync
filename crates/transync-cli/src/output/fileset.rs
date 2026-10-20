@@ -9,14 +9,16 @@
 //! TRACE: persistence-and-files.md §staged-fileset-commit
 //! TRACE: ADR-0006
 
-use super::destination::{destination_file_name, refuse_lock_marker_alias, vet_destinations};
+use super::destination::{
+    FileId, STAGING_TEMP_INFIX, duplicate_destination, file_id, refuse_lock_marker_alias,
+    staging_name_collision, staging_temp_path, vet_destinations,
+};
 use super::lock::{self, PUBLISH_LOCK_NAME, PublishLock};
 use super::{AFTER_A_FAILED_PUBLICATION, Notify, fsync_dir, note_cleanup_residue};
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process;
 
 /// Commit a set of files as a **staged fileset commit** (R0006-0012).
 ///
@@ -39,6 +41,24 @@ use std::process;
 /// front, and its identity is asked again after the levels exist and once the
 /// locks are held.
 ///
+/// Two destinations must not share a staged temp either, by name or by entry,
+/// and one must not lie inside another or inside another's staging name.
+/// [`vet_destinations`] refuses the spellings it can compare up front, and the
+/// filesystem is asked twice more, because a spelling the volume folds onto a
+/// name that did not exist yet (a Unicode normalization variant, say) is
+/// invisible until that name does. Once the levels exist, before anything is
+/// staged or locked, the whole vetting runs again: a level this call created
+/// now resolves under every spelling of it, so a destination the volume folds
+/// onto it, or onto the staging name it took, is the containment or
+/// staging-name refusal it is, and the rollback removes the level
+/// (R0012-0002, R0013-0001). Once the temps exist, a temp whose `create_new`
+/// meets a temp this call already staged is the duplicate destination it is
+/// (R0012-0002), and a final destination that resolves to a temp this call
+/// staged is refused before the first rename, through the phase-1 rollback —
+/// otherwise that rename would replace the other destination's staged bytes
+/// and the run would exit 0 with one output gone and the other wrong
+/// (R0013-0001).
+///
 /// TRACE: persistence-and-files.md §staged-fileset-commit
 /// TRACE: contracts.md §6
 pub fn write_fileset_atomic(
@@ -58,11 +78,18 @@ pub fn write_fileset_atomic(
     // by name is excluded on (ti `40e2a5`). Where the destination already
     // exists this resolves to the destination itself and nothing changes.
     let mut lock_dirs: Vec<PathBuf> = dirs.iter().map(|dir| claim_anchor(dir)).collect();
-    // R0012-0005: a level this call just created may have landed on the
-    // lock-marker path of the level holding it, under a spelling the volume
-    // folds; asked before locking, which would otherwise open a directory.
+    // Every question `vet_destinations` asked is asked again once the levels
+    // exist, before locking, because a level this call just created can be
+    // what makes a spelling the volume folds resolve. It may have landed on
+    // the lock-marker path of the level holding it (R0012-0005), and locking
+    // would then open a directory. It may be another destination, or that
+    // destination's staging name, under another normalization form — one
+    // destination inside the other (R0012-0002, R0013-0001), which the rename
+    // pass would otherwise meet as a bare "Is a directory" after publishing
+    // part of the set. And the staging names can now be probed in the levels
+    // they will actually be created in (R0013-0006).
     if let Err(e) = create_destination_parents(&dirs, &mut created_dirs)
-        .and_then(|()| refuse_marker_aliases(files))
+        .and_then(|()| vet_destinations(files.iter().map(|(path, _)| path.as_path())))
     {
         rollback_created_dirs(&created_dirs, notify);
         return Err(e);
@@ -87,10 +114,17 @@ pub fn write_fileset_atomic(
 
     let mut staged: Vec<(std::path::PathBuf, &std::path::PathBuf)> =
         Vec::with_capacity(files.len());
+    // The identity of each staged temp, read from the handle that created it,
+    // in `staged`'s order.
+    let mut staged_ids: Vec<Option<FileId>> = Vec::with_capacity(files.len());
     for (path, bytes) in files {
         match stage_one_file(path, bytes, notify) {
-            Ok(tmp) => staged.push((tmp, path)),
+            Ok((tmp, id)) => {
+                staged.push((tmp, path));
+                staged_ids.push(id);
+            }
             Err(e) => {
+                let e = name_a_duplicate(e, path, &staged, &staged_ids);
                 cleanup_temps(&staged, notify);
                 // Release before removing the tree the markers live in: a run
                 // blocked on one of these locks resumes into a directory this
@@ -102,7 +136,80 @@ pub fn write_fileset_atomic(
         }
     }
 
+    // Before the first rename, and still inside phase 1's all-or-nothing:
+    // a final destination the filesystem resolves to a temp this call staged
+    // would have that rename replace the other destination's bytes
+    // (R0013-0001).
+    if let Err(e) = refuse_destinations_on_staged_temps(&staged, &staged_ids) {
+        cleanup_temps(&staged, notify);
+        drop(lock);
+        rollback_created_dirs(&created_dirs, notify);
+        return Err(e);
+    }
+
     commit_staged_renames(&staged, &created_dirs, notify)
+}
+
+/// Turn a staging failure into the duplicate-destination refusal it is, when it
+/// is one (R0012-0002): `path`'s temp could not be created because its name
+/// already resolves to a temp **this call** staged for another destination —
+/// two spellings of one new name, which the volume folds onto one entry and no
+/// comparison before the run could see (nothing existed to compare). Any other
+/// failure is returned as it came.
+fn name_a_duplicate(
+    e: io::Error,
+    path: &Path,
+    staged: &[(PathBuf, &PathBuf)],
+    staged_ids: &[Option<FileId>],
+) -> io::Error {
+    if e.kind() != io::ErrorKind::AlreadyExists {
+        return e;
+    }
+    let occupant = staging_temp_path(path)
+        .and_then(fs::symlink_metadata)
+        .ok()
+        .as_ref()
+        .and_then(file_id);
+    match staged_ids
+        .iter()
+        .position(|id| id.is_some() && *id == occupant)
+    {
+        Some(at) => duplicate_destination(path, staged[at].1),
+        None => e,
+    }
+}
+
+/// Refuse when a final destination names a temp this call staged for a
+/// different destination, by filesystem identity (R0013-0001).
+///
+/// [`vet_destinations`] refuses the reserved staging namespace by the names it
+/// can compare before anything exists. This asks the filesystem itself, once
+/// the temps do exist, so a spelling the volume folds onto a staging name —
+/// Unicode normalization, or a case variant where no probe could answer up
+/// front — is refused too, before any rename can act on it. `lstat`, so a
+/// destination that is a symlink is judged as the link, which is what the
+/// rename would replace. A no-op off Unix, where `std` has no file identity.
+fn refuse_destinations_on_staged_temps(
+    staged: &[(PathBuf, &PathBuf)],
+    staged_ids: &[Option<FileId>],
+) -> io::Result<()> {
+    for (_, destination) in staged {
+        let Some(id) = fs::symlink_metadata(destination)
+            .ok()
+            .as_ref()
+            .and_then(file_id)
+        else {
+            continue;
+        };
+        let owner = staged
+            .iter()
+            .zip(staged_ids)
+            .find(|((_, owner), owner_id)| **owner_id == Some(id) && owner != destination);
+        if let Some(((_, owner), _)) = owner {
+            return Err(staging_name_collision(destination, owner));
+        }
+    }
+    Ok(())
 }
 
 /// [`refuse_lock_marker_alias`] over every destination of the set.
@@ -255,27 +362,33 @@ fn remove_own_lock_marker_if_sole(dir: &Path) -> LevelDecision {
     }
 }
 
-/// Stage one payload as `<path>.tmp.<pid>`, fsynced. The destination
+/// Stage one payload as `<path>.tmp.<pid>` ([`staging_temp_path`]), fsynced,
+/// and return the temp with its filesystem identity (read from the handle
+/// that created it, so it is the file this call wrote). The destination
 /// directory already exists — [`create_destination_parents`] made it before
 /// the publish lock was taken.
-fn stage_one_file(path: &Path, bytes: &[u8], notify: Notify<'_>) -> io::Result<std::path::PathBuf> {
-    // Append to the FULL file name (`out.md.tmp.<pid>`) rather than replacing
-    // the extension — `with_extension` would collide same-stem siblings
-    // (`out.md` and `out.json` both staging as `out.tmp.<pid>`) in one fileset.
-    let file_name = destination_file_name(path)?;
-    let tmp = path.with_file_name(format!("{file_name}.tmp.{}", process::id()));
+fn stage_one_file(
+    path: &Path,
+    bytes: &[u8],
+    notify: Notify<'_>,
+) -> io::Result<(std::path::PathBuf, Option<FileId>)> {
+    let tmp = staging_temp_path(path)?;
     // `create_new` refuses a pre-existing temp, so a hostile or stale symlink
     // planted at that name cannot redirect the write and truncate an
-    // unrelated file (R0008-0006).
+    // unrelated file (R0008-0006). "Refusing" is that case's word only: any
+    // other failure to create the temp is said as what it is, rather than
+    // blamed on a temp that never existed (R0013-0006).
     let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&tmp)
         .map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("refusing existing temp {}: {e}", tmp.display()),
-            )
+            let doing = if e.kind() == io::ErrorKind::AlreadyExists {
+                "refusing existing temp"
+            } else {
+                "could not create staging temp"
+            };
+            io::Error::new(e.kind(), format!("{doing} {}: {e}", tmp.display()))
         })?;
     if let Err(e) = f.write_all(bytes).and_then(|()| f.sync_all()) {
         // R0011-0017: the write's own error is what this returns — the bytes
@@ -298,7 +411,8 @@ fn stage_one_file(path: &Path, bytes: &[u8], notify: Notify<'_>) -> io::Result<s
         }
         return Err(e);
     }
-    Ok(tmp)
+    let id = f.metadata().ok().as_ref().and_then(file_id);
+    Ok((tmp, id))
 }
 
 /// Phase 2: rename each staged temp over its target, preserving any existing
@@ -469,7 +583,7 @@ pub(super) fn missing_ancestors(dir: &Path) -> Vec<PathBuf> {
 /// otherwise `None`. Used to recognize this writer's own staging temps.
 pub(super) fn tmp_pid_suffix(rest: Option<&str>) -> Option<&str> {
     rest?
-        .strip_prefix(".tmp.")
+        .strip_prefix(STAGING_TEMP_INFIX)
         .filter(|pid| !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()))
 }
 
@@ -477,10 +591,11 @@ pub(super) fn tmp_pid_suffix(rest: Option<&str>) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::output::preflight::HTML_BUNDLE_ENTRIES;
-    use crate::output::testing::scratch_dir;
+    use crate::output::testing::{NFC_E, NFD_E, folds_normalization, scratch_dir};
     use crate::output::tests::{Step, silent};
     use std::cell::RefCell;
     use std::fs::File;
+    use std::process;
     use std::sync::Arc;
     use std::sync::Barrier;
 
@@ -954,6 +1069,254 @@ mod tests {
         assert!(
             !root.join("made").exists(),
             "the created directory levels must be rolled back"
+        );
+    }
+
+    /// Whether `dir` holds nothing a refused publication may leave: no output
+    /// and no temp. The lock marker stays — it is created once in a directory
+    /// that already existed and never removed, by design (DCR-0021).
+    fn holds_nothing(dir: &Path) -> bool {
+        fs::read_dir(dir)
+            .expect("list the directory")
+            .flatten()
+            .all(|entry| entry.file_name() == PUBLISH_LOCK_NAME)
+    }
+
+    /// R0013-0001: a final destination that is another destination's
+    /// `<name>.tmp.<pid>` staging name. `create_new` cannot see it — both temps
+    /// are absent when opened — and in this order the first rename replaced the
+    /// second's temp, which the second rename then published as `out.json`:
+    /// exit 0, the first output gone and the second holding the wrong bytes.
+    /// The reverse order happened to publish correctly; it is refused too,
+    /// because the reserved namespace is a property of the set, not of the
+    /// order its members were listed in.
+    #[test]
+    fn a_destination_that_is_another_destinations_staging_name_is_refused() {
+        let root = scratch_dir("staging-name-collision");
+        let pid = process::id();
+        let staged = root.join(format!("out.json.tmp.{pid}"));
+        let final_ = root.join("out.json");
+
+        for (first, second) in [(&staged, &final_), (&final_, &staged)] {
+            let err = write_fileset_atomic(
+                &[
+                    (first.clone(), b"first".as_slice()),
+                    (second.clone(), b"second".as_slice()),
+                ],
+                &silent,
+            )
+            .expect_err("a destination in another's staging namespace must not publish");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{err}");
+            let msg = err.to_string();
+            assert!(
+                msg.contains(&staged.display().to_string())
+                    && msg.contains(&final_.display().to_string()),
+                "the refusal must name both destinations: {msg}"
+            );
+            assert!(
+                holds_nothing(&root),
+                "nothing is published and no temp is left: {:?}",
+                fs::read_dir(&root)
+                    .map(|it| it.flatten().map(|e| e.file_name()).collect::<Vec<_>>())
+            );
+        }
+    }
+
+    /// The same collision under a spelling no name comparison catches: the two
+    /// Unicode normalization forms of one name are one entry on HFS+ and APFS,
+    /// and neither exists before the run, so nothing up front can tell. What
+    /// can is the filesystem once the temps exist: before the first rename,
+    /// a final destination that resolves to a temp this call staged
+    /// (`dev`+`ino`) is refused and the phase-1 rollback runs.
+    #[test]
+    fn a_normalization_variant_of_a_staging_name_is_refused_before_any_rename() {
+        let root = scratch_dir("staging-name-normalization");
+        if !folds_normalization(&root) {
+            eprintln!(
+                "note: {} does not fold Unicode normalization; the post-staging identity half of \
+                 R0013-0001 did not run on this filesystem",
+                root.display()
+            );
+            return;
+        }
+        let pid = process::id();
+        let colliding = root.join(format!("caf{NFD_E}.json.tmp.{pid}"));
+        let owner = root.join(format!("caf{NFC_E}.json"));
+
+        for (first, second) in [(&colliding, &owner), (&owner, &colliding)] {
+            let err = write_fileset_atomic(
+                &[
+                    (first.clone(), b"first".as_slice()),
+                    (second.clone(), b"second".as_slice()),
+                ],
+                &silent,
+            )
+            .expect_err("a destination the filesystem resolves to a staged temp must not publish");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{err}");
+            assert!(err.to_string().contains("staging name"), "{err}");
+            assert!(
+                holds_nothing(&root),
+                "the rollback leaves nothing behind: {:?}",
+                fs::read_dir(&root)
+                    .map(|it| it.flatten().map(|e| e.file_name()).collect::<Vec<_>>())
+            );
+        }
+    }
+
+    /// R0012-0002's late half: two new names in the two normalization forms are
+    /// one file, and no read-only question asked before the run can say so —
+    /// neither exists. The second temp's `create_new` is what finds out, and it
+    /// used to report "refusing existing temp" about a temp this very call had
+    /// staged. It is the duplicate it is.
+    #[test]
+    fn two_new_normalization_forms_of_one_name_are_refused_as_one_destination() {
+        let root = scratch_dir("normalization-duplicate");
+        if !folds_normalization(&root) {
+            eprintln!(
+                "note: {} does not fold Unicode normalization; the late duplicate half of \
+                 R0012-0002 did not run on this filesystem",
+                root.display()
+            );
+            return;
+        }
+        let nfc = root.join(format!("caf{NFC_E}.json"));
+        let nfd = root.join(format!("caf{NFD_E}.json"));
+        let err = write_fileset_atomic(
+            &[
+                (nfc.clone(), b"first".as_slice()),
+                (nfd.clone(), b"second".as_slice()),
+            ],
+            &silent,
+        )
+        .expect_err("two spellings of one new name are one destination");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{err}");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("duplicate output destination")
+                && msg.contains(&nfc.display().to_string())
+                && msg.contains(&nfd.display().to_string()),
+            "the refusal must say the two are one and name both: {msg}"
+        );
+        assert!(holds_nothing(&root), "a refused pair publishes nothing");
+    }
+
+    /// The names a refused publication left in `dir`, for a failure message.
+    fn listing(dir: &Path) -> Vec<std::ffi::OsString> {
+        fs::read_dir(dir)
+            .map(|it| it.flatten().map(|e| e.file_name()).collect())
+            .unwrap_or_default()
+    }
+
+    /// R0012-0002's containment half, for new names the volume folds by Unicode
+    /// normalization: `caf<NFD é>/y.md` beside `caf<NFC é>` is one destination
+    /// inside another, and nothing before the run can say so — neither name
+    /// exists, and the two spellings differ in more than ASCII letter case.
+    /// Creating the inner destination's parent is what makes the outer one
+    /// resolve to that directory. Unasked, the staging passed (the two temps
+    /// have different names), the rename pass published the inner file and then
+    /// failed renaming the outer one onto the new directory with a bare "Is a
+    /// directory", leaving a mixed set and the directory behind. Asked again
+    /// once the levels exist, it is the containment refusal it is, before
+    /// anything is staged or locked, and the rollback removes the level.
+    #[test]
+    fn a_created_level_the_volume_folds_onto_another_destination_is_refused_before_staging() {
+        let root = scratch_dir("normalization-containment");
+        if !folds_normalization(&root) {
+            eprintln!(
+                "note: {} does not fold Unicode normalization; the created-level half of \
+                 R0012-0002's containment refusal did not run on this filesystem",
+                root.display()
+            );
+            return;
+        }
+        for (inner_e, outer_e) in [(NFD_E, NFC_E), (NFC_E, NFD_E)] {
+            let inner = root.join(format!("caf{inner_e}")).join("y.md");
+            let deeper = root.join(format!("caf{inner_e}")).join("a").join("y.md");
+            let outer = root.join(format!("caf{outer_e}"));
+            let outer_deeper = outer.join("a");
+            for (first, second) in [
+                (&inner, &outer),
+                (&outer, &inner),
+                (&deeper, &outer_deeper),
+                (&outer_deeper, &deeper),
+            ] {
+                let err = write_fileset_atomic(
+                    &[
+                        (first.clone(), b"first".as_slice()),
+                        (second.clone(), b"second".as_slice()),
+                    ],
+                    &silent,
+                )
+                .expect_err("one destination inside another is never published");
+                assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{err}");
+                assert!(
+                    err.to_string().contains("is inside output destination"),
+                    "the containment refusal, not a failed rename: {err}"
+                );
+                assert!(
+                    listing(&root).is_empty(),
+                    "nothing published, no temp, no created level, no lock marker: {:?}",
+                    listing(&root)
+                );
+            }
+        }
+    }
+
+    /// R0013-0001 through a level the run creates: `caf<NFD é>.json.tmp.<pid>/y.md`
+    /// beside `caf<NFC é>.json` puts a destination inside the other's staging
+    /// name, under a spelling no comparison before the run can see. Creating
+    /// the inner destination's parent makes that staging name a directory, and
+    /// the outer destination's `create_new` then met it as "refusing existing
+    /// temp" — after the paid run, naming a temp that was never one. Asked
+    /// again once the levels exist, it is refused with the staging-name
+    /// sentence and the level is rolled back.
+    #[test]
+    fn a_created_level_the_volume_folds_onto_a_staging_name_is_refused_before_staging() {
+        let root = scratch_dir("normalization-staging-level");
+        if !folds_normalization(&root) {
+            eprintln!(
+                "note: {} does not fold Unicode normalization; the created-level half of \
+                 R0013-0001 did not run on this filesystem",
+                root.display()
+            );
+            return;
+        }
+        let pid = process::id();
+        let inner = root.join(format!("caf{NFD_E}.json.tmp.{pid}")).join("y.md");
+        let owner = root.join(format!("caf{NFC_E}.json"));
+        for (first, second) in [(&inner, &owner), (&owner, &inner)] {
+            let err = write_fileset_atomic(
+                &[
+                    (first.clone(), b"first".as_slice()),
+                    (second.clone(), b"second".as_slice()),
+                ],
+                &silent,
+            )
+            .expect_err("a destination inside another's staging name is never published");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{err}");
+            assert!(err.to_string().contains("staging name"), "{err}");
+            assert!(
+                listing(&root).is_empty(),
+                "nothing published, no temp, no created level, no lock marker: {:?}",
+                listing(&root)
+            );
+        }
+    }
+
+    /// R0013-0006's late backstop: "refusing existing temp" is the sentence for
+    /// a staging name that is already taken, and it was said about every
+    /// failure to create one — a missing directory, a name the filesystem
+    /// refuses — naming a pre-existing temp that never existed.
+    #[test]
+    fn a_staging_failure_that_is_not_an_occupied_name_says_what_it_was() {
+        let root = scratch_dir("staging-open-failure");
+        let err = stage_one_file(&root.join("missing").join("out.md"), b"x", &silent)
+            .expect_err("there is no directory to stage into");
+        assert_eq!(err.kind(), io::ErrorKind::NotFound, "{err}");
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("refusing existing temp") && msg.contains("out.md.tmp."),
+            "the sentence must name the temp without claiming it already existed: {msg}"
         );
     }
 }
