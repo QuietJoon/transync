@@ -310,8 +310,10 @@ pub(crate) fn build_batches_with_refs(
     // i.e. the batch's own membership. Coalescing sections that disagree on
     // either would change the bytes a unit's request carries, and with them
     // its `CacheKey` — so agreement on both is the admission test, and it is
-    // what keeps a coalesced batch's prompt byte-identical to the one its
-    // sections would have received alone.
+    // what keeps every unit's compiled system prompt and assembled
+    // instruction, and therefore the batch-scoped axes of its `CacheKey`,
+    // byte-identical to what it would have had alone. The request as a whole
+    // is not: it carries the neighbours' units and their count.
     let mut resolved: Vec<(
         Vec<usize>,
         crate::llm::prompt::DocumentFacts,

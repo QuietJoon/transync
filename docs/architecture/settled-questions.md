@@ -167,14 +167,16 @@ R0004-0091.
 poison policy clears the whole cache once instead of failing"; "two processes
 sharing a cache directory corrupt it".
 
-**Settled answer:** the cache is an **accelerator whose failure degrades to
-re-translation, never to wrong output** — that stance decides each of these.
-Durability per append is deliberately not promised (a torn tail is discarded
-at open); one writer per directory is documented as unsupported with lost
-entries, never corrupt output, as the cost; and poisoned or invalid state is
-cleared and resumed because every cache hit is re-validated through the full
-per-unit layer stack before reuse, so a bad entry is evicted rather than
-trusted.
+**Settled answer:** the cache is an **accelerator whose detected failures
+degrade to re-translation, never to structurally invalid output** — that
+stance decides each of these. Durability per append is deliberately not
+promised (a torn tail is discarded at open); one writer per directory is
+documented as unsupported with lost entries, never corrupt output, as the
+cost; and poisoned or invalid state is cleared and resumed because every
+cache hit is re-validated through the full per-unit layer stack before reuse,
+so an entry that fails any layer is evicted rather than trusted. The log
+carries no checksum, so damage that leaves an entry valid and same-shaped is
+not detected (DCR-0063); whether to add a payload digest is open, not settled.
 
 **Prior findings:** R0004-0027, R0004-0029, R0004-0033, R0004-0035,
 R0004-0036, R0004-0037, R0004-0038, R0004-0039, R0004-0040.

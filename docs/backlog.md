@@ -15,11 +15,10 @@ The 2026-08-07 refresh was derived from
 arc produced several tickets whose root cause was one document restating another, and the
 index must not become one. Every sweep since has held to that rule.
 Sources: `docs/project/`, `docs/decisions/`, `docs/architecture/`, DCRs, specs, code
-markers, `docs/investigation/` (untracked and git-ignored since 2026-08-08 — present on
-disk and read as a source, but not version-controlled) and `reviews/` (partly tracked:
-round 0001 and `README.md` are committed, later rounds are left untracked until the gate
-archives them; see `untracked-analysis-bundles` in the Type 2 removal note kept in
-`docs/backlog-archive.md`).
+markers and `reviews/` (partly tracked: `README.md` and the rounds archived under
+`reviews/reviewed/` are committed, an in-flight round is left untracked until the gate
+archives it; see `untracked-analysis-bundles` in the Type 2 removal note kept in
+`docs/backlog-archive.md`). The retired `docs/investigation/` bundle is not a source.
 
 **A second gate exists as of 2026-10-13, and this file is not yet the census for it.**
 The owner stated v0.6.0's window-closing condition that day: *the manifest stays

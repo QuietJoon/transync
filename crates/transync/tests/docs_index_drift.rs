@@ -24,11 +24,13 @@
 //! - `*.ko.md` Korean siblings — generated translations, git-ignored, out of
 //!   scope for this assistant by repo convention;
 //! - anything under a `docs/` path this repository's `.gitignore` ignores —
-//!   today `docs/investigation/`, a bundle regenerated from the code and
-//!   untracked since 2026-08-08. An untracked bundle is not the index's to
-//!   carry. The exclusion is **read out of `.gitignore`**, not hardcoded, so
-//!   it cannot outlive the decision that created it: re-track the bundle and
-//!   its files are required again in the same edit;
+//!   today only `docs/investigation/`, the retired analysis bundle. Nothing
+//!   produces it and a clone never has it; its line stays so a leftover local
+//!   copy is neither committed nor required here. An ignored directory is not
+//!   the index's to carry. The exclusion is **read out of `.gitignore`**, not
+//!   hardcoded, so it cannot outlive the decision that created it: drop the
+//!   ignore line and anything under that path is required again in the same
+//!   edit;
 //! - the two OKF reserved files, `docs/index.md` (which needs no self-link)
 //!   and `docs/log.md` (the bundle change journal, DCR-0055) — neither is a
 //!   concept document;
@@ -280,7 +282,8 @@ fn the_required_set_is_the_whole_docs_tree_not_just_the_record_trees() {
 /// others. A drift test that fires on files nobody intends to index gets
 /// weakened by whoever trips it next, so the excluded set is small, stated,
 /// and checked here. Nothing asserts these files *exist* — a fresh clone has
-/// no Korean siblings and no `docs/investigation/`, both being git-ignored.
+/// no Korean siblings, and the retired `docs/investigation/` exists at most as
+/// a leftover local copy; both are git-ignored.
 #[test]
 fn the_stated_exclusions_are_the_only_exclusions() {
     let required = required_linked_docs();

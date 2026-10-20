@@ -91,10 +91,13 @@ failure actually has:
   (clearing the index, not the file — the next open replays the log), as
   do `InMemoryCache`'s document-metadata map (DCR-0028) and
   glossary-harvest map (ti `dca5bf`), each behind its own lock.
-* **Hit revalidation is what makes disk entries trustworthy.** That
-  gate, not checksums, is why a damaged-but-parseable disk payload
-  degrades to a re-translation and can never reach the output. DCR-0028
-  leans on it and adds nothing to it.
+* **Hit revalidation is the disk cache's only payload gate.** That
+  gate, not a checksum, is why a disk payload damaged out of shape — one
+  that fails a per-unit layer — degrades to a re-translation instead of
+  reaching the output. It does not detect damage that leaves a payload
+  valid and same-shaped: a changed digit in translated prose passes every
+  layer and is replayed (DCR-0063). DCR-0028 leans on it and adds nothing
+  to it.
 
 Status: Implemented (`cache.rs` doc comments trace the rationale;
 `pipeline.rs` rejects-and-re-dispatches invalid hits).

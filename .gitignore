@@ -68,13 +68,15 @@ out/
 # ignore. CLAUDE.md stays ignored by the same owner decision.
 !Cargo.lock
 
-# Analysis bundles — generated snapshots of this tree, not authored docs.
-# `docs/investigation/` was committed on 2026-08-06 as a dated record (727d3bc,
-# owner decision A-4); the owner reversed that on 2026-08-08 and it is untracked
-# again. The files stay on disk — only their tracking is withdrawn — because
-# they are regenerated from the code rather than edited by hand, so every
-# regeneration produced a diff that carried no decision. `reviews/` is untracked
-# for the same reason.
+# The retired analysis bundle. `docs/investigation/` held generated snapshots
+# of this tree; nothing produces or reads it, and graphify's `graphify-out/` at
+# the repository root is the owner's codebase map in its place — built only when
+# the owner runs graphify, and kept out of git by the owner's global gitignore,
+# not by this file. The line stays so a leftover local copy is never committed,
+# and `crates/transync/tests/docs_index_drift.rs` reads it so such a copy is
+# never required in `docs/index.md` either. `reviews/` has no rule here: its
+# registry and archived rounds are tracked, and an in-flight round's files are
+# simply left unstaged.
 docs/investigation/
 
 # Subagent-driven-development scratch: per-plan ledgers, task briefs, implementer

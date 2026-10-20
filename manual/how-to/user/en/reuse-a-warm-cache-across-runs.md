@@ -144,8 +144,11 @@ attempts, so a fully warm run shows no attempt above `0` at all.
 
 A cached unit is not trusted blindly: every hit is re-validated through
 the same per-unit layers a live response goes through, and a hit that
-fails is evicted and re-dispatched. A damaged or stale cache therefore
-costs you a re-translation, never a wrong document.
+fails is evicted and re-dispatched. A stale entry, or one damaged badly
+enough to break its structure, therefore costs you a re-translation. The
+cache keeps no checksums, though, so damage that leaves a translation
+well-formed — a changed digit or letter — is not detected and is reused.
+If the disk holding the directory is suspect, delete the directory.
 
 One result that is not a cache failure: a **blank detected language after
 a partially warm re-run**. The stored detection is replayed only by a run

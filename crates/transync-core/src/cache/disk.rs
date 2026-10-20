@@ -289,11 +289,17 @@ impl DiskState {
 ///   migration: a single-operator tool re-translates rather than carrying
 ///   format-migration code (ADR-0021).
 ///
-/// None of this can put a bad entry into the output. Every cache hit is
-/// re-validated through the per-unit layers on reuse (ADR-0015), and a failing
-/// hit is evicted and re-dispatched — so a flipped bit in a payload is a
-/// re-translation, not a corrupted document. That existing gate is why this
-/// format carries no checksums.
+/// None of these paths puts a skipped, truncated or rotated record into the
+/// output. A record that parses is still no proof that its bytes are the ones
+/// written: the format carries no checksum (ADR-0021). Every cache hit is
+/// re-validated through the per-unit layers on reuse (ADR-0015) and a failing
+/// hit is evicted and re-dispatched, so damage that breaks a payload's shape or
+/// an enforced invariant — or, for a `preserved` entry, its byte identity with
+/// the source — costs a re-translation. Damage that leaves a `translated`
+/// payload valid and same-shaped (one flipped bit turning `100` into `900`)
+/// passes every layer and is replayed into the output. A replayed `glossary`
+/// record meets only the merge's term-shape filter and a `doc_meta` record no
+/// check at all, so a same-shape change to either is replayed too.
 ///
 /// # Capacity and compaction (DCR-0028 §4)
 ///
@@ -3164,6 +3170,56 @@ mod tests {
             .await
             .expect("the resumed run is served entirely from the log");
         assert_eq!(resumed.translated_document, disk_out.translated_document);
+    }
+
+    /// What the format's lack of checksums costs, pinned so the type's docs
+    /// cannot drift back into promising otherwise (R0013-0010): hit
+    /// revalidation (ADR-0015) checks a payload's shape and the invariants the
+    /// per-unit layers enforce, not that its bytes are the ones written. One
+    /// flipped bit in a `translated` payload — `1` (0x31) to `9` (0x39) — leaves
+    /// valid JSON, the same paragraph and visible text, so the damaged entry is
+    /// accepted and replayed, and the provider is never asked again.
+    ///
+    /// If this ever goes red because the hit was caught, payload integrity
+    /// checking has arrived: the `# Recovery` docs on `DiskCache`,
+    /// contracts.md §1, ADR-0015 and ADR-0021's consequences say it is absent
+    /// and must move with it.
+    #[tokio::test]
+    async fn same_shape_payload_damage_replays_from_the_log() {
+        use crate::TranslateOptions;
+
+        let src = "limit 100 items\n";
+        let opts = TranslateOptions {
+            target_language: "ko".to_string(),
+            ..Default::default()
+        };
+        let dir = scratch("transync-diskcache-same-shape");
+        {
+            let disk = DiskCache::open(&dir).expect("opens");
+            let disk_dyn: &dyn Cache = &disk;
+            crate::pipeline::run_pipeline(src, &opts, &EchoTranslator, disk_dyn)
+                .await
+                .expect("the first run completes");
+        }
+
+        let log = std::fs::read_to_string(log_path(&dir)).expect("the log was written");
+        assert_eq!(log.matches("limit 100 items").count(), 1, "{log}");
+        // 0x31 '1' -> 0x39 '9': one bit, and the record still parses.
+        std::fs::write(
+            log_path(&dir),
+            log.replace("limit 100 items", "limit 900 items"),
+        )
+        .unwrap();
+
+        let reopened = DiskCache::open(&dir).expect("reopens");
+        let reopened_dyn: &dyn Cache = &reopened;
+        let out = crate::pipeline::run_pipeline(src, &opts, &PanicTranslator, reopened_dyn)
+            .await
+            .expect("the damaged hit passes every per-unit layer, so nothing is dispatched");
+        assert_eq!(
+            out.translated_document, "limit 900 items\n",
+            "a same-shape change to stored prose is replayed, not re-translated"
+        );
     }
 
     /// DCR-0028 §4, semantic eviction on the disk backend: §5a's targeted,

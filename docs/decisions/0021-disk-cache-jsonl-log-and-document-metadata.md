@@ -40,9 +40,10 @@ crashed or cancelled run wants back.
 * A clean checkout must keep building with no system dependencies and no C
   compile (workspace precedent; resp-translator ADR-0002's driver holds here
   even though its conclusion does not).
-* A cache must never fail or corrupt a run: every failure mode has to degrade
-  to re-translation (the shipped `CacheError` degrade policy, ADR-0015's hit
-  revalidation).
+* A cache must never fail a run, and every failure it can detect has to
+  degrade to re-translation rather than reach the output (the shipped
+  `CacheError` degrade policy, ADR-0015's hit revalidation). Damage it cannot
+  detect is a consequence below, not a driver this decision meets.
 * ADR-0020 fixes the threat model: accidental collision only — but every
   encoding must stay injective, and adding *new* collision surfaces to carry
   old identity would be a defect.
@@ -122,10 +123,10 @@ SL-110..SL-114.
 ## Consequences
 
 * Good, because a clean checkout still builds with zero new dependencies, and
-  the entire failure surface of persistence is "a line or file was skipped,
-  loudly" — every path degrades to re-translation and none can corrupt output
-  (ADR-0015's hit revalidation catches a damaged-but-parseable payload like
-  any stale entry).
+  every failure the reader can see — a torn tail, an unreadable line, an
+  unknown format — is "a line or file was skipped, loudly" and degrades to
+  re-translation. A parseable payload that breaks a per-unit layer is caught
+  by ADR-0015's hit revalidation like any stale entry.
 * Good, because the cache identity contract crosses the process boundary
   byte-exactly — every u64 axis is SipHash-1-3 with fixed keys, deterministic
   across processes and platforms — and no new identity scheme exists to
@@ -144,6 +145,13 @@ SL-110..SL-114.
   (documented; cost bounded to lost entries). A future multi-process design
   would supersede this ADR's single-writer rule explicitly rather than
   discover it.
+* Bad, because with no checksum, damage that leaves a record parseable and
+  same-shaped — a changed digit or character in stored translated prose, a
+  cached glossary term, a stored language label — is replayed as if it had
+  been written that way. Hit revalidation checks structure and the enforced
+  invariants, not the integrity of stored text (DCR-0063). Whether the log
+  should carry a payload digest is an open owner question (ti `f9a94236`); it
+  would not breach "no new digest, ever", which is about identity.
 
 ## The metadata principle takes a second record kind — 2026-08-10 (appended note)
 

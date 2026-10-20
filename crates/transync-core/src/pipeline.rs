@@ -2582,6 +2582,89 @@ mod run_level_tests {
         }
     }
 
+    /// What DCR-0057's admission rule keeps, and what it does not (R0012-0026).
+    /// Every unit is sent under the same compiled system prompt and the same
+    /// assembled instruction whether it was packed strictly or coalesced —
+    /// that is what keeps its `CacheKey` (the test above). The request as a
+    /// whole is a different thing: a coalesced batch's user message carries its
+    /// neighbours' units too, and every shipped provider stamps the batch's
+    /// unit count into the Structured Output schema's `minItems` / `maxItems`
+    /// (`prompt::schema_object_for`, the schema this test builds). So a live
+    /// model reads different bytes under the two settings, and contracts.md
+    /// promises no equality of output across them.
+    #[test]
+    fn coalescing_changes_the_request_not_a_units_prompt() {
+        let src = "# Guide\n\nprose\n\n## Markup\n\n<div>\n  <p>raw html</p>\n</div>\n\n\
+                   ## Tables\n\nmore prose\n\n## Notes\n\nfinal prose\n";
+        let mut doc = parse(src).expect("parses");
+        crate::id::assign_block_ids(&mut doc);
+        let outcomes = crate::unit::html_outcomes(&doc);
+
+        let requests = |coalesce: bool| {
+            let mut profile = default_profile();
+            profile.batching.coalesce_sections = Some(coalesce);
+            let opts = TranslateOptions {
+                source_language: "en".to_string(),
+                target_language: "ko".to_string(),
+                profile: Some(profile),
+                ..Default::default()
+            };
+            build_batches(&doc, &opts, None, &outcomes)
+                .iter()
+                .flat_map(|b| {
+                    let system = b.profile.prompt_body.clone();
+                    let instruction = crate::llm::prompt::instruction_text(
+                        crate::llm::prompt::InstructionVariant::for_batch(b),
+                    );
+                    let user = crate::llm::prompt::build_user_prompt(b).expect("serializes");
+                    let schema =
+                        crate::llm::prompt::schema_object_for(Some(b.units.len())).to_string();
+                    b.units.iter().map(move |u| {
+                        (
+                            u.unit_id.0.clone(),
+                            (
+                                system.clone(),
+                                instruction.clone(),
+                                user.clone(),
+                                schema.clone(),
+                            ),
+                        )
+                    })
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+
+        let coalesced = requests(true);
+        let strict = requests(false);
+        assert_eq!(
+            coalesced.keys().collect::<Vec<_>>(),
+            strict.keys().collect::<Vec<_>>(),
+            "the same units are packed either way"
+        );
+        let (mut user_differs, mut schema_differs) = (Vec::new(), Vec::new());
+        for (id, (system, instruction, user, schema)) in &strict {
+            let (c_system, c_instruction, c_user, c_schema) = &coalesced[id];
+            assert_eq!(c_system, system, "unit {id}: the system prompt moved");
+            assert_eq!(
+                c_instruction, instruction,
+                "unit {id}: the instruction moved"
+            );
+            if c_user != user {
+                user_differs.push(id.clone());
+            }
+            if c_schema != schema {
+                schema_differs.push(id.clone());
+            }
+        }
+        assert!(
+            !user_differs.is_empty() && user_differs == schema_differs,
+            "a coalesced unit's request carries its neighbours' units and their \
+             count, so its user message and its schema move together — and the \
+             fixture must actually coalesce, or this pins nothing: user \
+             {user_differs:?}, schema {schema_differs:?}"
+        );
+    }
+
     /// ti 0f26b5: the title the caller reads off `TranslationOutput` is the
     /// title the provider read on every unit's `BlockContext` — one
     /// extraction, so a rendered document and the model that translated it

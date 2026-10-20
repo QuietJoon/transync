@@ -159,13 +159,13 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 const BUDGETS: &[(&str, u64)] = &[
     ("CLAUDE.md", 23_552), // wave 1 done; the rest is rules, not history; +1 KiB DCR-0060's `--google-auth` selector and the manifest version line
     ("docs/index.md", 27_648), // wave 1 landed, → 22_528 not reached; +1 KiB DCR-0061
-    ("docs/architecture/contracts.md", 320_512), // wave 4 landed, → 163_840 not reached; +2 KiB DCR-0061's §9 corrections, +3 KiB DCR-0063 (R0013-0002), +3 KiB DCR-0063 (R0012-0015), +3 KiB DCR-0063 (R0013-0003), +1 KiB DCR-0063 (R0012-0010, R0012-0018, R0012-0024), +1 KiB DCR-0063 (R0012-0001, R0012-0005), +1 KiB DCR-0063 (R0012-0002, R0013-0001, R0013-0006)
+    ("docs/architecture/contracts.md", 321_536), // wave 4 landed, → 163_840 not reached; +2 KiB DCR-0061's §9 corrections, +3 KiB DCR-0063 (R0013-0002), +3 KiB DCR-0063 (R0012-0015), +3 KiB DCR-0063 (R0013-0003), +1 KiB DCR-0063 (R0012-0010, R0012-0018, R0012-0024), +1 KiB DCR-0063 (R0012-0001, R0012-0005), +1 KiB DCR-0063 (R0012-0002, R0013-0001, R0013-0006), +1 KiB DCR-0063 (R0012-0026, R0013-0010)
     ("docs/project/status.md", 24_576),          // wave 2 done; ~2 KiB of working room
     ("docs/project/release-checklist.md", 48_128), // wave 2; +1 KiB DCR-0058
     ("docs/project/phase-state.yaml", 7_168),    // wave 2 done; +1 KiB DCR-0054..DCR-0060 roster
     ("docs/project/open-issues.md", 49_152), // wave 2 done; lowered on 2026-10-14 when OI-0041 moved verbatim to the archive under the Register rule
     ("docs/backlog.md", 113_664), // wave 2 done; lowered to 102 KiB on 2026-10-13 when three entries archived in one day, then +3 KiB the same day for v0.6.0's stated release condition and the recorded deferral its gate verdict depends on, +4 KiB on 2026-10-14 for the two 4B-verdicted claims the agreement rule adopts, +2 KiB when the reviews entry was corrected: a Type 1 filed on a false premise became a Type 2 carrying why, which is the growth a register is for
-    ("CHANGELOG.md", 128_000), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes, +1 KiB DCR-0063 (R0012-0004, R0012-0007, R0012-0008, R0012-0009), +1 KiB DCR-0063 (R0013-0002), +2 KiB DCR-0063 (R0012-0015), +2 KiB DCR-0063 (R0013-0003), +2 KiB DCR-0063 (R0012-0006, R0012-0012, R0012-0013, R0012-0025), +2 KiB DCR-0063 (R0012-0010, R0012-0018, R0012-0024), +2 KiB DCR-0063 (R0012-0011, R0013-0005, R0013-0004), +2 KiB DCR-0063 (R0012-0001, R0012-0005, R0012-0020), +2 KiB DCR-0063 (R0012-0002, R0013-0001, R0013-0006), +1 KiB DCR-0063 (R0012-0014), +2 KiB DCR-0063 (R0012-0003, R0012-0016, R0012-0017, R0012-0027)
+    ("CHANGELOG.md", 129_024), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes, +1 KiB DCR-0063 (R0012-0004, R0012-0007, R0012-0008, R0012-0009), +1 KiB DCR-0063 (R0013-0002), +2 KiB DCR-0063 (R0012-0015), +2 KiB DCR-0063 (R0013-0003), +2 KiB DCR-0063 (R0012-0006, R0012-0012, R0012-0013, R0012-0025), +2 KiB DCR-0063 (R0012-0010, R0012-0018, R0012-0024), +2 KiB DCR-0063 (R0012-0011, R0013-0005, R0013-0004), +2 KiB DCR-0063 (R0012-0001, R0012-0005, R0012-0020), +2 KiB DCR-0063 (R0012-0002, R0013-0001, R0013-0006), +1 KiB DCR-0063 (R0012-0014), +2 KiB DCR-0063 (R0012-0003, R0012-0016, R0012-0017, R0012-0027), +1 KiB DCR-0063 (R0012-0026, R0013-0010)
     ("docs/Developer_Guide.md", 97_280), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9, +1 KiB SMOOTHING_FACTOR is a per-elapsed-ms lerp (R0011-0094, ti 336bf0c6), +2 KiB DCR-0063 (R0012-0003, R0012-0016, R0012-0017, R0012-0027)
     ("docs/Troubleshooting.md", 43_008), // wave 3, +2 KiB DCR-0063 (R0012-0016)
     ("docs/implementation/module-map.md", 43_008), // wave 3; +1 KiB DCR-0058, +1 KiB DCR-0063 (R0013-0003), +1 KiB DCR-0063 (R0012-0003, R0012-0016, R0012-0017)
@@ -206,8 +206,9 @@ fn markdown_in(dir: &Path) -> Vec<PathBuf> {
 /// Deliberately excluded — `docs/project/design-change-records/` and every
 /// `archive/` (records), `docs/superpowers/` (plans and specs are records), the
 /// four self-declared dated snapshots and the incident records under
-/// `docs/project/` (their staleness is their content), `docs/investigation/`
-/// (gitignored, regenerated from code), and `docs/backlog.md` +
+/// `docs/project/` (their staleness is their content), any leftover local
+/// copy of the retired, gitignored `docs/investigation/` bundle (no walk below
+/// reaches it), and `docs/backlog.md` +
 /// `open-issues.md`, which are registers and are checked by the register test
 /// instead.
 fn living_documents() -> Vec<PathBuf> {

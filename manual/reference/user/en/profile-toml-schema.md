@@ -242,8 +242,10 @@ at least one batch per section however large they are set.
 
 Neither setting moves a cache key. Both admission terms pin the two
 batch-scoped axes of the key (the compiled-prompt digest and the
-instruction digest), so a coalesced batch's request is byte-identical to
-the one its sections would have received alone.
+instruction digest), so every unit's system prompt, instruction and cache
+key are the same under either setting. The request as a whole is not: a
+coalesced request also carries its neighbours' units and their count, so
+a live model's output may differ between the two settings.
 
 Batch ids remain a single document-order sequence `1..N` across sections
 under either setting.

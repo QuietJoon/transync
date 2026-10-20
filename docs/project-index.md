@@ -60,5 +60,7 @@ Read it before editing anything here.
 * **Per-developer setup** belongs in `.claude/settings.local.json`, not here.
 * **Korean siblings** (`*.ko.md`) are generated and git-ignored; they are never
   the source of anything.
-* **`investigation/`** is regenerated from the code and untracked. Treat it as a
-  cache, never as a record.
+* **The codebase map** is graphify's `graphify-out/` at the repository root,
+  untracked and built only when the owner runs graphify, so it is as fresh as
+  that last build. Treat it as a cache, never as a record. The retired
+  `investigation/` bundle it replaces is not read.

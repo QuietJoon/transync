@@ -15,12 +15,10 @@
 //!
 //! **The module formerly called `htmlseg` inside `transync-syntax` is this
 //! crate.** Records dated before 2026-08-20 — ADR-0018, ADR-0003,
-//! `docs/project/stub-manifest.md`, `docs/project/status.md`,
-//! `docs/project/open-issues-archive.md`,
-//! `docs/project/implementation-slice-checklists.md`, and the investigation
-//! bundle — name `htmlseg`, and they are dated records that are not
-//! rewritten. A reader who greps for `htmlseg` and finds nothing is looking
-//! at this.
+//! `docs/project/stub-manifest.md`, `docs/project/open-issues-archive.md` and
+//! `docs/project/implementation-slice-checklists.md` — name `htmlseg`, and
+//! they are dated records that are not rewritten. A reader who greps for
+//! `htmlseg` and finds nothing is looking at this.
 //!
 //! Spec: docs/superpowers/specs/2026-08-20-html-to-html-translation-design.md
 //! §5. The original engine spec, still the authority on the extract/splice

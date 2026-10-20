@@ -112,12 +112,14 @@ prose before the first heading — and no token budget buys that back.
 Under that setting the fastest way to fewer round-trips is often a
 flatter document, not a bigger budget.
 
-Coalescing costs nothing in the output. The two things a batch carries
-beyond its own units — the compiled system prompt and the assembled
-instruction — are byte-identical to what each of its sections would have
-read alone, because that is exactly what the two admission terms pin. So
-no cache key moves, and batch ids reach neither the alignment map nor the
-validation report. What it does trade is elsewhere. Two
+Coalescing moves no cache key. The two things a batch carries beyond its
+own units — the compiled system prompt and the assembled instruction — are
+byte-identical to what each of its sections would have read alone, because
+that is exactly what the two admission terms pin, and batch ids reach
+neither the alignment map nor the validation report. The request is not
+the same, though: it also carries the neighbours' units and their count,
+so a live model's output may differ between the two settings (DCR-0063).
+Its other trades are in the run's limits. Two
 run-wide ceilings — the validation report's `provider_retries` and
 `batch_schema_faults` — are multiples of the *input batch count*, so
 fewer batches means a tighter run-wide allowance even though

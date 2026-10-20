@@ -105,10 +105,13 @@ finally enumerates is decided per item, not by this preamble.
   means `true`, and `false` restores strict confinement. CLI:
   `--coalesce-sections` / `--no-coalesce-sections`. **Nothing re-keys** — a
   `CacheKey`'s two batch-scoped axes are pinned by the two admission terms, so
-  a coalesced batch's request is byte-identical to the one its sections would
-  have received alone, and no schema version moves. What does change besides
-  batch count: `provider_retries` and `batch_schema_faults` ceilings are
-  multiples of the input batch count, so the run-wide allowance tightens.
+  each unit keeps the system prompt, instruction and cache key it would have
+  had alone, and no schema version moves. The request as a whole is not the
+  same: it carries the neighbours' units and their count, so a live model's
+  output may differ between the two settings (R0012-0026, DCR-0063). What does
+  change besides batch count: `provider_retries` and `batch_schema_faults`
+  ceilings are multiples of the input batch count, so the run-wide allowance
+  tightens.
 - **The shipped profile's `max_units_per_batch` is 32** (ti `f17fc9`), up from
   8 and equal to `TranslateOptions`' built-in default, so a default-profile
   run packs up to 32 units per batch.
@@ -443,6 +446,14 @@ finally enumerates is decided per item, not by this preamble.
   just before that leg ran. **Visible:** `--exact` everywhere, a refusal naming
   the missing test before the first paid call, and a closing line naming the
   legs that ran.
+- **The disk cache's documentation stops promising that a damaged entry never
+  reaches the output** (R0013-0010, DCR-0063). Hit revalidation checks a
+  payload's shape and the invariants the per-unit layers enforce, not that its
+  bytes are the ones written, and the log carries no checksum: a record still
+  parseable after a same-shape change (a digit in stored prose, a cached
+  glossary term, a stored language label) is replayed. `DiskCache`'s rustdoc,
+  contracts.md §1, ADR-0015, ADR-0021 and the cache how-to now say so, and a
+  test pins it. Behaviour is unchanged.
 
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above

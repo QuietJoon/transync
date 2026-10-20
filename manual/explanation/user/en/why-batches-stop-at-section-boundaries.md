@@ -163,12 +163,17 @@ so the key is worth writing only to turn it off.
 
 ## What does not change either way
 
-Nothing downstream can tell which setting a run used. A coalesced batch's
-request is byte-identical to the one its sections would have received alone —
-both admission tests pin the two batch-scoped axes of the cache key — so no
-cache entry written under one setting is orphaned under the other. Batch ids
-reach neither the alignment map nor the validation report, and no schema version
-moves. What changes is how many requests the document costs.
+Every unit is sent under the same system prompt and the same instruction
+under either setting — both admission tests pin the two batch-scoped axes of
+the cache key — so no cache entry written under one setting is orphaned under
+the other. Batch ids reach neither the alignment map nor the validation report,
+and no schema version moves.
+
+What changes is how many requests the document costs, and what each request
+carries. A coalesced request holds its neighbours' units too, and the response
+schema follows its unit count, so the model reads each section in different
+company under the two settings. A live model's translation can therefore
+differ between them; nothing promises the same output from both.
 
 ## Related
 
