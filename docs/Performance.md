@@ -211,7 +211,10 @@ Your bottleneck is provider rate limits, not transync. Two patterns:
    the compiled system prompt (rendered glossary included), the
    instruction envelope and the two language labels off it once per
    batch, then spends what is left on unit payloads plus a fixed
-   per-unit JSON overhead. The default 6000 is sized to leave the
+   per-unit JSON overhead. A payload is priced as the request carries
+   it, JSON-escaped (DCR-0063), so a unit heavy in quotes, backslashes or
+   line breaks — JSON in a code fence, a long table — costs more than
+   its raw text. The default 6000 is sized to leave the
    model's own output room inside an 8K input context; 10000 is not a
    value that fits one. Reduces total round-trips.
 
@@ -517,7 +520,7 @@ nothing walks it.
 ## Cross-reference
 
 - Default values: `crates/transync-core/src/lib.rs::TranslateOptions::default`.
-- Token estimation: `crates/transync-core/src/batch.rs::estimate_unit_tokens`;
+- Token estimation: `crates/transync-core/src/batch.rs::estimate_unit`;
   the once-per-batch reserve is `batch.rs::envelope_input_tokens`.
 - Section partition and coalescing:
   `crates/transync-core/src/unit/section.rs::partition_by_section` and

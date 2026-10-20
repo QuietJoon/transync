@@ -78,6 +78,17 @@ use crate::llm::{InputMode, TranslationUnit, UnitResult};
 ///    `White_Space`, so half 1 cannot see them. This is where the old
 ///    whitespace guard's gap lived.
 ///
+/// The list is maintained against a stated basis (R0013-0004): every
+/// Unicode 16.0 `Default_Ignorable_Code_Point` (`DerivedCoreProperties.txt`),
+/// plus U+2800 BRAILLE PATTERN BLANK and the interlinear annotation controls
+/// U+FFF9..U+FFFB, which render blank without carrying the property. The test
+/// `the_list_covers_every_default_ignorable_code_point` pins the first part
+/// codepoint by codepoint. Membership rests on that property and on DCR-0048's
+/// rule that over-inclusion is free, not on how any one renderer draws a
+/// character: a shaper may still show a Hangul filler or a shorthand format
+/// control, and Unicode's advice is to show a default-ignorable codepoint as
+/// nothing when it is not supported.
+///
 /// The list is hand-written rather than a `unicode_categories`-style
 /// `Other_Format` test, for two reasons. It is not **sufficient**: U+2800
 /// BRAILLE PATTERN BLANK is `So` and the Hangul fillers are `Lo`, yet all
@@ -106,7 +117,9 @@ pub(crate) fn is_invisible(c: char) -> bool {
         | '\u{fe00}'..='\u{fe0f}'   // VARIATION SELECTOR-1 .. -16
         | '\u{feff}'                // ZERO WIDTH NO-BREAK SPACE (BOM)
         | '\u{ffa0}'                // HALFWIDTH HANGUL FILLER
+        | '\u{fff0}'..='\u{fff8}'   // reserved, Default_Ignorable_Code_Point
         | '\u{fff9}'..='\u{fffb}'   // interlinear annotation controls
+        | '\u{1bca0}'..='\u{1bca3}' // shorthand format controls
         | '\u{1d173}'..='\u{1d17a}' // musical symbol format controls
         | '\u{e0000}'..='\u{e0fff}' // tag chars, variation selectors supplement
     )
@@ -326,7 +339,11 @@ mod tests {
             '\u{fe0f}',  // VARIATION SELECTOR-16
             '\u{feff}',  // ZERO WIDTH NO-BREAK SPACE
             '\u{ffa0}',  // HALFWIDTH HANGUL FILLER
+            '\u{fff0}',  // reserved, Default_Ignorable_Code_Point
+            '\u{fff8}',  // reserved, Default_Ignorable_Code_Point
             '\u{fffb}',  // INTERLINEAR ANNOTATION TERMINATOR
+            '\u{1bca0}', // SHORTHAND FORMAT LETTER OVERLAP
+            '\u{1bca3}', // SHORTHAND FORMAT UP STEP
             '\u{e0041}', // TAG LATIN CAPITAL LETTER A
         ] {
             assert!(
@@ -343,6 +360,51 @@ mod tests {
             'a', '가', '漢', '*', '#', '-', '|', '`', '·', '•', '\u{fffd}', '☺', '🇰',
         ] {
             assert!(!is_invisible(c), "U+{:04X} renders", c as u32);
+        }
+    }
+
+    /// Unicode 16.0.0 `Default_Ignorable_Code_Point`, every range of it, as
+    /// `DerivedCoreProperties.txt` lists it (the same table `regex-syntax`
+    /// generates its `\p{Default_Ignorable_Code_Point}` class from with
+    /// `ucd-generate property-bool ucd-16.0.0`). A Unicode version that grows
+    /// the property updates this table and then the list.
+    const DEFAULT_IGNORABLE_16_0: &[(u32, u32)] = &[
+        (0x00AD, 0x00AD),
+        (0x034F, 0x034F),
+        (0x061C, 0x061C),
+        (0x115F, 0x1160),
+        (0x17B4, 0x17B5),
+        (0x180B, 0x180F),
+        (0x200B, 0x200F),
+        (0x202A, 0x202E),
+        (0x2060, 0x206F),
+        (0x3164, 0x3164),
+        (0xFE00, 0xFE0F),
+        (0xFEFF, 0xFEFF),
+        (0xFFA0, 0xFFA0),
+        (0xFFF0, 0xFFF8),
+        (0x1BCA0, 0x1BCA3),
+        (0x1D173, 0x1D17A),
+        (0xE0000, 0xE0FFF),
+    ];
+
+    /// R0013-0004: the hand-written list is maintained against a stated
+    /// Unicode property, so an omission is a test failure rather than a
+    /// finding. Every `Default_Ignorable_Code_Point` is invisible — the
+    /// property is Unicode's own "render nothing when unsupported" set, and
+    /// DCR-0048 makes over-inclusion free. The list missed two ranges of it:
+    /// the shorthand format controls U+1BCA0..U+1BCA3, and the reserved
+    /// U+FFF0..U+FFF8.
+    #[test]
+    fn the_list_covers_every_default_ignorable_code_point() {
+        for &(lo, hi) in DEFAULT_IGNORABLE_16_0 {
+            for cp in lo..=hi {
+                let c = char::from_u32(cp).expect("no surrogate is Default_Ignorable");
+                assert!(
+                    is_invisible(c),
+                    "U+{cp:04X} is Default_Ignorable_Code_Point and must be invisible"
+                );
+            }
         }
     }
 
@@ -374,6 +436,11 @@ mod tests {
             "&#8203;",  // decimal ZWSP
             "&#xfeff;", // hex BOM
             "\u{200b}\u{2060}\u{00ad}\u{feff}", // a run of them
+            // R0013-0004: the shorthand format controls, alone and as a run,
+            // and the reserved Default_Ignorable codepoints.
+            "\u{1bca0}",
+            "\u{1bca0}\u{1bca1}\u{1bca2}\u{1bca3}",
+            "\u{fff0}\u{fff8}",
         ] {
             let msg = rejects(md(), SRC, out);
             assert!(
@@ -514,6 +581,8 @@ mod tests {
             segs(&["Click me", "\u{00ad}"]),
             segs(&["Click me", "\u{2800}"]),
             segs(&["Click me", "\u{00a0}\u{00a0}"]),
+            segs(&["Click me", "\u{1bca2}"]),
+            segs(&["Click me", "\u{fff5}"]),
             segs(&["", ""]),
         ] {
             let msg = rejects(InputMode::HtmlSegments, &src, &out);

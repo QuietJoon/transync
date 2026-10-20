@@ -65,6 +65,11 @@ use tiktoken_rs::CoreBPE;
 /// than an encoded string because its keys and punctuation are the same for
 /// every unit: nothing about it follows the run's profile, labels, or content
 /// (ti aa92d6).
+///
+/// Framing only. The escaping a field's *value* picks up on the wire grows
+/// with the value, so no constant can stand for it: the payload, the context
+/// object and the advisory hints are each encoded in their wire form by
+/// [`estimate_unit`] instead (R0012-0011, R0003-0031, R0001-0013).
 const PER_UNIT_OVERHEAD_TOKENS: usize = 50;
 
 /// Default output-to-source token-expansion factor used when the profile
@@ -183,7 +188,8 @@ pub struct BatchBudget<'a> {
 /// containment test
 /// `instruction_reserve_tests::the_reserve_plus_the_per_unit_estimates_bound_the_whole_request`
 /// pins that this reserve plus the per-unit estimates still bound the whole
-/// assembled request.
+/// assembled request, and `wire_fidelity_tests` pins the same bound for
+/// escaping-heavy context, labels and payloads.
 ///
 /// Split out of [`group_by_token_budget`] so the retry packer in
 /// `pipeline::dispatch` and the tests can ask for the same number the packer
@@ -201,8 +207,8 @@ pub(crate) fn envelope_input_tokens(budget: &BatchBudget<'_>, bpe: &CoreBPE) -> 
     for text in [
         budget.instruction_envelope,
         budget.system_prompt,
-        source_label.as_str(),
-        target_label.as_str(),
+        &source_label,
+        &target_label,
     ] {
         if !text.is_empty() {
             tokens += bpe.encode_with_special_tokens(text).len();
@@ -450,8 +456,10 @@ pub(crate) fn group_sections_by_token_budget_with(
 }
 
 /// Input + estimated-output token cost of one unit, computed in a single
-/// encoder pass. Encoding is the hot cost, so `source_payload` and `unit_id`
-/// are each encoded exactly once and reused for both sides (D1).
+/// pass. Encoding is the hot cost, so `unit_id` is encoded once for both
+/// sides, and `source_payload` is too unless JSON escaping changes it: the
+/// input side then also encodes its escaped wire body (R0012-0011), while the
+/// output side keeps the raw count (D1).
 struct UnitEstimate {
     input: usize,
     output: usize,
@@ -460,10 +468,15 @@ struct UnitEstimate {
 /// Estimate both the input and the response-side token cost of a unit in one
 /// pass.
 ///
-/// Input side (unchanged from pre-D1): the system prompt + glossary the
+/// Input side: the system prompt + glossary the
 /// provider also sees, and the assembled instruction envelope, are fixed per
 /// batch, not per unit; [`group_by_token_budget`] reserves room for them up
 /// front (R0008-0029, ti aa92d6) so they are not double counted here.
+/// R0012-0011: the payload is priced as the request carries it, from its
+/// JSON-escaped body ([`crate::llm::prompt::source_payload_wire_text`]) — a
+/// quote-, backslash- or newline-heavy payload costs more on the wire than in
+/// memory, by an amount that grows with the payload, and an `HtmlSegments`
+/// payload is a JSON array escaped a second time.
 /// R0006-0027: the per-unit `context` hints
 /// (document title, section path, two neighbor snippets — each a kind label
 /// plus a summary since R0001-0024) ship with every request and can add
@@ -481,8 +494,8 @@ struct UnitEstimate {
 /// truncation marker that the original packing never counted.
 ///
 /// Output side (D1): the provider echoes `unit_id` byte-for-byte and returns
-/// the translated payload (source × `output_expansion_factor`), plus the
-/// per-unit result-object framing ([`PER_UNIT_OUTPUT_OVERHEAD_TOKENS`]).
+/// the translated payload (the RAW source × `output_expansion_factor`), plus
+/// the per-unit result-object framing ([`PER_UNIT_OUTPUT_OVERHEAD_TOKENS`]).
 /// Context hints, constraints, and the retry channel are input-only (never
 /// echoed) and are excluded. A saturating float→int cast pins a non-finite /
 /// negative factor to 0 expansion rather than panicking — callers
@@ -497,7 +510,18 @@ fn estimate_unit(
     bpe: &CoreBPE,
     output_expansion_factor: f64,
 ) -> UnitEstimate {
+    // The RAW payload is what the output side expands: the model writes a
+    // translation of the text, not of its JSON escaping.
     let payload_tokens = bpe.encode_with_special_tokens(&unit.source_payload).len();
+    // R0012-0011: the INPUT side pays for the payload as the request carries
+    // it — JSON-escaped, every `"`, `\` and newline doubled, and an
+    // `HtmlSegments` array escaped a second time. When escaping is identity
+    // the raw count is the wire count and is reused, so a payload with nothing
+    // to escape is still encoded exactly once.
+    let input_payload_tokens = match crate::llm::prompt::source_payload_wire_text(unit) {
+        std::borrow::Cow::Borrowed(_) => payload_tokens,
+        std::borrow::Cow::Owned(wire) => bpe.encode_with_special_tokens(&wire).len(),
+    };
     let id_tokens = bpe.encode_with_special_tokens(&unit.unit_id.0).len();
     let kind_tokens = bpe
         .encode_with_special_tokens(unit.block_kind.wire_str())
@@ -526,7 +550,7 @@ fn estimate_unit(
         bpe.encode_with_special_tokens(&advisory_json).len()
     };
 
-    let input = payload_tokens
+    let input = input_payload_tokens
         + id_tokens
         + kind_tokens
         + context_tokens
@@ -559,9 +583,11 @@ pub(crate) fn output_estimate(payload_tokens: usize, id_tokens: usize, factor: f
 ///
 /// The row-window splitter (`unit::split`, DCR-0026) sizes candidate windows
 /// with this: it is measuring a payload it is still assembling, so it has no
-/// [`TranslationUnit`] to hand [`estimate_unit_output_tokens`]. Both routes go
-/// through [`output_estimate`], so a window the splitter calls "fits" is one
-/// the packer and the preflight also call fitting — DCR-0026 rule 4.
+/// [`TranslationUnit`]. [`estimate_unit_output_tokens`] is this function over
+/// a unit's own payload and id (R0013-0008), and the packer's
+/// [`estimate_unit`] feeds the same two raw counts to the same
+/// [`output_estimate`], so a window the splitter calls "fits" is one the
+/// packer and the preflight also call fitting — DCR-0026 rule 4.
 ///
 /// TRACE: DCR-0026
 pub(crate) fn estimate_payload_output_tokens(
@@ -592,16 +618,30 @@ pub fn estimate_unit_tokens(unit: &TranslationUnit, bpe: &CoreBPE) -> usize {
 }
 
 /// Estimate the response-side token cost of a single unit under the given
-/// expansion factor (D1). Used by the packer's output cap and by
-/// [`output_budget_warnings`].
+/// expansion factor (D1): [`estimate_payload_output_tokens`] over the unit's
+/// own payload and id.
+///
+/// Called by the preflight ([`output_budget_warnings`]) and by the row-window
+/// splitter's oversize guard (`unit::split::windows_of`), which need the
+/// output figure alone. The packer calls [`estimate_unit`] directly because it
+/// needs the input figure too. This helper deliberately does not route through
+/// [`estimate_unit`], so an output-only caller never serializes or encodes the
+/// input-only context, constraints and retry hints, nor the payload's escaped
+/// wire body (R0013-0008).
 ///
 /// TRACE: SCN-10
+/// TRACE: DCR-0026
 pub fn estimate_unit_output_tokens(
     unit: &TranslationUnit,
     bpe: &CoreBPE,
     output_expansion_factor: f64,
 ) -> usize {
-    estimate_unit(unit, bpe, output_expansion_factor).output
+    estimate_payload_output_tokens(
+        &unit.source_payload,
+        &unit.unit_id.0,
+        bpe,
+        output_expansion_factor,
+    )
 }
 
 /// Resolve a profile's optional expansion factor to a usable value: a finite,
@@ -1040,11 +1080,13 @@ mod instruction_reserve_tests {
     }
 }
 
-// R0003-0031 / R0003-0032: the packer counts the WIRE form of the last two
-// approximated inputs — the per-unit `context` object and the two opaque
-// language labels. Both are source-derived or caller-supplied text that JSON
-// escaping can inflate well past its in-memory length, and the per-unit
-// framing constant was never scoped to absorb that difference.
+// R0003-0031 / R0003-0032 / R0012-0011: the packer counts the WIRE form of
+// every source-derived or caller-supplied string the request carries — the
+// per-unit `context` object, the two opaque language labels and the
+// `source_payload` itself. JSON escaping can inflate each well past its
+// in-memory length, and the per-unit framing constant was never scoped to
+// absorb that difference. The output side is the exception, and is pinned
+// here too: it reads the raw payload.
 #[cfg(test)]
 mod wire_fidelity_tests {
     use super::*;
@@ -1242,6 +1284,198 @@ mod wire_fidelity_tests {
                     - bpe.encode_with_special_tokens("en").len(),
             "the escaped form is strictly dearer than the raw one"
         );
+    }
+
+    /// The JSON-escaped body `serde_json` gives `s`, read off the serializer
+    /// itself — the oracle the payload tests below measure the estimator
+    /// against, independent of any helper this crate holds.
+    fn serde_body(s: &str) -> String {
+        let quoted = serde_json::to_string(s).expect("a str serializes");
+        quoted[1..quoted.len() - 1].to_string()
+    }
+
+    /// Reserve + per-unit estimates, against what `build_user_prompt`
+    /// actually ships for `batch`.
+    fn estimated_and_actual(batch: &TranslationBatch, bpe: &CoreBPE) -> (usize, usize) {
+        let envelope = instruction_envelope_json(InstructionVariant::for_run(
+            &batch.profile.constraints,
+            DocumentFacts::of(&batch.units),
+        ));
+        let budget = budget_for(batch, &envelope);
+        let estimated = envelope_input_tokens(&budget, bpe)
+            + batch
+                .units
+                .iter()
+                .map(|u| estimate_unit(u, bpe, DEFAULT_OUTPUT_EXPANSION_FACTOR).input)
+                .sum::<usize>();
+        let actual = bpe
+            .encode_with_special_tokens(&build_user_prompt(batch).expect("prompt builds"))
+            .len();
+        (estimated, actual)
+    }
+
+    /// A fenced code block holding JSON with Windows paths — the ordinary
+    /// shape of a quote- and backslash-heavy payload, every line of which
+    /// also picks up a `\n` on the wire.
+    fn json_code_fence(lines: usize) -> TranslationUnit {
+        let body = r#"{"path": "C:\\Users\\dev\\config.json", "pattern": "^\\d+\\.\\d+$", "quote": "\"q\""}"#;
+        let mut payload = String::from("```json\n");
+        for _ in 0..lines {
+            payload.push_str(body);
+            payload.push('\n');
+        }
+        payload.push_str("```");
+        TranslationUnit {
+            block_kind: BlockKind::CodeBlock {
+                info: Some("json".to_string()),
+                fenced: true,
+            },
+            input_mode: InputMode::FullCodeBlock {
+                language_info: Some("json".to_string()),
+            },
+            source_payload: payload,
+            ..unit_with_context("c-0001", BlockContext::default())
+        }
+    }
+
+    /// R0012-0011: THE discriminating test. Context and labels were already
+    /// priced from their wire form (R0003-0031/0032), but `source_payload` was
+    /// encoded raw while `build_user_prompt` ships it JSON-escaped — every `"`
+    /// as `\"`, every `\` as `\\`, every newline as `\n`. That growth scales
+    /// with the payload, so the fixed per-unit framing constant cannot absorb
+    /// it, and the containment property this module claims held only for
+    /// quote-free payloads.
+    #[test]
+    fn escaping_heavy_payload_stays_inside_the_estimate() {
+        let bpe = encoder_for(MODEL);
+        let mut a = unit_with_context("p-0001", BlockContext::default());
+        a.source_payload = escape_heavy(400);
+        let mut b = unit_with_context("p-0002", BlockContext::default());
+        b.source_payload = escape_heavy(400);
+        for units in [vec![a, b], vec![json_code_fence(60)]] {
+            let batch = batch_of(units, "en", "ko");
+            let (estimated, actual) = estimated_and_actual(&batch, &bpe);
+            assert!(
+                estimated >= actual,
+                "{}: the packer must never believe a batch is smaller than the request it \
+                 becomes, payload escaping included: estimated {estimated} < actual {actual}",
+                batch.units[0].unit_id.0
+            );
+        }
+    }
+
+    /// R0012-0011: an `HtmlSegments` payload is already a JSON array, so the
+    /// request escapes it a second time — `["Click"]` ships as
+    /// `[\"Click\"]`, and a segment's own `\"` as `\\\"`.
+    #[test]
+    fn an_html_segment_payload_is_priced_after_its_outer_escaping() {
+        let bpe = encoder_for(MODEL);
+        let segments = vec!["say \"hi\" C:\\dir"; 150];
+        let unit = TranslationUnit {
+            block_kind: BlockKind::Html,
+            input_mode: InputMode::HtmlSegments,
+            source_payload: serde_json::to_string(&segments).expect("segments serialize"),
+            ..unit_with_context("html-0001", BlockContext::default())
+        };
+        let batch = batch_of(vec![unit], "en", "ko");
+        let (estimated, actual) = estimated_and_actual(&batch, &bpe);
+        assert!(
+            estimated >= actual,
+            "a segment array is escaped once by its own serialization and again by the \
+             request's: estimated {estimated} < actual {actual}"
+        );
+    }
+
+    /// R0012-0011: what a payload contributes to the input estimate is at
+    /// least its JSON-escaped body, measured off `serde_json` itself.
+    #[test]
+    fn a_payloads_input_cost_is_at_least_its_wire_body() {
+        let bpe = encoder_for(MODEL);
+        let mut heavy = unit_with_context("p-0001", BlockContext::default());
+        heavy.source_payload = escape_heavy(200);
+        for u in [heavy, json_code_fence(20)] {
+            let wire = bpe
+                .encode_with_special_tokens(&serde_body(&u.source_payload))
+                .len();
+            let input = estimate_unit(&u, &bpe, DEFAULT_OUTPUT_EXPANSION_FACTOR).input;
+            assert!(
+                input >= wire,
+                "{}: charged {input} for a payload whose wire body alone is {wire} tokens",
+                u.unit_id.0
+            );
+        }
+    }
+
+    /// R0012-0011 changes the INPUT axis only. The output side keeps reading
+    /// the raw payload, because the model writes a translation of the text,
+    /// not of its escaping, and DCR-0026 rule 4 needs the packer, the
+    /// preflight and the row-window splitter to agree on one number — the
+    /// splitter measures raw window text through
+    /// [`estimate_payload_output_tokens`].
+    #[test]
+    fn the_output_side_still_reads_the_raw_payload() {
+        let bpe = encoder_for(MODEL);
+        let mut heavy = unit_with_context("p-0001", BlockContext::default());
+        heavy.source_payload = escape_heavy(200);
+        for u in [heavy, json_code_fence(20)] {
+            for f in [1.0, DEFAULT_OUTPUT_EXPANSION_FACTOR] {
+                assert_eq!(
+                    estimate_unit(&u, &bpe, f).output,
+                    estimate_payload_output_tokens(&u.source_payload, &u.unit_id.0, &bpe, f),
+                    "{}: the output estimate is the raw payload's, under factor {f}",
+                    u.unit_id.0
+                );
+            }
+        }
+    }
+
+    /// R0013-0008: the output figure depends on the payload and the id and on
+    /// nothing else, so the output-only helper must not need — and must not
+    /// pay for — the input-only context, constraints and retry hints. Every
+    /// route to the number agrees: the packer's ([`estimate_unit`]), the
+    /// preflight's ([`estimate_unit_output_tokens`]) and the splitter's
+    /// ([`estimate_payload_output_tokens`]), for a unit loaded with input-only
+    /// weight and for its bare twin alike (DCR-0026 rule 4).
+    ///
+    /// A pin, not a red-before test: the delegation it guards returns the
+    /// same value the old route did.
+    #[test]
+    fn output_estimate_is_blind_to_input_only_fields() {
+        use crate::llm::RetryContext;
+        use crate::validate::ValidationLayer;
+
+        let bpe = encoder_for(MODEL);
+        let mut heavy = unit_with_context("p-0001", heavy_context());
+        heavy.constraints.must_preserve_heading_level = Some(2);
+        heavy.retry = Some(RetryContext {
+            attempt: 2,
+            rejected_by: Some(ValidationLayer::PerKindShape),
+            reason: Some("heading level changed: ".repeat(20)),
+        });
+        let bare = unit_with_context("p-0001", BlockContext::default());
+
+        assert!(
+            estimate_unit(&heavy, &bpe, 1.0).input > estimate_unit(&bare, &bpe, 1.0).input,
+            "fixture: the heavy unit really carries input-only weight"
+        );
+        for f in [1.0, DEFAULT_OUTPUT_EXPANSION_FACTOR, 1e300] {
+            let preflight = estimate_unit_output_tokens(&heavy, &bpe, f);
+            assert_eq!(
+                preflight,
+                estimate_unit(&heavy, &bpe, f).output,
+                "packer, {f}"
+            );
+            assert_eq!(
+                preflight,
+                estimate_payload_output_tokens(&heavy.source_payload, &heavy.unit_id.0, &bpe, f),
+                "splitter, {f}"
+            );
+            assert_eq!(
+                preflight,
+                estimate_unit_output_tokens(&bare, &bpe, f),
+                "bare twin, {f}"
+            );
+        }
     }
 }
 

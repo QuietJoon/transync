@@ -59,6 +59,7 @@ use crate::llm::{
 };
 use crate::validate::ValidationLayer;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// Schema name every provider announces for the batch-result envelope.
 ///
@@ -395,10 +396,12 @@ fn retry_hint(u: &TranslationUnit) -> Option<RetryHint<'_>> {
 /// Returns `""` when the unit carries neither, which is the common case for
 /// a first-dispatch paragraph and keeps the packer from encoding `{}`.
 ///
-/// Only these two fields: `source_payload`, `unit_id`, `block_kind` and
-/// `context` are already encoded individually by the estimator (their token
-/// counts are reused on the output side), and the constant framing around
-/// every unit is `batch::PER_UNIT_OVERHEAD_TOKENS`.
+/// Only these two fields: the estimator encodes the others individually —
+/// `source_payload` as its wire body ([`source_payload_wire_text`],
+/// R0012-0011), `context` as [`context_hint_json`], `unit_id` and
+/// `block_kind` as they stand — and the constant framing around every unit is
+/// `batch::PER_UNIT_OVERHEAD_TOKENS`. The raw payload's and the id's token
+/// counts are what the output side reads.
 ///
 /// A serialization failure is impossible here (no non-string map keys, no
 /// non-finite floats); the `unwrap_or_default` is defense-in-depth and
@@ -438,8 +441,37 @@ pub(crate) fn context_hint_json(unit: &TranslationUnit) -> String {
     }
 }
 
+/// The bytes `s` contributes to the user-prompt JSON as a string value: its
+/// JSON-escaped body, without the surrounding quotes.
+///
+/// `serde_json` escapes exactly `"`, `\` and the C0 controls U+0000..U+001F;
+/// every other character, DEL and U+2028/U+2029 included, is written as it
+/// stands. A string free of those bytes is therefore its own body and comes
+/// back borrowed, so the common case costs a byte scan rather than a
+/// serialization — and a caller holding the raw string's token count can
+/// reuse it whenever the answer is [`Cow::Borrowed`].
+///
+/// The one definition behind [`label_wire_text`] and
+/// [`source_payload_wire_text`]: the packer prices both from it, and a second
+/// copy of the escape set is the way an estimate drifts from the wire.
+pub(crate) fn json_string_body(s: &str) -> Cow<'_, str> {
+    if !s.bytes().any(|b| b == b'"' || b == b'\\' || b < 0x20) {
+        return Cow::Borrowed(s);
+    }
+    // `to_string` on a `&str` cannot fail; the fallback keeps the raw string
+    // rather than dropping its cost entirely.
+    let Ok(mut quoted) = serde_json::to_string(s) else {
+        return Cow::Borrowed(s);
+    };
+    // `"…"` — strip the framing quotes serde adds; the caller's envelope
+    // already holds them.
+    quoted.pop();
+    quoted.remove(0);
+    Cow::Owned(quoted)
+}
+
 /// The bytes an opaque language label contributes to the user-prompt JSON:
-/// its JSON-escaped body, without the surrounding quotes.
+/// its JSON-escaped body ([`json_string_body`]).
 ///
 /// [`instruction_envelope_json`] already carries the two `source_language` /
 /// `target_language` keys and their quotes (it serializes both labels as
@@ -448,16 +480,24 @@ pub(crate) fn context_hint_json(unit: &TranslationUnit) -> String {
 /// a quote, a backslash or a control character (R0003-0032). Escaping is
 /// identity for the ordinary case, so a plain label costs exactly what it
 /// cost before.
-pub(crate) fn label_wire_text(label: &str) -> String {
-    // `to_string` on a `&str` cannot fail; the fallback keeps the raw label
-    // rather than dropping the label's cost entirely.
-    let quoted = serde_json::to_string(label).unwrap_or_default();
-    match quoted.len() {
-        // `"…"` — strip the framing quotes serde adds; they are already in
-        // the envelope.
-        n if n >= 2 => quoted[1..n - 1].to_string(),
-        _ => label.to_string(),
-    }
+pub(crate) fn label_wire_text(label: &str) -> Cow<'_, str> {
+    json_string_body(label)
+}
+
+/// The bytes a unit's `source_payload` contributes to the user-prompt JSON:
+/// its JSON-escaped body ([`json_string_body`]), exactly as
+/// [`build_user_prompt`] writes `UserPromptUnit::source_payload`.
+///
+/// The packer prices a payload's INPUT cost from this rather than from the
+/// raw string (R0012-0011). The request carries every `"` as `\"`, every `\`
+/// as `\\` and every newline as `\n`, so a quote-, backslash- or
+/// newline-heavy payload — JSON or a Windows path in a code fence, the line
+/// breaks of any table or list — is longer on the wire than in memory, by an
+/// amount that grows with the payload and that no per-unit constant can
+/// absorb. An `HtmlSegments` payload is a JSON array already, and is escaped a
+/// second time here: `["Click"]` ships as `[\"Click\"]`.
+pub(crate) fn source_payload_wire_text(unit: &TranslationUnit) -> Cow<'_, str> {
+    json_string_body(&unit.source_payload)
 }
 
 fn hint_constraints(c: &BlockConstraints) -> Option<ConstraintHints> {
@@ -573,6 +613,9 @@ struct UserPromptUnit<'a> {
     unit_id: &'a str,
     block_kind: &'a str,
     input_mode: &'static str,
+    /// Written as a JSON string, so the packer prices it through
+    /// [`source_payload_wire_text`] (R0012-0011). A change to how this field
+    /// reaches the wire changes that function in the same edit.
     source_payload: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     constraints: Option<ConstraintHints>,
@@ -1119,6 +1162,50 @@ mod tests {
             glossary: profile.glossary.clone(),
             profile,
         }
+    }
+
+    /// R0012-0011: [`json_string_body`] is what `serde_json` writes between
+    /// the quotes, for every ASCII character and for the non-ASCII ones whose
+    /// escaping a reader might guess wrong (DEL, U+2028, U+2029) — and it
+    /// borrows exactly when that body is the string itself, which is the
+    /// promise the packer's reuse of the raw token count rests on.
+    #[test]
+    fn json_string_body_is_serde_json_between_the_quotes() {
+        let mut cases: Vec<String> = (0u8..0x80).map(|b| format!("a{}b", b as char)).collect();
+        cases.extend(
+            [
+                "",
+                "plain prose",
+                "\u{7f}\u{2028}\u{2029}\u{feff}가",
+                "[\"Click\",\"here\"]",
+            ]
+            .map(String::from),
+        );
+        cases.push(serde_json::to_string(&["say \"hi\"", "C:\\dir\n"]).expect("serializes"));
+        for s in &cases {
+            let quoted = serde_json::to_string(s).expect("serializes");
+            let body = json_string_body(s);
+            assert_eq!(body, &quoted[1..quoted.len() - 1], "{s:?}");
+            assert_eq!(
+                matches!(body, Cow::Borrowed(_)),
+                *body == **s,
+                "{s:?}: borrowed exactly when escaping is identity"
+            );
+        }
+        let mut unit = fixture_batch().units.remove(0);
+        unit.source_payload = "[\"Click\",\"here\"]".to_string();
+        let shipped = build_user_prompt(&TranslationBatch {
+            units: vec![unit.clone()],
+            ..fixture_batch()
+        })
+        .expect("prompt builds");
+        assert!(
+            shipped.contains(&format!(
+                "\"source_payload\":\"{}\"",
+                source_payload_wire_text(&unit)
+            )),
+            "the payload's wire text is the text the request carries: {shipped}"
+        );
     }
 
     /// R0006-0034/0035/0036 + R0007-0011 pin: the user prompt carries the

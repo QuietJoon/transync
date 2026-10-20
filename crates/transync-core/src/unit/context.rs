@@ -192,8 +192,8 @@ pub fn build_context(doc: &Document, block_index: usize, index: &ContextIndex<'_
 /// context that says nothing rather than one that lies in markup.
 fn heading_plain_text(doc: &Document, b: &Block, refs: &ReferenceMap) -> String {
     match b.spelling {
-        crate::id::Spelling::Markdown => inline_plain_text(&text_from_range(doc, b), refs),
-        crate::id::Spelling::Html { .. } => transync_html::extract(&text_from_range(doc, b))
+        crate::id::Spelling::Markdown => inline_plain_text(text_from_range(doc, b), refs),
+        crate::id::Spelling::Html { .. } => transync_html::extract(text_from_range(doc, b))
             .map(|segs| segs.texts.join(" ").trim().to_string())
             .unwrap_or_default(),
     }
@@ -248,7 +248,12 @@ fn neighbor(b: &Block, doc: &Document) -> NeighborSnippet {
     }
 }
 
-fn text_from_range(doc: &Document, block: &Block) -> String {
+/// The block's trimmed source text, borrowed from the document.
+///
+/// A view, not a copy (R0012-0019): [`neighbor`] keeps at most
+/// [`NEIGHBOR_SUMMARY_LEN`] characters of it, and a short paragraph beside a
+/// megabyte code block or table must not copy the whole neighbor to get them.
+fn text_from_range<'a>(doc: &'a Document, block: &Block) -> &'a str {
     let mut start = block.source_range.start.min(doc.source_text.len());
     let mut end = block.source_range.end.min(doc.source_text.len()).max(start);
     // R0006-0031: same defensive UTF-8 char-boundary snap as
@@ -261,16 +266,20 @@ fn text_from_range(doc: &Document, block: &Block) -> String {
     while end > start && !doc.source_text.is_char_boundary(end) {
         end -= 1;
     }
-    doc.source_text[start..end].trim().to_string()
+    doc.source_text[start..end].trim()
 }
 
+/// The first `max_chars` characters of [`text_from_range`], collecting only
+/// those: neither the whole block nor a full character count is ever built.
+///
+/// The trim runs over the whole slice BEFORE the cut. The summary is part of
+/// `pipeline::context_hash` (DCR-0031), so trimming the cut instead would move
+/// cache identities for nothing.
 fn text_from_range_truncated(doc: &Document, block: &Block, max_chars: usize) -> String {
-    let raw = text_from_range(doc, block);
-    if raw.chars().count() <= max_chars {
-        raw
-    } else {
-        raw.chars().take(max_chars).collect()
-    }
+    text_from_range(doc, block)
+        .chars()
+        .take(max_chars)
+        .collect()
 }
 
 /// R0001-0022 / R0001-0023: heading context is the parsed heading's inline
@@ -490,6 +499,63 @@ body paragraph
             ctx.preceding_block.map(|n| n.summary),
             Some("# The `transync` **Guide** #".to_string()),
         );
+    }
+
+    /// R0012-0019: a block's source text is a view into the document, not a
+    /// copy of it. A neighbor summary keeps at most 120 characters, and a short
+    /// paragraph beside a megabyte code block or table used to copy the whole
+    /// neighbor — and scan all of it — to produce them. The `&'a str` return
+    /// type makes the borrow a compile-time fact; this test exists for the
+    /// fail-before evidence, which a type signature cannot give.
+    #[test]
+    fn text_from_range_borrows_the_source() {
+        let doc = crate::markdown::parse(DOC).expect("parses");
+        let b = &doc.blocks[block_at(&doc, "body paragraph")];
+        let s = text_from_range(&doc, b);
+        assert!(
+            doc.source_text
+                .as_bytes()
+                .as_ptr_range()
+                .contains(&s.as_ptr()),
+            "the block's text must point into the document's own source"
+        );
+    }
+
+    /// The summary is the trimmed source's first 120 characters — counted in
+    /// characters, not bytes — and a neighbor that fits comes back whole. It is
+    /// part of `pipeline::context_hash`, so this output is a cache identity
+    /// (DCR-0031) and must not move with R0012-0019's allocation change.
+    #[test]
+    fn a_long_neighbor_summary_is_the_trimmed_120_char_prefix() {
+        let long = "가나다라마바사아자차".repeat(20);
+        let short = "짧은 문단";
+        let src = format!("first\n\n{long}\n\n{short}\n\n    {long}\n\nlast\n");
+        let doc = crate::markdown::parse(&src).expect("parses");
+        let index = build_index(&doc);
+        let expected: String = long.chars().take(NEIGHBOR_SUMMARY_LEN).collect();
+
+        let first = build_context(&doc, block_at(&doc, "first"), &index);
+        let summary = first.following_block.expect("a following block").summary;
+        assert_eq!(summary.chars().count(), NEIGHBOR_SUMMARY_LEN);
+        assert_eq!(summary, expected, "multibyte text is cut on a character");
+
+        let mid = build_context(&doc, block_at(&doc, &long), &index);
+        assert_eq!(
+            mid.following_block.expect("a following block").summary,
+            short,
+            "a neighbor shorter than the cap comes back whole"
+        );
+
+        // An indented code block's slice starts with its indent; the trim
+        // runs over the whole slice BEFORE the cut, so the summary is the same
+        // 120 characters, indent-free.
+        let last = build_context(&doc, block_at(&doc, "last"), &index);
+        let code = last.preceding_block.expect("a preceding block");
+        assert!(matches!(
+            code.kind,
+            BlockKind::CodeBlock { fenced: false, .. }
+        ));
+        assert_eq!(code.summary, expected);
     }
 }
 

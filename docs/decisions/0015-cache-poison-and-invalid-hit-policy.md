@@ -111,7 +111,8 @@ stabilized in Rust 1.77 and inside the workspace MSRV (the root
 untouched. The pipeline revalidates hits before acceptance: the
 cache-hit arm in `pipeline/dispatch.rs` runs the cached rows through
 `validate_batch`, evicts a rejected hit's key, and re-queues the
-pristine unit.
+pristine unit at its packed position, so the re-dispatch reaches the
+provider in the order the packer built (R0013-0005).
 
 ## Consequences
 

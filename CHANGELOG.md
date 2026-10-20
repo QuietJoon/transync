@@ -311,6 +311,30 @@ finally enumerates is decided per item, not by this preamble.
   `.w10` and `.w11`. The ordinal is now read as a number.
   `VALIDATION_REPORT_SCHEMA_VERSION` does not move: §3a already promised
   document order.
+- **A payload heavy in quotes, backslashes or line breaks is priced as the
+  request carries it** (R0012-0011, DCR-0063). The packer encoded each
+  `source_payload` raw, but the request carries it JSON-escaped, every `"`,
+  `\` and newline doubled and an `HtmlSegments` array escaped twice, so a
+  batch of JSON code fences, Windows paths or long tables could run well past
+  `target_input_tokens_per_batch`. The input estimate now encodes the escaped
+  body; the output estimate still reads the raw payload, so row-window split
+  points do not move. **Visible:** such documents pack into more, smaller
+  batches, and a unit whose batch now holds a different mix of raw-HTML or
+  row-window units assembles a different instruction, so its cache entry, a
+  `DiskCache` one included, misses once and is translated again.
+- **A cache hit that fails re-validation is re-dispatched in its packed
+  position** (R0013-0005). It was appended after every miss, so the provider
+  read a later block before an earlier one, and every retry round kept that
+  order. The output was unaffected; the request a `Translator` receives now
+  follows the packer's order (contracts.md §5).
+- **A payload made only of shorthand format controls is an erasure**
+  (R0013-0004, DCR-0048). The visible-text layer's invisible set missed
+  U+1BCA0..U+1BCA3, so a paragraph or html segment replaced by them shipped as
+  `translated`. The set now covers every Unicode 16.0
+  `Default_Ignorable_Code_Point`, which a test pins, and that adds the reserved
+  U+FFF0..U+FFF8 the review did not name. **Visible:** such a payload is
+  retried, then falls back, so its row reads `fallback_source` and the report
+  gains a rejection; a cached one is evicted on its next hit.
 
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above

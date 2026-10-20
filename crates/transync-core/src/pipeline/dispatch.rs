@@ -213,6 +213,9 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
     // succeeded in a prior call against the same cache.
     let mut cached_units: Vec<UnitResult> = Vec::new();
     let mut pending_units: Vec<TranslationUnit> = Vec::new();
+    // Set when a cache hit fails re-validation and joins `pending_units`
+    // out of packed order (R0013-0005).
+    let mut requeued_hit = false;
     for unit in &batch.units {
         let key = key_ctx.key_for(opts, unit, instruction, cohort);
         if let Some(mut cached) = cache_get(cache, &key) {
@@ -248,6 +251,10 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
         // synthetic result list per unit (O(N*M) on large cached batches).
         let cached_ids: std::collections::HashSet<&BlockId> =
             synth.units.iter().map(|r| &r.unit_id).collect();
+        // R0013-0007: every field named. A `..batch.clone()` base is
+        // evaluated in full, so it would deep-clone every original unit —
+        // payloads and contexts — only to drop the copy for the filtered
+        // `units` below.
         let synth_batch = TranslationBatch {
             batch_id: batch.batch_id.clone(),
             units: batch
@@ -256,7 +263,10 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
                 .filter(|u| cached_ids.contains(&u.unit_id))
                 .cloned()
                 .collect(),
-            ..batch.clone()
+            source_language: batch.source_language.clone(),
+            target_language: batch.target_language.clone(),
+            glossary: batch.glossary.clone(),
+            profile: batch.profile.clone(),
         };
         let validated = crate::validate::validate_batch(&synth_batch, &synth, refs);
         // OI-0031: the synthetic batch is built 1:1 from the cached rows
@@ -294,8 +304,30 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
                 // run (R0008-0003).
                 cache_evict(cache, &key_ctx.key_for(opts, orig, instruction, cohort));
                 pending_units.push(orig.clone());
+                requeued_hit = true;
             }
         }
+    }
+
+    // R0013-0005: a re-queued hit goes back where the packer put it. The
+    // cache lookup queues the misses in packed order and the re-validation
+    // pass appends each rejected hit after all of them, so `[A, B]` with `A`
+    // a rejected hit and `B` a miss would otherwise reach the provider as
+    // `[B, A]` — packing reorders nothing (contracts.md §5), and dispatch must
+    // not either. Every retry round is built from the previous round's verdicts
+    // in request order, so restoring round one restores them all. The order
+    // is each unit's position in `batch.units`, never its id text: a
+    // row-window suffix and a numeric ordinal both sort wrongly as strings.
+    if requeued_hit {
+        let packed_position: HashMap<&BlockId, usize> = batch
+            .units
+            .iter()
+            .enumerate()
+            .map(|(position, unit)| (&unit.unit_id, position))
+            .collect();
+        // Every pending unit is a clone of a `batch.units` element, and the
+        // duplicate-id preflight above made the ids unique.
+        pending_units.sort_by_key(|unit| packed_position[&unit.unit_id]);
     }
 
     if pending_units.is_empty() {
@@ -906,6 +938,127 @@ mod cache_dispatch_tests {
             cache.get(&key).unwrap().is_none(),
             "stale cache-hit key must be evicted after re-validation failure"
         );
+    }
+
+    // R0013-0005: a cache hit that fails re-validation is re-dispatched where
+    // the packer put it. The lookup loop queues the misses in document order
+    // and the re-validation pass used to APPEND each rejected hit after all of
+    // them, so the provider read `[u0, u2, u1]` — a later paragraph before an
+    // earlier one — for a batch the packer built as `[u0, u1, u2]`
+    // (contracts.md §5: nothing is reordered). Retry rounds inherit round
+    // one's order, so the first request is the one to pin.
+    #[tokio::test]
+    async fn a_rejected_cache_hit_is_redispatched_in_its_packed_position() {
+        use crate::cache::InMemoryCache;
+        use std::sync::Mutex;
+
+        // Records every request's unit order and answers each unit with a
+        // faithful echo, which passes validation on the first attempt.
+        #[derive(Default)]
+        struct RecordingEchoTranslator {
+            requests: Mutex<Vec<Vec<BlockId>>>,
+        }
+        #[async_trait::async_trait]
+        impl Translator for RecordingEchoTranslator {
+            async fn translate_batch(
+                &self,
+                batch: TranslationBatch,
+                _cancel: &crate::CancellationToken,
+            ) -> Result<TranslationBatchResult, TranslatorError> {
+                self.requests
+                    .lock()
+                    .unwrap()
+                    .push(batch.units.iter().map(|u| u.unit_id.clone()).collect());
+                let units = batch
+                    .units
+                    .iter()
+                    .map(|u| UnitResult {
+                        unit_id: u.unit_id.clone(),
+                        output_kind: OutputKind::Preserved,
+                        translated_payload: u.source_payload.clone(),
+                        warnings: Vec::new(),
+                    })
+                    .collect();
+                Ok(TranslationBatchResult {
+                    batch_id: batch.batch_id,
+                    detected_source_language: None,
+                    units,
+                })
+            }
+        }
+
+        let opts = crate::TranslateOptions {
+            target_language: "ko".to_string(),
+            ..Default::default()
+        };
+        // Each case: the source, and the packed positions whose cache entry
+        // is poisoned (every other unit misses).
+        for (src, poisoned) in [
+            ("para one\n\npara two\n\npara three\n", &[1usize][..]),
+            ("para one\n\npara two\n", &[0usize][..]),
+            (
+                "para one\n\npara two\n\npara three\n\npara four\n\npara five\n",
+                &[0usize, 3][..],
+            ),
+        ] {
+            let translator = RecordingEchoTranslator::default();
+            let mut doc = parse(src).expect("source parses");
+            id::assign_block_ids(&mut doc);
+            let batches = build_batches(&doc, &opts, None, &crate::unit::html_outcomes(&doc));
+            assert_eq!(batches.len(), 1, "fixture: one section, one batch");
+            let batch = &batches[0];
+            let packed: Vec<BlockId> = batch.units.iter().map(|u| u.unit_id.clone()).collect();
+
+            let key_ctx = CacheKeyContext::for_run(&opts, translator.fingerprint());
+            let cache = InMemoryCache::new();
+            let mut keys = Vec::new();
+            for &i in poisoned {
+                let key = key_ctx.key_for(
+                    &opts,
+                    &batch.units[i],
+                    InstructionDigest::for_batch(batch),
+                    CohortDigest::for_batch(batch),
+                );
+                cache
+                    .put(
+                        key.clone(),
+                        UnitResult {
+                            unit_id: batch.units[i].unit_id.clone(),
+                            output_kind: OutputKind::FailedNeedsFallback,
+                            translated_payload: String::new(),
+                            warnings: Vec::new(),
+                        },
+                    )
+                    .unwrap();
+                keys.push(key);
+            }
+
+            let cache_dyn: &dyn Cache = &cache;
+            run_pipeline(src, &opts, &translator, cache_dyn)
+                .await
+                .expect("pipeline completes");
+
+            let requests = translator.requests.lock().unwrap();
+            assert_eq!(
+                requests.first(),
+                Some(&packed),
+                "{src:?}: the first request carries the packed order, rejected hits in place"
+            );
+            assert_eq!(
+                requests.len(),
+                1,
+                "{src:?}: every echo is accepted first time"
+            );
+            for key in &keys {
+                // ADR-0015 is untouched: the rejected hit's stale entry is
+                // still evicted, and the fresh answer replaces it.
+                let fresh = cache
+                    .get(key)
+                    .unwrap()
+                    .expect("the re-dispatch re-populated it");
+                assert_eq!(fresh.output_kind, OutputKind::Preserved);
+            }
+        }
     }
 
     // OI-0025: input batches are numbered 1..=N; the retry ordinal must be
