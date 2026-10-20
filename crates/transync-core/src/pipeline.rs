@@ -50,7 +50,12 @@ use crate::llm::{
 use crate::markdown::parse;
 use crate::profile::{default_profile, merge_auto_glossary};
 use crate::render::{render_source, render_source_html, render_target, render_target_html};
+// The run itself batches through `build_batches_with_refs`, handing over the
+// reference map it built once; the test modules that glob-import this module
+// batch through the public door.
+#[cfg(test)]
 use crate::unit::build_batches;
+use crate::unit::build_batches_with_refs;
 use crate::validate::{AutoGlossaryReport, AutoGlossaryStatus, truncate_diagnostic};
 use crate::{TranslateOptions, TranslationOutput};
 use dispatch::{BatchResult, process_one_batch};
@@ -421,6 +426,13 @@ where
     };
     id::assign_block_ids(&mut doc);
 
+    // R0013-0003: the document's effective link-reference definitions, asked
+    // of comrak once per run — wherever a definition sits, gap or blockquote
+    // or list item or a paragraph's first lines. The inline layer resolves
+    // every payload's references against it, and the heading context reads
+    // headings through it. Empty for an HTML document.
+    let refs = crate::refmap::ReferenceMap::of(&doc);
+
     // Spec 2026-08-03 §3.2: run html segment extraction ONCE and thread the
     // outcome map through every stage that must agree about a raw-HTML block
     // (batching here; alignment + report from Task 6 on).
@@ -479,7 +491,7 @@ where
     let tokenizer_hint = translator.tokenizer_hint();
     // Infallible since DCR-0027: the one thing this call could refuse was the
     // reserved glossary scope, which it now honors per section instead.
-    let batches = build_batches(&doc, opts, tokenizer_hint, &html_outcomes);
+    let batches = build_batches_with_refs(&doc, opts, tokenizer_hint, &html_outcomes, &refs);
 
     // D1 §2.3: preflight the output budget. Flag every unit whose estimated
     // response size exceeds the per-batch output ceiling (empty when the
@@ -572,10 +584,6 @@ where
     // failed remainder. Any failure still fails the run — the
     // lowest-input-index error is surfaced (deterministic under
     // completion-order variance) after all batches settle.
-    // Design D2 §B4: the document's link-reference-definition pool is
-    // batch-invariant; hand each batch a borrow so the inline layer can
-    // resolve reference-style links symmetrically.
-    let ref_defs: &str = &doc.ref_defs;
     // ti aa92d6, extended by DCR-0026: the html-segment and row-window
     // instruction clauses are reserved on DOCUMENT-level facts —
     // `build_batches` priced every batch's envelope with them, so the retry
@@ -583,6 +591,8 @@ where
     // Derived here, where the whole population is still in hand, and handed
     // down; a batch cannot see past itself.
     let document_facts = crate::llm::prompt::DocumentFacts::of_batches(&batches);
+    // R0013-0003: the reference map is batch-invariant; each batch borrows it.
+    let refs: &crate::refmap::ReferenceMap = &refs;
     let outcomes: Vec<(usize, Result<BatchResult, TransyncError>)> =
         futures::stream::iter(batches.into_iter().enumerate())
             .map(|(idx, batch)| {
@@ -604,7 +614,7 @@ where
                             cache,
                             retry_seq,
                             key_ctx,
-                            ref_defs,
+                            refs,
                             document_facts,
                             cancel,
                         )
@@ -692,25 +702,35 @@ where
         .map(|(id, _)| id.clone())
         .collect();
 
-    let (translated_document, offsets, final_validated) =
-        match finalize_regen_with_reparse_policy(&doc, &mut accepted, opts.full_reparse_failure) {
-            Ok(t) => t,
-            Err(failure) => {
-                // EXT-2026-07 P1-4 (R0008-0004): evict exactly the implicated
-                // keys so a shared-cache re-run re-attempts them instead of
-                // deterministically replaying the failing state. Healthy
-                // sibling entries stay cached (OI-0011 keep-progress).
-                for id in &failure.divergent_source_blocks {
-                    for key in keys_to_evict(id) {
-                        cache_evict(cache, &key);
-                    }
+    // R0013-0003: the full-document gate's destination scan follows the same
+    // policy gate as the per-unit destination check, through the one predicate.
+    let enforce_destinations = match opts.profile.as_ref() {
+        Some(profile) => crate::validate::inline::destinations_enforced(&profile.constraints),
+        None => crate::validate::inline::destinations_enforced(&default_profile().constraints),
+    };
+    let (translated_document, offsets, final_validated) = match finalize_regen_with_reparse_policy(
+        &doc,
+        &mut accepted,
+        opts.full_reparse_failure,
+        enforce_destinations,
+    ) {
+        Ok(t) => t,
+        Err(failure) => {
+            // EXT-2026-07 P1-4 (R0008-0004): evict exactly the implicated
+            // keys so a shared-cache re-run re-attempts them instead of
+            // deterministically replaying the failing state. Healthy
+            // sibling entries stay cached (OI-0011 keep-progress).
+            for id in &failure.divergent_source_blocks {
+                for key in keys_to_evict(id) {
+                    cache_evict(cache, &key);
                 }
-                return Err(TransyncError::Validation(format!(
-                    "full reparse failed: {}",
-                    failure.reason
-                )));
             }
-        };
+            return Err(TransyncError::Validation(format!(
+                "full reparse failed: {}",
+                failure.reason
+            )));
+        }
+    };
     let mut validation_report =
         build_validation_report(&accepted, &attempts, &merge_outcome.window_records);
     validation_report.provider_retries = provider_retries_total;
@@ -817,7 +837,7 @@ where
         // `BlockContext::document_title`, from the same extraction, so the
         // caller's rendered document and the model that translated it name the
         // document identically.
-        document_title: crate::unit::context::document_title(&doc),
+        document_title: crate::unit::context::document_title(&doc, refs),
     })
 }
 
@@ -6013,6 +6033,387 @@ fn main() { println!(\"hi\"); }
                 .all(|b| b.fallback_status != FallbackStatus::FallbackSource),
             "no block may fall back: {:?}",
             out.alignment_map.blocks,
+        );
+    }
+}
+
+// R0013-0003: definitions no inter-block gap holds — inside a blockquote, or
+// carried into a payload by the provider — driven end to end through the
+// public run path. Each provider below passes every structural layer, so
+// before the fix each one shipped: a link with no destination, a link
+// pointing at a rewritten URL, a label taken over by an injected definition.
+// The answer is the inline layer's retryable rejection and then per-block
+// fallback, never a full-document error.
+#[cfg(test)]
+mod reference_definition_run_tests {
+    use super::*;
+    use crate::cache::InMemoryCache;
+    use crate::llm::{OutputKind, TranslationBatch, TranslationBatchResult};
+    use crate::validate::ValidationLayer;
+
+    /// Rewrites the units whose source payload matches a key, and echoes
+    /// every other unit as `translated`.
+    struct Scripted(&'static [(&'static str, &'static str)]);
+    #[async_trait::async_trait]
+    impl Translator for Scripted {
+        async fn translate_batch(
+            &self,
+            batch: TranslationBatch,
+            _cancel: &crate::CancellationToken,
+        ) -> Result<TranslationBatchResult, TranslatorError> {
+            Ok(TranslationBatchResult {
+                batch_id: batch.batch_id,
+                detected_source_language: None,
+                units: batch
+                    .units
+                    .iter()
+                    .map(|u| UnitResult {
+                        unit_id: u.unit_id.clone(),
+                        output_kind: OutputKind::Translated,
+                        translated_payload: self
+                            .0
+                            .iter()
+                            .find(|(from, _)| *from == u.source_payload)
+                            .map_or_else(|| u.source_payload.clone(), |(_, to)| to.to_string()),
+                        warnings: Vec::new(),
+                    })
+                    .collect(),
+            })
+        }
+    }
+
+    async fn run(src: &str, translator: &Scripted) -> TranslationOutput {
+        run_under(src, translator, crate::FullReparseFailure::default()).await
+    }
+
+    async fn run_under(
+        src: &str,
+        translator: &Scripted,
+        full_reparse_failure: crate::FullReparseFailure,
+    ) -> TranslationOutput {
+        let opts = TranslateOptions {
+            target_language: "ko".to_string(),
+            full_reparse_failure,
+            ..Default::default()
+        };
+        let cache = InMemoryCache::new();
+        let cache_dyn: &dyn Cache = &cache;
+        run_pipeline(src, &opts, translator, cache_dyn)
+            .await
+            .expect("a rejected unit degrades to fallback; the run completes")
+    }
+
+    /// The unit's report row: fell back after every attempt was rejected by
+    /// the inline layer — retried, not caught late by the document gate.
+    fn assert_inline_fallback(out: &TranslationOutput, id: &str, reason: &str) {
+        let row = out
+            .validation_report
+            .per_unit
+            .iter()
+            .find(|r| r.unit_id.0 == id)
+            .unwrap_or_else(|| panic!("no report row for {id}"));
+        assert_eq!(row.final_status, FallbackStatus::FallbackSource, "{row:?}");
+        assert!(
+            row.attempts.len() > 1,
+            "the rejection is retryable: {row:?}"
+        );
+        for attempt in &row.attempts {
+            assert_eq!(
+                attempt.rejected_by,
+                Some(ValidationLayer::Inline),
+                "{row:?}"
+            );
+            assert!(
+                attempt
+                    .rejection_reason
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains(reason),
+                "{row:?}"
+            );
+        }
+        assert!(
+            out.validation_report.full_reparse_fallbacks.is_empty(),
+            "the per-unit layer caught it: {:?}",
+            out.validation_report.full_reparse_fallbacks
+        );
+    }
+
+    const QUOTED_DEF: &str =
+        "> [ref]: https://example.com/\n>\n> Definition holder.\n\nRead [docs][ref].\n";
+
+    #[tokio::test]
+    async fn a_dropped_reference_to_a_blockquote_definition_falls_back() {
+        let out = run(
+            QUOTED_DEF,
+            &Scripted(&[("Read [docs][ref].", "Read docs.")]),
+        )
+        .await;
+        assert!(
+            out.translated_document.contains("Read [docs][ref]."),
+            "out.md keeps the link:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "p-0002", "destination count changed");
+    }
+
+    #[tokio::test]
+    async fn a_rewritten_blockquote_definition_falls_back() {
+        let out = run(
+            QUOTED_DEF,
+            &Scripted(&[(
+                "> [ref]: https://example.com/\n>\n> Definition holder.",
+                "> [ref]: https://evil.example/\n>\n> 정의 보유자.",
+            )]),
+        )
+        .await;
+        assert!(
+            !out.translated_document.contains("evil.example"),
+            "the rewritten destination never ships:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "q-0001", "reference definition");
+    }
+
+    #[tokio::test]
+    async fn an_injected_definition_falls_back() {
+        let src = "Intro.\n\nSee [docs][ref].\n\n[ref]: https://example.com/\n";
+        let out = run(
+            src,
+            &Scripted(&[("Intro.", "[ref]: https://evil.example/\n소개.")]),
+        )
+        .await;
+        assert!(
+            !out.translated_document.contains("evil.example"),
+            "the injected definition never ships:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "p-0001", "reference definition");
+    }
+
+    // A label whose comrak key comrak cannot read back as the same label: the
+    // no-break space at its edge survives comrak's ASCII-only trim and
+    // collapses to an ASCII space in the key.
+
+    #[tokio::test]
+    async fn a_dropped_reference_to_an_edge_label_is_retried_even_under_hard() {
+        let src = "Read [docs][foo\u{a0}].\n\n[foo\u{a0}]: https://example.com/g\n";
+        let out = run_under(
+            src,
+            &Scripted(&[("Read [docs][foo\u{a0}].", "Read docs.")]),
+            crate::FullReparseFailure::Hard,
+        )
+        .await;
+        assert!(
+            out.translated_document.contains("Read [docs][foo\u{a0}]."),
+            "out.md keeps the link:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "p-0001", "destination count changed");
+    }
+
+    #[tokio::test]
+    async fn a_rewritten_definition_with_an_edge_label_falls_back_alone() {
+        let src = "> [foo\u{a0}]: https://example.com/q\n>\n> holder\n\nOne.\n\nTwo.\n\nThree.\n\nRead [docs][foo\u{a0}].\n";
+        let out = run(
+            src,
+            &Scripted(&[
+                (
+                    "> [foo\u{a0}]: https://example.com/q\n>\n> holder",
+                    "> [foo\u{a0}]: https://evil.example/\n>\n> 보유자",
+                ),
+                ("One.", "하나."),
+                ("Two.", "둘."),
+                ("Three.", "셋."),
+            ]),
+        )
+        .await;
+        assert!(
+            !out.translated_document.contains("evil.example"),
+            "the rewritten destination never ships:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "q-0001", "reference definition");
+        for (id, text) in [("p-0002", "하나."), ("p-0003", "둘."), ("p-0004", "셋.")] {
+            assert!(
+                out.translated_document.contains(text),
+                "{id}'s honest translation ships:\n{}",
+                out.translated_document
+            );
+        }
+    }
+
+    /// Rewrites every occurrence of each key in every unit's payload.
+    struct Replacing(Vec<(String, String)>);
+    #[async_trait::async_trait]
+    impl Translator for Replacing {
+        async fn translate_batch(
+            &self,
+            batch: TranslationBatch,
+            _cancel: &crate::CancellationToken,
+        ) -> Result<TranslationBatchResult, TranslatorError> {
+            Ok(TranslationBatchResult {
+                batch_id: batch.batch_id,
+                detected_source_language: None,
+                units: batch
+                    .units
+                    .iter()
+                    .map(|u| UnitResult {
+                        unit_id: u.unit_id.clone(),
+                        output_kind: OutputKind::Translated,
+                        translated_payload: self
+                            .0
+                            .iter()
+                            .fold(u.source_payload.clone(), |p, (from, to)| {
+                                p.replace(from, to)
+                            }),
+                        warnings: Vec::new(),
+                    })
+                    .collect(),
+            })
+        }
+    }
+
+    fn replacing(pairs: &[(&str, &str)]) -> Replacing {
+        Replacing(
+            pairs
+                .iter()
+                .map(|(from, to)| ((*from).to_string(), (*to).to_string()))
+                .collect(),
+        )
+    }
+
+    // A label spread over many lines: inside comrak's 1,000-byte label limit
+    // once each continuation line's indentation is stripped, far past it as
+    // raw text.
+
+    fn long_label(line_break: &str) -> String {
+        (0..58)
+            .map(|i| format!("word{i:02}xxxxxxxxxx"))
+            .collect::<Vec<_>>()
+            .join(line_break)
+    }
+
+    #[tokio::test]
+    async fn a_dropped_reference_to_a_long_label_is_retried_even_under_hard() {
+        let reference = format!("Read [docs][{}].", long_label(" "));
+        let src = format!(
+            "{reference}\n\n[{}]: https://example.com/g\n",
+            long_label("\n        ")
+        );
+        let opts = TranslateOptions {
+            target_language: "ko".to_string(),
+            full_reparse_failure: crate::FullReparseFailure::Hard,
+            ..Default::default()
+        };
+        let cache = InMemoryCache::new();
+        let out = run_pipeline(
+            &src,
+            &opts,
+            &replacing(&[(reference.as_str(), "Read docs.")]),
+            &cache as &dyn Cache,
+        )
+        .await
+        .expect("the inline layer catches the dropped reference; the run completes");
+        assert!(
+            out.translated_document.contains(&reference),
+            "out.md keeps the link:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "p-0001", "destination count changed");
+    }
+
+    #[tokio::test]
+    async fn a_rewritten_long_label_list_definition_falls_back_alone() {
+        let src = format!(
+            "- [{}]: https://example.com/q\n- item\n\nOne.\n\nTwo.\n\nThree.\n\nRead [docs][{}].\n",
+            long_label("\n        "),
+            long_label(" ")
+        );
+        let opts = TranslateOptions {
+            target_language: "ko".to_string(),
+            ..Default::default()
+        };
+        let cache = InMemoryCache::new();
+        let out = run_pipeline(
+            &src,
+            &opts,
+            &replacing(&[
+                ("https://example.com/q", "https://evil.example/"),
+                ("One.", "하나."),
+                ("Two.", "둘."),
+                ("Three.", "셋."),
+            ]),
+            &cache as &dyn Cache,
+        )
+        .await
+        .expect("a rejected unit degrades to fallback; the run completes");
+        assert!(
+            !out.translated_document.contains("evil.example"),
+            "the rewritten destination never ships:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "li-0001", "reference definition");
+        for text in ["하나.", "둘.", "셋."] {
+            assert!(
+                out.translated_document.contains(text),
+                "the honest translation {text} ships:\n{}",
+                out.translated_document
+            );
+        }
+    }
+
+    // Two definitions whose labels continue across blockquote lines, where
+    // the first one's title, read as inline text, opens an inline link whose
+    // own title runs past the second label's `[`.
+
+    const BEHIND_A_LINK_TITLE: &str =
+        "> [a\n> a]: /a \"[x](/u '\"\n> [b\n> c]: https://example.com/b \"')\"\n";
+
+    #[tokio::test]
+    async fn a_dropped_reference_to_a_label_behind_a_link_title_is_retried_even_under_hard() {
+        let src = format!("{BEHIND_A_LINK_TITLE}\nSee [y][b c].\n");
+        let out = run_under(
+            &src,
+            &Scripted(&[("See [y][b c].", "See y.")]),
+            crate::FullReparseFailure::Hard,
+        )
+        .await;
+        assert!(
+            out.translated_document.contains("See [y][b c]."),
+            "out.md keeps the link:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "p-0002", "destination count changed");
+    }
+
+    #[tokio::test]
+    async fn a_rewritten_definition_behind_a_code_span_is_retried() {
+        let src = "> [a\n> a]: /a \"`\"\n> [b\n> c]: https://example.com/b \"`\"\n\nOne.\n\nSee [y][b c].\n";
+        let out = run_pipeline(
+            src,
+            &TranslateOptions {
+                target_language: "ko".to_string(),
+                ..Default::default()
+            },
+            &replacing(&[
+                ("https://example.com/b", "https://evil.example/"),
+                ("One.", "하나."),
+            ]),
+            &InMemoryCache::new() as &dyn Cache,
+        )
+        .await
+        .expect("a rejected unit degrades to fallback; the run completes");
+        assert!(
+            !out.translated_document.contains("evil.example"),
+            "the rewritten destination never ships:\n{}",
+            out.translated_document
+        );
+        assert_inline_fallback(&out, "q-0001", "reference definition");
+        assert!(
+            out.translated_document.contains("하나."),
+            "the honest translation ships:\n{}",
+            out.translated_document
         );
     }
 }

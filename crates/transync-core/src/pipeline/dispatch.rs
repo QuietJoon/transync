@@ -146,7 +146,7 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
     cache: &(dyn Cache + '_),
     retry_seq: &AtomicU32,
     key_ctx: &CacheKeyContext,
-    ref_defs: &str,
+    refs: &crate::refmap::ReferenceMap,
     document_facts: crate::llm::prompt::DocumentFacts,
     cancel: &CancellationToken,
 ) -> Result<BatchResult, TransyncError> {
@@ -258,7 +258,7 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
                 .collect(),
             ..batch.clone()
         };
-        let validated = crate::validate::validate_batch(&synth_batch, &synth, ref_defs);
+        let validated = crate::validate::validate_batch(&synth_batch, &synth, refs);
         // OI-0031: the synthetic batch is built 1:1 from the cached rows
         // (`synth_batch.units` is filtered to exactly `cached_ids`), so a
         // batch-level schema fault is impossible by construction here.
@@ -418,7 +418,7 @@ pub(crate) async fn process_one_batch<T: Translator + ?Sized>(
                 )));
                 break;
             }
-            let validated = crate::validate::validate_batch(current_batch, &result, ref_defs);
+            let validated = crate::validate::validate_batch(current_batch, &result, refs);
 
             // R0001-0007: only a round whose *envelope* survived schema
             // validation may commit `detected_source_language`, so the latch
@@ -2469,7 +2469,7 @@ mod batch_fault_tests {
             cache_dyn,
             &AtomicU32::new(99),
             &key_ctx,
-            "",
+            &crate::refmap::ReferenceMap::empty(),
             crate::llm::prompt::DocumentFacts::default(),
             &CancellationToken::new(),
         )

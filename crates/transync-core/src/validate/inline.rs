@@ -32,27 +32,37 @@
 //! (providers insert a space) and fallback is safe.
 //!
 //! Reference-style links/images (`[text][ref]`, `![alt][ref]`, collapsed
-//! `[ref][]`, and shortcut `[ref]`) are resolved by appending the document's
-//! link-reference-definition pool (`ref_defs`, extracted at parse time by
-//! [`crate::markdown::refdefs`]) to BOTH payloads before the parse. The same
-//! pool on each side keeps the compare symmetric: a reference whose label the
-//! model preserves resolves identically and passes, while a translated label
-//! breaks resolution on the translated side only — a destination-count
-//! mismatch that rejects (retryable [`super::ValidationLayer::Inline`]).
-//! Reference-label integrity is thus validated, closing the documented
-//! ADR-0012-amendment §4 gap. A genuinely undefined reference (no definition
-//! anywhere) stays literal text on both sides — a symmetric no-op, unchanged.
-//! The append is skipped when NEITHER payload carries a `[` — there is then
-//! no reference for the pool to resolve and the inventory is provably the
-//! same either way ([`effective_pool`], OI-0040); the decision is taken once
-//! for the pair, so both sides still see the same pool.
+//! `[ref][]`, and shortcut `[ref]`) resolve against the document's own
+//! definitions ([`crate::refmap::ReferenceMap`], built once per run by asking
+//! comrak), wherever those definitions sit — an inter-block gap, inside a
+//! blockquote or a list item, or ahead of a paragraph's text. Each payload is
+//! parsed alone, and a label it does not define is handed to that map
+//! through comrak's `broken_link_callback`; nothing is appended to the
+//! payload. Both sides resolve against the same map under one expansion
+//! budget, so the compare stays symmetric: a reference whose label the model
+//! preserves resolves identically and passes, while a dropped reference or a
+//! translated label breaks resolution on the translated side only — a
+//! destination-count mismatch that rejects (retryable
+//! [`super::ValidationLayer::Inline`]). A genuinely undefined reference (no
+//! definition anywhere) stays literal text on both sides — a symmetric no-op.
 //!
+//! A definition a payload carries **itself** is text the provider can change
+//! without adding or removing an inline node, so it gets its own comparison
+//! ([`crate::refmap::definition_change`]): the definitions on each side must
+//! agree label for label and destination for destination, which makes a
+//! rewritten, deleted or injected definition the same retryable rejection.
+//! Gated with destinations, by `preserve_urls`. The full-document gate
+//! compares every block's resolved destinations once more after
+//! regeneration (`validate::full_reparse`, scan 4), under the same gate.
+//!
+//! TRACE: R0013-0003
 //! TRACE: EXT-2026-07 P1-5
 //! TRACE: ADR-0012 (amendment §4)
 
 use crate::id::BlockKind;
 use crate::llm::{InputMode, TranslationUnit, UnitResult};
 use crate::profile::ProfileConstraints;
+use crate::refmap::ReferenceMap;
 
 /// Whether a destination came from a link or an image node — part of the
 /// compared identity so a link↔image flip with the same URL still rejects.
@@ -94,18 +104,20 @@ struct InlineInventory {
 /// early: fence bodies carry no inline nodes, and an html unit's payload is
 /// a JSON segment array validated by the splice check instead.
 ///
-/// `ref_defs` is the document's link-reference-definition pool
-/// ([`crate::markdown::refdefs`]); appended to both payloads so reference-style
-/// links resolve on each side (design D2 §B4). Pass `""` when the document
-/// defines none. Whether it is appended at all is [`effective_pool`]'s answer
-/// — one decision, taken from BOTH payloads, handed to both walks (OI-0040).
+/// `refs` is the document's effective link-reference definitions
+/// ([`ReferenceMap`]); both payloads resolve a label they do not define
+/// against it, under one shared expansion budget. Pass
+/// [`ReferenceMap::empty`] when the document defines none. Under destination
+/// enforcement, the definitions each payload carries itself must also agree
+/// ([`crate::refmap::definition_change`]).
 ///
 /// TRACE: EXT-2026-07 P1-5
+/// TRACE: R0013-0003
 pub fn check_inline(
     policy: &ProfileConstraints,
     unit: &TranslationUnit,
     result: &UnitResult,
-    ref_defs: &str,
+    refs: &ReferenceMap,
 ) -> Result<(), String> {
     // Fences carry no inline nodes; html payloads are JSON (the splice check
     // owns their structure). Skip both parses. ti 490d97 wave 2: the html half
@@ -118,16 +130,15 @@ pub fn check_inline(
         return Ok(());
     }
 
-    let enforce_dest = policy.preserve_urls != Some(false);
+    let enforce_dest = destinations_enforced(policy);
     let enforce_code = policy.preserve_code_identifiers == Some(true);
 
-    // OI-0040: the pool is appended to both payloads or to neither, and the
-    // decision is taken ONCE from both of them — see `effective_pool` for why
-    // a payload with no `[` provably has the same inventory either way, and
-    // why the condition is their OR rather than each side's own.
-    let pool = effective_pool(&unit.source_payload, &result.translated_payload, ref_defs);
-    let source = inline_inventory(&unit.source_payload, pool);
-    let translated = inline_inventory(&result.translated_payload, pool);
+    // One budget for both walks, so a reference sequence the two sides share
+    // stops resolving at the same point on both (`refmap::expansion_budget`).
+    let budget =
+        crate::refmap::expansion_budget(&[&unit.source_payload, &result.translated_payload]);
+    let source = inline_inventory(&unit.source_payload, refs, budget);
+    let translated = inline_inventory(&result.translated_payload, refs, budget);
 
     // Spec §4.3: always-on ordered raw-inline-HTML tag identity — hoisted
     // ABOVE the policy gates so no profile can disable it. A model has no
@@ -172,6 +183,15 @@ pub fn check_inline(
                 ));
             }
         }
+        // R0013-0003 (c): a definition the payload carries is a destination
+        // no inline node of this payload shows — the links that use it are in
+        // other blocks. A rewrite, a deletion or an injection is this unit's
+        // fault and gets this unit's retry.
+        if let Some(change) =
+            crate::refmap::definition_change(&unit.source_payload, &result.translated_payload)
+        {
+            return Err(change);
+        }
     }
 
     if enforce_code {
@@ -206,87 +226,30 @@ pub fn check_inline(
     Ok(())
 }
 
-/// The reference-definition pool [`check_inline`] actually appends:
-/// `ref_defs` when either payload could resolve a reference, `""` when
-/// neither can (OI-0040 Required Action 1).
-///
-/// The append is the one part of this layer with an algorithmic shape.
-/// `ref_defs` is a WHOLE-DOCUMENT pool and it is appended to BOTH payloads of
-/// every inline-eligible unit, so the bytes comrak reparses across a run grow
-/// as O(units × |ref_defs|) — measured at 8.7 ns per appended byte, which is
-/// 1.5 % of a run over this repository's own worst document (1,239 units, a
-/// 350 B pool) and +1,756 ms on a 1,289 ms baseline at 5,000 units with a
-/// 20 KB pool. This prefilter is the cheap half of that: a payload with no
-/// `[` byte cannot own a reference for the pool to resolve, so the pool is
-/// not appended to it and the parse is over the payload alone.
-///
-/// **Why skipping cannot change a verdict** — three legs, and the third is
-/// what makes the first two sufficient:
-///
-/// 1. `Link` and `Image` nodes need a `[` in the parsed text, and the pool
-///    contributes none of its own: [`crate::markdown::refdefs`] pools only
-///    inter-block gaps that comrak parses to zero top-level nodes, so the
-///    pool's own brackets are definition labels that produce no node.
-/// 2. The `\n\n` separator means the pool always begins after a blank line,
-///    and the only CommonMark constructs that survive a blank line are fenced
-///    code and HTML blocks 1–5 (`<pre>`/`<script>`/`<style>`/`<textarea>`,
-///    `<!--`, `<?`, `<!X`, `<![CDATA[`). Every one of them holds literal
-///    content that is never inline-parsed, so pool bytes that an unterminated
-///    construct swallows become `CodeBlock` or `HtmlBlock` content — and this
-///    layer collects only `Link`/`Image`/`Code`/`HtmlInline`.
-/// 3. Appended bytes cannot REMOVE a node the preceding bytes produced.
-///
-/// **One decision, both sides.** The condition is the OR of the two payloads
-/// and the same `&str` reaches both walks, so DCR-0013's symmetry constraint
-/// (source and translated fragments both see the same pool) holds by
-/// construction. A per-side filter would be a false ACCEPT rather than a mere
-/// asymmetry: a bracket-free source against a translated payload that added
-/// `[문서][ref]` would leave the translated side unresolved, and an
-/// unresolved reference contributes no destination — so the added link would
-/// pass. `added_reference_use_in_bracket_free_source_is_rejected` pins that.
-///
-/// What this does NOT reach is the reference-heavy document, where every
-/// payload carries a `[` and the pool is appended to all of them anyway. That
-/// residual — the label-filtered pool — is deferred with a recorded
-/// re-trigger (OI-0040), and `unit::build_batches` carries the tripwire that
-/// fires when a run enters the shape where it starts to cost.
-///
-/// TRACE: OI-0040
-fn effective_pool<'a>(source: &str, translated: &str, ref_defs: &'a str) -> &'a str {
-    if ref_defs.is_empty() || !(source.contains('[') || translated.contains('[')) {
-        return "";
-    }
-    ref_defs
+/// Whether `policy` enforces link/image destination identity: `preserve_urls`
+/// unset or `true`. THE predicate — the inline layer and the full-document
+/// gate's destination scan (`validate::full_reparse`, scan 4) both read it, so
+/// the two cannot disagree about which runs protect destinations.
+pub(crate) fn destinations_enforced(policy: &ProfileConstraints) -> bool {
+    policy.preserve_urls != Some(false)
 }
 
 /// Walk `payload` under the canonical GFM options and collect its inline
 /// inventory: link/image destinations in document order, inline code-span
 /// literals, and raw inline HTML tag tokens in document order.
 ///
-/// When `ref_defs` is non-empty it is appended before the parse so
-/// reference-style links (`[text][ref]`, `![alt][ref]`, `[ref][]`, `[ref]`)
-/// resolve to real destinations — definitions produce no inline nodes, so
-/// they never add spurious inventory entries (design D2 §B4). The pool
-/// arriving here is already [`effective_pool`]'s answer for the PAIR, so
-/// `""` reaches this function both when the document defines nothing and
-/// when neither payload can resolve anything.
-fn inline_inventory(payload: &str, ref_defs: &str) -> InlineInventory {
+/// A reference the payload does not define resolves through `refs`, charged
+/// against `budget` ([`ReferenceMap::parse`]); definitions produce no inline
+/// nodes, so they never add inventory entries of their own.
+fn inline_inventory(payload: &str, refs: &ReferenceMap, budget: usize) -> InlineInventory {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let opts = crate::markdown::comrak_options();
-    let appended;
-    let to_parse: &str = if ref_defs.is_empty() {
-        payload
-    } else {
-        appended = format!("{payload}\n\n{ref_defs}");
-        appended.as_str()
-    };
     // Past the ceiling there is no inventory to take: return an empty one
     // rather than build a tree. The comparison against the source inventory
     // then fails and the unit is rejected — which is the right outcome, and
     // the one `validate_unit`'s door has already produced with a better
     // reason before this is reachable.
-    let Ok(root) = crate::markdown::guarded_parse(&arena, to_parse, &opts) else {
+    let Ok(root) = refs.parse(&arena, payload, budget) else {
         return InlineInventory::default();
     };
 
@@ -306,7 +269,7 @@ fn inline_inventory(payload: &str, ref_defs: &str) -> InlineInventory {
 /// Truncate a value for a diagnostic so a `data:` URI (or any long
 /// destination) can't produce a megabyte-long `rejection_reason`. Cuts on
 /// a char boundary and appends `…` only when truncation happened.
-fn clip(s: &str) -> String {
+pub(crate) fn clip(s: &str) -> String {
     const MAX: usize = 120;
     if s.chars().count() <= MAX {
         return s.to_string();
@@ -363,7 +326,7 @@ mod tests {
             "See [the docs](https://example.com/a).",
         );
         let r = unit_result("[문서](https://evil.example/x)를 보라.");
-        let err = check_inline(&policy(Some(true), None), &u, &r, "").unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &none()).unwrap_err();
         assert!(err.contains("destination 0"), "should name index 0: {err}");
         assert!(
             err.contains("https://example.com/a"),
@@ -382,14 +345,14 @@ mod tests {
             "See [the docs](https://example.com/a).",
         );
         let r = unit_result("[문서](https://example.com/a)를 보라.");
-        assert!(check_inline(&policy(Some(true), None), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(Some(true), None), &u, &r, &none()).is_ok());
     }
 
     #[test]
     fn added_link_is_rejected() {
         let u = unit(BlockKind::Paragraph, "Plain sentence, no links.");
         let r = unit_result("[링크](https://example.com/a) 추가된 문장.");
-        let err = check_inline(&policy(Some(true), None), &u, &r, "").unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &none()).unwrap_err();
         assert!(err.contains("count changed"), "{err}");
     }
 
@@ -400,7 +363,7 @@ mod tests {
             "See [the docs](https://example.com/a).",
         );
         let r = unit_result("문서를 보라.");
-        let err = check_inline(&policy(Some(true), None), &u, &r, "").unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &none()).unwrap_err();
         assert!(err.contains("count changed"), "{err}");
     }
 
@@ -412,7 +375,7 @@ mod tests {
             "See [the docs](https://example.com/a).",
         );
         let r = unit_result("[문서](https://evil.example/x)를 보라.");
-        assert!(check_inline(&policy(Some(false), None), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(Some(false), None), &u, &r, &none()).is_ok());
     }
 
     #[test]
@@ -423,14 +386,14 @@ mod tests {
             "See [the docs](https://example.com/a).",
         );
         let r = unit_result("[문서](https://evil.example/x)를 보라.");
-        assert!(check_inline(&ProfileConstraints::default(), &u, &r, "").is_err());
+        assert!(check_inline(&ProfileConstraints::default(), &u, &r, &none()).is_err());
     }
 
     #[test]
     fn autolink_destination_change_is_rejected() {
         let u = unit(BlockKind::Paragraph, "Visit https://example.com/a today.");
         let r = unit_result("오늘 https://evil.example/x 방문하세요.");
-        assert!(check_inline(&policy(Some(true), None), &u, &r, "").is_err());
+        assert!(check_inline(&policy(Some(true), None), &u, &r, &none()).is_err());
     }
 
     #[test]
@@ -438,14 +401,14 @@ mod tests {
         // Form change with an identical destination is presentation only.
         let u = unit(BlockKind::Paragraph, "Visit https://example.com/a today.");
         let r = unit_result("오늘 [여기](https://example.com/a) 방문하세요.");
-        assert!(check_inline(&policy(Some(true), None), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(Some(true), None), &u, &r, &none()).is_ok());
     }
 
     #[test]
     fn image_src_change_is_rejected() {
         let u = unit(BlockKind::Paragraph, "Logo ![alt](img/a.png) here.");
         let r = unit_result("로고 ![대체](img/evil.png) 여기.");
-        let err = check_inline(&policy(Some(true), None), &u, &r, "").unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &none()).unwrap_err();
         assert!(err.contains("Image"), "kind-tagged as Image: {err}");
     }
 
@@ -453,7 +416,7 @@ mod tests {
     fn image_alt_translation_passes() {
         let u = unit(BlockKind::Paragraph, "Logo ![alt text](img/a.png) here.");
         let r = unit_result("로고 ![대체 텍스트](img/a.png) 여기.");
-        assert!(check_inline(&policy(Some(true), None), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(Some(true), None), &u, &r, &none()).is_ok());
     }
 
     #[test]
@@ -461,7 +424,7 @@ mod tests {
         // Same URL, but Link → Image: the kind tag catches it.
         let u = unit(BlockKind::Paragraph, "See [x](u/a) now.");
         let r = unit_result("![x](u/a) 보라.");
-        let err = check_inline(&policy(Some(true), None), &u, &r, "").unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &none()).unwrap_err();
         assert!(err.contains("destination 0"), "{err}");
     }
 
@@ -473,14 +436,14 @@ mod tests {
             "See [x](https://example.com/a \"old title\").",
         );
         let r = unit_result("[엑스](https://example.com/a \"새 제목\")를 보라.");
-        assert!(check_inline(&policy(Some(true), None), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(Some(true), None), &u, &r, &none()).is_ok());
     }
 
     #[test]
     fn code_span_alteration_is_rejected_when_pledged() {
         let u = unit(BlockKind::Paragraph, "Call `foo()` then `bar()`.");
         let r = unit_result("`foo()` 다음 `baz()` 호출.");
-        let err = check_inline(&policy(None, Some(true)), &u, &r, "").unwrap_err();
+        let err = check_inline(&policy(None, Some(true)), &u, &r, &none()).unwrap_err();
         assert!(err.contains("code span altered"), "{err}");
     }
 
@@ -488,7 +451,7 @@ mod tests {
     fn code_span_reorder_passes_as_multiset() {
         let u = unit(BlockKind::Paragraph, "Call `foo()` then `bar()`.");
         let r = unit_result("`bar()` 다음 `foo()` 호출.");
-        assert!(check_inline(&policy(None, Some(true)), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(None, Some(true)), &u, &r, &none()).is_ok());
     }
 
     #[test]
@@ -496,7 +459,7 @@ mod tests {
         // preserve_code_identifiers unset → advisory only, no code check.
         let u = unit(BlockKind::Paragraph, "Call `foo()` then `bar()`.");
         let r = unit_result("`foo()` 다음 `baz()` 호출.");
-        assert!(check_inline(&policy(None, None), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(None, None), &u, &r, &none()).is_ok());
     }
 
     #[test]
@@ -506,7 +469,7 @@ mod tests {
         let tam = "| 사이트 | URL |\n|------|-----|\n| 예 | [링크](https://evil.example/x) |\n";
         let u = unit(BlockKind::Table, src);
         let r = unit_result(tam);
-        let err = check_inline(&policy(Some(true), None), &u, &r, "").unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &none()).unwrap_err();
         assert!(err.contains("destination 0"), "{err}");
     }
 
@@ -524,11 +487,11 @@ mod tests {
             body,
         );
         let r = unit_result(tampered);
-        assert!(check_inline(&policy(Some(true), Some(true)), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(Some(true), Some(true)), &u, &r, &none()).is_ok());
     }
 
-    // Design D2 §B4 / C10: reference-style links now resolve from the
-    // document's `ref_defs` pool, closing the ADR-0012-amendment §4 gap.
+    // Design D2 §B4 / C10, R0013-0003: reference-style links resolve from the
+    // document's own definitions, closing the ADR-0012-amendment §4 gap.
     const REF_POOL: &str = "[ref]: https://example.com/r\n";
 
     #[test]
@@ -537,7 +500,7 @@ mod tests {
         // translated → both sides resolve `[ref]` to the same destination.
         let u = unit(BlockKind::Paragraph, "See [the docs][ref] for more.");
         let r = unit_result("자세한 내용은 [문서][ref].");
-        assert!(check_inline(&policy(Some(true), None), &u, &r, REF_POOL).is_ok());
+        assert!(check_inline(&policy(Some(true), None), &u, &r, &doc_refs(REF_POOL)).is_ok());
     }
 
     #[test]
@@ -547,7 +510,7 @@ mod tests {
         // → destination-count mismatch. Previously a silent v1 gap.
         let u = unit(BlockKind::Paragraph, "See [the docs][ref] for more.");
         let r = unit_result("자세한 내용은 [문서][참조].");
-        let err = check_inline(&policy(Some(true), None), &u, &r, REF_POOL).unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &doc_refs(REF_POOL)).unwrap_err();
         assert!(
             err.contains("count changed"),
             "label break is a count mismatch: {err}"
@@ -561,7 +524,7 @@ mod tests {
         // observable tamper → count mismatch.
         let u = unit(BlockKind::Paragraph, "See [the docs][ref].");
         let r = unit_result("[문서][ref] 그리고 [추가][ref] 보라.");
-        let err = check_inline(&policy(Some(true), None), &u, &r, REF_POOL).unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &doc_refs(REF_POOL)).unwrap_err();
         assert!(err.contains("count changed"), "added reference use: {err}");
     }
 
@@ -573,7 +536,7 @@ mod tests {
         let pool = "[ref]: https://example.com/logo.png\n";
         let u = unit(BlockKind::Paragraph, "Logo ![logo][ref] here.");
         let r = unit_result("로고 [로고][ref] 여기.");
-        let err = check_inline(&policy(Some(true), None), &u, &r, pool).unwrap_err();
+        let err = check_inline(&policy(Some(true), None), &u, &r, &doc_refs(pool)).unwrap_err();
         assert!(
             err.contains("Image"),
             "image reference tagged as Image: {err}"
@@ -581,20 +544,25 @@ mod tests {
     }
 
     #[test]
-    fn empty_pool_keeps_symmetric_pass_for_undefined_reference() {
-        // (e) With no definitions anywhere (empty pool), `[text][ref]` stays
+    fn no_definitions_keeps_symmetric_pass_for_undefined_reference() {
+        // (e) With no definitions anywhere, `[text][ref]` stays
         // literal on both sides — the pre-refmap symmetric no-op is preserved.
         let u = unit(BlockKind::Paragraph, "See [the docs][ref] for more.");
         let r = unit_result("자세한 내용은 [문서][참조].");
-        assert!(check_inline(&policy(Some(true), None), &u, &r, "").is_ok());
+        assert!(check_inline(&policy(Some(true), None), &u, &r, &none()).is_ok());
     }
 
     // Spec §4.3: always-on ordered raw-inline-HTML tag identity.
     #[test]
     fn dropped_inline_tag_is_rejected() {
         let u = unit(BlockKind::Paragraph, "press <kbd>Ctrl</kbd> now");
-        let err =
-            check_inline(&policy(None, None), &u, &unit_result("press Ctrl now"), "").unwrap_err();
+        let err = check_inline(
+            &policy(None, None),
+            &u,
+            &unit_result("press Ctrl now"),
+            &none(),
+        )
+        .unwrap_err();
         assert!(err.contains("raw inline HTML tag"), "got: {err}");
     }
 
@@ -605,7 +573,7 @@ mod tests {
             &policy(None, None),
             &u,
             &unit_result("a <strong>bold</strong> word"),
-            "",
+            &none(),
         )
         .unwrap_err();
         assert!(err.contains("raw inline HTML tag"), "got: {err}");
@@ -618,7 +586,7 @@ mod tests {
             &policy(None, None),
             &u,
             &unit_result("<sub>b</sub> then <sup>a</sup>"),
-            "",
+            &none(),
         )
         .unwrap_err();
         assert!(err.contains("raw inline HTML tag"), "got: {err}");
@@ -630,7 +598,7 @@ mod tests {
         // NOT disable the guard — hoisted above the policy gates.
         let u = unit(BlockKind::Paragraph, "x <br> y");
         let err =
-            check_inline(&policy(Some(false), None), &u, &unit_result("x y"), "").unwrap_err();
+            check_inline(&policy(Some(false), None), &u, &unit_result("x y"), &none()).unwrap_err();
         assert!(err.contains("raw inline HTML tag"), "got: {err}");
     }
 
@@ -642,7 +610,7 @@ mod tests {
                 &policy(None, None),
                 &u,
                 &unit_result("지금 <kbd>Ctrl</kbd> 누르세요"),
-                ""
+                &none()
             )
             .is_ok()
         );
@@ -658,7 +626,13 @@ mod tests {
         let mut u = unit(BlockKind::Html, "[\"press <kbd>Ctrl</kbd>\"]");
         u.input_mode = InputMode::HtmlSegments;
         assert!(
-            check_inline(&policy(None, None), &u, &unit_result("[\"누르세요\"]"), "").is_ok(),
+            check_inline(
+                &policy(None, None),
+                &u,
+                &unit_result("[\"누르세요\"]"),
+                &none()
+            )
+            .is_ok(),
             "an html-segments unit must not reach the inline layer at all",
         );
 
@@ -666,7 +640,7 @@ mod tests {
         // which is the layer this skip is bypassing.
         let md = unit(BlockKind::Paragraph, "press <kbd>Ctrl</kbd>");
         assert!(
-            check_inline(&policy(None, None), &md, &unit_result("누르세요"), "").is_err(),
+            check_inline(&policy(None, None), &md, &unit_result("누르세요"), &none()).is_err(),
             "the guard the skip bypasses must be live, or the skip proves nothing",
         );
     }
@@ -683,7 +657,7 @@ mod tests {
     fn line_initial_inline_tag_reclassification_false_rejects() {
         let u = unit(BlockKind::Paragraph, "text <div>bold</div> tail");
         let moved = "text tail\n<div>bold</div>";
-        let err = check_inline(&policy(None, None), &u, &unit_result(moved), "").unwrap_err();
+        let err = check_inline(&policy(None, None), &u, &unit_result(moved), &none()).unwrap_err();
         assert!(
             err.contains("raw inline HTML tag count changed"),
             "got: {err}"
@@ -698,34 +672,29 @@ mod tests {
     fn line_initial_type7_tag_stays_inline_and_passes() {
         let u = unit(BlockKind::Paragraph, "text <b>bold</b> tail");
         let moved = "text tail\n<b>bold</b>";
-        assert!(check_inline(&policy(None, None), &u, &unit_result(moved), "").is_ok());
+        assert!(check_inline(&policy(None, None), &u, &unit_result(moved), &none()).is_ok());
     }
 
-    // OI-0040: the `[`-prefilter on the whole-document pool append. Every
-    // pre-existing pool test above carries `[` on both sides, so none of them
-    // reaches the skip branch — these four are the branch's only coverage.
+    // R0013-0003 replaced the gap-pool append with callback resolution, which
+    // appends nothing: a payload is parsed as itself, whatever the document
+    // defines. These three keep the properties the OI-0040 prefilter tests
+    // pinned, restated for a resolver that has no append to skip.
 
     #[test]
-    fn bracket_free_pair_skips_the_pool_and_keeps_the_same_inventory() {
-        // (1) Neither payload can resolve a reference, so the pool is not
-        // appended. The claim is not "this passes" — it is that the two
-        // walks are the SAME walk, which is what licenses the skip.
+    fn a_bracket_free_payload_has_the_same_inventory_with_or_without_definitions() {
+        // Nothing in a bracket-free payload can name a label, so the
+        // document's definitions cannot change what the walk finds.
+        let refs = doc_refs(REF_POOL);
+        let budget = crate::refmap::expansion_budget(&[]);
         let src = "Plain prose with `code`, a <kbd>tag</kbd> and no brackets.";
         let tgt = "괄호 없는 산문, `code`, <kbd>tag</kbd>.";
         assert_eq!(
-            effective_pool(src, tgt, REF_POOL),
-            "",
-            "a bracket-free pair must not pay for the pool"
+            inline_inventory(src, &refs, budget),
+            inline_inventory(src, &none(), budget)
         );
         assert_eq!(
-            inline_inventory(src, REF_POOL),
-            inline_inventory(src, ""),
-            "appending the pool to a bracket-free payload must be inventory-neutral"
-        );
-        assert_eq!(
-            inline_inventory(tgt, REF_POOL),
-            inline_inventory(tgt, ""),
-            "and the same on the translated side"
+            inline_inventory(tgt, &refs, budget),
+            inline_inventory(tgt, &none(), budget)
         );
         let u = unit(BlockKind::Paragraph, src);
         assert!(
@@ -733,34 +702,29 @@ mod tests {
                 &policy(Some(true), Some(true)),
                 &u,
                 &unit_result(tgt),
-                REF_POOL
+                &refs
             )
             .is_ok()
         );
     }
 
     #[test]
-    fn bracket_bearing_pair_still_gets_the_pool_and_resolves() {
-        // (2) The include path: a `[` on either side means the pool is
-        // appended, and it still resolves to a real destination — the
-        // prefilter must not have turned reference resolution off.
-        assert_eq!(
-            effective_pool("See [the docs][ref].", "문서 참조.", REF_POOL),
-            REF_POOL
+    fn a_reference_resolves_to_the_documents_destination() {
+        let inv = inline_inventory(
+            "See [the docs][ref].",
+            &doc_refs(REF_POOL),
+            crate::refmap::expansion_budget(&[]),
         );
-        let inv = inline_inventory("See [the docs][ref].", REF_POOL);
         assert_eq!(
             inv.destinations,
             vec![(DestKind::Link, "https://example.com/r".to_string())],
-            "the pooled definition must still resolve"
         );
-        // And the reference-label guard still rejects, through the prefilter.
         let u = unit(BlockKind::Paragraph, "See [the docs][ref] for more.");
         let err = check_inline(
             &policy(Some(true), None),
             &u,
             &unit_result("자세한 내용은 [문서][참조]."),
-            REF_POOL,
+            &doc_refs(REF_POOL),
         )
         .unwrap_err();
         assert!(err.contains("count changed"), "{err}");
@@ -768,30 +732,18 @@ mod tests {
 
     #[test]
     fn added_reference_use_in_bracket_free_source_is_rejected() {
-        // (3) The asymmetric pair, and the reason the condition is the OR of
-        // the two payloads rather than each side's own: the source carries no
-        // bracket, the translated side ADDS a reference link. Under a
-        // per-side filter the translated payload would resolve `[ref]` and
-        // the source would not... which is the same count as filtering
-        // neither — but under an AND the pool would reach NEITHER side, the
-        // added `[문서][ref]` would stay literal text, and the tamper would
-        // PASS. This test is what fails if the condition is ever narrowed.
-        assert_eq!(
-            effective_pool("See the docs.", "[문서][ref] 참조.", REF_POOL),
-            REF_POOL,
-            "a bracket on either side must bring the pool to both"
-        );
-        assert_eq!(
-            effective_pool("[문서][ref] 참조.", "See the docs.", REF_POOL),
-            REF_POOL,
-            "and the decision must not depend on which side carries it"
-        );
+        // The asymmetric pair: the source carries no bracket and the
+        // translation ADDS a reference link. Both sides resolve against the
+        // same map, so the added link resolves and the count moves. (Under the
+        // OI-0040 prefilter this pinned that the skip decision was taken from
+        // both payloads; the resolver has no skip to get wrong, and the
+        // tamper must still reject.)
         let u = unit(BlockKind::Paragraph, "See the docs.");
         let err = check_inline(
             &policy(Some(true), None),
             &u,
             &unit_result("[문서][ref] 참조."),
-            REF_POOL,
+            &doc_refs(REF_POOL),
         )
         .unwrap_err();
         assert!(
@@ -800,36 +752,382 @@ mod tests {
         );
     }
 
+    // R0013-0003: definitions the inter-block gaps never see. CommonMark gives
+    // a definition document-wide effect wherever it sits — inside a blockquote
+    // or a list item (spec example 218), or directly ahead of paragraph text on
+    // the paragraph's own lines — and comrak resolves all of them across the
+    // whole document. `doc_refs` is the document's definitions exactly as the
+    // pipeline hands them to this layer, so each test below is a statement
+    // about what a real run sees.
+    fn doc_refs(src: &str) -> ReferenceMap {
+        ReferenceMap::of(&crate::markdown::parse(src).expect("parses"))
+    }
+
+    /// A document that defines nothing.
+    fn none() -> ReferenceMap {
+        ReferenceMap::empty()
+    }
+
+    const BLOCKQUOTE_DEF: &str =
+        "> [ref]: https://example.com/\n>\n> Definition holder.\n\nRead [docs][ref].\n";
+
     #[test]
-    fn bracket_free_payload_ending_in_an_unterminated_comment_is_still_neutral() {
-        // (4) The one construct class that survives the `\n\n` separator:
-        // an unterminated HTML block (type 2 here, and the fenced-code twin)
-        // swallows the appended pool as LITERAL content. That content is
-        // never inline-parsed, so the inventory is empty with the pool and
-        // empty without it — leg (ii) of `effective_pool`'s argument, pinned.
-        let comment = "Prose above.\n\n<!-- an unterminated comment\n";
-        assert_eq!(effective_pool(comment, comment, REF_POOL), "");
-        assert_eq!(
-            inline_inventory(comment, REF_POOL),
-            inline_inventory(comment, ""),
-            "an unterminated comment swallowing the pool must not change the inventory"
+    fn dropped_reference_to_a_blockquote_definition_is_rejected() {
+        let u = unit(BlockKind::Paragraph, "Read [docs][ref].");
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("Read docs."),
+            &doc_refs(BLOCKQUOTE_DEF),
+        )
+        .expect_err("the paragraph's one link is gone from the translation");
+        assert!(
+            err.contains("inline destination count changed: source has 1, translated has 0"),
+            "{err}"
         );
-        let fence = "Prose above.\n\n```\nunterminated fence\n";
-        assert_eq!(effective_pool(fence, fence, REF_POOL), "");
-        assert_eq!(
-            inline_inventory(fence, REF_POOL),
-            inline_inventory(fence, ""),
-            "nor must an unterminated fence"
-        );
-        let u = unit(BlockKind::Paragraph, comment);
+    }
+
+    #[test]
+    fn dropped_reference_to_a_list_item_definition_is_rejected() {
+        let src = "- [ref]: https://example.com/\n- item\n\nRead [docs][ref].\n";
+        let u = unit(BlockKind::Paragraph, "Read [docs][ref].");
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("Read docs."),
+            &doc_refs(src),
+        )
+        .expect_err("a list item's definition resolves document-wide");
+        assert!(err.contains("count changed"), "{err}");
+    }
+
+    #[test]
+    fn dropped_reference_to_a_paragraph_prefix_definition_is_rejected() {
+        // The definition sits on the paragraph's own first line: comrak strips
+        // it from the paragraph's content but not from its source range, so
+        // the bytes belong to a block and no gap ever holds them.
+        let src = "[ref]: https://example.com/\nIntro.\n\nRead [docs][ref].\n";
+        let u = unit(BlockKind::Paragraph, "Read [docs][ref].");
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("Read docs."),
+            &doc_refs(src),
+        )
+        .expect_err("a paragraph-prefix definition resolves document-wide");
+        assert!(err.contains("count changed"), "{err}");
+    }
+
+    #[test]
+    fn relabelled_reference_to_a_container_definition_is_rejected() {
+        let u = unit(BlockKind::Paragraph, "Read [docs][ref].");
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("[문서][nope] 읽기."),
+            &doc_refs(BLOCKQUOTE_DEF),
+        )
+        .expect_err("`nope` is defined nowhere, so the link is gone");
+        assert!(err.contains("count changed"), "{err}");
+    }
+
+    #[test]
+    fn preserved_label_of_a_container_definition_passes() {
+        // The no-false-reject half: the label kept, the text translated.
+        let u = unit(BlockKind::Paragraph, "Read [docs][ref].");
         assert!(
             check_inline(
                 &policy(Some(true), None),
                 &u,
-                &unit_result(comment),
-                REF_POOL
+                &unit_result("[문서][ref] 읽기."),
+                &doc_refs(BLOCKQUOTE_DEF),
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn the_first_definition_wins_even_when_it_sits_in_a_container() {
+        // The document resolves `ref` to a.example — the blockquote's
+        // definition comes first. A translation that spells the link out with
+        // the LATER definition's destination therefore changed it.
+        let src = "> [ref]: https://a.example/\n\nSee [x][ref].\n\n[ref]: https://b.example/\n";
+        let u = unit(BlockKind::Paragraph, "See [x][ref].");
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("[엑스](https://b.example/) 보기."),
+            &doc_refs(src),
+        )
+        .expect_err("the source link resolves to a.example, not b.example");
+        assert!(err.contains("https://a.example/"), "{err}");
+        assert!(err.contains("https://b.example/"), "{err}");
+    }
+
+    // R0013-0003 (c): a definition carried inside a payload is text the
+    // provider can change. It produces no inline node of its own, so the
+    // destination inventory alone cannot see a rewrite, a deletion or an
+    // injection — the referencing block is a different unit.
+
+    const QUOTED_DEF: &str = "> [ref]: https://example.com/\n>\n> Definition holder.";
+
+    #[test]
+    fn a_rewritten_definition_inside_a_payload_is_rejected() {
+        let u = unit(BlockKind::Blockquote, QUOTED_DEF);
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("> [ref]: https://evil.example/\n>\n> 정의 보유자."),
+            &doc_refs(BLOCKQUOTE_DEF),
+        )
+        .expect_err("the definition's destination was rewritten");
+        assert!(err.contains("reference definition"), "{err}");
+        assert!(err.contains("https://evil.example/"), "{err}");
+    }
+
+    #[test]
+    fn a_deleted_definition_inside_a_payload_is_rejected() {
+        let u = unit(BlockKind::Blockquote, QUOTED_DEF);
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("> 정의 보유자."),
+            &doc_refs(BLOCKQUOTE_DEF),
+        )
+        .expect_err("the definition every `[..][ref]` resolves to is gone");
+        assert!(err.contains("reference definition"), "{err}");
+    }
+
+    #[test]
+    fn an_injected_definition_is_rejected() {
+        // A gap-only document: `Intro.` grows a definition that takes over the
+        // later gap-defined label, because the first definition wins.
+        let src = "Intro.\n\nSee [docs][ref].\n\n[ref]: https://example.com/\n";
+        let u = unit(BlockKind::Paragraph, "Intro.");
+        let err = check_inline(
+            &policy(Some(true), None),
+            &u,
+            &unit_result("[ref]: https://evil.example/\n소개."),
+            &doc_refs(src),
+        )
+        .expect_err("the translation defines a label its source never did");
+        assert!(err.contains("reference definition"), "{err}");
+    }
+
+    #[test]
+    fn a_definition_kept_verbatim_inside_a_payload_passes() {
+        let u = unit(BlockKind::Blockquote, QUOTED_DEF);
+        assert!(
+            check_inline(
+                &policy(Some(true), None),
+                &u,
+                &unit_result("> [ref]: https://example.com/\n>\n> 정의 보유자."),
+                &doc_refs(BLOCKQUOTE_DEF),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn preserve_urls_false_permits_a_rewritten_definition() {
+        let u = unit(BlockKind::Blockquote, QUOTED_DEF);
+        assert!(
+            check_inline(
+                &policy(Some(false), None),
+                &u,
+                &unit_result("> [ref]: https://evil.example/\n>\n> 정의 보유자."),
+                &doc_refs(BLOCKQUOTE_DEF),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn prose_that_merely_looks_like_a_label_is_not_a_definition() {
+        // `a[i]: x` carries `]:` and defines nothing on either side.
+        let u = unit(BlockKind::Paragraph, "Index a[i]: the value.");
+        assert!(
+            check_inline(
+                &policy(Some(true), None),
+                &u,
+                &unit_result("인덱스 a[i]: 값."),
+                &doc_refs("Index a[i]: the value.\n"),
+            )
+            .is_ok()
+        );
+    }
+
+    /// Labels whose comrak key is not itself a label comrak reads back to the
+    /// same key: an edge of Unicode whitespace (trimmed by nothing, collapsed
+    /// to an ASCII space) and a `\` left last once the space after it is
+    /// trimmed (it would escape the closing `]`).
+    const EDGE_LABELS: &[&str] = &["foo\u{a0}", "\u{3000}참고", "a\\ "];
+
+    #[test]
+    fn dropped_reference_to_a_gap_definition_with_an_edge_label_is_rejected() {
+        for label in EDGE_LABELS {
+            let source = format!("Read [docs][{label}].");
+            let src = format!("{source}\n\n[{label}]: https://example.com/g\n");
+            let err = check_inline(
+                &policy(Some(true), None),
+                &unit(BlockKind::Paragraph, &source),
+                &unit_result("Read docs."),
+                &doc_refs(&src),
+            )
+            .expect_err("the paragraph's one link is gone from the translation");
+            assert!(err.contains("count changed"), "{label:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn dropped_reference_to_a_container_definition_with_an_edge_label_is_rejected() {
+        for label in EDGE_LABELS {
+            let source = format!("Read [docs][{label}].");
+            let src = format!("> [{label}]: https://example.com/q\n>\n> holder\n\n{source}\n");
+            let err = check_inline(
+                &policy(Some(true), None),
+                &unit(BlockKind::Paragraph, &source),
+                &unit_result("Read docs."),
+                &doc_refs(&src),
+            )
+            .expect_err("the paragraph's one link is gone from the translation");
+            assert!(err.contains("count changed"), "{label:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_rewritten_definition_with_an_edge_label_is_rejected() {
+        for label in EDGE_LABELS {
+            let carrier = format!("> [{label}]: https://example.com/q\n>\n> holder");
+            let src = format!("{carrier}\n\nRead [docs][{label}].\n");
+            let err = check_inline(
+                &policy(Some(true), None),
+                &unit(BlockKind::Blockquote, &carrier),
+                &unit_result(&format!("> [{label}]: https://evil.example/\n>\n> 보유자")),
+                &doc_refs(&src),
+            )
+            .expect_err("the definition's destination was rewritten");
+            assert!(err.contains("reference definition"), "{label:?}: {err}");
+            assert!(err.contains("https://evil.example/"), "{label:?}: {err}");
+        }
+    }
+
+    /// A label spread over many lines: inside comrak's 1,000-byte label limit
+    /// once each continuation line's indentation is stripped, far past it as
+    /// raw text.
+    fn long_label(line_break: &str) -> String {
+        (0..58)
+            .map(|i| format!("word{i:02}xxxxxxxxxx"))
+            .collect::<Vec<_>>()
+            .join(line_break)
+    }
+
+    #[test]
+    fn dropped_reference_to_a_long_label_spread_over_lines_is_rejected() {
+        let source = format!("Read [docs][{}].", long_label(" "));
+        for defs in [
+            format!("[{}]: https://example.com/g\n", long_label("\n        ")),
+            format!(
+                "- outer\n  - [{}]: https://example.com/g\n",
+                long_label("\n    ")
+            ),
+            format!(
+                "> > > > [{}]: https://example.com/g\n",
+                long_label("\n> > > > ")
+            ),
+        ] {
+            let err = check_inline(
+                &policy(Some(true), None),
+                &unit(BlockKind::Paragraph, &source),
+                &unit_result("Read docs."),
+                &doc_refs(&format!("{source}\n\n{defs}")),
+            )
+            .expect_err("the paragraph's one link is gone from the translation");
+            assert!(err.contains("count changed"), "{defs:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_rewritten_definition_with_a_long_label_spread_over_lines_is_rejected() {
+        let label = long_label("\n>         ");
+        let carrier = format!("> [{label}]: https://example.com/q\n>\n> holder");
+        let src = format!("{carrier}\n\nRead [docs][{}].\n", long_label(" "));
+        let err = check_inline(
+            &policy(Some(true), None),
+            &unit(BlockKind::Blockquote, &carrier),
+            &unit_result(&format!("> [{label}]: https://evil.example/\n>\n> 보유자")),
+            &doc_refs(&src),
+        )
+        .expect_err("the definition's destination was rewritten");
+        assert!(err.contains("reference definition"), "{err}");
+        assert!(err.contains("https://evil.example/"), "{err}");
+    }
+
+    /// Blockquotes of two definitions whose labels continue across lines,
+    /// where the first one's title, read as inline text, would open a code
+    /// span, an inline link's title, an image's title or inline HTML that
+    /// runs past the second label's `[`.
+    const HIDDEN_LABEL_CARRIERS: &[&str] = &[
+        "> [a\n> a]: /a \"`\"\n> [b\n> c]: https://example.com/b \"`\"\n>\n> holder",
+        "> [a\n> a]: /a \"[x](/u '\"\n> [b\n> c]: https://example.com/b \"')\"\n>\n> holder",
+        "> [a\n> a]: /a \"![x](/u '\"\n> [b\n> c]: https://example.com/b \"')\"\n>\n> holder",
+        "> [a\n> a]: /a \"<span title='\"\n> [b\n> c]: https://example.com/b \"'>\"\n>\n> holder",
+    ];
+
+    #[test]
+    fn dropped_reference_to_a_label_behind_an_inline_construct_is_rejected() {
+        for carrier in HIDDEN_LABEL_CARRIERS {
+            let err = check_inline(
+                &policy(Some(true), None),
+                &unit(BlockKind::Paragraph, "See [y][b c]."),
+                &unit_result("See y."),
+                &doc_refs(&format!("{carrier}\n\nSee [y][b c].\n")),
+            )
+            .expect_err("the paragraph's one link is gone from the translation");
+            assert!(err.contains("count changed"), "{carrier:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_rewritten_definition_behind_an_inline_construct_is_rejected() {
+        for carrier in HIDDEN_LABEL_CARRIERS {
+            let err = check_inline(
+                &policy(Some(true), None),
+                &unit(BlockKind::Blockquote, carrier),
+                &unit_result(
+                    &carrier
+                        .replace("https://example.com/b", "https://evil.example/")
+                        .replace("holder", "보유자"),
+                ),
+                &doc_refs(&format!("{carrier}\n\nSee [y][b c].\n")),
+            )
+            .expect_err("the definition's destination was rewritten");
+            assert!(err.contains("reference definition"), "{carrier:?}: {err}");
+            assert!(err.contains("https://evil.example/"), "{carrier:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_payload_ending_in_an_unterminated_construct_still_resolves_its_references() {
+        // The append once had to reason about a payload whose unterminated
+        // HTML comment or fence swallowed the appended pool. Callback
+        // resolution appends nothing: the reference ahead of the construct
+        // resolves, and the construct's literal content stays literal.
+        let refs = doc_refs(REF_POOL);
+        let budget = crate::refmap::expansion_budget(&[]);
+        for payload in [
+            "See [x][ref].\n\n<!-- an unterminated [y][ref] comment\n",
+            "See [x][ref].\n\n```\nunterminated [y][ref] fence\n",
+        ] {
+            assert_eq!(
+                inline_inventory(payload, &refs, budget).destinations,
+                vec![(DestKind::Link, "https://example.com/r".to_string())],
+                "{payload:?}"
+            );
+            let u = unit(BlockKind::Paragraph, payload);
+            assert!(
+                check_inline(&policy(Some(true), None), &u, &unit_result(payload), &refs).is_ok()
+            );
+        }
     }
 }

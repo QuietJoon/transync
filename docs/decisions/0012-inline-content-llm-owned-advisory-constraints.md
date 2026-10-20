@@ -81,17 +81,26 @@ reparse:
    (ordered, kind-tagged link/image sequence; autolinks included,
    autolink ↔ explicit-link form changes with the same destination
    pass). `false` → the shipped "URLs may be localized" policy; no
-   destination check. Reference-style destinations are covered (DCR-0013):
-   a document-level link-reference-definition pool is recovered from the
-   inter-block gaps at parse time
-   (`crates/transync-syntax/src/intake/markdown/refdefs.rs` →
-   `Document.ref_defs`) and appended to both payloads before the
-   inline-inventory parse — or to neither, when neither payload carries a
-   `[` (OI-0040). A `[text][ref]` link therefore resolves to a real
-   destination on both sides, so a provider that mistranslates a reference
-   **label** changes the resolved destination inventory and trips the same
+   destination check. Reference-style destinations are covered (DCR-0013,
+   DCR-0063). A link-reference definition counts for the whole document
+   wherever it sits — an inter-block gap, inside a blockquote or a list
+   item, or on a paragraph's own first lines — so each run asks comrak for
+   the document's effective definitions once
+   (`crates/transync-core/src/refmap.rs`), and each payload's
+   inline-inventory parse resolves a label it does not define against
+   them through comrak's `broken_link_callback`. A `[text][ref]` link
+   therefore resolves to its real destination on both sides, so a provider
+   that drops a reference or mistranslates its **label** changes the
+   resolved destination inventory and trips the same
    `ValidationLayer::Inline` rejection as an explicit-link destination
-   change.
+   change. A definition a payload carries itself is protected the same
+   way: the definitions on each side must agree label for label and
+   destination for destination, so a rewritten, deleted or injected
+   definition is a retryable `Inline` rejection too. Behind the per-unit
+   layer, the full-document gate compares every block's resolved
+   destinations between the source and the regenerated document under the
+   same policy gate, and falls back the blocks whose links moved together
+   with any block whose definitions changed.
 2. **Inline code spans**, gated by profile `[constraints]`:
    `preserve_code_identifiers = true` → code-span identity enforced as an
    unordered multiset (spans legitimately move with target-language word
@@ -110,8 +119,11 @@ reparse:
 
 Mismatches — including added/dropped links — are retryable validation
 rejections (`ValidationLayer::Inline`) following the standard
-verbatim-retry → fallback-source path (ADR-0009, invariant 6). There is no
-repair pass: the pipeline never rewrites provider output.
+verbatim-retry → fallback-source path (ADR-0009, invariant 6). The
+full-document destination scan is the one exception: it runs after
+regeneration, so what it finds is per-block fallback rather than a retry,
+and under `FullReparseFailure::Hard` a failed run. There is no repair pass:
+the pipeline never rewrites provider output.
 
 **An accepted known false-reject.** A model that legally moves a **type-6**
 tag such as `<div>` to line-start makes the fragment reparse reclassify the
@@ -167,7 +179,8 @@ advisory, the validator hook stays open for a future opt-in profile policy.
   hints.
 * Good, because a swapped link or image destination, a dropped pledged code
   span, or an altered raw inline tag is rejected and retried rather than
-  shipped silently.
+  shipped silently — a reference-style link included, wherever the document
+  defines its label.
 * Bad, because a misbehaving provider can still alter or inject inline text
   within a block without tripping validation — bounded by the
   outer-structure checks and DOMPurify at render time. A profile that sets
@@ -175,6 +188,11 @@ advisory, the validator hook stays open for a future opt-in profile policy.
   destinations or code spans may change too.
 * Bad, because the raw-tag guard is byte-verbatim: it carries the type-6
   false-reject above and rejects `<br>` ⇄ `<br/>` normalization.
+* Bad, because a block whose own payload carries a definition and also uses
+  it resolves that label locally in the per-unit check, so a duplicate label
+  shadowed by an earlier definition is judged against the shadowed one; the
+  full-document destination scan, which resolves as the published document
+  does, is what catches its effect there.
 
 ## History
 

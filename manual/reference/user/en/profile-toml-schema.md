@@ -134,7 +134,7 @@ warning and reaches the model literally.
 | Key | Type | Resolved when absent | Notes |
 |---|---|---|---|
 | `preserve_code_identifiers` | bool | unset | Renders as an explicit prompt policy line. The inline-protection layer's code-span identity check is enforced **only** when this is `true`. |
-| `preserve_urls` | bool | unset (behaves as `true`) | Renders as an explicit prompt policy line. The inline-protection layer's link/image-destination identity check is enforced unless this is `false`. |
+| `preserve_urls` | bool | unset (behaves as `true`) | Renders as an explicit prompt policy line. The inline-protection layer's link/image-destination identity check — reference-style links and the definitions a block carries included — and the full-document gate's destination comparison are enforced unless this is `false`. |
 | `default_table_strategy` | `"whole-block"` \| `"row-window-first"` | `"whole-block"` | Effective since v0.4.0 (DCR-0026). Under `"row-window-first"` a table whose estimated response exceeds the effective output ceiling is split at packing time into header-carrying row windows — each window a complete GFM table — and reassembled into one table before regeneration. Under `"whole-block"` every table ships as one unit whatever its size; an oversize one is named by the output-budget preflight and then aborts the run at the provider. Both values load silently. An unrecognized value raises a load warning and resolves to `"whole-block"`. `--table-strategy` overlays this key. Never rendered into the prompt — it is application policy, not a model instruction. |
 
 The split is inert in two further cases regardless of the strategy: when

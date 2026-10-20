@@ -1970,9 +1970,11 @@ mod skipped_render_tests {
 // Design D2 §B3 / C9: reference-style links resolve in BOTH panes. The
 // mechanism changed in DCR-0017 — each pane is now parsed as a WHOLE
 // document, so comrak resolves the definitions natively and the old
-// per-fragment `ref_defs` append is gone (spec §4.1). `doc.ref_defs`
-// survives for `validate::inline` only. The outcome pinned here is
-// unchanged, which is the point of keeping the test.
+// per-fragment `ref_defs` append is gone (spec §4.1). `doc.ref_defs` keeps
+// the gap text and nothing resolves from it: `transync-core`'s inline layer
+// resolves against the definitions comrak finds in the whole document
+// (DCR-0063). The outcome pinned here is unchanged, which is the point of
+// keeping the test.
 #[cfg(test)]
 mod refmap_render_tests {
     use super::*;

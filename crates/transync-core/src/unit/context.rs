@@ -5,6 +5,7 @@
 use crate::id::{BlockId, BlockKind};
 use crate::llm::{BlockContext, HeadingSnippet, NeighborSnippet};
 use crate::markdown::{Block, Document};
+use crate::refmap::ReferenceMap;
 use std::collections::HashMap;
 
 const NEIGHBOR_SUMMARY_LEN: usize = 120;
@@ -49,7 +50,17 @@ impl ContextIndex<'_> {
 /// so a `section_path` hop is a lookup instead of a rescan of `doc.blocks`
 /// (`R0001-0042` in the removed `reviews/reviewed/0001.md` — an earlier round
 /// than today's `reviews/0001.md`, which spells that id differently).
+///
+/// Builds the document's reference map itself (`crate::refmap`); a caller
+/// that already holds the run's map goes through `build_index_with` instead.
 pub fn build_index(doc: &Document) -> ContextIndex<'_> {
+    build_index_with(doc, &ReferenceMap::of(doc))
+}
+
+/// [`build_index`] over the run's own [`ReferenceMap`], so a heading's
+/// references resolve against the same definitions the inline layer uses and
+/// the map is built once per run.
+pub(crate) fn build_index_with<'a>(doc: &'a Document, refs: &ReferenceMap) -> ContextIndex<'a> {
     let headings: HashMap<&BlockId, HeadingSnippet> = doc
         .blocks
         .iter()
@@ -59,7 +70,7 @@ pub fn build_index(doc: &Document) -> ContextIndex<'_> {
                     &b.block_id,
                     HeadingSnippet {
                         level,
-                        text: heading_plain_text(doc, b),
+                        text: heading_plain_text(doc, b, refs),
                     },
                 )
             })
@@ -67,7 +78,7 @@ pub fn build_index(doc: &Document) -> ContextIndex<'_> {
         .collect();
     ContextIndex {
         headings,
-        document_title: document_title(doc),
+        document_title: document_title(doc, refs),
     }
 }
 
@@ -98,7 +109,7 @@ pub fn build_index(doc: &Document) -> ContextIndex<'_> {
 /// delimiters, so it is prose, not source — but it is *untrusted* prose
 /// (invariant 7) and it may be empty (`#` alone). A consumer that renders it
 /// escapes it and decides for itself what an empty title means.
-pub(crate) fn document_title(doc: &Document) -> Option<String> {
+pub(crate) fn document_title(doc: &Document, refs: &ReferenceMap) -> Option<String> {
     doc.blocks
         .iter()
         .find(|b| matches!(b.kind, BlockKind::Title))
@@ -107,7 +118,7 @@ pub(crate) fn document_title(doc: &Document) -> Option<String> {
                 .iter()
                 .find(|b| matches!(b.kind, BlockKind::Heading1))
         })
-        .map(|b| heading_plain_text(doc, b))
+        .map(|b| heading_plain_text(doc, b, refs))
 }
 
 /// Build the `BlockContext` for a block at a given index.
@@ -179,9 +190,9 @@ pub fn build_context(doc: &Document, block_index: usize, index: &ContextIndex<'_
 /// projections. Extraction failure degrades to the empty string, exactly
 /// what the comrak arm yields for a fragment it cannot read: a heading
 /// context that says nothing rather than one that lies in markup.
-fn heading_plain_text(doc: &Document, b: &Block) -> String {
+fn heading_plain_text(doc: &Document, b: &Block, refs: &ReferenceMap) -> String {
     match b.spelling {
-        crate::id::Spelling::Markdown => inline_plain_text(&text_from_range(doc, b), &doc.ref_defs),
+        crate::id::Spelling::Markdown => inline_plain_text(&text_from_range(doc, b), refs),
         crate::id::Spelling::Html { .. } => transync_html::extract(&text_from_range(doc, b))
             .map(|segs| segs.texts.join(" ").trim().to_string())
             .unwrap_or_default(),
@@ -194,25 +205,26 @@ fn heading_plain_text(doc: &Document, b: &Block) -> String {
 /// descendant walk; raw inline HTML tags and footnote references are markup,
 /// not prose, so they contribute nothing.
 ///
-/// `ref_defs` is [`Document::ref_defs`], appended before the parse for the
-/// same reason `validate::inline` appends it: a link-reference definition
-/// lives at document level, so `[text][ref]` in an isolated fragment would
-/// otherwise stay unresolved and leak its brackets into the "plain" text.
-/// Definitions produce no nodes of their own, and only the fragment's own
-/// first block is walked, so the pool can never contribute text.
-fn inline_plain_text(fragment: &str, ref_defs: &str) -> String {
+/// `refs` is the document's [`ReferenceMap`], and a label the fragment does
+/// not define resolves through it, for the same reason `validate::inline`
+/// resolves through it: a link-reference definition counts for the whole
+/// document wherever it sits, so `[text][ref]` in an isolated fragment would
+/// otherwise stay unresolved and leak its brackets into the "plain" text
+/// (R0013-0003). Definitions produce no nodes of their own, so the map can
+/// never contribute text.
+fn inline_plain_text(fragment: &str, refs: &ReferenceMap) -> String {
     use comrak::nodes::NodeValue;
 
     let arena = comrak::Arena::new();
-    let opts = crate::markdown::comrak_options();
-    let appended;
-    let to_parse: &str = if ref_defs.is_empty() {
-        fragment
-    } else {
-        appended = format!("{fragment}\n\n{ref_defs}");
-        appended.as_str()
+    // A heading of an intake-accepted document cannot nest past the ceiling;
+    // a refusal would degrade to the empty snippet, like an unreadable one.
+    let Ok(root) = refs.parse(
+        &arena,
+        fragment,
+        crate::refmap::expansion_budget(&[fragment]),
+    ) else {
+        return String::new();
     };
-    let root = comrak::parse_document(&arena, to_parse, &opts);
 
     let Some(first_block) = root.children().next() else {
         return String::new();
@@ -276,7 +288,7 @@ mod heading_text_tests {
             .iter()
             .find(|b| b.kind.heading_level().is_some())
             .expect("a heading block");
-        heading_plain_text(&doc, b)
+        heading_plain_text(&doc, b, &ReferenceMap::of(&doc))
     }
 
     #[test]
@@ -350,10 +362,25 @@ mod heading_text_tests {
         );
     }
 
+    /// R0013-0003: a heading that cites a definition no inter-block gap holds
+    /// reads as its link text, exactly as it renders, not as bracket syntax.
+    #[test]
+    fn a_reference_to_a_blockquote_definition_reads_as_its_text() {
+        assert_eq!(
+            heading_text("> [ref]: https://example.com/\n\n# See [the guide][ref]\n"),
+            "See the guide",
+        );
+        assert_eq!(
+            heading_text("# See [the guide][nope]\n"),
+            "See [the guide][nope]",
+            "an undefined reference renders as its brackets, and reads as them"
+        );
+    }
+
     #[test]
     fn degenerate_fragment_yields_an_empty_snippet() {
-        assert_eq!(inline_plain_text("", ""), "");
-        assert_eq!(inline_plain_text("   \n", ""), "");
+        assert_eq!(inline_plain_text("", &ReferenceMap::empty()), "");
+        assert_eq!(inline_plain_text("   \n", &ReferenceMap::empty()), "");
     }
 }
 
@@ -409,13 +436,16 @@ body paragraph
     #[test]
     fn the_title_is_the_first_level_1_heading_and_only_that() {
         let doc = crate::markdown::parse("intro\n\n# First\n\nbody\n\n# Second\n").expect("parses");
-        assert_eq!(document_title(&doc).as_deref(), Some("First"));
+        assert_eq!(
+            document_title(&doc, &ReferenceMap::of(&doc)).as_deref(),
+            Some("First")
+        );
 
         let deep = crate::markdown::parse("## Only a subheading\n\nbody\n").expect("parses");
-        assert_eq!(document_title(&deep), None);
+        assert_eq!(document_title(&deep, &ReferenceMap::of(&deep)), None);
 
         let empty = crate::markdown::parse("body only\n").expect("parses");
-        assert_eq!(document_title(&empty), None);
+        assert_eq!(document_title(&empty, &ReferenceMap::of(&empty)), None);
     }
 
     /// An empty title and no title are two different states, and both are
@@ -431,7 +461,10 @@ body paragraph
             matches!(doc.blocks[0].kind, BlockKind::Heading1),
             "a bare `#` parses as a level-1 heading"
         );
-        assert_eq!(document_title(&doc).as_deref(), Some(""));
+        assert_eq!(
+            document_title(&doc, &ReferenceMap::of(&doc)).as_deref(),
+            Some("")
+        );
 
         let index = build_index(&doc);
         let ctx = build_context(&doc, block_at(&doc, "body"), &index);
@@ -518,7 +551,7 @@ mod document_title_tests {
     fn a_title_block_wins_the_document_title_over_the_first_h1() {
         let doc = hand_built_titled_document("Doc name");
         assert_eq!(
-            document_title(&doc).as_deref(),
+            document_title(&doc, &ReferenceMap::of(&doc)).as_deref(),
             Some("Doc name"),
             "D5 / spec §6: an HTML run's document title is its <title>, not \
              the first heading the page happens to contain",
@@ -531,7 +564,10 @@ mod document_title_tests {
         // half that must not move.
         let doc =
             crate::markdown::parse("intro\n\n# Heading one\n\n# Heading two\n").expect("parses");
-        assert_eq!(document_title(&doc).as_deref(), Some("Heading one"));
+        assert_eq!(
+            document_title(&doc, &ReferenceMap::of(&doc)).as_deref(),
+            Some("Heading one")
+        );
     }
 
     /// Wave 2 pinned this exact case at `Some("")` — `heading_plain_text` ran
@@ -543,7 +579,10 @@ mod document_title_tests {
     #[test]
     fn a_real_title_element_projects_to_its_extracted_text() {
         let doc = hand_built_titled_document("<title>Doc name</title>");
-        assert_eq!(document_title(&doc).as_deref(), Some("Doc name"));
+        assert_eq!(
+            document_title(&doc, &ReferenceMap::of(&doc)).as_deref(),
+            Some("Doc name")
+        );
     }
 
     /// §6: an HTML <h1>'s heading snippet is extracted plain text. Before

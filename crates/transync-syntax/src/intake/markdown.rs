@@ -48,8 +48,9 @@ use std::borrow::Cow;
 
 /// The canonical GFM Comrak configuration. Re-exported from `markdown::options`
 /// so `markdown::comrak_options` — the path regen, render, and every
-/// `transync-core` reparse call — keeps resolving.
-pub use options::comrak_options;
+/// `transync-core` reparse call — keeps resolving. Its callback-carrying twin
+/// is the same flags plus comrak's `broken_link_callback`.
+pub use options::{comrak_options, comrak_options_with_broken_link_callback};
 
 /// THE block-nesting ceiling and its pre-scan, from `markdown::depth`.
 /// [`parse`] applies them before Comrak sees the source.
@@ -94,12 +95,16 @@ pub struct Document {
     /// html-dominance note here (ti `13e145`). Nothing on this channel is ever
     /// a refusal; a stage that cannot proceed returns an error instead.
     pub warnings: Vec<String>,
-    /// Concatenated link-reference-definition text ([`refdefs::extract`])
-    /// recovered from the inter-block gaps in source order. Empty when the
-    /// document defines none. CommonMark definitions leave no AST node and a
-    /// single-block fragment parse resolves nothing, so this pool is appended
-    /// to a fragment before reparse (render) and before the inline-inventory
-    /// parse (validate) to give comrak-native reference resolution. Internal
+    /// The link-reference-definition text ([`refdefs::extract`]) found in the
+    /// inter-block gaps, in source order. Empty when no gap holds one.
+    ///
+    /// It is **not** the document's set of definitions: a definition inside a
+    /// blockquote or a list item, or on a paragraph's own first lines ahead
+    /// of its text, lies inside a block's range and is never here, although
+    /// it resolves across the whole document. No renderer and no validation
+    /// layer reads this field — the renderers parse each pane whole
+    /// (DCR-0017), and `transync-core` resolves references against the
+    /// definitions comrak finds in the whole document (DCR-0063). Internal
     /// field — evolves without a wire bump (design D2 §B).
     pub ref_defs: String,
 }
@@ -278,9 +283,9 @@ pub fn parse(source: &str) -> Result<Document, ParseError> {
     state.walk_children(root);
     let (blocks, mut warnings) = state.finish();
 
-    // Recover document-level link-reference definitions from the inter-block
-    // gaps (design D2 §B). Any noded-gap warnings join the skipped-node
-    // warnings so both surface through `Document::warnings`.
+    // Collect the link-reference definitions the inter-block gaps hold
+    // (design D2 §B). Any noded-gap warnings join the skipped-node warnings
+    // so both surface through `Document::warnings`.
     let (ref_defs, mut ref_warnings) = refdefs::extract(source, &blocks);
     warnings.append(&mut ref_warnings);
 

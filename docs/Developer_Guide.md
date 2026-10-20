@@ -51,8 +51,10 @@ at it.
   fragment reparse, visible-text presence (a translation that erases every
   visible character of a source that had some is rejected — the one content
   question the structural layers cannot ask; ti `c887bc`), inline
-  protection (link/image destinations; policy-gated code spans), and a
-  final full-document reparse. Any
+  protection (link/image destinations, reference-style ones resolved
+  against the whole document; policy-gated code spans), and a final
+  full-document reparse that also compares resolved destinations under
+  `preserve_urls`. Any
   failure triggers a bounded verbatim resubmission of the failed unit —
   same payload, same scope — carrying a non-content `RetryContext` side
   channel (attempt, rejecting layer, reason) alongside, never inside,

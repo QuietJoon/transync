@@ -71,7 +71,10 @@ document syntactically different from what any per-unit check could
 detect in isolation. It's why unit validity is explicitly two-tier
 (*provisional* per-unit, *final* only after the whole-document reparse):
 a unit can pass every per-unit gate and still be downgraded later if the
-document it became part of doesn't hold together.
+document it became part of doesn't hold together. When the profile protects
+destinations, the reparse also compares every block's resolved links with the
+source's: a link-reference definition counts for the whole document wherever
+it sits, so a link can move without its own block changing at all.
 
 ## Layering is not a safety net, and it cuts both ways
 

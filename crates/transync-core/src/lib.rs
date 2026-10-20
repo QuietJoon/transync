@@ -59,6 +59,9 @@ pub(crate) use transync_syntax::intake::markdown;
 pub(crate) mod pipeline;
 pub mod profile;
 pub(crate) use transync_syntax::regen;
+// The document's effective link-reference definitions, computed once per run
+// and consumed by both `unit::context` and `validate::inline` (R0013-0003).
+pub(crate) mod refmap;
 pub(crate) use transync_syntax::render;
 pub(crate) mod structure;
 // Internal unit-construction engine. `pub` only because transync-openai's

@@ -117,14 +117,15 @@ pub struct ValidatedUnit {
 /// - Schema (ID set equality; per-unit payload bytes — no NUL, ti d06c43) — SL-01
 /// - Per-kind shape                  — SL-02..SL-06 (table cols, list topology, fence info, heading level, blockquote children)
 /// - Fragment reparse                 — SL-02..SL-06 (reparse the unit payload as the same kind)
-/// - Inline protection                — EXT-2026-07 P1-5 (link/image destination identity, including reference-style links resolved via `ref_defs`, + policy-gated inline code-span identity; ADR-0012 amendment)
+/// - Inline protection                — EXT-2026-07 P1-5 (link/image destination identity, including reference-style links resolved against the document's own definitions and the definitions a payload carries itself, + policy-gated inline code-span identity; ADR-0012 amendment, R0013-0003)
 ///
 /// Full-document reparse runs once at the end of the pipeline (SL-14).
 ///
-/// `ref_defs` is the document's link-reference-definition pool
-/// ([`crate::markdown::refdefs`]), forwarded to the inline layer so
-/// reference-style links resolve to real destinations (design D2 §B4). Pass
-/// `""` when the document defines none.
+/// `refs` is the document's effective link-reference definitions
+/// ([`crate::refmap::ReferenceMap`], built once per run), forwarded to the
+/// inline layer so reference-style links resolve to their real destinations
+/// wherever the document defines them. Pass [`crate::refmap::ReferenceMap::empty`]
+/// when the document defines none.
 ///
 /// **Schema faults do not taint batch-mates (OI-0031).** A dropped,
 /// duplicated, or invented result row is decomposed per unit: units with
@@ -140,7 +141,7 @@ pub struct ValidatedUnit {
 pub fn validate_batch(
     batch: &TranslationBatch,
     result: &TranslationBatchResult,
-    ref_defs: &str,
+    refs: &crate::refmap::ReferenceMap,
 ) -> ValidatedBatch {
     let cls = schema::classify(batch, result);
 
@@ -200,7 +201,7 @@ pub fn validate_batch(
         .units
         .iter()
         .map(|u| match result_rows.get(&u.unit_id).map(Vec::as_slice) {
-            Some([r]) => validate_unit(&unit_kind_lookup, policy, r, ref_defs),
+            Some([r]) => validate_unit(&unit_kind_lookup, policy, r, refs),
             // Offenders: the provider dropped the row, or returned several
             // and left no principled way to pick one. Either way this
             // unit's *content* was never judged — the pipeline re-dispatches
@@ -302,7 +303,7 @@ fn validate_unit(
     lookup: &HashMap<&BlockId, &crate::llm::TranslationUnit>,
     policy: &crate::profile::ProfileConstraints,
     result: &UnitResult,
-    ref_defs: &str,
+    refs: &crate::refmap::ReferenceMap,
 ) -> ValidatedUnit {
     // One bounding, at the door: every arm below forwards these, and the
     // report and the cache both keep what they forward (R0002-0068).
@@ -442,7 +443,7 @@ fn validate_unit(
     // differ (model added/dropped a link) is a retryable rejection like any
     // other; the pipeline retries verbatim and falls back to source after
     // the budget is spent.
-    if let Err(reason) = inline::check_inline(policy, unit, result, ref_defs) {
+    if let Err(reason) = inline::check_inline(policy, unit, result, refs) {
         return reject(ValidationLayer::Inline, reason);
     }
 
@@ -1077,7 +1078,12 @@ mod preserved_tests {
         let policy = crate::profile::ProfileConstraints::default();
 
         let too_deep = ">".repeat(crate::markdown::MAX_BLOCK_NESTING_DEPTH + 1) + " x";
-        let vu = validate_unit(&lookup, &policy, &preserved_result(&too_deep), "");
+        let vu = validate_unit(
+            &lookup,
+            &policy,
+            &preserved_result(&too_deep),
+            &crate::refmap::ReferenceMap::empty(),
+        );
 
         assert_eq!(
             vu.rejected_by,
@@ -1097,7 +1103,12 @@ mod preserved_tests {
         // One level under the ceiling is ordinary content and must still be
         // judged on its merits, so the guard cannot be a blanket refusal.
         let deep_but_legal = ">".repeat(crate::markdown::MAX_BLOCK_NESTING_DEPTH - 1) + " x";
-        let ok = validate_unit(&lookup, &policy, &preserved_result(&deep_but_legal), "");
+        let ok = validate_unit(
+            &lookup,
+            &policy,
+            &preserved_result(&deep_but_legal),
+            &crate::refmap::ReferenceMap::empty(),
+        );
         assert_ne!(
             ok.rejected_by,
             Some(ValidationLayer::FragmentReparse),
@@ -1111,7 +1122,12 @@ mod preserved_tests {
         let lookup: HashMap<&BlockId, &TranslationUnit> =
             std::iter::once((&u.unit_id, &u)).collect();
         let policy = crate::profile::ProfileConstraints::default();
-        let vu = validate_unit(&lookup, &policy, &preserved_result("Hello world."), "");
+        let vu = validate_unit(
+            &lookup,
+            &policy,
+            &preserved_result("Hello world."),
+            &crate::refmap::ReferenceMap::empty(),
+        );
         assert!(
             vu.rejected_by.is_none(),
             "an untouched payload passes: {vu:?}"
@@ -1128,7 +1144,12 @@ mod preserved_tests {
         // Provider claims "preserved" but returns different bytes — a
         // silent-corruption vector that must be caught and fall back.
         let policy = crate::profile::ProfileConstraints::default();
-        let vu = validate_unit(&lookup, &policy, &preserved_result("안녕하세요."), "");
+        let vu = validate_unit(
+            &lookup,
+            &policy,
+            &preserved_result("안녕하세요."),
+            &crate::refmap::ReferenceMap::empty(),
+        );
         assert_eq!(vu.rejected_by, Some(ValidationLayer::PerKindShape));
         assert!(matches!(vu.final_status, FallbackStatus::FallbackSource));
         assert!(vu.accepted_payload.is_none());
@@ -1212,7 +1233,7 @@ mod nul_payload_tests {
         let batch = batch_of(unit.clone());
         let result = result_for(&unit, OutputKind::Translated, &format!("안녕{NUL}하세요."));
 
-        let vb = validate_batch(&batch, &result, "");
+        let vb = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
         let vu = &vb.units[0];
         assert_eq!(vu.rejected_by, Some(ValidationLayer::Schema));
         assert_eq!(vu.final_status, FallbackStatus::FallbackSource);
@@ -1244,7 +1265,7 @@ mod nul_payload_tests {
         let batch = batch_of(unit.clone());
         let result = result_for(&unit, OutputKind::Preserved, &format!("Hello{NUL} world."));
 
-        let vu = &validate_batch(&batch, &result, "").units[0];
+        let vu = &validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty()).units[0];
         let reason = vu.rejection_reason.clone().unwrap_or_default();
         assert!(reason.contains("NUL byte (U+0000)"), "reason: {reason}");
         assert!(
@@ -1282,7 +1303,7 @@ mod nul_payload_tests {
         );
         let result = result_for(&unit, OutputKind::Translated, payload);
 
-        let vu = &validate_batch(&batch, &result, "").units[0];
+        let vu = &validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty()).units[0];
         assert_eq!(vu.rejected_by, Some(ValidationLayer::Schema));
         assert!(vu.accepted_payload.is_none());
         assert!(
@@ -1342,7 +1363,7 @@ mod inline_layer_tests {
                 warnings: Vec::new(),
             }],
         };
-        let validated = validate_batch(&batch, &result, "");
+        let validated = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
         assert_eq!(validated.units.len(), 1);
         assert_eq!(
             validated.units[0].rejected_by,
@@ -1356,7 +1377,7 @@ mod inline_layer_tests {
 
     // Design D2 §B4 / C10(f): a translated reference LABEL rejects through
     // the full `validate_batch` path with `ValidationLayer::Inline`, proving
-    // `ref_defs` reaches the inline layer.
+    // the document's definitions reach the inline layer.
     #[test]
     fn broken_reference_label_rejects_through_validate_batch() {
         let unit = TranslationUnit {
@@ -1385,13 +1406,13 @@ mod inline_layer_tests {
                 unit_id: BlockId("p-0001".to_string()),
                 output_kind: OutputKind::Translated,
                 // The label `ref` was translated to `참조`, undefined in the
-                // pool → resolution breaks on the translated side only.
+                // document → resolution breaks on the translated side only.
                 translated_payload: "자세한 내용은 [문서][참조].".to_string(),
                 warnings: Vec::new(),
             }],
         };
-        let ref_defs = "[ref]: https://example.com/r\n";
-        let validated = validate_batch(&batch, &result, ref_defs);
+        let refs = crate::refmap::ReferenceMap::of_markdown("[ref]: https://example.com/r\n");
+        let validated = validate_batch(&batch, &result, &refs);
         assert_eq!(validated.units.len(), 1);
         assert_eq!(
             validated.units[0].rejected_by,
@@ -1490,7 +1511,11 @@ mod html_splice_layer_tests {
         );
         // per-kind must not reject first: claim segment_count = 1 so layer 2
         // passes and the mismatch surfaces inside the splice engine.
-        let vb = validate_batch(&batch_with_count(batch, 1), &result, "");
+        let vb = validate_batch(
+            &batch_with_count(batch, 1),
+            &result,
+            &crate::refmap::ReferenceMap::empty(),
+        );
         let vu = &vb.units[0];
         assert_eq!(vu.final_status, FallbackStatus::FallbackSource);
         assert!(vu.accepted_payload.is_none());
@@ -1505,7 +1530,7 @@ mod html_splice_layer_tests {
     #[test]
     fn clean_html_splice_is_accepted_with_wire_payload() {
         let (batch, result) = html_batch_and_result("<p>one</p>", "[\"하나\"]");
-        let vb = validate_batch(&batch, &result, "");
+        let vb = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
         let vu = &vb.units[0];
         assert_eq!(vu.final_status, FallbackStatus::Translated);
         assert_eq!(
@@ -1586,7 +1611,7 @@ mod batch_fault_layer_tests {
     fn dropped_row_rejects_only_its_own_unit() {
         let batch = batch_of(&["p-0001", "p-0002", "p-0003"]);
         let result = result_of(vec![row("p-0002"), row("p-0003")]);
-        let v = validate_batch(&batch, &result, "");
+        let v = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
 
         assert_eq!(v.units.len(), 3, "units stay total over the REQUESTED set");
         for id in ["p-0002", "p-0003"] {
@@ -1618,7 +1643,7 @@ mod batch_fault_layer_tests {
         let mut dup = row("p-0001");
         dup.translated_payload = "다른 번역".to_string();
         let result = result_of(vec![row("p-0001"), dup, row("p-0002")]);
-        let v = validate_batch(&batch, &result, "");
+        let v = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
 
         assert_eq!(v.units.len(), 2);
         assert_eq!(unit_by(&v, "p-0002").rejected_by, None);
@@ -1642,7 +1667,7 @@ mod batch_fault_layer_tests {
     fn foreign_row_is_dropped_and_named_without_offenders() {
         let batch = batch_of(&["p-0001"]);
         let result = result_of(vec![row("p-0001"), row("zz-9999")]);
-        let v = validate_batch(&batch, &result, "");
+        let v = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
 
         assert_eq!(v.units.len(), 1, "only requested units appear");
         assert_eq!(unit_by(&v, "p-0001").rejected_by, None);
@@ -1656,7 +1681,7 @@ mod batch_fault_layer_tests {
     fn clean_batch_has_no_fault() {
         let batch = batch_of(&["p-0001", "p-0002"]);
         let result = result_of(vec![row("p-0002"), row("p-0001")]);
-        let v = validate_batch(&batch, &result, "");
+        let v = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
         assert!(v.batch_fault.is_none());
         assert!(v.units.iter().all(|u| u.rejected_by.is_none()));
     }
@@ -1669,7 +1694,7 @@ mod batch_fault_layer_tests {
     fn request_duplicate_rejects_every_unit_with_legacy_message() {
         let batch = batch_of(&["p-0001", "p-0001", "p-0002"]);
         let result = result_of(vec![row("p-0001"), row("p-0002")]);
-        let v = validate_batch(&batch, &result, "");
+        let v = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
 
         assert_eq!(v.units.len(), 3, "one row per request entry");
         for u in &v.units {
@@ -1756,7 +1781,11 @@ mod provider_warning_bound_tests {
             (OutputKind::Preserved, "not the source"),
         ] {
             let batch = batch_of(unit());
-            let vb = validate_batch(&batch, &result_with(kind, payload, flood.clone()), "");
+            let vb = validate_batch(
+                &batch,
+                &result_with(kind, payload, flood.clone()),
+                &crate::refmap::ReferenceMap::empty(),
+            );
             let vu = &vb.units[0];
 
             assert!(
@@ -1794,7 +1823,7 @@ mod provider_warning_bound_tests {
         let vb = validate_batch(
             &batch,
             &result_with(OutputKind::Translated, "안녕하세요.", said.clone()),
-            "",
+            &crate::refmap::ReferenceMap::empty(),
         );
         assert_eq!(vb.units[0].warnings, said);
     }
@@ -1808,7 +1837,7 @@ mod provider_warning_bound_tests {
         let vb = validate_batch(
             &batch,
             &result_with(OutputKind::Translated, "안녕하세요.", vec![hangul]),
-            "",
+            &crate::refmap::ReferenceMap::empty(),
         );
         let w = &vb.units[0].warnings[0];
         assert!(w.contains("truncated"), "{w:?}");
@@ -1887,7 +1916,7 @@ mod indented_code_layer_tests {
     fn an_echoed_indented_code_payload_passes_every_layer() {
         let batch = code_batch();
         let result = echo(&batch, |p| p.to_string());
-        let vb = validate_batch(&batch, &result, "");
+        let vb = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
 
         for vu in &vb.units {
             assert_eq!(
@@ -1919,7 +1948,7 @@ mod indented_code_layer_tests {
     fn a_returned_info_string_is_still_rejected_for_an_indented_block() {
         let batch = code_batch();
         let result = echo(&batch, |_| "```rust\nlet x = 1;\n```".to_string());
-        let vb = validate_batch(&batch, &result, "");
+        let vb = validate_batch(&batch, &result, &crate::refmap::ReferenceMap::empty());
 
         for vu in &vb.units {
             assert_eq!(

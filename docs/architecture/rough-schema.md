@@ -113,7 +113,7 @@ Document {
   format: SourceFormat,        // which intake produced it
   blocks: Vec<Block>,          // flat sequence in source order
   warnings: Vec<String>,       // reader-honesty notes for unmodeled top-level nodes
-  ref_defs: String,            // link-reference-definition pool (DCR-0013)
+  ref_defs: String,            // inter-block-gap definition text (DCR-0013); no layer reads it (DCR-0063)
 }
 
 Block {

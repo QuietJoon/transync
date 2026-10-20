@@ -34,12 +34,19 @@ use std::collections::HashMap;
 /// regenerates without re-checking — the result is the source bytes,
 /// which are structurally identical to the source by construction.
 ///
+/// `enforce_destinations` is the run's destination policy
+/// (`validate::inline::destinations_enforced`): when set, a Markdown
+/// document's gate also compares every block's resolved link and image
+/// destinations (`validate::full_reparse`, scan 4, R0013-0003). Each stage of
+/// the cascade re-runs the same gate.
+///
 /// TRACE: SCN-14
 /// TRACE: R0004-0001
 pub(crate) fn finalize_regen_with_reparse_policy(
     doc: &crate::markdown::Document,
     accepted: &mut HashMap<BlockId, ValidatedUnit>,
     policy: FullReparseFailure,
+    enforce_destinations: bool,
 ) -> Result<
     (
         String,
@@ -49,7 +56,7 @@ pub(crate) fn finalize_regen_with_reparse_policy(
     crate::validate::full_reparse::ReparseFailure,
 > {
     let (md, offsets, final_validated) = regen_pass(doc, accepted);
-    let failure = match layer6_gate(doc, &md, &offsets) {
+    let failure = match layer6_gate(doc, &md, &offsets, enforce_destinations) {
         Ok(()) => return Ok((md, offsets, final_validated)),
         Err(f) => f,
     };
@@ -68,7 +75,7 @@ pub(crate) fn finalize_regen_with_reparse_policy(
             );
             downgrade_units(accepted, failure.divergent_source_blocks.iter());
             let (md, offsets, final_validated) = regen_pass(doc, accepted);
-            let stage1_failure = match layer6_gate(doc, &md, &offsets) {
+            let stage1_failure = match layer6_gate(doc, &md, &offsets, enforce_destinations) {
                 Ok(()) => return Ok((md, offsets, final_validated)),
                 Err(f) => f,
             };
@@ -90,7 +97,7 @@ pub(crate) fn finalize_regen_with_reparse_policy(
             );
             downgrade_units(accepted, widened.iter());
             let (md, offsets, final_validated) = regen_pass(doc, accepted);
-            let stage2_failure = match layer6_gate(doc, &md, &offsets) {
+            let stage2_failure = match layer6_gate(doc, &md, &offsets, enforce_destinations) {
                 Ok(()) => return Ok((md, offsets, final_validated)),
                 Err(f) => f,
             };
@@ -128,11 +135,17 @@ fn layer6_gate(
     doc: &crate::markdown::Document,
     regenerated: &str,
     offsets: &crate::regen::BlockOffsets,
+    enforce_destinations: bool,
 ) -> Result<(), crate::validate::full_reparse::ReparseFailure> {
     match doc.format {
-        crate::id::SourceFormat::Markdown => {
-            crate::validate::full_reparse::reparse_full(doc, regenerated, offsets)
-        }
+        crate::id::SourceFormat::Markdown => crate::validate::full_reparse::reparse_full(
+            doc,
+            regenerated,
+            offsets,
+            enforce_destinations,
+        ),
+        // An HTML document carries no link-reference definitions, and its
+        // twin owns its own ledger; the destination policy does not reach it.
         crate::id::SourceFormat::Html => {
             crate::validate::full_rescan_html::full_rescan_html(doc, regenerated, offsets)
         }
@@ -268,7 +281,7 @@ mod reparse_policy_tests {
         // (it asserts the prefix on the `TransyncError::Validation` a Hard
         // run surfaces).
         let failure =
-            finalize_regen_with_reparse_policy(&doc, &mut accepted, FullReparseFailure::Hard)
+            finalize_regen_with_reparse_policy(&doc, &mut accepted, FullReparseFailure::Hard, true)
                 .expect_err("Hard policy must surface the failure");
         assert!(
             failure.reason.contains("regenerated block count"),
@@ -295,6 +308,7 @@ mod reparse_policy_tests {
             &doc,
             &mut accepted,
             FullReparseFailure::FallbackPerBlock,
+            true,
         )
         .expect("FallbackPerBlock must recover");
         assert!(
@@ -402,6 +416,7 @@ mod reparse_policy_tests {
             &doc,
             &mut accepted,
             FullReparseFailure::FallbackAll,
+            true,
         )
         .expect("FallbackAll always succeeds");
         assert_eq!(md, EVIL_SOURCE_MD);
@@ -409,6 +424,111 @@ mod reparse_policy_tests {
             assert_eq!(vu.final_status, FallbackStatus::FallbackSource);
             assert!(vu.accepted_payload.is_none());
         }
+    }
+}
+
+// R0013-0003: the destination scan through the cascade. The paragraph's
+// translation drops a link whose definition sits inside a blockquote, so no
+// inter-block gap holds it; every structural scan passes. These drive the
+// pub(crate) seam with a hand-built accepted map, as `reparse_policy_tests`
+// does — a real run's per-unit inline layer rejects this payload before it
+// gets here, which is what makes this scan a backstop.
+#[cfg(test)]
+mod destination_scan_policy_tests {
+    use super::*;
+    use crate::markdown::parse;
+
+    const SRC: &str =
+        "> [ref]: https://example.com/\n>\n> Definition holder.\n\nRead [docs][ref].\n";
+
+    fn translated(id: &BlockId, payload: &str) -> ValidatedUnit {
+        ValidatedUnit {
+            unit_id: id.clone(),
+            final_status: FallbackStatus::Translated,
+            accepted_payload: Some(payload.to_string()),
+            rejected_by: None,
+            rejection_reason: None,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Both blocks accepted; the paragraph has lost its link.
+    fn accepted(doc: &crate::markdown::Document) -> HashMap<BlockId, ValidatedUnit> {
+        let (quote, para) = (&doc.blocks[0].block_id, &doc.blocks[1].block_id);
+        HashMap::from([
+            (
+                quote.clone(),
+                translated(quote, "> [ref]: https://example.com/\n>\n> 정의 보유자."),
+            ),
+            (para.clone(), translated(para, "문서 읽기.")),
+        ])
+    }
+
+    /// The cascade as a run with the shipped default profile drives it.
+    fn finalize(
+        doc: &crate::markdown::Document,
+        accepted: &mut HashMap<BlockId, ValidatedUnit>,
+        policy: FullReparseFailure,
+    ) -> Result<
+        (
+            String,
+            crate::regen::BlockOffsets,
+            Vec<crate::validate::ValidatedBatch>,
+        ),
+        crate::validate::full_reparse::ReparseFailure,
+    > {
+        finalize_regen_with_reparse_policy(doc, accepted, policy, true)
+    }
+
+    #[test]
+    fn hard_policy_refuses_a_document_whose_link_lost_its_destination() {
+        let doc = parse(SRC).expect("source parses");
+        let mut accepted = accepted(&doc);
+        let failure = finalize(&doc, &mut accepted, FullReparseFailure::Hard)
+            .expect_err("Hard surfaces the destination change");
+        assert!(
+            failure.reason.contains("destinations changed"),
+            "got: {}",
+            failure.reason
+        );
+        assert_eq!(
+            failure.divergent_source_blocks,
+            vec![doc.blocks[1].block_id.clone()]
+        );
+    }
+
+    #[test]
+    fn fallback_per_block_restores_the_link_and_keeps_the_honest_neighbour() {
+        let doc = parse(SRC).expect("source parses");
+        let mut accepted = accepted(&doc);
+        let (md, _offsets, _final) =
+            finalize(&doc, &mut accepted, FullReparseFailure::FallbackPerBlock)
+                .expect("FallbackPerBlock degrades, never aborts");
+        assert!(md.contains("Read [docs][ref]."), "got:\n{md}");
+        assert!(
+            md.contains("정의 보유자."),
+            "the blockquote keeps its translation:\n{md}"
+        );
+        let para = accepted.get(&doc.blocks[1].block_id).expect("present");
+        assert_eq!(para.final_status, FallbackStatus::FallbackSource);
+        let quote = accepted.get(&doc.blocks[0].block_id).expect("present");
+        assert_eq!(quote.final_status, FallbackStatus::Translated);
+    }
+
+    /// `preserve_urls = false` localizes destinations by policy, so the scan
+    /// stands down with the per-unit check — even under Hard.
+    #[test]
+    fn a_run_that_permits_rewritten_destinations_skips_the_scan() {
+        let doc = parse(SRC).expect("source parses");
+        let mut accepted = accepted(&doc);
+        let (md, _offsets, _final) = finalize_regen_with_reparse_policy(
+            &doc,
+            &mut accepted,
+            FullReparseFailure::Hard,
+            false,
+        )
+        .expect("no destination is protected, so nothing moved");
+        assert!(md.contains("문서 읽기."), "got:\n{md}");
     }
 }
 
@@ -594,6 +714,7 @@ mod format_dispatch_tests {
             &doc,
             &mut accepted,
             crate::FullReparseFailure::Hard,
+            true,
         )
         .expect_err("Hard must surface the twin's failure");
         // The twin's vocabulary, never reparse_full's: the dissolved run is
@@ -626,6 +747,7 @@ mod format_dispatch_tests {
             &doc,
             &mut accepted,
             crate::FullReparseFailure::FallbackPerBlock,
+            true,
         )
         .expect("FallbackPerBlock degrades, never aborts (invariant 6)");
         // Stage 1 downgrades exactly the dissolved run; the re-regen
@@ -659,6 +781,7 @@ mod format_dispatch_tests {
             &doc,
             &mut accepted,
             crate::FullReparseFailure::FallbackAll,
+            true,
         )
         .expect("FallbackAll always succeeds");
         assert_eq!(out, HTML_SRC);
@@ -681,6 +804,7 @@ mod format_dispatch_tests {
             &doc,
             &mut accepted,
             crate::FullReparseFailure::Hard,
+            true,
         )
         .expect_err("the evil fixture diverges under reparse_full");
         assert!(

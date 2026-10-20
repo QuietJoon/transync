@@ -80,7 +80,8 @@ A profile contributes four things to a translation run:
    explicit policy lines in the compiled prompt (see
    `crates/transync-core/src/profile.rs::format_profile_constraints`)
    **and** they gate the inline-protection validation layer: link and
-   image destination identity is enforced unless `preserve_urls` is
+   image destination identity — and, after regeneration, the full-document
+   destination comparison — is enforced unless `preserve_urls` is
    `false`, and code-span identity only when
    `preserve_code_identifiers` is `true`. `default_table_strategy` is
    application policy rather than prompt text — it chooses the

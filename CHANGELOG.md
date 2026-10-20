@@ -86,6 +86,10 @@ finally enumerates is decided per item, not by this preamble.
 - **`transync_html::namespace_author_ids(html, prefix)`** (R0012-0015,
   DCR-0063): prefixes a fragment's author ids and the same-document references
   that name them. Additive; the panes are its only caller.
+- **`transync_syntax::intake::markdown::comrak_options_with_broken_link_callback`**
+  (R0013-0003, DCR-0063): the canonical comrak options plus a
+  `broken_link_callback`. Additive; `transync-core`'s reference resolution is
+  its only caller, and no `transync-syntax` parse or render path uses it.
 
 ### Changed
 
@@ -164,6 +168,38 @@ finally enumerates is decided per item, not by this preamble.
 
 ### Fixed
 
+- **A reference-style link is protected wherever its definition sits**
+  (R0013-0003, DCR-0063). A link-reference definition counts for the whole
+  document even inside a blockquote or a list item, or on a paragraph's own
+  first lines, but the inline layer resolved references only from the
+  definitions between top-level blocks. A reference to any other definition
+  stayed bracket text on both sides of the comparison, so a provider could drop
+  it or translate its label, nothing rejected, and `out.md` lost the link. A
+  definition inside a payload could also be rewritten, and a payload could gain
+  one that took over a label defined later in the document; no layer looked.
+  Each Markdown run now asks comrak for the document's effective definitions
+  once and resolves every payload's references against them through comrak's
+  `broken_link_callback`, and the definitions a payload carries must survive
+  label for label and destination for destination: both are retryable
+  `inline` rejections. Labels are keyed and resolved from the spelling the
+  source wrote, so one edged with Unicode whitespace (a no-break or ideographic
+  space) or ending in `\ ` is covered too, and comrak itself reads a label
+  continued across lines inside a blockquote or list item, however long its
+  raw text runs and whatever code span, inline HTML or link title a
+  neighbouring definition's title opens. The full-document gate then
+  compares every block's resolved link and image destinations with the
+  source's and falls back the blocks whose links moved, together with any
+  block whose definitions changed. All three follow `preserve_urls`.
+  **Visible:** new `inline` rejection reasons
+  (`reference definition [label] changed: …`), new
+  `full_reparse_fallbacks` entries and `fallback_source` rows, and a run under
+  `FullReparseFailure::Hard` that passed before can now fail with
+  `full reparse failed: block N: resolved link/image destinations changed: …`.
+  A heading that cites such a definition now reads as its link text in the
+  provider's context, so cached entries under it miss once. Nothing is appended
+  to a payload any more, so the OI-0040 append prefilter and its
+  `unit_count × |ref_defs|` warning are gone. `Document.ref_defs` keeps the
+  gap text and no layer reads it.
 - **A `</script>` inside a commented-out script no longer ends the script in
   a pane** (R0012-0004, DCR-0063). `transync-html`'s scanner models script
   data's escaped and double-escaped states, so the legacy `<script><!--

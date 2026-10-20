@@ -1,29 +1,22 @@
-//! Link-reference-definition extraction from the inter-block gaps.
+//! Link-reference-definition text from the inter-block gaps.
 //!
 //! CommonMark link-reference definitions (`[label]: url "title"`) are
 //! document-level state: comrak consumes them during block finalization and
 //! leaves NO AST node — a paragraph whose definition prefixes are stripped
-//! becomes blank and is detached. A single-block *fragment* parse therefore
-//! resolves nothing, so `[text][ref]` renders as literal bracket text and
-//! contributes no destination to inline protection.
+//! becomes blank and is detached.
 //!
-//! Definitions are line-anchored blocks that always survive verbatim into the
-//! regenerated Markdown — they live in the inter-block gaps that
-//! `regen::regenerate` copies byte-for-byte. This module recovers
-//! them by walking those gaps at parse time and concatenating the
-//! pure-definition ones into a pool. Appending the pool to a fragment before
-//! reparse (`render`) or before the inline-inventory parse
-//! (`validate::inline`) gives comrak-native label matching —
-//! normalization, first-definition-wins duplicates, multiline titles — with
-//! zero grammar reimplementation and zero HTML output (definitions render
-//! nothing). See design D2 §B.
-//!
-//! Out of scope for appending (definitions cannot change a fragment's block
-//! kind or shape, and reference links are inline-level either way):
-//! `validate::fragment_reparse`, `validate::per_kind`,
-//! `validate::full_reparse` (operates on the full `out.md`, which
-//! already carries the definition lines), and `regen` (gap bytes are
-//! copied verbatim). See design D2 §B5.
+//! This module collects the definitions that sit **between** top-level
+//! blocks — the bytes `regen::regenerate` copies verbatim — into
+//! [`super::Document::ref_defs`], and warns about a gap that holds anything
+//! else. That is not the document's set of definitions, and nothing resolves
+//! references from it: a definition inside a blockquote or a list item
+//! (CommonMark 0.31.2 example 218), or one directly ahead of a paragraph's
+//! text, lies inside a block's range, and comrak still resolves it across the
+//! whole document. The renderers parse each pane whole (DCR-0017), and
+//! `transync-core` builds the document's effective definitions by asking
+//! comrak itself, then resolves a block's references through comrak's
+//! `broken_link_callback` (R0013-0003, DCR-0063). Pooling gap text for that
+//! purpose was the defect: it left every other definition out.
 //!
 //! Ordering dependency: Part A (a `Skipped` block for every unmodeled
 //! top-level node) shrinks the gap inventory to whitespace + definitions, so
@@ -34,14 +27,14 @@
 
 use super::Block;
 
-/// Extract the document's link-reference-definition pool from the gaps
-/// between top-level blocks, in source order. Returns the concatenated
-/// definition text (empty when the document defines none) plus warnings for
-/// any gap that holds *noded* content the walk could not attribute to a
-/// block (near-unreachable post-Part-A — see the module docs).
+/// Extract the link-reference-definition text the gaps between top-level
+/// blocks hold, in source order. Returns the concatenated definition text
+/// (empty when no gap holds one) plus warnings for any gap that holds
+/// *noded* content the walk could not attribute to a block
+/// (near-unreachable post-Part-A — see the module docs).
 ///
-/// Appending the SAME pool to source and translated payloads before reparse
-/// keeps the inline compare symmetric (design D2 §B4).
+/// A definition inside a block's range is not part of the result; see the
+/// module docs for why nothing resolves references from it.
 pub fn extract(source: &str, blocks: &[Block]) -> (String, Vec<String>) {
     let mut pool = String::new();
     let mut warnings: Vec<String> = Vec::new();

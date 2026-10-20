@@ -12,8 +12,8 @@
 /// Build the GFM-flavored Comrak options used everywhere in the pipeline.
 ///
 /// TRACE: ADR-0004
-pub(super) fn gfm_options() -> comrak::ComrakOptions<'static> {
-    let mut opts: comrak::ComrakOptions<'static> = comrak::ComrakOptions::default();
+pub(super) fn gfm_options<'c>() -> comrak::ComrakOptions<'c> {
+    let mut opts: comrak::ComrakOptions<'c> = comrak::ComrakOptions::default();
     opts.extension.table = true;
     opts.extension.tasklist = true;
     opts.extension.strikethrough = true;
@@ -32,4 +32,23 @@ pub(super) fn gfm_options() -> comrak::ComrakOptions<'static> {
 /// TRACE: ADR-0004
 pub fn comrak_options() -> comrak::ComrakOptions<'static> {
     gfm_options()
+}
+
+/// The canonical GFM options with comrak's `broken_link_callback` set: a
+/// reference whose label the parsed text does not define itself is handed to
+/// `callback`, and the destination it returns becomes the link.
+///
+/// The same flags as [`comrak_options`], so a parse that resolves through a
+/// callback sees exactly the AST shape every other parse sees. Used by
+/// `transync-core` to resolve a block's references against the definitions of
+/// the whole document (R0013-0003); nothing in this crate calls it, so the
+/// parse path [`super::parse`] and the renderers take is unchanged.
+///
+/// TRACE: ADR-0004
+pub fn comrak_options_with_broken_link_callback<'c>(
+    callback: std::sync::Arc<std::sync::Mutex<comrak::BrokenLinkCallback<'c>>>,
+) -> comrak::ComrakOptions<'c> {
+    let mut opts = gfm_options();
+    opts.parse.broken_link_callback = Some(callback);
+    opts
 }

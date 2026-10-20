@@ -92,7 +92,7 @@ about this unit.
 | `schema` | Structured-output shape | The response did not carry this unit's row as the schema requires — often a refusal, or a dropped/duplicated row (check `batch_fault`). |
 | `per_kind_shape` | Per-block-kind shape | The model changed table column count, list depth, code-fence info string, or heading level. |
 | `fragment_reparse` | Fragment reparse | The returned text does not reparse as the same block kind under GFM. |
-| `inline` | Inline protection | A link or image destination changed, or a policy-gated code-span check failed. This is the layer that catches silently-corrupted links. |
+| `inline` | Inline protection | A link or image destination changed — a reference-style link whose label was translated or dropped included — a reference definition the block carries was rewritten, removed or added, or a policy-gated code-span check failed. This is the layer that catches silently-corrupted links. |
 | `provider` | Provider | The provider itself rejected or failed this unit rather than a validator finding a defect. |
 
 Two further values exist in the wire vocabulary — `id_set` and

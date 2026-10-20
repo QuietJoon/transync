@@ -287,7 +287,8 @@ spelling:
 | `"fragment_reparse"`  | Model emitted text that doesn't reparse as the same kind (rare on Structured-Outputs models). |
 
 The other values the field can hold are `"inline"` (a link/image
-destination or a policy-gated code span changed) and `"provider"` (the
+destination, a reference definition the block carries, or a policy-gated
+code span changed) and `"provider"` (the
 provider opted the unit out); `"id_set"` and `"full_reparse"` are
 reserved and no attempt carries them today. `null` means the attempt
 was accepted — and a unit can reach `final_status: "fallback_source"`

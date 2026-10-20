@@ -46,7 +46,8 @@ crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017
     │       ├── sections.rs             # SectionStack — the one heading-scope algorithm
     │       ├── ranges.rs               # byte-range recovery from Comrak nodes; CR-aware
     │       │                           #   line table matching comrak (OI-0033)
-    │       ├── refdefs.rs              # link-reference-definition pool (DCR-0013)
+    │       ├── refdefs.rs              # the inter-block gaps' definition text (DCR-0013);
+    │       │                           #   no layer resolves from it (DCR-0063)
     │       └── depth.rs                # THE one guarded hand-off of raw Markdown to
     │                                   #   comrak: nesting-depth refusal before parse
     ├── outcome.rs                      # per-block HtmlOutcome closure (DCR-0017 §3.1)
@@ -79,6 +80,10 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     │   ├── context.rs                  # section_path, neighbor snippets
     │   ├── split.rs                    # oversize tables → row windows, pre-packing (DCR-0026)
     │   └── section.rs                  # partition_by_section: the heading partition (DCR-0027)
+    ├── refmap.rs                       # the document's effective link-reference definitions,
+    │                                   #   asked of comrak once per run; resolves payloads via
+    │                                   #   broken_link_callback; consumed by unit::context AND
+    │                                   #   validate::inline (DCR-0063)
     ├── structure.rs                    # structural-fingerprint oracle (list topology,
     │                                   #   blockquote children, table shape); consumed by
     │                                   #   unit AND validate::per_kind (DCR-0019)
@@ -102,7 +107,8 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     │   │                               #   text may not come back rendering nothing (DCR-0048);
     │   │                               #   reported under ValidationLayer::PerKindShape
     │   ├── full_reparse.rs             # parse the regenerated full doc; anchor count, label
-    │   │                               #   sequence, per-list item count (DCR-0017 Guard 1)
+    │   │                               #   sequence, per-list item count (DCR-0017 Guard 1);
+    │   │                               #   under preserve_urls, resolved destinations (DCR-0063)
     │   └── full_rescan_html.rs         # the HTML layer-6 twin: ordered tag ledger, fresh
     │                                   #   segmentation (D9 per-<li>), gap byte-identity,
     │                                   #   boundary sanity; dispatched from finalize on
@@ -382,14 +388,14 @@ pub fn build_batches(
 ) -> Vec<TranslationBatch>;
 
 // transync-core::validate (pub(crate))
-// `ref_defs` is the document's link-reference-definition pool
-// (transync-syntax::intake::markdown::refdefs), forwarded to the INLINE layer so
-// reference-style links resolve to real destinations before their identity is
-// compared (design D2 §B4). Pass "" when the document defines none.
+// `refs` is the document's effective link-reference definitions
+// (transync-core::refmap, built once per run), forwarded to the INLINE layer so
+// reference-style links resolve to their real destinations wherever the
+// document defines them (DCR-0063). ReferenceMap::empty() when it defines none.
 pub fn validate_batch(
     batch: &TranslationBatch,
     result: &TranslationBatchResult,
-    ref_defs: &str,
+    refs: &ReferenceMap,
 ) -> ValidatedBatch;
 
 // transync-syntax::regen
