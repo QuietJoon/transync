@@ -362,3 +362,110 @@ export function paneCenter(page, sel) {
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
   }, sel);
 }
+
+// The author-id namespace each pane's ids carry (R0012-0015, DCR-0063) —
+// contracts.md §4's two prefixes, restated because this suite is the oracle
+// that checks them rather than a consumer that reads them.
+export const PANE_ID_PREFIX = { source: "transync-src--", target: "transync-tgt--" };
+
+/**
+ * Where every same-document id reference in the two mounted panes lands, read
+ * out of the live DOM by the browser's own lookups (R0012-0015).
+ *
+ * Both panes are mounted into one document, so a lookup by id answers with
+ * the FIRST element in tree order carrying it — the source pane, whenever the
+ * two panes share an id. For each pane this reports its ids and, for every
+ * reference inside it, the pane the referenced element is in (`null` when the
+ * reference resolves to nothing):
+ *
+ *   - `href="#…"` — the element fragment navigation would indicate, by id;
+ *   - `label[for]` — the browser's own `label.control`;
+ *   - `headers` tokens — HTML's header-assignment rule ("the first element in
+ *     the Document with an ID equal to the token"), plus whether that cell is
+ *     in the referencing cell's own table;
+ *   - `aria-describedby` / `aria-labelledby` tokens, by id.
+ *
+ * `duplicates` lists every id more than one element in the WHOLE document
+ * carries, shell included.
+ */
+export function paneIdReport(page) {
+  return page.evaluate(() => {
+    const panes = {
+      source: document.getElementById("source"),
+      target: document.getElementById("target"),
+    };
+    const paneOf = (el) => {
+      if (!el) return null;
+      for (const [name, pane] of Object.entries(panes)) if (pane.contains(el)) return name;
+      return "shell";
+    };
+    const counts = new Map();
+    for (const el of document.querySelectorAll("[id]")) {
+      counts.set(el.id, (counts.get(el.id) ?? 0) + 1);
+    }
+    const report = {
+      duplicates: [...counts].filter(([, n]) => n > 1).map(([id]) => id),
+    };
+    const tokens = (value) => value.split(/[\t\n\f\r ]+/).filter(Boolean);
+    for (const [name, pane] of Object.entries(panes)) {
+      const refs = [];
+      for (const a of pane.querySelectorAll('a[href^="#"]')) {
+        const fragment = decodeURIComponent(a.getAttribute("href").slice(1));
+        if (fragment === "") continue;
+        refs.push({
+          kind: "href",
+          value: fragment,
+          lands: paneOf(document.getElementById(fragment)),
+        });
+      }
+      for (const label of pane.querySelectorAll("label[for]")) {
+        refs.push({ kind: "for", value: label.htmlFor, lands: paneOf(label.control) });
+      }
+      for (const cell of pane.querySelectorAll("[headers]")) {
+        for (const token of tokens(cell.getAttribute("headers"))) {
+          const header = document.getElementById(token);
+          refs.push({
+            kind: "headers",
+            value: token,
+            lands: paneOf(header),
+            sameTable: !!header && header.closest("table") === cell.closest("table"),
+          });
+        }
+      }
+      for (const attr of ["aria-describedby", "aria-labelledby"]) {
+        for (const el of pane.querySelectorAll(`[${attr}]`)) {
+          for (const token of tokens(el.getAttribute(attr))) {
+            refs.push({ kind: attr, value: token, lands: paneOf(document.getElementById(token)) });
+          }
+        }
+      }
+      report[name] = { ids: Array.from(pane.querySelectorAll("[id]"), (el) => el.id), refs };
+    }
+    return report;
+  });
+}
+
+/**
+ * Everything in a `paneIdReport` that breaks "each pane owns its ids": an id
+ * the document carries twice, a pane id outside that pane's namespace, and a
+ * reference that lands anywhere but its own pane — another pane, the shell,
+ * or nowhere. Empty when the panes are independent. Plain strings, so a
+ * failing `toEqual([])` names every offender.
+ */
+export function paneIdViolations(report) {
+  const out = report.duplicates.map((id) => `duplicate id ${JSON.stringify(id)}`);
+  for (const name of ["source", "target"]) {
+    for (const id of report[name].ids) {
+      if (!id.startsWith(PANE_ID_PREFIX[name])) out.push(`${name} id ${JSON.stringify(id)}`);
+    }
+    for (const ref of report[name].refs) {
+      if (ref.lands !== name) {
+        out.push(`${name} ${ref.kind} ${JSON.stringify(ref.value)} lands in ${ref.lands}`);
+      }
+      if (ref.kind === "headers" && !ref.sameTable) {
+        out.push(`${name} headers ${JSON.stringify(ref.value)} names a cell outside its table`);
+      }
+    }
+  }
+  return out;
+}

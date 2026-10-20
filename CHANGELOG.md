@@ -83,6 +83,9 @@ finally enumerates is decided per item, not by this preamble.
   `ParseError::HtmlTooDeeplyNested { offset, limit }`** (R0013-0002, DCR-0063).
   Additive: `ParseError` is `#[non_exhaustive]`, and `intake::html::parse`
   stays infallible, so a direct `transync-syntax` caller runs the check first.
+- **`transync_html::namespace_author_ids(html, prefix)`** (R0012-0015,
+  DCR-0063): prefixes a fragment's author ids and the same-document references
+  that name them. Additive; the panes are its only caller.
 
 ### Changed
 
@@ -174,6 +177,18 @@ finally enumerates is decided per item, not by this preamble.
   (R0012-0007). Injection read a `/>` suffix as the self-closing flag, so
   `<a href=/>` became `<a href= data-sync-id=…>`, which a browser reads as the
   href's value: the block lost its anchor. It reads the scanner's flag now.
+- **The two panes no longer share author ids** (R0012-0015, DCR-0063). The
+  shells mount both panes into one document, so an `id` both carried was one id
+  on two elements, and every same-document lookup from the target pane — a `#`
+  link, `label for`, `td headers`, an ARIA reference, `usemap`, an SVG
+  `url(#…)` — found the source pane's element. Each pane's author ids, and the
+  references to them, now carry the pane's own prefix, `transync-src--` or
+  `transync-tgt--`: `transync_html::namespace_author_ids` over markup, the AST
+  for Markdown `#` links. `out.md` and `out.html` are unchanged. **Visible to
+  consumers of the pane HTML:** a deep link into `source.html` or
+  `target.html`, and CSS or script keyed on an author id, address the prefixed
+  id. The wasm demo also resolves its own panes, editor and strips once at
+  boot, so a mounted block carrying `id="editor"` cannot take the editor over.
 - **Template content is no longer extracted when the template is spelled
   `<template/>` or outlives an ancestor's end tag** (R0012-0008, DCR-0063). A
   `/` on a non-void HTML tag is ignored, so `<template/>` opens a template; the

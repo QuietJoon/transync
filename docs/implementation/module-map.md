@@ -57,8 +57,9 @@ crates/transync-syntax/                 # wasm32-compilable base crate (DCR-0017
     ├── render.rs                       # one whole-document parse per pane → annotated HTML
     ├── render/
     │   ├── attrs.rs                    # data-sync-id / data-block-kind / data-order / data-fallback
-    │   └── html_pane.rs               # the HTML-source pane derivation: strip -> inject-or-wrap
-    │                                  #   -> balance -> group li (ti 490d97 wave 6, spec §8)
+    │   └── html_pane.rs               # the HTML-source pane derivation: strip -> namespace author
+    │                                  #   ids -> inject-or-wrap -> balance -> group li (ti 490d97
+    │                                  #   wave 6, spec §8; DCR-0063)
     └── error.rs                        # ParseError
 
 crates/transync-core/                   # pipeline on top of transync-syntax, HTTP-free

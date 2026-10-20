@@ -197,6 +197,42 @@ impl<'a> Pane<'a> {
             Pane::Target(_) => "target",
         }
     }
+
+    /// This pane's author-id namespace (R0012-0015, DCR-0063). The shells
+    /// mount both panes into one document, where an author id both panes
+    /// carried would send every same-document lookup from the target pane
+    /// into the source pane; each pane's ids, and the references to them,
+    /// carry its own prefix instead (`contracts.md` §4). Neither prefix
+    /// begins any id a shipped shell uses for its own elements.
+    fn id_prefix(&self) -> &'static str {
+        match self {
+            Pane::Source => SOURCE_PANE_ID_PREFIX,
+            Pane::Target(_) => TARGET_PANE_ID_PREFIX,
+        }
+    }
+}
+
+/// The source pane's author-id namespace — see [`Pane::id_prefix`].
+const SOURCE_PANE_ID_PREFIX: &str = "transync-src--";
+/// The target pane's author-id namespace — see [`Pane::id_prefix`].
+const TARGET_PANE_ID_PREFIX: &str = "transync-tgt--";
+
+/// Point every fragment-only link in a pane's AST at this pane's own
+/// namespace (R0012-0015, DCR-0063): `[x](#chapter)` names the author id a
+/// live raw-HTML block carries, which the pane renders as
+/// `id="{prefix}chapter"`. An AST edit, before formatting, so the renderer
+/// still does no string surgery on comrak's output. Reference-style links
+/// arrive here resolved, so they are covered too; a bare `#` and every link
+/// that leaves the document keep their destination.
+fn namespace_fragment_links<'a>(root: &'a AstNode<'a>, prefix: &str) {
+    for node in root.descendants() {
+        if let NodeValue::Link(link) = &mut node.data.borrow_mut().value
+            && link.url.len() > 1
+            && link.url.starts_with('#')
+        {
+            link.url.insert_str(1, prefix);
+        }
+    }
 }
 
 /// Why `range` is not a slice of `md`, or `None` when it is one.
@@ -281,6 +317,7 @@ fn render_fragment<'p>(
 
     let arena = comrak::Arena::new();
     let root = comrak::parse_document(&arena, &md_for_parse, &ctx.opts);
+    namespace_fragment_links(root, ctx.pane.id_prefix());
     let top: Vec<&AstNode<'_>> = root.children().collect();
 
     let mut out = String::new();
@@ -620,10 +657,20 @@ fn render_block<'a>(
             //
             // The failure arm above needs none of this: its payload is
             // HTML-escaped, so an impostor attribute there is text.
+            //
+            // Then the author-id namespace (R0012-0015, DCR-0063): both panes
+            // share one document in the shells, so the block's own ids — and
+            // the same-pane references to them — carry this pane's prefix,
+            // matching the `#` links `namespace_fragment_links` rewrote in the
+            // AST. Pane-only for the strip's reason: `out.md` keeps the
+            // author's ids. It edits attribute values only, so the balance
+            // after it sees the tag stream the strip left.
+            let stripped = transync_html::strip_reserved_sync_attrs(md);
+            let namespaced = transync_html::namespace_author_ids(&stripped, ctx.pane.id_prefix());
             let _ = writeln!(
                 out,
                 "<div{attrs}>{}</div>",
-                transync_html::balance_fragment(&transync_html::strip_reserved_sync_attrs(md)),
+                transync_html::balance_fragment(&namespaced),
             );
         }
         return;
@@ -1612,8 +1659,12 @@ mod html_render_tests {
         );
     }
 
-    /// ti 490d97 wave 1, the composed pane chain at its only call site:
-    /// `balance_fragment(&strip_reserved_sync_attrs(md))`.
+    /// ti 490d97 wave 1, the composed pane chain on the Markdown html-block
+    /// arm, the one this test renders through:
+    /// `balance_fragment(&namespace_author_ids(&strip_reserved_sync_attrs(md), prefix))`.
+    /// The namespace step between the strip and the balancer rewrites
+    /// attribute values only, and this block carries no author id, so the
+    /// balancer sees exactly the bytes the strip left.
     ///
     /// The strip removes the impostor attribute and leaves `<div/>` — a
     /// self-closing spelling of a non-void tag. HTML honours that flag in
@@ -1712,6 +1763,105 @@ mod html_render_tests {
             !html.contains("data-skipped=\"html-block\"") && html.contains("<div><div>"),
             "512 nested elements are at the ceiling, not past it"
         );
+    }
+}
+
+// R0012-0015 (DCR-0063): the two panes are mounted into ONE document, so an
+// author id both carry resolves to whichever pane is first in tree order. A
+// Markdown pane's author ids arrive only through live raw-HTML blocks (comrak
+// renders with `unsafe_ = false` and no header ids), and its `#` links come
+// from comrak `Link` nodes, so the namespace has two halves here.
+#[cfg(test)]
+mod pane_id_tests {
+    use super::*;
+    use crate::align::build_alignment_map;
+    use crate::{id, intake::markdown};
+
+    /// Both panes over the document's own regenerated Markdown, every html
+    /// block `Preserved` so it takes the live arm the ids ride on.
+    fn panes(src: &str) -> (String, String, String) {
+        let mut doc = markdown::parse(src).expect("parses");
+        id::assign_block_ids(&mut doc);
+        let (translated, offsets) = crate::regen::regenerate(&doc, &HashMap::new());
+        let statuses: HashMap<BlockId, FallbackStatus> = doc
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.kind, BlockKind::Html))
+            .map(|b| (b.block_id.clone(), FallbackStatus::Preserved))
+            .collect();
+        let map = build_alignment_map(
+            &doc,
+            &statuses,
+            &offsets,
+            "auto",
+            "ko",
+            None,
+            &crate::outcome::html_outcomes(&doc),
+        );
+        let s = render_source(&doc, &map).expect("source");
+        let t = render_target(&doc, &translated, &map).expect("target");
+        (s, t, translated)
+    }
+
+    /// Every value of `attr="…"` in a pane, in document order.
+    fn values(pane: &str, attr: &str) -> Vec<String> {
+        let needle = format!(" {attr}=\"");
+        pane.match_indices(&needle)
+            .map(|(i, m)| {
+                let rest = &pane[i + m.len()..];
+                rest[..rest.find('"').expect("a closed value")].to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn each_pane_owns_its_ids_and_its_links_point_into_it() {
+        let src = "<div id=\"chapter\">x</div>\n\n[jump](#chapter) and [again][r]\n\n\
+                   <p><label for=\"f\">F</label><input id=\"f\"></p>\n\n[r]: #chapter\n";
+        let (s, t, translated) = panes(src);
+        for (pane, prefix) in [(&s, "transync-src--"), (&t, "transync-tgt--")] {
+            let ids = values(pane, "id");
+            assert_eq!(
+                ids,
+                [format!("{prefix}chapter"), format!("{prefix}f")],
+                "{pane}"
+            );
+            let links = values(pane, "href");
+            assert_eq!(links.len(), 2, "{pane}");
+            for href in &links {
+                assert_eq!(
+                    href,
+                    &format!("#{prefix}chapter"),
+                    "the link's fragment is this pane's own div id:\n{pane}"
+                );
+            }
+            assert_eq!(values(pane, "for"), [format!("{prefix}f")], "{pane}");
+        }
+        let src_ids = values(&s, "id");
+        assert!(
+            values(&t, "id").iter().all(|id| !src_ids.contains(id)),
+            "the two panes share no id:\n{s}\n{t}"
+        );
+        assert_eq!(
+            translated, src,
+            "out.md keeps the author's bytes — the namespace is pane-only"
+        );
+    }
+
+    /// A link that is not fragment-only leaves the document, so it is not a
+    /// same-pane reference and keeps its destination.
+    #[test]
+    fn a_link_that_leaves_the_document_is_untouched() {
+        let (s, t, _) = panes(
+            "[a](https://example.com/#x) [b](page.md#x) [c](#)\n\n<div><a href=\"#\">top</a></div>\n",
+        );
+        for pane in [&s, &t] {
+            assert_eq!(
+                values(pane, "href"),
+                ["https://example.com/#x", "page.md#x", "#", "#"],
+                "{pane}"
+            );
+        }
     }
 }
 

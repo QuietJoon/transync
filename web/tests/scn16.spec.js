@@ -32,6 +32,9 @@ import {
   constrainPanes,
   maxScrollOf,
   offsetTopOf,
+  PANE_ID_PREFIX,
+  paneIdReport,
+  paneIdViolations,
   readFixture,
   setScrollTop,
   waitForMounted,
@@ -237,6 +240,78 @@ test.describe("SCN-16 HTML-run bundle through the shipped shell", () => {
     await setScrollTop(page, "#target", await offsetTopOf(page, "#target", top));
     await waitForScrollNear(page, "#source", srcOffset, 8);
     expect(await activeSyncId(page, "#source")).toBe(top);
+
+    expect(errors).toEqual([]);
+    expect(engineNoise(consoleLog)).toEqual([]);
+  });
+
+  test("d — the fixture's author id is carried once per pane, never twice in the document", async ({
+    page,
+  }) => {
+    const errors = collectPageErrors(page);
+    await page.goto(SHELL);
+    await waitForMounted(page);
+
+    // R0012-0015 (DCR-0063). The fixture's `<h1 id="top">` reached both panes
+    // verbatim, so the one document the shell mounts them into held two
+    // elements with that id and the target pane's lookups found the source's.
+    const report = await paneIdReport(page);
+    expect(report.source.ids).toEqual([`${PANE_ID_PREFIX.source}top`]);
+    expect(report.target.ids).toEqual([`${PANE_ID_PREFIX.target}top`]);
+    expect(report.duplicates).toEqual([]);
+
+    // The residual contracts.md §4 records, pinned so it cannot be mistaken
+    // for coverage: the table of contents points at `<section id>` containers,
+    // which are pass-through gap in an HTML run and never reach a pane, so
+    // both links resolve to nothing in either pane — and, namespaced, never
+    // into the other one.
+    for (const name of ["source", "target"]) {
+      const links = report[name].refs.filter((r) => r.kind === "href");
+      expect(
+        links.map((r) => r.value),
+        name,
+      ).toEqual([`${PANE_ID_PREFIX[name]}what`, `${PANE_ID_PREFIX[name]}how`]);
+      expect(
+        links.map((r) => r.lands),
+        name,
+      ).toEqual([null, null]);
+    }
+
+    expect(errors).toEqual([]);
+  });
+
+  test("e — an HTML run's panes own their ids, and every reference stays in its pane", async ({
+    page,
+  }) => {
+    const consoleLog = collectConsoleTyped(page);
+    const errors = collectPageErrors(page);
+
+    // R0012-0015 (DCR-0063), the HTML-intake half: the pane-id leg's HTML-run
+    // bundle (scripts/test-browser.sh) carries heading ids, a table-of-contents
+    // link, header cells and a labelled, described control, all reaching the
+    // panes through the blocks' own elements rather than through raw-HTML
+    // islands.
+    await page.goto("/pane-ids-html/index.html");
+    await waitForMounted(page);
+
+    const report = await paneIdReport(page);
+    for (const name of ["source", "target"]) {
+      expect(report[name].ids.length, name).toBe(6);
+      expect([...new Set(report[name].refs.map((r) => r.kind))].sort(), name).toEqual([
+        "aria-describedby",
+        "for",
+        "headers",
+        "href",
+      ]);
+    }
+    expect(paneIdViolations(report)).toEqual([]);
+
+    // Following the target pane's first fragment link indicates the target
+    // pane's own heading.
+    await page.locator('#target a[href^="#"]').first().click();
+    expect(
+      await page.evaluate(() => document.querySelector(":target")?.closest(".pane")?.id ?? null),
+    ).toBe("target");
 
     expect(errors).toEqual([]);
     expect(engineNoise(consoleLog)).toEqual([]);

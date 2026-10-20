@@ -25,6 +25,8 @@ import {
   maxScrollOf,
   offsetTopOf,
   paneCenter,
+  paneIdReport,
+  paneIdViolations,
   range,
   forwardMinorVersion,
   readFixture,
@@ -698,6 +700,53 @@ test.describe("SCN-13 dual-pane sync", () => {
         () => document.querySelector('#source [data-sync-id="html-0004"] .jsx-habit') !== null,
       ),
     ).toBe(true);
+
+    expect(errors).toEqual([]);
+  });
+
+  test("o — each pane owns its author ids, and every reference inside it stays inside it", async ({
+    page,
+  }) => {
+    const errors = collectPageErrors(page);
+
+    // R0012-0015 (DCR-0063). The shell mounts both panes into ONE document, and
+    // a lookup by id answers with the first element in tree order. The pane-id
+    // leg's Markdown bundle (scripts/test-browser.sh) carries raw-HTML ids and
+    // the references that name them — a Markdown `#` link, an html-block one,
+    // header cells, a labelled and described control — so while both panes
+    // carried the author's ids verbatim, every one of those lookups from the
+    // target pane landed in the source pane.
+    for (const file of ["pane-ids/source.html", "pane-ids/target.html"]) {
+      // Guard: the ids ride the LIVE html-block arm. On the escaped
+      // placeholder nothing below would be markup, and every assertion would
+      // hold over panes that carry no ids at all.
+      expect(readFixture(file), file).not.toContain('data-skipped="html-block"');
+    }
+
+    await page.goto("/pane-ids/");
+    await waitForMounted(page);
+
+    const report = await paneIdReport(page);
+    // Non-vacuity: the fixture's six ids and all four reference kinds reached
+    // both panes, so "every reference lands in its own pane" below is a claim
+    // about references that exist.
+    for (const name of ["source", "target"]) {
+      expect(report[name].ids.length, name).toBe(6);
+      expect([...new Set(report[name].refs.map((r) => r.kind))].sort(), name).toEqual([
+        "aria-describedby",
+        "for",
+        "headers",
+        "href",
+      ]);
+    }
+    expect(paneIdViolations(report)).toEqual([]);
+
+    // Fragment navigation itself, not only the lookup it rests on: following
+    // the target pane's Markdown link indicates the target pane's own heading.
+    await page.locator('#target a[href^="#"]').first().click();
+    expect(
+      await page.evaluate(() => document.querySelector(":target")?.closest(".pane")?.id ?? null),
+    ).toBe("target");
 
     expect(errors).toEqual([]);
   });

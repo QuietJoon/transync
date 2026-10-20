@@ -455,6 +455,12 @@ pub struct TranslationOutput {
     /// a fidelity preview; `transync serve` over the published document is
     /// the fidelity view). On a Markdown run they are the comrak-paired
     /// fragments, unchanged.
+    ///
+    /// On both formats a pane's author ids, and the same-pane references that
+    /// name them, carry that pane's prefix — `transync-src--` here,
+    /// `transync-tgt--` on the target pane — so the two panes can share one
+    /// page without sharing an id. [`Self::translated_document`] keeps the
+    /// author's ids (`contracts.md` §4, DCR-0063).
     pub annotated_source_html: String,
     /// The target pane, on the same terms as [`Self::annotated_source_html`].
     pub annotated_target_html: String,

@@ -154,7 +154,8 @@ pipeline and just want the dual-pane sync — your inputs are:
 
 1. The annotated HTML pane fragments (`source.html`, `target.html`)
    with `data-sync-id` on every sync-relevant block (non-sync rows such
-   as thematic breaks omit it — see DCR-0007 / contracts §4).
+   as thematic breaks omit it — see DCR-0007 / contracts §4). Their author
+   ids carry a per-pane prefix, so both fit in one page (DCR-0063).
 2. An alignment map JSON conforming to `schema_version 1.3.0`.
 
 Then `mountSync(sourcePane, targetPane, alignmentMap)` from

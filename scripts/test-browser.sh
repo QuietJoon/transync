@@ -17,6 +17,9 @@
 # The SCN-16 HTML-run bundle leg below feeds web/tests/scn16.spec.js — the
 # shell-driven browser gate for ti 490d97 (spec §12 wave 7).
 #
+# The two pane-id legs after it feed the author-id tests in scn13.spec.js,
+# scn16.spec.js and wasm.spec.js (R0012-0015).
+#
 # TRACE: SCN-13
 # TRACE: SCN-16
 # TRACE: OI-0023
@@ -299,6 +302,66 @@ if grep -q 'data-sync-id' "$WORKDIR/scn16-out.html"; then
   echo "[test-browser] FAIL: the published HTML document carries sync anchors — injection must never reach the regen path (ti 490d97 §8)" >&2
   exit 1
 fi
+
+# --- Pane-id legs (R0012-0015, DCR-0063) ----------------------------------
+#
+# Two more bundles, from documents whose blocks carry author ids and the
+# same-pane references that name them: a Markdown run (raw-HTML ids, a `#`
+# link, header cells, a labelled and described control, and a block that
+# borrows the wasm demo's own `editor` id) and an HTML run (heading ids, a
+# table-of-contents link, the same cells and control). The shells mount both
+# panes into ONE document, so scn13.spec.js and scn16.spec.js read these to
+# hold every pane's references inside that pane, and wasm.spec.js serves the
+# Markdown pair to the wasm demo. Scratch only, like the legs above.
+echo "[test-browser] regenerating the pane-id bundles -> $HTML_OUT/pane-ids, $HTML_OUT/pane-ids-html"
+PANE_IDS_MD_INPUT="$REPO_ROOT/crates/transync/tests/fixtures/pane-ids.md"
+PANE_IDS_HTML_INPUT="$REPO_ROOT/crates/transync/tests/fixtures/pane-ids.html"
+for input in "$PANE_IDS_MD_INPUT" "$PANE_IDS_HTML_INPUT"; do
+  if [[ ! -f "$input" ]]; then
+    echo "[test-browser] FAIL: pane-id fixture not found: $input" >&2
+    exit 1
+  fi
+done
+"$TRANSYNC_BIN" translate \
+  --input "$PANE_IDS_MD_INPUT" \
+  --output "$WORKDIR/pane-ids.md" \
+  --map "$WORKDIR/pane-ids.json" \
+  --html-out "$HTML_OUT/pane-ids" \
+  --target-language ko
+"$TRANSYNC_BIN" translate \
+  --input "$PANE_IDS_HTML_INPUT" \
+  --input-format html \
+  --output "$WORKDIR/pane-ids-out.html" \
+  --map "$WORKDIR/pane-ids-html.json" \
+  --html-out "$HTML_OUT/pane-ids-html" \
+  --target-language ko
+# The Markdown pair the wasm demo renders from, beside the bundle it matches.
+cp "$PANE_IDS_MD_INPUT" "$HTML_OUT/pane-ids/source.md"
+cp "$WORKDIR/pane-ids.md" "$HTML_OUT/pane-ids/out.md"
+
+for bundle in pane-ids pane-ids-html; do
+  for file in index.html source.html target.html alignment.json sync.js purify.min.js; do
+    if [[ ! -s "$HTML_OUT/$bundle/$file" ]]; then
+      echo "[test-browser] FAIL: $HTML_OUT/$bundle/$file missing or empty" >&2
+      exit 1
+    fi
+  done
+done
+
+# The namespace is PANE-ONLY: the published documents keep the author's own
+# ids and never carry a pane prefix. Every spec assertion reads pane HTML, so
+# a namespace wired into regen would pass them all and silently rewrite the
+# author's content — this is the one place the published bytes are read.
+for published in "$WORKDIR/pane-ids.md" "$WORKDIR/pane-ids-out.html"; do
+  if grep -q 'transync-src--\|transync-tgt--' "$published"; then
+    echo "[test-browser] FAIL: $published carries a pane id prefix — the namespace must be pane-only (R0012-0015)" >&2
+    exit 1
+  fi
+  if ! grep -q 'id="field"' "$published"; then
+    echo "[test-browser] FAIL: $published lost the author's own ids — the namespace must be pane-only (R0012-0015)" >&2
+    exit 1
+  fi
+done
 
 # --- Browser-oracle corpus leg (ti ec235f) --------------------------------
 #

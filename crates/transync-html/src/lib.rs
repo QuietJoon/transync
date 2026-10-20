@@ -1,6 +1,7 @@
 //! HTML mechanics for transync: tag scanning, the pairing discipline,
-//! element extents, text-segment extraction/splice, and render-path fragment
-//! balancing (`lol_html`).
+//! element extents, text-segment extraction/splice, render-path fragment
+//! balancing (`lol_html`), and the two pane-only attribute rewrites — the
+//! reserved-namespace strip and the author-id namespace.
 //!
 //! One pinned Settings source (`rewriter_settings`) feeds every pass so the
 //! extract pass and the splice pass can never disagree on coalescing or drop
@@ -3031,6 +3032,348 @@ fn collect_reserved_attr_spans(html: &str, span: (usize, usize), out: &mut Vec<(
     });
 }
 
+/// Attributes whose value is one id, compared whole: `id` itself, and the
+/// single-ID references of the HTML attribute index (value "ID") and of
+/// WAI-ARIA ("ID reference"). `for` and `name` depend on their element and
+/// are decided in [`id_role`].
+const WHOLE_ID_ATTRS: &[&str] = &[
+    "id",
+    "form",
+    "list",
+    "popovertarget",
+    "commandfor",
+    "aria-activedescendant",
+];
+
+/// Attributes whose value is a set of ids separated by ASCII whitespace: the
+/// HTML index's "space-separated tokens consisting of IDs" and WAI-ARIA's "ID
+/// reference list" (the editor's draft, where `aria-details` and
+/// `aria-errormessage` are lists).
+const ID_LIST_ATTRS: &[&str] = &[
+    "headers",
+    "itemref",
+    "aria-controls",
+    "aria-describedby",
+    "aria-details",
+    "aria-errormessage",
+    "aria-flowto",
+    "aria-labelledby",
+    "aria-owns",
+];
+
+/// URL attributes that name an element of the same document when they are
+/// fragment-only: HTML's `href` on `a`/`area`, and SVG's `href` /
+/// `xlink:href` on `use`, `textPath`, `mpath`, gradients, patterns and the
+/// rest.
+const FRAGMENT_URL_ATTRS: &[&str] = &["href", "xlink:href"];
+
+/// Attributes whose value is CSS that can reference an element through
+/// `url(#…)`: `style`, and the SVG presentation attributes whose property
+/// takes a `<url>` (paint servers, clip paths, masks, filters, markers,
+/// cursors).
+const CSS_URL_ATTRS: &[&str] = &[
+    "style",
+    "fill",
+    "stroke",
+    "clip-path",
+    "mask",
+    "filter",
+    "marker-start",
+    "marker-mid",
+    "marker-end",
+    "cursor",
+];
+
+/// How one attribute's value refers to an element by id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IdRole {
+    /// The value is one id, compared whole.
+    Whole,
+    /// A set of ids separated by ASCII whitespace.
+    Tokens,
+    /// A URL, which names an element here only when it is fragment-only.
+    Fragment,
+    /// A hash-name reference (`usemap`): whatever follows the first `#`.
+    HashName,
+    /// CSS: every `url(#…)` in it.
+    CssUrl,
+}
+
+/// The way attribute `attr` of a `element` start tag refers to an id, or
+/// `None` when it does not. `element` is [`TagToken::Open`]'s name, already
+/// lowercase; `attr` is folded here.
+fn id_role(element: &str, attr: &str) -> Option<IdRole> {
+    let any = |names: &[&str]| names.iter().any(|n| attr.eq_ignore_ascii_case(n));
+    if attr.eq_ignore_ascii_case("for") {
+        // `label`'s `for` is one id; `output`'s is a set of them. Nothing
+        // else's is an id: `template`'s is text matched against a
+        // `<?marker>` / `<?start>` processing instruction's `name`, and a
+        // `script`'s names an event target (`window`) that decides whether
+        // it runs, so prefixing either breaks it.
+        return match element {
+            "label" => Some(IdRole::Whole),
+            "output" => Some(IdRole::Tokens),
+            _ => None,
+        };
+    }
+    if attr.eq_ignore_ascii_case("name") {
+        // Fragment navigation finds an `a` by its `name`, and a hash-name
+        // reference finds a `map` by its `name` — those two are ids in all
+        // but spelling. Every other `name` is a form-control, group or form
+        // name, which no id reference reads.
+        return matches!(element, "a" | "map").then_some(IdRole::Whole);
+    }
+    if attr.eq_ignore_ascii_case("usemap") {
+        return Some(IdRole::HashName);
+    }
+    if any(WHOLE_ID_ATTRS) {
+        Some(IdRole::Whole)
+    } else if any(ID_LIST_ATTRS) {
+        Some(IdRole::Tokens)
+    } else if any(FRAGMENT_URL_ATTRS) {
+        Some(IdRole::Fragment)
+    } else if any(CSS_URL_ATTRS) {
+        Some(IdRole::CssUrl)
+    } else {
+        None
+    }
+}
+
+/// `value` with `prefix` inserted at byte `at`.
+fn inserted(value: &str, at: usize, prefix: &str) -> String {
+    let mut out = String::with_capacity(value.len() + prefix.len());
+    out.push_str(&value[..at]);
+    out.push_str(prefix);
+    out.push_str(&value[at..]);
+    out
+}
+
+/// The namespaced form of one DECODED attribute value, or `None` when it
+/// names no element by id and so stays as written.
+fn namespaced_value(role: IdRole, value: &str, prefix: &str) -> Option<String> {
+    match role {
+        // An empty id is no id, and an empty reference names nothing.
+        IdRole::Whole => (!value.is_empty()).then(|| format!("{prefix}{value}")),
+        IdRole::Tokens => {
+            let mut out = String::with_capacity(value.len() + prefix.len());
+            let mut at_token_start = true;
+            let mut changed = false;
+            for c in value.chars() {
+                if c.is_ascii_whitespace() {
+                    at_token_start = true;
+                } else if at_token_start {
+                    out.push_str(prefix);
+                    changed = true;
+                    at_token_start = false;
+                }
+                out.push(c);
+            }
+            changed.then_some(out)
+        }
+        IdRole::Fragment => {
+            // The URL parser strips leading and trailing C0 controls and
+            // spaces before it reads anything. A bare `#` is the top of the
+            // document, not an element.
+            let is_stripped = |c: char| c <= ' ';
+            let lead = value.len() - value.trim_start_matches(is_stripped).len();
+            let url = value.trim_matches(is_stripped);
+            (url.len() > 1 && url.starts_with('#')).then(|| inserted(value, lead + 1, prefix))
+        }
+        IdRole::HashName => {
+            let hash = value.find('#')?;
+            (hash + 1 < value.len()).then(|| inserted(value, hash + 1, prefix))
+        }
+        IdRole::CssUrl => css_url_fragments(value, prefix),
+    }
+}
+
+/// Every `url(#…)` in a CSS value, with `prefix` inserted after its `#`, or
+/// `None` when there is none. The `url(` must start a function token — a
+/// preceding name byte makes it part of another function's name — and may be
+/// followed by CSS whitespace and one quote.
+fn css_url_fragments(value: &str, prefix: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let is_css_space = |b: u8| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0c);
+    let is_name_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b >= 0x80;
+    let mut cuts = Vec::new();
+    let mut i = 0usize;
+    while i + 4 <= bytes.len() {
+        if !bytes[i..i + 4].eq_ignore_ascii_case(b"url(") || (i > 0 && is_name_byte(bytes[i - 1])) {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 4;
+        while j < bytes.len() && is_css_space(bytes[j]) {
+            j += 1;
+        }
+        if j < bytes.len() && matches!(bytes[j], b'"' | b'\'') {
+            j += 1;
+        }
+        if bytes.get(j) == Some(&b'#')
+            && bytes
+                .get(j + 1)
+                .is_some_and(|&b| !matches!(b, b')' | b'"' | b'\'') && !is_css_space(b))
+        {
+            cuts.push(j + 1);
+        }
+        i = j;
+    }
+    if cuts.is_empty() {
+        return None;
+    }
+    let mut out = String::with_capacity(value.len() + cuts.len() * prefix.len());
+    let mut cursor = 0;
+    for cut in cuts {
+        out.push_str(&value[cursor..cut]);
+        out.push_str(prefix);
+        cursor = cut;
+    }
+    out.push_str(&value[cursor..]);
+    Some(out)
+}
+
+/// Write `value` as a double-quoted attribute value that a browser decodes
+/// back to exactly `value`: `&` and `"` would end or start something, and a
+/// literal CR would be normalized to LF before the tokenizer saw it.
+fn push_quoted_attr_value(out: &mut String, value: &str) {
+    out.push('"');
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '"' => out.push_str("&quot;"),
+            '\r' => out.push_str("&#13;"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+/// Give every author id in `html` the pane namespace `prefix`, together with
+/// every same-document reference that names one, so that two fragments
+/// mounted into one document share no id (R0012-0015, DCR-0063).
+///
+/// **Why it exists.** The shipped shells mount the source and target panes
+/// into one document. An author id both panes carry is then two elements with
+/// one id, and every same-document lookup from the target pane — fragment
+/// navigation, `label`'s `for`, a cell's `headers`, `aria-labelledby` — finds
+/// the source pane's element, the first in tree order. Prefixing each pane
+/// with its own namespace keeps every lookup inside the pane that made it.
+///
+/// **What is rewritten.** Inside element start tags only, names compared
+/// ASCII-case-insensitively, the values of:
+///
+/// * `id`, and `name` on `a` and `map` — the two names an id reference also
+///   finds (fragment navigation reads `a[name]`, a hash-name reference
+///   `map[name]`). `name` anywhere else is a control, group or form name and
+///   is untouched;
+/// * the single-ID references of the HTML attribute index — `for` (on
+///   `label`), `form`, `list`, `popovertarget`, `commandfor` — and
+///   `aria-activedescendant`, prefixed once at the start of the value;
+/// * the ID-list references — `headers`, `itemref`, `for` on `output`, and
+///   WAI-ARIA's `aria-controls`, `aria-describedby`, `aria-details`,
+///   `aria-errormessage`, `aria-flowto`, `aria-labelledby`, `aria-owns` —
+///   with the prefix on every ASCII-whitespace-separated token;
+/// * `href` and `xlink:href` when the URL, stripped as the URL parser strips
+///   it, is `#` followed by something — the prefix goes after the `#`. A
+///   bare `#`, and every URL that leaves the document (`page.html#x`,
+///   `?q#x`, `https://…#x`, `sprite.svg#icon`), are untouched;
+/// * `usemap`, a hash-name reference: the prefix goes after its first `#`;
+/// * `url(#…)` inside `style` and the SVG presentation attributes that take a
+///   URL (`fill`, `stroke`, `clip-path`, `mask`, `filter`, `marker-start`,
+///   `marker-mid`, `marker-end`, `cursor`), so an inline SVG's gradients,
+///   clip paths and markers keep resolving.
+///
+/// **Values are read decoded.** A browser decodes character references before
+/// anything reads a value, so `href="&#35;x"` is a fragment link and
+/// `headers="a&#32;b"` names two cells. Each candidate value is therefore
+/// decoded with the same `htmlize::unescape_attribute` table
+/// `tag_attr_value` uses, rewritten, and written back **double-quoted**
+/// with `&`, `"` and CR escaped, so a rewritten value decodes to exactly the
+/// namespaced string whatever its original quoting was, and whatever bytes
+/// `prefix` holds. A value that was already double-quoted with nothing to
+/// escape changes only by the inserted prefix. `prefix` should contain no
+/// ASCII whitespace, which would split an ID-list token in two.
+///
+/// **What it never touches.** Element names, attribute names, attributes off
+/// the list above — the reserved sync namespace included, so `data-sync-id`
+/// stays the only sync currency — text, and the comment, raw-text and RCDATA
+/// interiors [`scan_tags`] never tokenizes. The tag stream is unchanged: same
+/// tokens, same names, same self-closing flags, so the balancer's and the
+/// tag inventory's answers are the same before and after. It shares
+/// `walk_attrs` with [`strip_reserved_sync_attrs`], so the two cannot
+/// disagree about where an attribute begins. Borrows when nothing matched.
+///
+/// **Not reached**, by design or because reaching it would take a second
+/// parser: `#id` selectors in a `<style>` element's text; CSS escapes and
+/// `var()` inside `url()`; SVG animation timing that names an element
+/// (`begin="other.end"`); radio groups and exclusive `<details>` sharing a
+/// `name` across panes; and a `#top` link in a document with no `top` id,
+/// which a browser reads as the top of the whole page rather than of a pane
+/// and which, prefixed, names nothing.
+///
+/// It is **pane-only**, like the reserved-namespace strip: published output
+/// keeps the author's ids, which are their content.
+pub fn namespace_author_ids<'a>(html: &'a str, prefix: &str) -> Cow<'a, str> {
+    if prefix.is_empty() {
+        return Cow::Borrowed(html);
+    }
+    let bytes = html.as_bytes();
+    // (start, end, replacement), ascending and disjoint: tokens come in
+    // document order and `walk_attrs` reports a tag's attributes in order.
+    let mut edits: Vec<(usize, usize, String)> = Vec::new();
+    for token in scan_tags(html) {
+        // Exhaustive, every arm named, for the strip's reason: a token
+        // variant added later must stop the compiler here.
+        match token {
+            TagToken::Open { name, span, .. } => walk_attrs(html, span, |attr| {
+                let Some(role) = id_role(&name, attr.name) else {
+                    return;
+                };
+                let Some((start, end)) = attr.value else {
+                    return;
+                };
+                let decoded = htmlize::unescape_attribute(&html[start..end]);
+                let Some(value) = namespaced_value(role, &decoded, prefix) else {
+                    return;
+                };
+                // A quoted value's own quotes are replaced with it; an
+                // unquoted value cannot start right after a quote, because a
+                // quote there would have opened a quoted one.
+                let span = match start.checked_sub(1).map(|q| bytes[q]) {
+                    Some(q @ (b'"' | b'\'')) if bytes.get(end) == Some(&q) => (start - 1, end + 1),
+                    // A quote the tag never closed: the scanner would not
+                    // have ended the tag at its `>`, so this is not reached;
+                    // leaving the value alone is the safe answer if it is.
+                    Some(b'"' | b'\'') => return,
+                    _ => (start, end),
+                };
+                let mut quoted = String::with_capacity(value.len() + 2);
+                push_quoted_attr_value(&mut quoted, &value);
+                edits.push((span.0, span.1, quoted));
+            }),
+            // A close tag carries no attribute list, and a skipped region
+            // never mints an element, so nothing in either can be an id.
+            TagToken::Close { .. } | TagToken::Skip { .. } => {}
+        }
+    }
+    if edits.is_empty() {
+        return Cow::Borrowed(html);
+    }
+    let extra: usize = edits
+        .iter()
+        .map(|(s, e, r)| r.len().saturating_sub(e - s))
+        .sum();
+    let mut out = String::with_capacity(html.len() + extra);
+    let mut cursor = 0;
+    for (start, end, replacement) in edits {
+        out.push_str(&html[cursor..start]);
+        out.push_str(&replacement);
+        cursor = end;
+    }
+    out.push_str(&html[cursor..]);
+    Cow::Owned(out)
+}
+
 /// Would deleting `bytes[run_start..run_end]` — one coalesced run of orphan
 /// close tags — change how a byte that SURVIVES the deletion tokenizes?
 ///
@@ -5364,10 +5707,14 @@ mod balance_tests {
         assert_eq!(balance_fragment("<keygen>x"), "<keygen>x");
     }
 
-    /// The composed pane chain, in the order `render.rs` calls it:
-    /// `balance_fragment(&strip_reserved_sync_attrs(md))`. Each half is
-    /// pinned on its own above; this is the seam between them, which is where
-    /// the wave-1 defect actually reached a reader.
+    /// The strip→balance seam of the composed pane chain. `render.rs` calls
+    /// `balance_fragment(&namespace_author_ids(&strip_reserved_sync_attrs(md), prefix))`;
+    /// the namespace step between the two rewrites attribute values only
+    /// (`namespace_tests::the_rewrite_never_changes_the_tag_stream`) and
+    /// these inputs carry no author id, so the balancer sees exactly the bytes
+    /// the strip left. Each half is pinned on its own above; this is the seam
+    /// between them, which is where the wave-1 defect actually reached a
+    /// reader.
     #[test]
     fn the_pane_chain_survives_a_reserved_attribute_behind_a_slash() {
         let md = "<div/data-sync-id=\"p-0003\">x</div>";
@@ -5750,7 +6097,11 @@ mod balance_tests {
         assert_eq!(balance_fragment("<plaintext>x</plaintext>"), "");
         // An impostor anchor written INTO the region cannot reach the pane,
         // which is what makes the strip's pass-over safe rather than a bypass
-        // (invariant 7 / OI-0035): the composition is what ships.
+        // (invariant 7 / OI-0035): the strip→balance composition is what
+        // ships. `render.rs` runs `namespace_author_ids` between the two; it
+        // rewrites only attribute values on tags `scan_tags` tokenized —
+        // never a reserved name, never a skipped region's text — so it cannot
+        // hand the plant back.
         let planted = "<div><plaintext><div data-sync-id=\"p-0009\">y";
         let chained = balance_fragment(&strip_reserved_sync_attrs(planted));
         assert_eq!(chained, "<div></div>");
@@ -6148,10 +6499,18 @@ mod tree_construction_tests {
         })
     }
 
-    /// The bytes a reader's browser is handed, in the order `render.rs` calls
-    /// them: `balance_fragment(&strip_reserved_sync_attrs(md))`.
+    /// The source pane's author-id namespace, as `render.rs` passes it
+    /// (`contracts.md` §4, DCR-0063).
+    const SOURCE_PANE_PREFIX: &str = "transync-src--";
+
+    /// The bytes a reader's browser is handed for a Markdown html block, in
+    /// the order `render.rs` calls them: strip, then namespace the author
+    /// ids, then balance.
     fn chained(md: &str) -> String {
-        balance_fragment(&strip_reserved_sync_attrs(md))
+        balance_fragment(&namespace_author_ids(
+            &strip_reserved_sync_attrs(md),
+            SOURCE_PANE_PREFIX,
+        ))
     }
 
     // -- ti `9b4d66` --------------------------------------------------------
@@ -6653,6 +7012,321 @@ mod nesting_tests {
             scan.tags.len(),
             MAX_NESTING_DEPTH,
             "the scan holds the {MAX_NESTING_DEPTH} start tags before the breach and nothing after it"
+        );
+    }
+}
+
+// R0012-0015 (DCR-0063): both panes are mounted into ONE document, so an
+// author id the two panes share resolves to whichever pane comes first in
+// tree order. `namespace_author_ids` gives each pane its own id space and
+// moves the same-pane references with it. The attribute roster these tests
+// walk is the HTML Living Standard's attribute index (every ID, ID-list and
+// hash-name reference value), the fragment-only URL attributes, and WAI-ARIA's
+// ID-reference states and properties.
+#[cfg(test)]
+mod namespace_tests {
+    use super::*;
+
+    const P: &str = "P-";
+
+    fn ns(html: &str) -> String {
+        namespace_author_ids(html, P).into_owned()
+    }
+
+    #[test]
+    fn an_id_takes_the_prefix() {
+        assert_eq!(ns("<p id=\"chapter\">x</p>"), "<p id=\"P-chapter\">x</p>");
+        assert_eq!(
+            ns("<h2 ID=\"install\">Install</h2>"),
+            "<h2 ID=\"P-install\">Install</h2>",
+            "attribute names fold ASCII-case-insensitively, and the author's spelling of the name stays"
+        );
+    }
+
+    #[test]
+    fn a_fragment_href_takes_the_prefix_after_the_hash() {
+        assert_eq!(
+            ns("<a HREF=\"#chapter\">go</a>"),
+            "<a HREF=\"#P-chapter\">go</a>"
+        );
+        assert_eq!(
+            ns("<a href=\"  #chapter \">go</a>"),
+            "<a href=\"  #P-chapter \">go</a>",
+            "a URL is read after its surrounding spaces are stripped, as the URL parser does"
+        );
+        assert_eq!(
+            ns("<svg><use href=\"#icon\"/><use xlink:href=\"#icon\"/></svg>"),
+            "<svg><use href=\"#P-icon\"/><use xlink:href=\"#P-icon\"/></svg>",
+            "SVG's same-document references are fragment URLs too"
+        );
+        assert_eq!(
+            ns("<map name=\"m\"><area href=\"#chapter\"></map>"),
+            "<map name=\"P-m\"><area href=\"#P-chapter\"></map>"
+        );
+    }
+
+    #[test]
+    fn a_url_that_is_not_fragment_only_is_untouched() {
+        for html in [
+            "<a href=\"https://example.com/#x\">e</a>",
+            "<a href=\"page.html#x\">e</a>",
+            "<a href=\"?q=1#x\">e</a>",
+            "<a href=\"#\">top</a>",
+            "<a href=\"  #  \">top</a>",
+            "<svg><use href=\"sprite.svg#icon\"/></svg>",
+        ] {
+            assert_eq!(ns(html), html, "{html}");
+            assert!(
+                matches!(namespace_author_ids(html, P), Cow::Borrowed(_)),
+                "{html}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_token_of_an_id_list_takes_the_prefix() {
+        assert_eq!(
+            ns("<td headers=\"a  b\tc\">x</td>"),
+            "<td headers=\"P-a  P-b\tP-c\">x</td>",
+            "separators are kept as written"
+        );
+        assert_eq!(
+            ns("<p itemscope itemref=\"x y\">x</p>"),
+            "<p itemscope itemref=\"P-x P-y\">x</p>"
+        );
+        assert_eq!(
+            ns("<output for=\"a b\">3</output>"),
+            "<output for=\"P-a P-b\">3</output>",
+            "`for` on output is a set of ids"
+        );
+        for aria in [
+            "aria-controls",
+            "aria-describedby",
+            "aria-details",
+            "aria-errormessage",
+            "aria-flowto",
+            "aria-labelledby",
+            "aria-owns",
+        ] {
+            assert_eq!(
+                ns(&format!("<div {aria}=\"a b\">x</div>")),
+                format!("<div {aria}=\"P-a P-b\">x</div>"),
+                "{aria} is an ID reference list"
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_id_reference_takes_the_prefix_once_at_its_start() {
+        assert_eq!(
+            ns("<label for=\"a b\">x</label>"),
+            "<label for=\"P-a b\">x</label>",
+            "`for` on label is ONE id, compared whole"
+        );
+        for attr in [
+            "form",
+            "list",
+            "popovertarget",
+            "commandfor",
+            "aria-activedescendant",
+        ] {
+            assert_eq!(
+                ns(&format!("<input {attr}=\"x\">")),
+                format!("<input {attr}=\"P-x\">"),
+                "{attr} names one element by id"
+            );
+        }
+    }
+
+    /// `for` is an id reference on exactly two elements. The HTML attribute
+    /// index gives `label` an ID and `output` a set of IDs; its third `for`
+    /// row, on `template`, is "Text" matched against the `name` of a
+    /// `<?marker>` / `<?start>` processing instruction, and a `script`'s
+    /// legacy `for` names an event target such as `window`, which decides
+    /// whether the script runs. Neither names an element by id, and nor does
+    /// `for` anywhere else, so prefixing any of them would break a pairing or
+    /// change behaviour rather than keep a lookup inside its pane.
+    #[test]
+    fn for_is_an_id_reference_only_on_label_and_output() {
+        for html in [
+            "<template for=\"x\"></template>",
+            "<?marker name=\"x\"><template for=\"x\"></template>",
+            "<script for=\"window\" event=\"onload\"></script>",
+            "<button for=\"x\">b</button>",
+            "<div for=\"x\">d</div>",
+            "<svg><text for=\"x\">t</text></svg>",
+        ] {
+            assert_eq!(ns(html), html, "{html}");
+            assert!(
+                matches!(namespace_author_ids(html, P), Cow::Borrowed(_)),
+                "{html}"
+            );
+        }
+        assert_eq!(
+            ns("<LABEL FOR=\"x\">l</LABEL><Output For=\"a b\">3</Output>"),
+            "<LABEL FOR=\"P-x\">l</LABEL><Output For=\"P-a P-b\">3</Output>",
+            "the element is read from the scanner's lowercased name, whatever its source case"
+        );
+    }
+
+    #[test]
+    fn an_unquoted_or_single_quoted_value_is_requoted() {
+        assert_eq!(ns("<label for=x>x</label>"), "<label for=\"P-x\">x</label>");
+        assert_eq!(ns("<a href=#x>x</a>"), "<a href=\"#P-x\">x</a>");
+        assert_eq!(
+            ns("<p id='a\"b'>x</p>"),
+            "<p id=\"P-a&quot;b\">x</p>",
+            "a quote inside the value is escaped, not left to end it"
+        );
+        assert_eq!(
+            ns("<svg><use href=#i/></svg>"),
+            "<svg><use href=\"#P-i/\"></svg>",
+            "the slash belonged to the unquoted value, so it stays inside it"
+        );
+    }
+
+    #[test]
+    fn a_hash_name_reference_and_its_targets_take_the_prefix() {
+        assert_eq!(
+            ns("<img usemap=\"#m\"><map name=\"m\"></map><a name=\"n\">n</a>"),
+            "<img usemap=\"#P-m\"><map name=\"P-m\"></map><a name=\"P-n\">n</a>",
+            "usemap matches a map by id OR name, and fragment navigation finds `a name`"
+        );
+        assert_eq!(
+            ns("<img usemap=\"x#m\">"),
+            "<img usemap=\"x#P-m\">",
+            "a hash-name reference is whatever follows its FIRST `#`"
+        );
+        for html in [
+            "<input name=\"n\">",
+            "<details name=\"n\"></details>",
+            "<form name=\"n\"></form>",
+        ] {
+            assert_eq!(
+                ns(html),
+                html,
+                "`name` here is a group or form name, not an id: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_css_url_reference_takes_the_prefix() {
+        assert_eq!(
+            ns("<svg><rect fill=\"url(#g)\" stroke=\"URL( '#s' ) red\"/></svg>"),
+            "<svg><rect fill=\"url(#P-g)\" stroke=\"URL( '#P-s' ) red\"/></svg>"
+        );
+        assert_eq!(
+            ns("<p style=\"clip-path: url(&quot;#c&quot;); mask: url(#m)\">x</p>"),
+            "<p style=\"clip-path: url(&quot;#P-c&quot;); mask: url(#P-m)\">x</p>"
+        );
+        for attr in [
+            "clip-path",
+            "cursor",
+            "filter",
+            "marker-start",
+            "marker-mid",
+            "marker-end",
+            "mask",
+        ] {
+            assert_eq!(
+                ns(&format!("<svg><path {attr}=\"url(#a)\"/></svg>")),
+                format!("<svg><path {attr}=\"url(#P-a)\"/></svg>"),
+                "{attr} takes a url()"
+            );
+        }
+        let other = "<svg><rect fill=\"url(paint.svg#g)\" stroke=\"red\"/></svg>";
+        assert_eq!(ns(other), other);
+    }
+
+    /// Entities are decoded before anything reads a value, so a reference
+    /// spelled with one is the same reference: `&#35;` IS a `#`, and `&#32;`
+    /// IS the space that separates two tokens.
+    #[test]
+    fn a_reference_spelled_with_character_references_is_read_decoded() {
+        assert_eq!(ns("<a href=\"&#35;x\">x</a>"), "<a href=\"#P-x\">x</a>");
+        assert_eq!(ns("<img usemap=\"&#35;m\">"), "<img usemap=\"#P-m\">");
+        assert_eq!(
+            ns("<td headers=\"a&#32;b\">x</td>"),
+            "<td headers=\"P-a P-b\">x</td>"
+        );
+        assert_eq!(
+            ns("<p id=\"a&amp;b\">x</p>"),
+            "<p id=\"P-a&amp;b\">x</p>",
+            "an ampersand in the decoded value is written back escaped"
+        );
+    }
+
+    #[test]
+    fn markup_with_no_author_ids_is_borrowed() {
+        for html in [
+            "<p class=\"x\">hello</p>",
+            "plain text",
+            "<p id>valueless</p>",
+            "<p id=\"\">empty</p>",
+            "<td headers=\"  \">blank</td>",
+        ] {
+            assert!(
+                matches!(namespace_author_ids(html, P), Cow::Borrowed(_)),
+                "{html}"
+            );
+        }
+    }
+
+    /// Only an open tag's attributes are markup. Comment, raw-text and RCDATA
+    /// interiors are text a browser never parses as a tag, and the reserved
+    /// namespace is never touched — `data-sync-id` stays the only sync
+    /// currency (invariant 1).
+    #[test]
+    fn text_comments_and_the_reserved_namespace_are_untouched() {
+        for html in [
+            "<!-- <p id=\"x\"> -->",
+            "<textarea><p id=\"x\"></textarea>",
+            "<script>var s = '<p id=\"x\">';</script>",
+            "<p>id=\"x\" href=\"#x\"</p>",
+            "<p data-sync-id=\"p-0001\" data-id=\"x\" data-href=\"#x\" title=\"#x\">t</p>",
+        ] {
+            assert_eq!(ns(html), html, "{html}");
+        }
+        assert_eq!(
+            ns("<p data-sync-id=\"p-0001\" id=\"a\">t</p>"),
+            "<p data-sync-id=\"p-0001\" id=\"P-a\">t</p>"
+        );
+    }
+
+    /// The rewrite edits attribute VALUES and nothing else, so every tag the
+    /// scanner saw is still the same tag: same kind, same name, same
+    /// self-closing flag, in the same order.
+    #[test]
+    fn the_rewrite_never_changes_the_tag_stream() {
+        let html = "<div id=a><svg><use href=#i/><rect fill='url(#g)'/></svg>\
+                    <label for=x>l</label><td headers=\"a b\">c</td><p/><img usemap=#m></div>";
+        let shape = |s: &str| -> Vec<(String, bool)> {
+            scan_tags(s)
+                .into_iter()
+                .map(|t| match t {
+                    TagToken::Open {
+                        name, self_closing, ..
+                    } => (format!("<{name}"), self_closing),
+                    TagToken::Close { name, .. } => (format!("</{name}"), false),
+                    TagToken::Skip { kind, .. } => (format!("{kind:?}"), false),
+                })
+                .collect()
+        };
+        let out = ns(html);
+        assert_ne!(out, html, "premise: the sample has ids to rewrite");
+        assert_eq!(shape(&out), shape(html), "{out}");
+        assert_eq!(tag_inventory(&out), tag_inventory(html), "{out}");
+    }
+
+    /// Any prefix is safe to insert: the value is written back double-quoted
+    /// with its quotes and ampersands escaped, so a prefix cannot end the
+    /// value it lands in.
+    #[test]
+    fn a_prefix_with_markup_bytes_cannot_break_out_of_the_value() {
+        assert_eq!(
+            namespace_author_ids("<p id=\"a\">x</p>", "q\"&>"),
+            "<p id=\"q&quot;&amp;>a\">x</p>"
         );
     }
 }

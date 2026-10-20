@@ -28,6 +28,7 @@ import {
   constrainPanes,
   maxScrollOf,
   offsetTopOf,
+  PANE_ID_PREFIX,
   readFixture,
   setScrollTop,
   SYNC_IDS,
@@ -949,6 +950,95 @@ test.describe("WASM render+edit demo", () => {
       "tabindex",
       "0",
     );
+
+    expect(errors).toEqual([]);
+  });
+
+  test("n — a block carrying the editor's id reaches the source pane namespaced, and the editor stays the editor", async ({
+    page,
+  }) => {
+    const errors = collectPageErrors(page);
+
+    // R0012-0015, end to end. The pane-id leg's Markdown pair (scripts/
+    // test-browser.sh) ends with a raw-HTML block carrying `id="editor"`. The
+    // source pane sits ahead of the editor panel in tree order, so while the
+    // renderer mounted author ids verbatim, every `getElementById("editor")`
+    // found that block: the editor never opened and the edit went into a div.
+    const map = readFixture("pane-ids/alignment.json");
+    for (const [glob, file, contentType] of [
+      ["**/source.md", "pane-ids/source.md", "text/markdown"],
+      ["**/out.md", "pane-ids/out.md", "text/markdown"],
+      ["**/alignment.json", "pane-ids/alignment.json", "application/json"],
+    ]) {
+      const body = readFixture(file);
+      await page.route(glob, (route) => route.fulfill({ contentType, body }));
+    }
+    await bootDemo(page);
+
+    // Scoped to the panel, because an unscoped `#editor` is the question the
+    // fixture is built to answer wrongly.
+    const panel = page.locator("section.editor-panel");
+    const editor = panel.locator("textarea");
+    expect(await page.evaluate(() => document.getElementById("editor").tagName)).toBe("TEXTAREA");
+    await expect(page.locator(`#source #${PANE_ID_PREFIX.source}editor`)).toHaveText(
+      /borrows the wasm demo's own editor id/,
+    );
+
+    const editedId = JSON.parse(map)
+      .blocks.filter((b) => b.block_kind === "paragraph")
+      .pop().source_block_id;
+    await page.locator(`#target [data-sync-id="${editedId}"]`).click();
+    await expect(panel.locator("#editor-label")).toHaveText(`editing ${editedId}`);
+    await expect(editor).toBeEnabled();
+    await expect(editor).toHaveValue(/A closing paragraph/);
+
+    await page.unroute("**/source.md");
+    await page.unroute("**/out.md");
+    await page.unroute("**/alignment.json");
+    expect(errors).toEqual([]);
+  });
+
+  test("o — elements a pane plants after boot cannot take over the editor, the panes or the strips", async ({
+    page,
+  }) => {
+    const errors = collectPageErrors(page);
+    await bootDemo(page);
+
+    // R0012-0015, the demo's own half. The renderer namespaces every author
+    // id, but a pane is content, and the demo must not depend on what a pane
+    // holds: it resolves its elements once, at boot, before any pane is
+    // mounted. Plant the five ids it uses at the top of the SOURCE pane —
+    // ahead of the real target pane, editor and strips in tree order — the
+    // way a pane the renderer did not produce could carry them.
+    await page.evaluate(() => {
+      const source = document.querySelector('.pane[aria-label="source"]');
+      for (const id of ["target", "editor", "editor-label", "status-strip", "error-strip"]) {
+        const planted = document.createElement("div");
+        planted.id = id;
+        planted.dataset.planted = "yes";
+        source.prepend(planted);
+      }
+    });
+
+    const panel = page.locator("section.editor-panel");
+    const editor = panel.locator("textarea");
+    const realTarget = page.locator('.pane[aria-label="target"]');
+    const editedId = "p-0004";
+    await realTarget.locator(`[data-sync-id="${editedId}"]`).click();
+    await expect(panel.locator("#editor-label")).toHaveText(`editing ${editedId}`);
+    await expect(editor).toBeEnabled();
+    await expect(editor).not.toHaveValue("");
+
+    const replacement = "Edited past five planted look-alikes.";
+    await editor.fill(replacement);
+    await expect(panel.locator("#status-strip")).toHaveText(
+      /re-rendered \d+ blocks after editing p-0004/,
+    );
+    await expect(realTarget.locator(`[data-sync-id="${editedId}"]`)).toHaveText(replacement);
+    // The re-render replaced the source pane's content, plants included, and
+    // nothing was written into one of them on the way.
+    expect(await page.locator("[data-planted]").count()).toBe(0);
+    await expect(panel.locator("#error-strip")).toBeHidden();
 
     expect(errors).toEqual([]);
   });

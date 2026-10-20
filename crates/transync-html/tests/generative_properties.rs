@@ -60,7 +60,7 @@ use std::path::PathBuf;
 
 use transync_html::{
     ElementExtent, SkipKind, TagToken, balance_fragment, element_extents, is_raw_text, is_void,
-    scan_tags, strip_reserved_sync_attrs, tag_inventory,
+    namespace_author_ids, scan_tags, strip_reserved_sync_attrs, tag_inventory,
 };
 
 // ---------------------------------------------------------------------------
@@ -558,6 +558,20 @@ fn is_a_weld_site(html: &str) -> bool {
 /// The sync wrapper `render::html_pane` puts around a block's balanced HTML.
 const WRAPPER_OPEN: &str = "<div data-sync-id=\"p-0001\">";
 
+/// The source pane's author-id namespace, as `render.rs` passes it to
+/// `namespace_author_ids` (`contracts.md` §4, DCR-0063).
+const SOURCE_PANE_PREFIX: &str = "transync-src--";
+
+/// The pane chain after the strip, in the order `render.rs`'s Markdown
+/// html-block arm calls it — namespace the author ids, then balance —
+/// returning both stages. One helper, so P5, P6 and the browser corpus check
+/// the same bytes, and those are the bytes a reader's browser is handed.
+fn rest_of_pane_chain(stripped: &str) -> (String, String) {
+    let namespaced = namespace_author_ids(stripped, SOURCE_PANE_PREFIX).into_owned();
+    let chained = balance_fragment(&namespaced);
+    (namespaced, chained)
+}
+
 /// `contracts.md` §4a, as one question: mount the balanced fragment the way the
 /// pane mounts it, and ask whether the wrapper's own `</div>` still closes the
 /// wrapper.
@@ -645,10 +659,22 @@ fn check(html: &str) -> Result<(), String> {
     }
 
     // P5 — the composed pane chain, in the order `render.rs` calls it:
-    // `balance_fragment(&strip_reserved_sync_attrs(md))`. Each half is checked
-    // above; this is the seam between them, which is where wave 1's defect
-    // actually reached a reader.
-    let chained = balance_fragment(&stripped);
+    // `balance_fragment(&namespace_author_ids(&strip_reserved_sync_attrs(md), prefix))`.
+    // The strip and the balancer are checked above; the strip→balance seam
+    // is where wave 1's defect actually reached a reader. The namespace step
+    // between them rewrites attribute values only, so the balancer must be
+    // handed the tag inventory the strip left. No atom or phrase carries an
+    // author id, so over generated input that step borrows and the seam is
+    // the strip's own bytes; it is in the chain so an id-bearing input is
+    // checked end to end, and its rewrites are pinned by `namespace_tests` in
+    // `lib.rs`.
+    let (namespaced, chained) = rest_of_pane_chain(&stripped);
+    if tag_inventory(&namespaced) != tag_inventory(&stripped) {
+        return Err(format!(
+            "the author-id namespace moved the tag inventory\n  stripped   = {stripped:?}\n  \
+             namespaced = {namespaced:?}"
+        ));
+    }
     if balance_fragment(&chained) != chained {
         return Err(format!(
             "the pane chain is not idempotent\n  chained = {chained:?}"
@@ -1184,7 +1210,7 @@ fn json_case(input: &str, out: &mut String) {
     let (direct, note) = next_block_is_direct_child(&balanced);
     // The pane chain in the order `render.rs` calls it — the bytes a reader's
     // browser is actually handed. P5/P6 above are about exactly this string.
-    let chained = balance_fragment(&strip_reserved_sync_attrs(input));
+    let (_, chained) = rest_of_pane_chain(&strip_reserved_sync_attrs(input));
 
     out.push_str("{\"input\":");
     json_str(input, out);
@@ -1354,12 +1380,15 @@ fn emit_browser_oracle_corpus() {
 /// 2. **A comment was minted that swallows the rest of the pane.**
 /// 3. **An end tag was minted that closes the wrapper early**, putting the
 ///    block's tail outside its own anchor.
-/// 4. **A `strip_reserved_sync_attrs` bypass.** The render path is
-///    `balance_fragment(&strip_reserved_sync_attrs(md))`. The strip runs first
-///    and correctly leaves `div data-sync-id="p-0009">` alone — it is text,
-///    not a tag. The balancer then welded it into a live `<div>` carrying a
-///    live `data-sync-id`. Same class as ti e20490 and ti 2e2453, one stage
-///    later. Neither layer was wrong in isolation; the composition was.
+/// 4. **A `strip_reserved_sync_attrs` bypass.** On the render path the strip
+///    runs before the balancer, and correctly leaves
+///    `div data-sync-id="p-0009">` alone — it is text, not a tag.
+///    (`namespace_author_ids` runs between the two (DCR-0063); it rewrites
+///    only attribute values on tokenized tags, so these text bytes reach the
+///    balancer exactly as the strip left them.) The balancer then welded them
+///    into a live `<div>` carrying a live `data-sync-id`. Same class as ti
+///    e20490 and ti 2e2453, one stage later. Neither layer was wrong in
+///    isolation; the composition was.
 ///
 /// # What the fix does to each of them
 ///

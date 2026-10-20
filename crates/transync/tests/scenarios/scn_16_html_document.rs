@@ -91,6 +91,32 @@ async fn smoke_scn_16_identity_and_the_title_row() {
     );
 }
 
+/// R0012-0015 (DCR-0063): the shells mount both panes into one document, so
+/// the fixture's `<h1 id="top">` used to appear twice in it. Each pane now
+/// carries its own copy of the id, and the published document keeps the
+/// author's.
+#[tokio::test]
+async fn smoke_scn_16_author_ids_are_pane_namespaced_and_published_verbatim() {
+    let translator = MockTranslator::passthrough();
+    let out = translate(SRC, &html_opts(), &translator).await.expect("Ok");
+    assert!(
+        out.annotated_source_html
+            .contains("<h1 id=\"transync-src--top\" data-sync-id=\"h1-0002\""),
+        "{}",
+        out.annotated_source_html
+    );
+    assert!(
+        out.annotated_target_html
+            .contains("<h1 id=\"transync-tgt--top\" data-sync-id=\"h1-0002\""),
+        "{}",
+        out.annotated_target_html
+    );
+    for pane in [&out.annotated_source_html, &out.annotated_target_html] {
+        assert!(!pane.contains(" id=\"top\""), "{pane}");
+    }
+    assert!(out.translated_document.contains("<h1 id=\"top\">"));
+}
+
 #[tokio::test]
 async fn smoke_scn_16_per_block_fallback_is_verbatim_source() {
     // Leg 2 (invariant 6, the retry-then-fallback proof): p-0006 — the

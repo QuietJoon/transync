@@ -116,6 +116,35 @@ async fn smoke_scn_15() {
     );
 }
 
+/// R0012-0015 (DCR-0063): a raw-HTML block's author id and the Markdown link
+/// that points at it reach each pane in that pane's own namespace, so the two
+/// panes mounted into one document share no id. `out.md` keeps the author's
+/// bytes.
+#[tokio::test]
+async fn author_ids_and_their_links_are_pane_namespaced_but_published_verbatim() {
+    let src = "<div id=\"chapter\">The chapter.</div>\n\n[Jump to the chapter](#chapter)\n";
+    let translator = MockTranslator::passthrough();
+    let output = translate(src, &opts(), &translator).await.expect("Ok");
+    assert_eq!(output.translated_document, src);
+    for (pane, prefix) in [
+        (&output.annotated_source_html, "transync-src--"),
+        (&output.annotated_target_html, "transync-tgt--"),
+    ] {
+        assert!(
+            pane.contains(&format!("<div id=\"{prefix}chapter\">The chapter.</div>")),
+            "{pane}"
+        );
+        assert!(
+            pane.contains(&format!("<a href=\"#{prefix}chapter\">")),
+            "{pane}"
+        );
+        assert!(
+            !pane.contains("\"chapter\"") && !pane.contains("\"#chapter\""),
+            "{pane}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn translated_segments_are_spliced_and_markup_survives() {
     let translator = MockTranslator::tamper_payload("Click to expand", "펼치기");

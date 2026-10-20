@@ -95,27 +95,67 @@ const state = {
   debounceTimer: null,
 };
 
-function paneEl(id) {
-  return document.getElementById(id);
+/**
+ * The demo's own elements, keyed by the name this module uses for each, with
+ * the id `demo-wasm.html` gives it.
+ */
+const SHELL_ELEMENT_IDS = {
+  source: "source",
+  target: "target",
+  editor: "editor",
+  editorLabel: "editor-label",
+  statusStrip: "status-strip",
+  errorStrip: "error-strip",
+};
+
+/**
+ * Those elements, resolved ONCE, by `cacheShellElements` at the top of
+ * `boot()` — before any pane is mounted — and never looked up by id again
+ * (R0012-0015).
+ *
+ * A pane is rendered document content, mounted into the page these elements
+ * live in and ahead of the editor in tree order, so a lookup by id at each
+ * use asks a question the content can answer: a mounted block carrying
+ * `id="editor"` becomes the element `openEditor` writes into and `applyEdit`
+ * reads from, one carrying `id="target"` inside the source pane receives the
+ * next target render, and one carrying a strip's id takes that strip's
+ * messages. The renderer gives every author id a per-pane prefix
+ * (`contracts.md` §4), so transync's own panes cannot carry such an id; the
+ * cache is the half that holds whatever a pane holds, because nothing
+ * mounted after boot is ever asked.
+ */
+const ui = {
+  source: null,
+  target: null,
+  editor: null,
+  editorLabel: null,
+  statusStrip: null,
+  errorStrip: null,
+};
+
+function cacheShellElements() {
+  for (const [key, id] of Object.entries(SHELL_ELEMENT_IDS)) {
+    ui[key] = document.getElementById(id);
+  }
 }
 
 /**
- * The element ids this module dereferences without a null check: the two
- * panes (`mountPanes` reads their `innerHTML` and `scrollTop` before it
- * writes) and the editor (`openEditor` writes its `value`). Missing any of
- * them is template drift in `demo-wasm.html`, and it used to surface as an
- * uncaught TypeError out of `boot()` or out of a debounce timer, leaving the
- * page stuck at `data-demo-state="booting"` — the one failure the demo
- * presents by not presenting anything (R0003-0069).
+ * The elements this module dereferences without a null check: the two panes
+ * (`mountPanes` reads their `innerHTML` and `scrollTop` before it writes) and
+ * the editor (`openEditor` writes its `value`). Missing any of them is
+ * template drift in `demo-wasm.html`, and it used to surface as an uncaught
+ * TypeError out of `boot()` or out of a debounce timer, leaving the page
+ * stuck at `data-demo-state="booting"` — the one failure the demo presents by
+ * not presenting anything (R0003-0069).
  *
- * The strips (`error-strip`, `status-strip`, `editor-label`) are absent from
+ * The strips (`errorStrip`, `statusStrip`, `editorLabel`) are absent from
  * this list on purpose: every writer already null-guards them, because a
  * demo that cannot show its message must still take its decision.
  */
-const REQUIRED_ELEMENT_IDS = ["source", "target", "editor"];
+const REQUIRED_ELEMENTS = ["source", "target", "editor"];
 
 function missingElementIds() {
-  return REQUIRED_ELEMENT_IDS.filter((id) => !document.getElementById(id));
+  return REQUIRED_ELEMENTS.filter((key) => !ui[key]).map((key) => SHELL_ELEMENT_IDS[key]);
 }
 
 /* ------------------------------------------------------------------ *
@@ -128,8 +168,8 @@ function missingElementIds() {
  */
 function showFatal(message) {
   const text = `transync: ${message}`;
-  const source = paneEl("source");
-  const target = paneEl("target");
+  const source = ui.source;
+  const target = ui.target;
   if (source) source.textContent = text;
   if (target) target.textContent = "";
   showError(text);
@@ -139,21 +179,21 @@ function showFatal(message) {
 
 /** Recoverable (e.g. a rejected edit): strip only, panes untouched. */
 function showError(message) {
-  const strip = document.getElementById("error-strip");
+  const strip = ui.errorStrip;
   if (!strip) return;
   strip.textContent = message;
   strip.hidden = false;
 }
 
 function clearError() {
-  const strip = document.getElementById("error-strip");
+  const strip = ui.errorStrip;
   if (!strip) return;
   strip.textContent = "";
   strip.hidden = true;
 }
 
 function setStatus(message) {
-  const strip = document.getElementById("status-strip");
+  const strip = ui.statusStrip;
   if (strip) strip.textContent = message;
 }
 
@@ -480,8 +520,8 @@ function applyPaneLanguages() {
   const wantsDetection = requested.toLowerCase() === SOURCE_LANGUAGE_SENTINEL;
   const source = wantsDetection ? languageLabel(state.detected) : requested;
   const target = languageLabel(state.targetLang);
-  if (source) paneEl("source").lang = source;
-  if (target) paneEl("target").lang = target;
+  if (source) ui.source.lang = source;
+  if (target) ui.target.lang = target;
 }
 
 /* ------------------------------------------------------------------ *
@@ -514,8 +554,8 @@ function applyPaneLanguages() {
  * the last good map over it, and reports `false`.
  */
 function mountPanes(srcHtml, tgtHtml, map, carry) {
-  const source = paneEl("source");
-  const target = paneEl("target");
+  const source = ui.source;
+  const target = ui.target;
   // OI-0001: re-checked on every mount, not just at boot — a mount without
   // DOMPurify must never happen, however we got here.
   if (!window.DOMPurify) {
@@ -617,7 +657,7 @@ function restorePanes(source, target, previous) {
  * where the keyboard path is announced.
  */
 function markEditable() {
-  const target = paneEl("target");
+  const target = ui.target;
   if (!target) return;
   for (const anchor of target.querySelectorAll("[data-sync-id]")) {
     if (state.editable.has(anchor.dataset.syncId)) anchor.tabIndex = 0;
@@ -626,7 +666,7 @@ function markEditable() {
 
 /** Re-apply the selection outline; the class dies with each innerHTML swap. */
 function markEditing() {
-  for (const pane of [paneEl("source"), paneEl("target")]) {
+  for (const pane of [ui.source, ui.target]) {
     if (!pane) continue;
     for (const el of pane.querySelectorAll(".is-editing")) {
       el.classList.remove("is-editing");
@@ -683,8 +723,8 @@ function restoreDetails(pane, snapshot) {
 const INTERACTIVE_SELECTOR = "a, button, summary, input, select, textarea, label";
 
 function wireEditing() {
-  const target = paneEl("target");
-  const editor = document.getElementById("editor");
+  const target = ui.target;
+  const editor = ui.editor;
   if (!target || !editor) return;
 
   target.addEventListener("click", (event) => {
@@ -747,7 +787,7 @@ function openEditor(id) {
   // then writes the INCOMING block's freshly loaded value into the outgoing
   // block's payload. Land the pending edit before the swap instead.
   flushPendingEdit();
-  const editor = document.getElementById("editor");
+  const editor = ui.editor;
   state.editingId = id;
   // A draft outranks the accepted payload: it is what the user typed and it
   // is the only copy left (R0003-0003). Re-priming from `state.payloads`
@@ -756,7 +796,7 @@ function openEditor(id) {
   // user's work would be gone.
   editor.value = state.drafts[id] ?? state.payloads[id] ?? "";
   editor.disabled = false;
-  const label = document.getElementById("editor-label");
+  const label = ui.editorLabel;
   if (label) label.textContent = `editing ${id}`;
   setStatus(`editing ${id} — changes re-render after ${DEBOUNCE_MS} ms`);
   markEditing();
@@ -790,7 +830,7 @@ function applyEdit() {
   // `flushPendingEdit` beat it to it), so the flag means exactly "a rebuild
   // is still owed" and a later flush cannot re-run a landed edit.
   state.debounceTimer = null;
-  const editor = document.getElementById("editor");
+  const editor = ui.editor;
   if (!state.editingId) return;
   const editingId = state.editingId;
   // Kept whatever the outcome: this is the user's text, and after a
@@ -830,8 +870,8 @@ function applyEdit() {
     return;
   }
 
-  const source = paneEl("source");
-  const target = paneEl("target");
+  const source = ui.source;
+  const target = ui.target;
   // Captured before the swap: both live only in the DOM and die with it.
   const carry = {
     details: { source: captureDetails(source), target: captureDetails(target) },
@@ -868,6 +908,9 @@ function applyEdit() {
 
 async function boot() {
   document.body.dataset.demoState = "booting";
+  // R0012-0015: before anything else, and above all before any pane is
+  // mounted — after this the demo never looks its own elements up again.
+  cacheShellElements();
   // R0003-0069, first of all the gates: the page this module drives is
   // checked into the repo, so a missing pane or editor is drift rather than
   // data — and it costs nothing to say so before fetching a ~1.7 MB wasm

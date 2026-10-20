@@ -119,7 +119,11 @@ pages); anchoring the title (there is nothing in the pane to anchor).
 exist to sync blocks, exactly as they do for Markdown. Viewing the real
 translated page — head, scripts, styles, layout — is `transync serve` over the
 published `out.html`. *Rejected:* panes-as-fidelity-preview / whole-document
-annotated panes.
+annotated panes. Declining fidelity does not license one pane's markup to
+resolve into the other: the shells mount both panes into one page, so each
+pane carries the author's ids in a namespace of its own (`transync-src--`,
+`transync-tgt--`) and its same-pane references move with them, while
+`out.html` keeps the author's ids (R0012-0015, DCR-0063; `contracts.md` §4).
 
 **D7 — Entity drift accepted.** Translated segments lose named-entity spelling
 (`&nbsp;` → U+00A0, `&copy;` → ©); untouched segments and identity-skipped
@@ -226,7 +230,10 @@ reader does not mistake it for an oversight.
    text loses named and numeric entity forms. Untouched and identity-skipped
    segments keep their source bytes exactly.
 3. **Panes carry no page layout** (D6): no styles, no scripts, no page chrome in
-   the sync surface.
+   the sync surface. **A pane's author ids are prefixed** (D6, DCR-0063), so a
+   deep link or a selector written against the page's own ids addresses the
+   published document, not a pane, and an id on a pass-through container never
+   reaches a pane at all.
 4. **`<ul>`/`<ol>` markup is gap, and the anchor is per item** (D9): the list's
    own tags never translate — they contain no text — and carry no anchor of
    their own.

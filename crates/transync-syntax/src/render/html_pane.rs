@@ -22,6 +22,14 @@
 //!    is what makes "ours are the only sync attributes" a construction
 //!    rather than a scan; reversing the order strips the anchors this
 //!    module just injected and silently reopens OI-0035;
+//!    then **namespace** the block's author ids
+//!    ([`transync_html::namespace_author_ids`], R0012-0015 / DCR-0063): the
+//!    shells mount both panes into one document, so each pane's ids and the
+//!    same-pane references to them (`href="#…"`, `for`, `headers`, the ARIA
+//!    ID references, `usemap`, `url(#…)`) carry the pane's own prefix. It
+//!    rewrites attribute values only — never a `data-*` name — so the strip's
+//!    construction stands, and the published document keeps the author's
+//!    ids;
 //! 3. **inject** the four canonical attributes (`attrs::write_attrs`, so
 //!    the two formats' spelling and order cannot fork) into the block's
 //!    OWN outermost element's open tag — for the semantic kinds an HTML
@@ -198,8 +206,8 @@ fn emit_list_group(
 }
 
 /// One row: skip non-sync, key the placeholder on the OUTCOME (Deviation 3)
-/// or on the nesting ceiling, otherwise strip → inject-or-wrap → balance
-/// (§8 steps 2–5).
+/// or on the nesting ceiling, otherwise strip → namespace → inject-or-wrap →
+/// balance (§8 steps 2–5, plus the author-id namespace of DCR-0063).
 fn emit_block(
     out: &mut String,
     block: &Block,
@@ -243,6 +251,13 @@ fn emit_block(
     // the injection point, so our injected attributes cannot be stripped and
     // an author's reserved-namespace attributes cannot survive.
     let stripped = transync_html::strip_reserved_sync_attrs(bytes);
+    // R0012-0015 (DCR-0063): then the author-id namespace — the block's own
+    // ids and the same-pane references to them take this pane's prefix, so
+    // the two panes mounted into one document share no id. Between strip and
+    // inject: it rewrites attribute values only, never a `data-*` name, so
+    // the strip's construction stands and the injection scans the bytes it
+    // lands in.
+    let namespaced = transync_html::namespace_author_ids(&stripped, ctx.pane.id_prefix());
     // ti d4bce2: the self-injection boundary is the block's KIND, read off
     // the ROW — the artifact DCR-0044 made the authority, and the same value
     // render.rs's Markdown arm keys its own unconditional wrapper on. A
@@ -250,7 +265,7 @@ fn emit_block(
     // "html", so this is `BlockKind::Html` by another name, without a second
     // 16-arm match to keep in step with the enum.
     let self_injectable = row.block_kind != "html";
-    let fragment = injected_fragment(stripped.trim(), &attrs_str, self_injectable);
+    let fragment = injected_fragment(namespaced.trim(), &attrs_str, self_injectable);
     let _ = writeln!(out, "{fragment}");
 }
 
@@ -774,6 +789,70 @@ mod html_pane_tests {
             pane.contains("</text></svg>"),
             "the author's closer survives:\n{pane}"
         );
+    }
+
+    /// Every `id="…"` value in a pane, in document order.
+    fn author_ids(pane: &str) -> Vec<String> {
+        let mut ids = Vec::new();
+        let mut rest = pane;
+        while let Some(i) = rest.find(" id=\"") {
+            let tail = &rest[i + " id=\"".len()..];
+            let end = tail.find('"').expect("a closed id value");
+            ids.push(tail[..end].to_string());
+            rest = &tail[end..];
+        }
+        ids
+    }
+
+    /// R0012-0015 (DCR-0063): the two panes are mounted into ONE document, so
+    /// an author id both panes carried made every same-document lookup from
+    /// the target pane — fragment navigation, `headers`, `for` — land in the
+    /// source pane, which comes first in tree order. Each pane now owns its
+    /// own id space, and the references inside it move with it.
+    #[test]
+    fn author_ids_are_pane_namespaced_and_disjoint() {
+        let r = rig("<h2 id=\"install\">Install</h2>\n\
+             <p><a href=\"#install\">go</a> <label for=\"f\">F</label><input id=\"f\"></p>\n\
+             <table><tr><th id=\"side\">Side</th></tr><tr><td headers=\"side\">x</td></tr></table>\n");
+        let s = render_source_html(&r.doc, &r.map, &r.outcomes).expect("source");
+        let t = render_target_html(&r.doc, &r.translated, &r.map, &r.outcomes).expect("target");
+        for (pane, prefix) in [(&s, "transync-src--"), (&t, "transync-tgt--")] {
+            for want in [
+                format!("<h2 id=\"{prefix}install\""),
+                format!("href=\"#{prefix}install\""),
+                format!("for=\"{prefix}f\""),
+                format!("<input id=\"{prefix}f\">"),
+                format!("<th id=\"{prefix}side\">"),
+                format!("headers=\"{prefix}side\""),
+            ] {
+                assert!(pane.contains(&want), "missing {want}:\n{pane}");
+            }
+        }
+        let (src_ids, tgt_ids) = (author_ids(&s), author_ids(&t));
+        assert_eq!(src_ids.len(), 3, "{s}");
+        assert!(
+            src_ids.iter().all(|id| !tgt_ids.contains(id)),
+            "the two panes share no id: {src_ids:?} / {tgt_ids:?}"
+        );
+        assert!(
+            r.translated.contains("<h2 id=\"install\">")
+                && r.translated.contains("href=\"#install\""),
+            "the published document keeps the author's own ids:\n{}",
+            r.translated
+        );
+    }
+
+    /// The namespacing is pane-only and never reaches the sync currency: the
+    /// anchors a block gets are the same with or without author ids on it.
+    #[test]
+    fn namespacing_leaves_the_sync_attributes_alone() {
+        let r = rig("<p id=\"p-0001\" data-sync-id=\"p-0001\">x</p>\n");
+        let pane = render_source_html(&r.doc, &r.map, &r.outcomes).expect("renders");
+        assert!(
+            pane.contains("<p id=\"transync-src--p-0001\" data-sync-id=\"p-0001\""),
+            "an author id that happens to look like a block id is still an author id:\n{pane}"
+        );
+        assert_eq!(pane.matches("data-sync-id=").count(), 1, "{pane}");
     }
 
     /// R0013-0002 (DCR-0063): a block whose own bytes nest past the HTML

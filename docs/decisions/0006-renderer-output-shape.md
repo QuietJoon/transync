@@ -98,6 +98,20 @@ directly, which is exactly what `transync-wasm` does.
 - `transync_syntax::render::render_target(doc, translated_md, alignment) -> Result<String, RenderError>` — fragment only.
 - `transync_syntax::render::render_source_html(doc, alignment, outcomes)` / `render_target_html(doc, translated_html, alignment, outcomes)` — the panes of an `--input-format html` run (DCR-0038): the same `<main>` fragment shape and the same map refusals, built from the rows' byte ranges. Each block's reserved sync attributes are stripped and the four canonical ones injected into its own outermost element; a block with no covering element of its own (a text run, an image run) and every `html`-kind block get a transparent `<div>` instead. No Comrak parse runs, and the target pane still passes the `markdown::intake` guard `render_target` applies.
 
+**Each pane names the author's ids in a namespace of its own** (R0012-0015,
+DCR-0063). The shells mount both fragments into one page, where an id both
+carried would send every same-document lookup from the target pane — a
+fragment link, a label, a table header — into the source pane. The renderer
+prefixes the source pane's author ids with `transync-src--` and the target
+pane's with `transync-tgt--`, and moves the same-pane references with them;
+`contracts.md` §4 owns the attribute list and the residuals. The *Independent reuse* driver
+therefore holds with one qualification. A pane file loaded or embedded on its
+own keeps its in-pane links, labels and header cells working, but an external
+deep link into it, and consumer CSS or script keyed on an author id, address
+the prefixed id: `source.html#transync-src--install`, never
+`source.html#install`. The author's own ids are in the published document,
+which the renderer never touches.
+
 For a Markdown run, each pane is **one Comrak parse** (DCR-0017): its top-level AST node sequence
 is zipped against the alignment rows, and each paired node is formatted — its
 children for the strip-kinds, the whole node for table / code block /
@@ -197,7 +211,8 @@ consumer reads. Bundle assembly reads pipeline state instead, which is why
 ## Consequences
 
 - **Good:** Renderer stays a pure function from IR + alignment → block-tree HTML. WASM track-C reuses it byte-for-byte. That is literal: the renderer's crate compiles for `wasm32-unknown-unknown` under a standing gate.
-- **Good:** Each pane file is independently inspectable, diffable, and embeddable.
+- **Good:** Each pane file is independently inspectable, diffable, and embeddable, and the two can share one page because each names its author ids in its own namespace.
+- **Bad:** A consumer that deep-links into one pane file, or styles or scripts it by an author id, addresses the pane's prefixed id rather than the author's (`contracts.md` §4); the author's ids live in the published document.
 - **Good:** Atomic-write contract maps to one file = one rename; the shell never partially overlays a previous run. That holds for every file and for any failure while staging; the rename pass is the one window, described under *What the bundle commit guarantees*.
 - **Good:** The SCN-13 smoke driver can `curl` `source.html` or `target.html` and grep for `data-sync-id` without parsing a multi-pane composite document.
 - **Bad:** Six files instead of one. Mitigated by the fact that the CLI ships them together, staged as one fileset, and that `transync serve` binds `127.0.0.1:7470` by default and serves the `--rendered` directory, path-confined to it, with a content-type table that covers exactly this bundle's file set — so the server that turns the six files back into one page is the same binary that wrote them. An external static server (e.g. `python3 -m http.server`) still works: the bundle is self-contained, which is the property that made the mitigation valid in the first place and is what the rejected **Three-file no-shell** option was measured against. `contracts.md` §6 carries the server's contract; `docs/project/stub-manifest.md` records the STUB-061 closure.
