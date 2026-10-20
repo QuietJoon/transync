@@ -45,6 +45,9 @@ source "$REPO_ROOT/scripts/lib/workdir.sh"
 # for bare `pnpm exec playwright test` runs, not for this wrapper).
 WORKDIR="$(transync_pick_workdir TRANSYNC_FIXTURE_WORKDIR /Volumes/Temp/claude/transync-browser-fixture)"
 transync_guard_workdir test-browser TRANSYNC_FIXTURE_WORKDIR "$WORKDIR"
+# Every fixture, spec and source this run reads lives in the checkout, so a
+# workdir holding the checkout would delete them before use (R0012-0003).
+transync_guard_read_side test-browser TRANSYNC_FIXTURE_WORKDIR "$WORKDIR" "$REPO_ROOT"
 
 HTML_OUT="$WORKDIR/html"
 INPUT="$REPO_ROOT/crates/transync/tests/fixtures/scn-14-full.md"

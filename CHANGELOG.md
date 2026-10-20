@@ -116,6 +116,9 @@ finally enumerates is decided per item, not by this preamble.
   `all` runs too, and reads a key it is missing from that key's gitignored
   file at the repository root (`.openai.api_key`, `.anthropic.api_key`,
   `.gemini.api_key`, `.google_vertex.api_key`).
+- **The live gate checks a model or base-URL override only for the legs that
+  read it** (R0012-0027, DCR-0063), so a padded Google model or a bad
+  Anthropic URL no longer refuses a `chat` run. `all` still checks all six.
 
 - **Glossary and section keys use Unicode full case folding** instead of
   `str::to_lowercase` (R0010-0063). They are different operations, and the
@@ -415,6 +418,31 @@ finally enumerates is decided per item, not by this preamble.
   returns `Translate(Reason::ForeignOrthography)` where it returned
   `AlreadyTarget`, and target-language text quoting one such word is now
   translated.
+- **The smoke scripts no longer delete what their run is about to read**
+  (R0012-0003, DCR-0063). `scripts/smoke-live.sh` wiped its workdir before
+  opening the input, profile and prompt file, and the deletion guard asked
+  only whether the workdir was disposable, so an input inside
+  `TRANSYNC_LIVE_WORKDIR` (the last run's `out.md`, say) was gone before
+  translation began; `smoke.sh` and `test-browser.sh` did the same to a
+  checkout under their workdir. `transync_guard_read_side` now refuses,
+  exit 1, before `rm -rf`, comparing by identity after following each
+  link. A workdir named as a link without a trailing slash puts only the link
+  at stake.
+- **The pre-commit hook refuses a commit it would not be checking**
+  (R0012-0016, DCR-0063). Its gates read the working tree, so an edit made
+  after `git add` (`cargo fmt` without re-staging) or an untracked module
+  passed the hook while the commit carried something else. **Visible:** a
+  `NOT CHECKABLE` refusal, before any gate runs, for a staged gate input
+  whose working copy differs or an untracked gate input, and an end-of-run
+  warning when the working tree edits gate inputs the commit leaves alone.
+  Two sessions editing one gate-input file now take turns on it.
+- **The live gate names every leg's test exactly and checks them all before
+  spending** (R0012-0017, DCR-0063). `all` and `anthropic` passed an empty
+  filter, so under `all` a deleted or un-ignored responses test left chat
+  certifying both OpenAI surfaces, and each leg's inventory was checked only
+  just before that leg ran. **Visible:** `--exact` everywhere, a refusal naming
+  the missing test before the first paid call, and a closing line naming the
+  legs that ran.
 
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above

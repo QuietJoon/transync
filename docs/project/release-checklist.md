@@ -273,7 +273,9 @@ Run all of them on the exact commit from step 1, and keep the output.
    over every tracked `.js`/`.mjs`/`.cjs` (OI-0039 / DCR-0049, DCR-0056), on
    the release-prep commit, so
    running them here is an early check, not a substitute — and the hook is
-   never bypassed with `--no-verify`. Install the JS toolchain before that
+   never bypassed with `--no-verify`. Its first step refuses a commit whose
+   staged gate inputs differ from the working tree or leave one untracked
+   (R0012-0016, DCR-0063), so stage the release-prep files whole. Install the JS toolchain before that
    commit (`cd web && pnpm install --frozen-lockfile`): a declared-but-uninstalled
    `@biomejs/biome` **fails** the hook rather than skipping it, so a fresh
    clone can fail the release-prep commit on a leg neither Rust command above
@@ -404,7 +406,10 @@ Run all of them on the exact commit from step 1, and keep the output.
     `ANTHROPIC_API_KEY` in this environment (`status.md` carries that gap).
     The script supplies both gates the `#[ignore]`d tests require and refuses
     to run without a requested leg's key or project; the Vertex test loads ADC
-    at adapter construction. A failure means real
+    at adapter construction. It also refuses, before the first paid call,
+    when a requested leg's test is not among its crate's ignored tests by
+    exact name (R0012-0017, DCR-0063), and it checks a model or base-URL
+    override only for the legs that read it (R0012-0027). A failure means real
     drift — transport, auth, schema, or model behavior — because the
     assertions are structural (unit count, matching anchor counts,
     `fallback_source < total_units`, non-empty output differing from the

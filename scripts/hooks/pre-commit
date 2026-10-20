@@ -21,6 +21,12 @@
 # has been run. That is the intended shape: an adopted gate that quietly
 # does not run is the bug OI-0039 was filed for.
 #
+# Every gate reads the working tree, and the commit records the index. So
+# before any of them runs, scripts/lib/commit-snapshot-guard.sh refuses a
+# commit whose gate inputs disagree with the tree the gates would read
+# (R0012-0016), and the end of the run warns when that tree carries gate-input
+# edits the commit does not. The library's header has the policy.
+#
 # Install with: scripts/install-hooks.sh
 
 set -uo pipefail
@@ -29,6 +35,19 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 fail=0
+
+# --- The tree under check is the tree being committed ------------------------
+# First, and in milliseconds: there is no point spending the gates below on a
+# tree the commit does not record. A missing library is a refusal, not a skip.
+snapshot_guard_lib="scripts/lib/commit-snapshot-guard.sh"
+if [ ! -f "$snapshot_guard_lib" ]; then
+  echo "[pre-commit] FAIL: $snapshot_guard_lib is missing, so nothing shows the gates would check this commit" >&2
+  exit 1
+fi
+# shellcheck source-path=SCRIPTDIR/.. source=lib/commit-snapshot-guard.sh
+. "$snapshot_guard_lib"
+echo "[pre-commit] commit snapshot: gate inputs in the index vs the working tree"
+transync_commit_snapshot_guard || exit 1
 
 # --- Rust ---------------------------------------------------------------------
 if [ -f Cargo.toml ]; then
@@ -316,6 +335,24 @@ if [ -n "$js_ran$js_skipped$js_broken$js_orphaned" ]; then
       echo "[pre-commit] test runs."
     fi
     echo "[pre-commit] docs/project/open-issues.md OI-0039 holds the measurements."
+    echo "[pre-commit] ----------------------------------------------------------"
+  } >&2
+fi
+
+# The snapshot guard's warned case (R0012-0016): gate inputs this commit does
+# not change but the working tree does. Every gate above read them, so the
+# verdict covers more than the commit. Said last, beside the verdict.
+if ((${#TRANSYNC_SNAPSHOT_OUTSIDE[@]})); then
+  {
+    echo "[pre-commit] ----------------------------------------------------------"
+    echo "[pre-commit] WARNING: THIS VERDICT COVERS A SUPERSET OF THE COMMIT."
+    echo "[pre-commit]   These gate inputs carry working-tree edits the commit does not,"
+    echo "[pre-commit]   and every gate above read them:"
+    for snapshot_path in "${TRANSYNC_SNAPSHOT_OUTSIDE[@]}"; do
+      echo "[pre-commit]     $snapshot_path"
+    done
+    echo "[pre-commit]   A staged change that builds only against one of them passed here"
+    echo "[pre-commit]   and does not build in the commit (docs/Troubleshooting.md)."
     echo "[pre-commit] ----------------------------------------------------------"
   } >&2
 fi

@@ -550,7 +550,8 @@ that process exits, `SIGKILL` included, so ending it unblocks this run.
 ## `cargo fmt --all -- --check` blocks the commit
 
 The pre-commit hook enforces `cargo fmt`. Run `cargo fmt --all` and
-re-stage. Formatting is one of five Rust gates in the tracked
+re-stage — a formatted working copy over an unformatted staged one is
+refused as `NOT CHECKABLE` (below). Formatting is one of five Rust gates in the tracked
 `scripts/hooks/pre-commit` — rustdoc is two of them — and any of them
 failing blocks the commit:
 
@@ -580,6 +581,33 @@ runs `scripts/smoke.sh`. `docs/project/release-checklist.md` states the
 same rule for the release-prep commit (steps 7 and 24). Fix the failing
 gate instead; a gate that is wrong rather than you is worth a ticket,
 not a bypass.
+
+## `NOT CHECKABLE: the index and the working tree disagree on gate inputs`
+
+The hook's first step refused the commit before any gate ran
+(R0012-0016). Every gate reads the working tree and the commit records the
+index, so the hook will not grade a gate input that differs between them;
+`scripts/lib/commit-snapshot-guard.sh` lists the gate inputs. Each path is
+named under one of two headings:
+
+- **Staged, then changed again** — usually `cargo fmt --all`, or any edit,
+  after `git add`. `git diff -- <path>` shows the unstaged part: `git add`
+  it if it belongs in this commit, take it out of the working tree if not.
+- **Untracked** — usually a new module or fixture never added. `git add`
+  it if the commit needs it; otherwise delete it, move it out of the
+  checkout, or ignore it.
+
+`git commit -a` and `git commit <paths>` are judged on the index they
+build, so the same edits pass there. A file another session is also
+editing cannot be committed around: while its hunks sit in the working
+copy beside yours, the staged copy is not the file the hook would build.
+Take turns on that file — one session's change to it is committed before
+the other's goes in.
+
+A passing run that ends in `THIS VERDICT COVERS A SUPERSET OF THE COMMIT`
+names gate inputs the commit leaves alone but the working tree has edited.
+The gates read those edits, so a staged change that builds only against
+one of them passed here and does not build in the commit.
 
 ## `.ko.md` files keep appearing in `git status`
 

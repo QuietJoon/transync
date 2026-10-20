@@ -41,13 +41,19 @@
 # `gemini-3.8-flash` accepted the header, so the documented query form is one
 # spelling of this key and not the only one; no `?key=` fallback is needed.
 #
-# Optional:
-#   TRANSYNC_LIVE_SMOKE_CHAT_MODEL          — overrides default (gpt-4o-mini)
-#   TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL     — overrides default (gpt-5-mini)
-#   TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL     — overrides default (claude-haiku-4-5)
-#   TRANSYNC_LIVE_SMOKE_GOOGLE_MODEL        — overrides default (gemini-3.8-flash)
-#   TRANSYNC_OPENAI_BASE_URL                — overrides https://api.openai.com
-#   TRANSYNC_ANTHROPIC_BASE_URL             — overrides https://api.anthropic.com
+# Optional — each is shape-checked (unpadded model, absolute http(s) URL)
+# before any compile, and only when a selected leg reads it:
+#   TRANSYNC_LIVE_SMOKE_CHAT_MODEL          — overrides default (gpt-4o-mini); chat
+#   TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL     — overrides default (gpt-5-mini); responses
+#   TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL     — overrides default (claude-haiku-4-5); anthropic
+#   TRANSYNC_LIVE_SMOKE_GOOGLE_MODEL        — overrides default (gemini-3.8-flash); the google legs
+#   TRANSYNC_OPENAI_BASE_URL                — overrides https://api.openai.com; chat, responses
+#   TRANSYNC_ANTHROPIC_BASE_URL             — overrides https://api.anthropic.com; anthropic
+#
+# Every leg runs ONE live test, named exactly, and every selected leg's test
+# must be listed among its crate's ignored tests before the first paid call
+# of the run — a renamed, removed or un-ignored test refuses the run instead
+# of letting it print PASS over a leg that never ran.
 #
 # TRACE: OI-0030
 # TRACE: DCR-0029
@@ -64,19 +70,34 @@ SURFACE="${1:-all}"
 # its own credentials or project: the providers are separate accounts and spend, so
 # "all" without one of them is a misconfiguration to name now rather than a
 # leg that quietly reports nothing later.
+#
+# LEGS is the live tests this invocation runs, as <crate>:<test>, each named
+# exactly (R0012-0017). An empty filter would select whatever ignored tests
+# the binary happens to hold, so under `all` a deleted or un-ignored
+# responses test left chat standing in for both OpenAI surfaces. `all` is the
+# six single-surface legs, by name.
 NEEDS_OPENAI=0
 NEEDS_ANTHROPIC=0
 NEEDS_GOOGLE_VERTEX=0
 NEEDS_GOOGLE_DEVELOPER=0
 NEEDS_GOOGLE_VERTEX_EXPRESS=0
+LEG_CHAT=transync-openai:live_chat_surface_round_trip
+LEG_RESPONSES=transync-openai:live_responses_surface_round_trip
+LEG_ANTHROPIC=transync-anthropic:live_messages_api_round_trip
+LEG_GOOGLE_VERTEX=transync-google:vertex_live_smoke
+LEG_GOOGLE_VERTEX_EXPRESS=transync-google:vertex_express_live_smoke
+LEG_GOOGLE_DEVELOPER=transync-google:developer_live_smoke
 case "$SURFACE" in
-  chat)      NEEDS_OPENAI=1 ;;
-  responses) NEEDS_OPENAI=1 ;;
-  anthropic) NEEDS_ANTHROPIC=1 ;;
-  google-vertex) NEEDS_GOOGLE_VERTEX=1 ;;
-  google-developer) NEEDS_GOOGLE_DEVELOPER=1 ;;
-  google-vertex-express) NEEDS_GOOGLE_VERTEX_EXPRESS=1 ;;
-  all)       NEEDS_OPENAI=1; NEEDS_ANTHROPIC=1; NEEDS_GOOGLE_VERTEX=1; NEEDS_GOOGLE_VERTEX_EXPRESS=1; NEEDS_GOOGLE_DEVELOPER=1 ;;
+  chat)      NEEDS_OPENAI=1; LEGS=("$LEG_CHAT") ;;
+  responses) NEEDS_OPENAI=1; LEGS=("$LEG_RESPONSES") ;;
+  anthropic) NEEDS_ANTHROPIC=1; LEGS=("$LEG_ANTHROPIC") ;;
+  google-vertex) NEEDS_GOOGLE_VERTEX=1; LEGS=("$LEG_GOOGLE_VERTEX") ;;
+  google-developer) NEEDS_GOOGLE_DEVELOPER=1; LEGS=("$LEG_GOOGLE_DEVELOPER") ;;
+  google-vertex-express) NEEDS_GOOGLE_VERTEX_EXPRESS=1; LEGS=("$LEG_GOOGLE_VERTEX_EXPRESS") ;;
+  all)
+    NEEDS_OPENAI=1; NEEDS_ANTHROPIC=1; NEEDS_GOOGLE_VERTEX=1; NEEDS_GOOGLE_VERTEX_EXPRESS=1; NEEDS_GOOGLE_DEVELOPER=1
+    LEGS=("$LEG_CHAT" "$LEG_RESPONSES" "$LEG_ANTHROPIC" "$LEG_GOOGLE_VERTEX" "$LEG_GOOGLE_VERTEX_EXPRESS" "$LEG_GOOGLE_DEVELOPER")
+    ;;
   *)
     echo "[smoke-live-gate] unknown surface '${SURFACE}' (expected chat|responses|anthropic|google-vertex|google-vertex-express|google-developer|all)" >&2
     exit 1
@@ -185,50 +206,71 @@ if [[ $NEEDS_GOOGLE_VERTEX_EXPRESS -eq 1 ]]; then
   require_key GOOGLE_API_KEY
 fi
 
-# Checked for every surface, not per leg: these are the knobs an operator edits
-# once and forgets, and naming a bad one now is free whichever leg reads it.
-require_unpadded TRANSYNC_LIVE_SMOKE_CHAT_MODEL
-require_unpadded TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL
-require_unpadded TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL
-require_unpadded TRANSYNC_LIVE_SMOKE_GOOGLE_MODEL
-require_http_url TRANSYNC_OPENAI_BASE_URL
-require_http_url TRANSYNC_ANTHROPIC_BASE_URL
+# R0012-0027 — each override is shape-checked for the legs that read it, and
+# only for those, still before any compile (R0011-0057/0058). A leg this run
+# does not call cannot spend a request on a bad value, so a value only an
+# unselected leg reads is no reason to refuse the legs that do run; the run
+# that selects its leg checks it.
+check_leg_overrides() {
+  case "$1" in
+    live_chat_surface_round_trip)
+      require_unpadded TRANSYNC_LIVE_SMOKE_CHAT_MODEL
+      require_http_url TRANSYNC_OPENAI_BASE_URL
+      ;;
+    live_responses_surface_round_trip)
+      require_unpadded TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL
+      require_http_url TRANSYNC_OPENAI_BASE_URL
+      ;;
+    live_messages_api_round_trip)
+      require_unpadded TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL
+      require_http_url TRANSYNC_ANTHROPIC_BASE_URL
+      ;;
+    vertex_live_smoke | vertex_express_live_smoke | developer_live_smoke)
+      require_unpadded TRANSYNC_LIVE_SMOKE_GOOGLE_MODEL
+      ;;
+  esac
+}
 
-echo "[smoke-live-gate] running gated live smoke (${SURFACE}) — this spends real API tokens"
+for leg in "${LEGS[@]}"; do
+  check_leg_overrides "${leg#*:}"
+done
+
+# R0012-0017 — libtest exits 0 when a name filter selects zero tests, so a
+# leg whose test was renamed, removed or lost its #[ignore] would run nothing
+# and still print PASS. Each leg's test is listed by its exact name among the
+# crate's ignored tests, and EVERY selected leg is listed before the first
+# billable run: under `all`, a missing anthropic or google test refuses the
+# run before the OpenAI legs spend. `listed` is assigned apart from its
+# `local` so a failed compile still stops the script under `set -e`.
+check_leg() {
+  local package="$1" name="$2"
+  local listed
+  listed="$(cargo test -p "$package" --test live_smoke "$name" -- --ignored --exact --list)"
+  if ! grep -Fxq -- "$name: test" <<<"$listed"; then
+    echo "[smoke-live-gate] expected ignored live test '$name' is missing from $package (renamed, removed, or no longer #[ignore]) — refusing before any billable call." >&2
+    exit 1
+  fi
+}
 
 # --test-threads=1 keeps the live calls sequential (politeness towards the
 # endpoint + deterministic --nocapture logs). The repo-wide --test-threads=4
 # rule is a cap, so 1 is compliant.
 run_leg() {
-  local package="$1" filter="$2"
-  # libtest exits 0 when a name filter selects zero tests. Check the ignored
-  # test inventory before the billable run so a renamed/removed leg cannot
-  # make the release gate print PASS without exercising an API.
-  local selected
-  selected=$(cargo test -p "$package" --test live_smoke ${filter:+"$filter"} -- --ignored --list)
-  if ! printf '%s\n' "$selected" | awk '/: test$/ { found = 1 } END { exit !found }'; then
-    echo "[smoke-live-gate] no ignored live test matched '${filter:-<all>}' in $package." >&2
-    exit 1
-  fi
-  TRANSYNC_LIVE_SMOKE=1 cargo test -p "$package" --test live_smoke ${filter:+"$filter"} \
-    -- --ignored --test-threads=1 --nocapture
+  local package="$1" name="$2"
+  TRANSYNC_LIVE_SMOKE=1 cargo test -p "$package" --test live_smoke "$name" \
+    -- --ignored --exact --test-threads=1 --nocapture
 }
 
-case "$SURFACE" in
-  chat)      run_leg transync-openai    live_chat_surface_round_trip ;;
-  responses) run_leg transync-openai    live_responses_surface_round_trip ;;
-  anthropic) run_leg transync-anthropic "" ;;
-  google-vertex) run_leg transync-google vertex_live_smoke ;;
-  google-developer) run_leg transync-google developer_live_smoke ;;
-  google-vertex-express) run_leg transync-google vertex_express_live_smoke ;;
-  all)
-    run_leg transync-openai    ""
-    run_leg transync-anthropic ""
-    run_leg transync-google vertex_live_smoke
-    run_leg transync-google vertex_express_live_smoke
-    run_leg transync-google developer_live_smoke
-    ;;
-esac
+for leg in "${LEGS[@]}"; do
+  check_leg "${leg%%:*}" "${leg#*:}"
+done
+
+echo "[smoke-live-gate] running gated live smoke (${SURFACE}) — this spends real API tokens"
+
+for leg in "${LEGS[@]}"; do
+  run_leg "${leg%%:*}" "${leg#*:}"
+done
 
 echo "[smoke-live-gate] PASS — live round-trip validated."
+echo "[smoke-live-gate] legs run, each by exact name: ${LEGS[*]}"
 echo "[smoke-live-gate] For an interactive browser check, run scripts/smoke-live.sh"

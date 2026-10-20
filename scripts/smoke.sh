@@ -30,6 +30,9 @@ source "$REPO_ROOT/scripts/lib/workdir.sh"
 
 WORKDIR="$(transync_pick_workdir TRANSYNC_SMOKE_WORKDIR /Volumes/Temp/claude/transync-smoke)"
 transync_guard_workdir smoke TRANSYNC_SMOKE_WORKDIR "$WORKDIR"
+# Every input this run reads lives in the checkout, so a workdir holding
+# the checkout would delete the sources before they are built (R0012-0003).
+transync_guard_read_side smoke TRANSYNC_SMOKE_WORKDIR "$WORKDIR" "$REPO_ROOT"
 
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"

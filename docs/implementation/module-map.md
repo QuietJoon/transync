@@ -294,19 +294,23 @@ scripts/
 ├── test.sh                             # the workspace suite with the thread cap
 ├── test-long.sh                        # the long-running suite split out of test.sh
 ├── smoke-live.sh                       # one real provider round-trip
-├── smoke-live-gate.sh                  # the per-provider live gate (openai | anthropic | all)
+├── smoke-live-gate.sh                  # the per-provider live gate: six legs (chat, responses,
+│                                       #   anthropic, three google) or all, each test named exactly
 ├── smoke-live-long.sh                  # the long live gate
 ├── lib/rustdoc-gate.sh                 # THE one home of both rustdoc-gate crate lists plus
 │                                       #   the completeness check; sourced (never executed)
 │                                       #   by smoke.sh and by hooks/pre-commit
 ├── lib/workdir.sh                      # the shared scratch-workdir rule
-├── lib/workdir-guard.sh                # and its guard
-└── hooks/pre-commit                    # FIVE Rust legs — fmt, clippy --all-targets
-                                        #   --all-features, the two-package wasm gate, and the
-                                        #   two rustdoc legs (library crates; then
-                                        #   --document-private-items over the bin-only
-                                        #   transync-cli) — plus a JS format leg that SKIPS
-                                        #   (loudly) when web/ declares no linter
+├── lib/workdir-guard.sh                # and its guards: disposable, and holding nothing
+│                                       #   the run reads (R0012-0003)
+├── lib/commit-snapshot-guard.sh        # the hook's first step: refuses a commit whose gate
+│                                       #   inputs are not the tree the gates read (R0012-0016)
+└── hooks/pre-commit                    # the commit-snapshot guard first, then FIVE Rust
+                                        #   legs — fmt, clippy --all-targets --all-features,
+                                        #   the two-package wasm gate, and the two rustdoc legs
+                                        #   (library crates; then --document-private-items over
+                                        #   the bin-only transync-cli) — plus biome format and
+                                        #   lint over the tracked JS corpus (DCR-0056)
 ```
 
 ## Scenario → component coverage

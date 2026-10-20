@@ -17,7 +17,10 @@
 #   TRANSYNC_OPENAI_BASE_URL         — overrides https://api.openai.com
 #   TRANSYNC_LIVE_INPUT              — fixture path (default: SCN-01 fixture)
 #   TRANSYNC_LIVE_TARGET_LANG        — target language label, opaque (default: ko)
-#   TRANSYNC_LIVE_WORKDIR            — output directory (default: /Volumes/Temp/claude/transync-live)
+#   TRANSYNC_LIVE_WORKDIR            — output directory (default: /Volumes/Temp/claude/transync-live).
+#                                      Deleted and recreated every run, so it must not hold the
+#                                      input, the profile, the prompt file or the checkout — a
+#                                      run that would delete one of them refuses (R0012-0003).
 #   TRANSYNC_LIVE_PORT               — server port (default: 7470)
 #   TRANSYNC_LIVE_BIND               — address the demo server listens on (default: 127.0.0.1).
 #                                      Must be an IP literal: `transync serve --bind` parses an
@@ -139,7 +142,16 @@ fi
 # marker file. A typo'd TRANSYNC_LIVE_WORKDIR can't take down a real
 # directory, and (R0001-0002) a 'transync-' basename no longer excuses
 # one that lives outside every temp root.
+#
+# R0012-0003 — a disposable workdir can still hold what this run reads, and
+# everything below reads it only after the wipe: back-translating the last
+# run's out.md, or keeping a profile beside the outputs, deleted the very
+# file the run was about to open. The read-side guard refuses that before
+# anything is deleted. INPUT may be relative; the cwd is REPO_ROOT, which is
+# where translate resolves it too.
 transync_guard_workdir smoke-live TRANSYNC_LIVE_WORKDIR "$WORKDIR"
+transync_guard_read_side smoke-live TRANSYNC_LIVE_WORKDIR "$WORKDIR" \
+  "$REPO_ROOT" "$INPUT" "${TRANSYNC_LIVE_PROFILE:-}" "${TRANSYNC_LIVE_SYSTEM_PROMPT_FILE:-}"
 rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR"
 transync_mark_workdir "$WORKDIR"

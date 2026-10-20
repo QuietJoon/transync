@@ -11,7 +11,7 @@
 //! later by anything automatic; it is simply an unchecked commit until a human
 //! runs `scripts/smoke.sh`.
 //!
-//! Three checks:
+//! Four checks:
 //!
 //! - every `--no-verify` in a guarded living document sits in a paragraph that
 //!   also says `never`, so the mention can be the prohibition but not an
@@ -27,7 +27,12 @@
 //!   `crates/transync-cli/Cargo.toml` documented the `test-stub-provider`
 //!   feature as "Used by smoke + CI". A `CI` token in a guarded file must sit
 //!   in a segment that also says `no CI`, so the mention can be the denial but
-//!   not the claim.
+//!   not the claim;
+//! - the hook's first refusal — the commit-snapshot guard's `NOT CHECKABLE`
+//!   line (R0012-0016) — is a heading in `docs/Troubleshooting.md`, where a
+//!   developer it blocks searches for it, and `docs/Developer_Guide.md` names
+//!   the library that prints it. A refusal nobody can look up is the kind a
+//!   blocked developer is tempted to bypass.
 //!
 //! Snapshot documents (ADRs, DCRs, dated plans and status entries) are not
 //! guarded: they record what was true when written. The retired wave plans
@@ -77,6 +82,12 @@ const DOCS_CLAIMING_NO_CI: &[&str] = &[
     "docs/Troubleshooting.md",
     "docs/implementation/module-map.md",
 ];
+
+/// The library behind the hook's first step (R0012-0016), and the refusal
+/// headline it prints.
+const SNAPSHOT_GUARD: &str = "scripts/lib/commit-snapshot-guard.sh";
+const SNAPSHOT_REFUSAL: &str =
+    "NOT CHECKABLE: the index and the working tree disagree on gate inputs";
 
 /// Repo root, derived robustly from this crate's manifest dir
 /// (`crates/transync` -> `../..`). Same idiom as `docs_index_drift.rs`.
@@ -224,6 +235,28 @@ fn no_living_doc_claims_a_ci_runs_anything() {
          Name the run that really happens instead of a pipeline that does not, \
          or say `{CI_DENIAL}` in the same segment (ti 8c5156):\n  {}",
         offenders.join("\n  "),
+    );
+}
+
+#[test]
+fn the_hooks_snapshot_refusal_is_documented_where_a_blocked_commit_looks() {
+    assert!(
+        read(SNAPSHOT_GUARD).contains(SNAPSHOT_REFUSAL),
+        "{SNAPSHOT_GUARD} no longer prints `{SNAPSHOT_REFUSAL}`; update this \
+         constant and the docs/Troubleshooting.md heading to the new line"
+    );
+    let headed = read("docs/Troubleshooting.md")
+        .lines()
+        .any(|line| line.starts_with("## ") && line.contains(SNAPSHOT_REFUSAL));
+    assert!(
+        headed,
+        "docs/Troubleshooting.md has no heading carrying `{SNAPSHOT_REFUSAL}`, \
+         the line the pre-commit hook refuses with (R0012-0016)"
+    );
+    assert!(
+        read("docs/Developer_Guide.md").contains(SNAPSHOT_GUARD),
+        "docs/Developer_Guide.md no longer names {SNAPSHOT_GUARD}, the library \
+         that decides what the hook's first step refuses"
     );
 }
 
