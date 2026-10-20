@@ -47,11 +47,33 @@
 //! uncomfortable part — a dependency-free codepoint test ties the winner on
 //! real fixtures and is ten times faster, which is why it runs first.
 //!
+//! A script the target shares with languages outside the modelled set —
+//! Cyrillic, the Arabic script, Devanagari — is screened first for letters the
+//! target's orthography never uses (Ukrainian `ї`, Persian `ی`, Marathi `ळ`).
+//! One such letter means [`Verdict::Translate`] with
+//! [`Reason::ForeignOrthography`], however the rest of the text counts
+//! (DCR-0063).
+//!
+//! # Input domain
+//!
+//! The gate is **meaningful only for text in the languages it models** —
+//! [`Language`]'s sixteen. Both halves are closed-set, so text in another
+//! language can read as the target, and that is the direction that cancels a
+//! run. The letter screen narrows the exposure on the three shared scripts but
+//! does not close it: Bulgarian reads as Russian, and Nepali, Sanskrit and
+//! most Marathi as Hindi. Every Latin and Han target is decided by a backend
+//! that can only name a modelled language, so a neighbour it does not model
+//! can read as the target — Catalan as Spanish, Norwegian as Swedish,
+//! Cantonese as Chinese. Hangul and Kana are near-exclusive rather than
+//! exclusive: Jeju, Ainu and the Ryukyuan languages read as Korean or
+//! Japanese. [`Gate::verdict`] carries the full statement.
+//!
 //! TRACE: ti e4f4b0
 //! TRACE: benchmark/lang-detect/RESULTS.md
 
 mod backend;
-// Test-only scaffolding: the weld that keeps `whichlang` inside `backend`.
+// Test-only scaffolding: the weld that keeps `whichlang` inside `backend`'s
+// function bodies.
 // Declared under `cfg(test)` so it is scaffolding by construction rather
 // than by convention — it owns no state and ships nothing.
 #[cfg(test)]
@@ -156,8 +178,10 @@ impl Language {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Basis {
-    /// The target's own script carried at least a fifth of the letters, and no
-    /// other language in the backend's set writes that script.
+    /// The target's own script carried at least a fifth of the letters, no
+    /// other language in the backend's set writes that script, and none of
+    /// those letters is one the target's orthography never uses
+    /// ([`Reason::ForeignOrthography`]).
     ExclusiveScript,
     /// The backend named the target.
     Backend,
@@ -173,6 +197,12 @@ pub enum Reason {
     /// Not one character of the target's exclusive script, though the text has
     /// letters. Conclusive without the backend.
     ExclusiveScriptAbsent,
+    /// A letter of the target's script that the target's orthography never
+    /// uses — Ukrainian `ї` against a Russian target, Persian `ی` against
+    /// Arabic, Marathi `ळ` against Hindi. Another language writes that script,
+    /// and one such letter is evidence of it. Conclusive without the backend,
+    /// which cannot see the difference (R0012-0014, DCR-0063).
+    ForeignOrthography,
     /// The backend named some other language.
     BackendDiffers,
     /// **The gate does not know.** No letters to judge at all — punctuation,
@@ -252,6 +282,10 @@ impl Gate {
     ///    input, and that default would otherwise read as a real verdict.
     /// 2. **Target has an exclusive script** (Korean, Japanese, Russian,
     ///    Arabic, Hindi — see `script`):
+    ///    - any letter of that script the target's orthography never uses →
+    ///      [`Reason::ForeignOrthography`], whatever the ratio, so before both
+    ///      cases below (Russian, Arabic and Hindi; Hangul and Kana carry no
+    ///      such screen);
     ///    - at least a fifth of the letters in that script →
     ///      [`Basis::ExclusiveScript`];
     ///    - none of it, with other letters present →
@@ -270,10 +304,37 @@ impl Gate {
     /// (`benchmark/lang-detect/RESULTS.md`). The other four exclusive scripts
     /// take the same rule by construction — a script no other candidate writes
     /// — and their dilution behaviour has not been benchmarked.
+    ///
+    /// # Input domain
+    ///
+    /// A verdict is **meaningful only for text written in one of the
+    /// [`Language`]s this crate models** (DCR-0063). Both halves are closed-set:
+    /// the script test knows which scripts the modelled languages write, and
+    /// the backend can only name one of them. Text in any other language can
+    /// come back as [`Verdict::AlreadyTarget`] — the one direction that
+    /// cancels a run:
+    ///
+    /// - a language writing the target's script with no letter the target
+    ///   never uses: **Bulgarian** against Russian; **Nepali**, **Sanskrit**
+    ///   and most **Marathi** against Hindi;
+    /// - a language the backend reads as its nearest modelled neighbour, on
+    ///   any target the backend decides: **Catalan** against Spanish,
+    ///   **Norwegian** against Swedish, **Cantonese** written in Han against
+    ///   Chinese, and so on for every Latin and Han target;
+    /// - a language writing Hangul or kana, which are near-exclusive rather
+    ///   than exclusive: **Jeju** reads as Korean, **Ainu** and the
+    ///   **Ryukyuan** languages as Japanese.
+    ///
+    /// A caller that cannot rule such input out should not treat
+    /// `AlreadyTarget` as proof that no translation is needed.
     pub fn verdict(&self, text: &str) -> Verdict {
         if let Some(script) = ExclusiveScript::of(self.target) {
             match script::read(text, script) {
                 Reading::NoLetters => return Verdict::Translate(Reason::Undecided),
+                // Read before both the shortcut and the hand-off below: the
+                // backend cannot tell another orthography in this script from
+                // the target any better than the count can (R0012-0014).
+                Reading::Foreign => return Verdict::Translate(Reason::ForeignOrthography),
                 Reading::Dominant => return Verdict::AlreadyTarget(Basis::ExclusiveScript),
                 Reading::Absent => return Verdict::Translate(Reason::ExclusiveScriptAbsent),
                 // Present but a minority: exactly the band the backend is for.

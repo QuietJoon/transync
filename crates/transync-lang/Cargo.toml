@@ -1,6 +1,7 @@
 # The source-language gate — "should a translation run start at all?" (ti e4f4b0).
 #
-# ONE dependency, and NO workspace member, ever. The gate works on raw text: a
+# ONE normal dependency, and NO workspace member, ever — in `[dependencies]` and
+# `[dev-dependencies]` alike for the second rule. The gate works on raw text: a
 # codepoint test first, `whichlang` second, and nothing here needs a block, an
 # id, an alignment row or a parse. That absence is load-bearing rather than
 # incidental — it is what keeps the two questions this workspace answers about
@@ -34,5 +35,13 @@ repository.workspace   = true
 [dependencies]
 # The only dependency, chosen by measurement over `lingua` and `whatlang`
 # (benchmark/lang-detect/RESULTS.md). Named in exactly one source file,
-# `src/backend.rs`; `containment` fails the suite otherwise.
+# `src/backend.rs`, and there only inside function bodies — never in a
+# signature, a type, a `use`, an impl header or any other item, private ones
+# included; `containment` fails the suite otherwise (R0012-0021).
 whichlang = { workspace = true }
+
+[dev-dependencies]
+# `src/containment.rs` parses the crate's own sources to hold the rule above
+# (R0012-0021). Test-only: neither reaches a consumer's build.
+syn         = { workspace = true }
+proc-macro2 = { workspace = true }

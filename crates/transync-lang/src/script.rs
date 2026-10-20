@@ -5,6 +5,11 @@
 //! with no model and no dependency — and the benchmark says it answers as well
 //! as the library does (`benchmark/lang-detect/RESULTS.md`: 14/14 for both).
 //!
+//! "No other language in the backend's set" is not "no other language". Where
+//! another orthography writes the same script with letters the target never
+//! uses, one such letter settles the question the other way before the count
+//! is read ([`ExclusiveScript::foreign`], R0012-0014, DCR-0063).
+//!
 //! It is deliberately not allowed to answer everything. See [`Reading`].
 
 use crate::Language;
@@ -16,6 +21,13 @@ use crate::Language;
 /// Chinese is in the set, because Japanese is too and both write Han — a Han
 /// count cannot tell them apart, so Chinese has no script shortcut and goes to
 /// the backend. Kana is here because no other language in the set writes it.
+///
+/// The warrant stops at the set's edge. Cyrillic, the Arabic script and
+/// Devanagari are each written by many languages outside it, so those three
+/// carry a screen for the letters their one language never uses
+/// ([`Self::foreign`]). Hangul and Kana carry none: they are near-exclusive
+/// rather than exclusive (Jeju writes Hangul; Ainu and the Ryukyuan languages
+/// write kana), and the crate documents that as outside its input domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExclusiveScript {
     Hangul,
@@ -57,11 +69,82 @@ impl ExclusiveScript {
             Self::Devanagari => matches!(c, '\u{0900}'..='\u{097F}'),
         }
     }
+
+    /// A letter of this script that the one language in the backend's set
+    /// writing it never uses (R0012-0014, DCR-0063).
+    ///
+    /// Only asked of a letter [`Self::contains`] has already placed in the
+    /// script. One such letter is positive evidence of another orthography, and
+    /// [`read`] answers [`Reading::Foreign`] on it before the ratio is looked
+    /// at. Neither half of the gate can see that difference otherwise: the
+    /// count treats every letter in the block alike, and the backend sees only
+    /// 128-codepoint block buckets outside ASCII, so it names Russian for
+    /// Ukrainian, Arabic for Persian and Hindi for Marathi.
+    ///
+    /// - **Cyrillic**: every letter outside the Russian alphabet's 33, in either
+    ///   case. That covers Ukrainian і ї є ґ, Belarusian ў, Serbian and
+    ///   Macedonian ј љ њ ћ ђ џ ѕ ѓ ќ, and Kazakh, Kyrgyz, Tajik and Mongolian
+    ///   ә ғ қ ң ө ұ ү һ ҷ ҳ ӯ ӣ, among others. Bulgarian writes a subset of the
+    ///   Russian alphabet and is **not** caught.
+    /// - **Arabic script**: the letters the Arabic alphabet does not use — every
+    ///   letter of the Arabic block outside it (U+0620, U+063B–U+063F,
+    ///   U+0672–U+06D3, U+06D5, U+06EE–U+06EF, U+06FA–U+06FC, U+06FF: Persian
+    ///   and Urdu پ چ ژ گ ک ی ٹ ڈ ڑ ں ے, Pashto ټ ډ ړ ښ ګ ڼ ې ۍ, Kurdish
+    ///   ڕ ڵ ۆ ێ ە, Jawi ڠ ڤ, among others) and the whole Arabic Supplement
+    ///   block. Harakat, Quranic marks, tatweel, alef wasla and the dotless
+    ///   archaic letters are Arabic and stay out.
+    /// - **Devanagari**: the independent letters Hindi's orthography never
+    ///   writes — ळ (Marathi, Rajasthani), ॲ and ऱ (Marathi), ऩ and ऴ
+    ///   (Dravidian transliteration), the short ऄ ऎ ऒ, Sanskrit's vocalic
+    ///   ऌ ॠ ॡ, and the U+0973–U+097F letters of Kashmiri, Marwari, Sindhi and
+    ///   others. Nepali and Sanskrit, and Marathi that happens to carry none of
+    ///   these, are **not** caught.
+    ///
+    /// The cost lands in the safe direction: a target-language text quoting one
+    /// such word is sent for translation.
+    pub(crate) fn foreign(self, c: char) -> bool {
+        match self {
+            Self::Hangul | Self::Kana => false,
+            Self::Cyrillic => !matches!(c, '\u{0410}'..='\u{044F}' | '\u{0401}' | '\u{0451}'),
+            Self::Arabic => matches!(
+                c,
+                '\u{0620}'
+                    | '\u{063B}'..='\u{063F}'
+                    | '\u{0672}'..='\u{06D3}'
+                    | '\u{06D5}'
+                    | '\u{06EE}'..='\u{06EF}'
+                    | '\u{06FA}'..='\u{06FC}'
+                    | '\u{06FF}'
+                    | '\u{0750}'..='\u{077F}'
+            ),
+            Self::Devanagari => matches!(
+                c,
+                '\u{0904}'
+                    | '\u{090C}'
+                    | '\u{090E}'
+                    | '\u{0912}'
+                    | '\u{0929}'
+                    | '\u{0931}'
+                    | '\u{0933}'
+                    | '\u{0934}'
+                    | '\u{0960}'
+                    | '\u{0961}'
+                    | '\u{0972}'..='\u{097F}'
+            ),
+        }
+    }
 }
 
 /// What one pass over the text found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Reading {
+    /// At least one letter of the target's script that the target's
+    /// orthography never uses ([`ExclusiveScript::foreign`]): another
+    /// language writing the same script. Decided here **whatever the ratio**,
+    /// so it settles the text before [`Reading::Dominant`] and before the
+    /// [`Reading::Minority`] hand-off alike; the backend could not tell the
+    /// difference either.
+    Foreign,
     /// The target's own script carries at least [`FLOOR_DENOMINATOR`]⁻¹ of the
     /// letters. Decided here; the backend is not consulted.
     Dominant,
@@ -100,6 +183,9 @@ const FLOOR_DENOMINATOR: usize = 5;
 /// the verdict it used to produce. This is what makes [`Reading::NoLetters`]'
 /// "punctuation, digits, code, or nothing" true for every script rather than
 /// only for the ones whose blocks happen to be pure `Lo`.
+///
+/// The first letter [`ExclusiveScript::foreign`] flags ends the pass with
+/// [`Reading::Foreign`]: no count can outweigh it, so none is finished.
 pub(crate) fn read(text: &str, script: ExclusiveScript) -> Reading {
     let (mut in_script, mut other) = (0usize, 0usize);
     for c in text.chars() {
@@ -122,6 +208,12 @@ pub(crate) fn read(text: &str, script: ExclusiveScript) -> Reading {
             continue;
         }
         if script.contains(c) {
+            // R0012-0014: exclusive within the backend's set is not exclusive.
+            // A letter the target never writes names another orthography,
+            // and the ratio below cannot see it.
+            if script.foreign(c) {
+                return Reading::Foreign;
+            }
             in_script += 1;
         } else {
             other += 1;
@@ -209,6 +301,147 @@ mod tests {
             );
         }
         assert!(ExclusiveScript::of(Language::Korean).is_some());
+        // R0012-0014 keeps the shortcut for the three shared-worldwide scripts
+        // and screens them instead (`foreign`); it does not withdraw them.
+        for screened in [Language::Russian, Language::Arabic, Language::Hindi] {
+            assert!(
+                ExclusiveScript::of(screened).is_some(),
+                "{screened:?} keeps its script shortcut"
+            );
+        }
+    }
+
+    /// R0012-0014. Every letter the owner's decision named, one at a time, in
+    /// otherwise genuine target text, reads as another orthography. Upper case
+    /// too where the script has case. The last two rows are the rest of the
+    /// screen as `foreign` documents it: Sindhi swash kaf and beeh, Jawi gaf
+    /// from Arabic Supplement, and Devanagari's other non-Hindi letters.
+    #[test]
+    fn every_named_foreign_letter_is_read_as_another_orthography() {
+        let cases: [(ExclusiveScript, &str, &str); 6] = [
+            (
+                ExclusiveScript::Cyrillic,
+                "Это русский текст ",
+                "іїєґўјљњћђџѕѓќәғқңөұүһҷҳӯӣ",
+            ),
+            (
+                ExclusiveScript::Cyrillic,
+                "Это русский текст ",
+                "ІЇЄҐЎЈЉЊЋЂЏЅЃЌӘҒҚҢӨҰҮҺҶҲӮӢ",
+            ),
+            (
+                ExclusiveScript::Arabic,
+                "هذا نص عربي ",
+                "پچژگکیٹڈڑںےټډړښګڼېۍڕڵۆێەڠڤ",
+            ),
+            (ExclusiveScript::Devanagari, "यह हिंदी पाठ है ", "ळ"),
+            (
+                ExclusiveScript::Arabic,
+                "هذا نص عربي ",
+                "\u{06AA}\u{067B}\u{0762}",
+            ),
+            (
+                ExclusiveScript::Devanagari,
+                "यह हिंदी पाठ है ",
+                "ॲऱऩऴऄऎऒऌॠॡ\u{097B}",
+            ),
+        ];
+        let mut missed = Vec::new();
+        for (script, genuine, letters) in cases {
+            assert_ne!(
+                read(genuine, script),
+                Reading::Foreign,
+                "the control {genuine:?} must be clean"
+            );
+            for c in letters.chars() {
+                if read(&format!("{genuine}{c}"), script) != Reading::Foreign {
+                    missed.push(format!("{script:?} U+{:04X} {c}", c as u32));
+                }
+            }
+        }
+        assert!(
+            missed.is_empty(),
+            "letters the target never uses: {missed:?}"
+        );
+    }
+
+    /// The other side of the screen, enumerated rather than sampled: no letter
+    /// the target's own orthography writes may trip it, or genuine target text
+    /// would lose its shortcut.
+    #[test]
+    fn the_targets_own_letters_are_never_foreign() {
+        let russian = ('\u{0410}'..='\u{044F}').chain(['\u{0401}', '\u{0451}']);
+        // Hamza through ghain, tatweel through yeh, the harakat with maddah
+        // and both hamza marks, subscript and superscript alef, alef wasla,
+        // dotless beh and qaf, the honorific signs, and the Quranic
+        // annotation marks (small waw and yeh among them).
+        let arabic = ('\u{0621}'..='\u{063A}')
+            .chain('\u{0640}'..='\u{0656}')
+            .chain('\u{0610}'..='\u{061A}')
+            .chain(['\u{066E}', '\u{066F}', '\u{0670}', '\u{0671}'])
+            .chain('\u{06D6}'..='\u{06ED}');
+        // Hindi's vowels (with candra E and O for loans), consonants, the
+        // nukta consonants, the bindus and visarga, nukta, avagraha, its
+        // matras, virama, and om.
+        let hindi = ('\u{0900}'..='\u{0903}')
+            .chain('\u{0905}'..='\u{090B}')
+            .chain(['\u{090D}', '\u{090F}', '\u{0910}', '\u{0911}'])
+            .chain(['\u{0913}', '\u{0914}'])
+            .chain('\u{0915}'..='\u{0928}')
+            .chain('\u{092A}'..='\u{0930}')
+            .chain(['\u{0932}'])
+            .chain('\u{0935}'..='\u{0939}')
+            .chain('\u{093C}'..='\u{0945}')
+            .chain('\u{0947}'..='\u{0949}')
+            .chain('\u{094B}'..='\u{094D}')
+            .chain(['\u{0950}'])
+            .chain('\u{0958}'..='\u{095F}');
+        let mut tripped = Vec::new();
+        for (script, letters) in [
+            (ExclusiveScript::Cyrillic, russian.collect::<Vec<_>>()),
+            (ExclusiveScript::Arabic, arabic.collect()),
+            (ExclusiveScript::Devanagari, hindi.collect()),
+        ] {
+            for c in letters {
+                assert!(script.contains(c), "U+{:04X} is in the block", c as u32);
+                if script.foreign(c) {
+                    tripped.push(format!("{script:?} U+{:04X} {c}", c as u32));
+                }
+            }
+        }
+        assert!(tripped.is_empty(), "the target writes these: {tripped:?}");
+    }
+
+    /// The screen is decided whatever the ratio: one foreign letter among a
+    /// majority of the target's own (where `Dominant` used to answer) and
+    /// among a minority of it (where the backend used to be asked) alike.
+    #[test]
+    fn a_foreign_letter_decides_in_both_bands() {
+        let dominant = "русский".repeat(10) + "ї";
+        let minority = "ї".to_string() + &"a".repeat(100);
+        assert_eq!(read(&dominant, ExclusiveScript::Cyrillic), Reading::Foreign);
+        assert_eq!(read(&minority, ExclusiveScript::Cyrillic), Reading::Foreign);
+        // A Latin-script text quoting no Cyrillic at all stays `Absent`.
+        assert_eq!(
+            read("plain English", ExclusiveScript::Cyrillic),
+            Reading::Absent
+        );
+    }
+
+    /// Hangul and Kana carry no screen. Their near-exclusivity is stated as
+    /// the gate's input domain instead (DCR-0063), and this pins the statement:
+    /// Jeju's arae-a (U+119E, in conjoining jamo) reads as Hangul like any
+    /// other syllable.
+    #[test]
+    fn hangul_and_kana_carry_no_screen() {
+        for c in ['가', '\u{119E}', '\u{318D}', 'あ', 'ア'] {
+            assert!(!ExclusiveScript::Hangul.foreign(c));
+            assert!(!ExclusiveScript::Kana.foreign(c));
+        }
+        assert_eq!(
+            read("\u{1106}\u{119E}\u{11AF}", ExclusiveScript::Hangul),
+            Reading::Dominant
+        );
     }
 
     /// R0010-0066. Membership in a script BLOCK is not the same question as

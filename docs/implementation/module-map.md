@@ -139,13 +139,19 @@ crates/transync-core/                   # pipeline on top of transync-syntax, HT
     └── test_fixtures.rs                # cfg(test) scaffolding
 
 crates/transync-lang/                   # the source-language GATE: "should a run start?"
-├── Cargo.toml                          #   ONE dependency (whichlang), NO workspace member —
-└── src/                                #   that absence keeps it from becoming a second answer
-    ├── lib.rs                          # Language / Verdict / Basis / Reason / Gate; the decision order
-    ├── script.rs                       # the free half: an exclusive-script codepoint test that
-    │                                   #   only answers where counting is conclusive
-    ├── backend.rs                      # the ONLY file naming whichlang; wildcard-free mapping
-    └── containment.rs                  # cfg(test): the weld proving backend.rs is the only one
+├── Cargo.toml                          #   ONE normal dependency (whichlang), NO workspace member —
+│                                       #   that absence keeps it from becoming a second answer;
+│                                       #   syn + proc-macro2 are dev-only, for containment
+├── src/
+│   ├── lib.rs                          # Language / Verdict / Basis / Reason / Gate; the decision
+│   │                                   #   order and the input domain (DCR-0063)
+│   ├── script.rs                       # the free half: an exclusive-script codepoint test that
+│   │                                   #   only answers where counting is conclusive, after the
+│   │                                   #   foreign-letter screen (Cyrillic, Arabic, Devanagari)
+│   ├── backend.rs                      # the ONLY file naming whichlang, and only inside fn
+│   │                                   #   bodies; wildcard-free mapping
+│   └── containment.rs                  # cfg(test): the weld proving it, by parsing every module
+└── tests/fixtures/containment/         # a never-compiled tree for the walk's nested-module test
 
 crates/transync-openai/                 # default Translator impl
 ├── Cargo.toml

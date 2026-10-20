@@ -90,6 +90,9 @@ finally enumerates is decided per item, not by this preamble.
   (R0013-0003, DCR-0063): the canonical comrak options plus a
   `broken_link_callback`. Additive; `transync-core`'s reference resolution is
   its only caller, and no `transync-syntax` parse or render path uses it.
+- **`transync_lang::Reason::ForeignOrthography`** (R0012-0014, DCR-0063): the
+  gate found a letter of the target's script that the target never writes.
+  Additive: `Reason` is `#[non_exhaustive]`.
 
 ### Changed
 
@@ -395,6 +398,23 @@ finally enumerates is decided per item, not by this preamble.
   bare "File name too long". The volume is asked read-only up front; the names
   are unchanged. **Visible:** a new exit-4 refusal quoting the OS error, and
   "refusing existing temp" now means an occupied name only.
+- **`transync-lang` no longer calls Ukrainian Russian, Persian Arabic or
+  ळ-bearing Marathi Hindi when the text carries a letter the target never
+  writes** (R0012-0014, DCR-0063). Cyrillic, the Arabic script and Devanagari
+  are exclusive only among the sixteen modelled languages, so another language
+  writing them took the script shortcut to `AlreadyTarget`, and diluted below a
+  fifth it went to a backend that sees only 128-codepoint block buckets there
+  and answered the same. Such a letter now answers `Translate` before both:
+  Cyrillic outside the Russian alphabet, the Arabic script's extended letters,
+  and ळ, ॲ, ऱ and the other letters Hindi never writes. Text without one
+  still reads as the target. The crate doc, `Gate::verdict` and ADR-0028 state
+  that input domain and its residuals, among them Bulgarian against Russian;
+  Nepali, Sanskrit and most Marathi against Hindi; and, on any Latin or Han
+  target, a language the backend does not model. **Visible to library
+  consumers** upgrading from v0.5.0 (`resp-translator` pins it): such text
+  returns `Translate(Reason::ForeignOrthography)` where it returned
+  `AlreadyTarget`, and target-language text quoting one such word is now
+  translated.
 
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above

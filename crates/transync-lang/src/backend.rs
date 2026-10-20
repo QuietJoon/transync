@@ -1,11 +1,16 @@
-//! The **only** file in this crate that names `whichlang`.
+//! The **only** file in this crate that names `whichlang` — and it names it
+//! only inside function bodies.
 //!
 //! That containment is a semver decision, not tidiness. `whichlang` is 0.1.x,
 //! so under Cargo's rules every one of its releases may break: if
 //! `whichlang::Lang` reached this crate's public API, their next `0.2` would be
 //! our next major, and a consumer would have to match on a type we do not own.
-//! `crate::containment` asserts the containment by scraping `src/`, so the day
-//! someone adds a second `use whichlang` the suite says so.
+//! `crate::containment` asserts the containment by parsing every module under
+//! `src/` (R0012-0021), so the day someone adds a second `use whichlang`, or
+//! gives this file a signature, alias, `use`, impl or field that names it,
+//! the suite says so. The body-only rule covers private items too: a private
+//! `use whichlang::…` here fails the suite, because telling a private one from
+//! a re-exportable one is the judgement the rule exists not to need.
 //!
 //! The mapping below is a **wildcard-free match**. That is the second half of
 //! the containment: when the backend adds a language, this file stops

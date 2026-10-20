@@ -119,6 +119,16 @@ htmlize     = { version = "1", features = ["unescape"] }
 # an exclusive-script target: the backend only ever sees text the codepoint test
 # could not settle. A bump that moves RESULTS.md's verdicts re-runs the benchmark.
 whichlang   = "0.1"
+# Dev-dependencies of `transync-lang` ONLY (R0012-0021): its `containment` test
+# parses every module under `src/` to prove `whichlang` is named nowhere but
+# inside `backend.rs`'s function bodies. Parsed, not scraped — the line scan it
+# replaces missed nested modules, aliases, multi-line signatures and trait
+# impls, and a misread there fails open. `proc-macro2` is named for its token
+# trees, which syn hands over unparsed for macros, attributes and verbatim
+# items. Neither is a new package: both are in the lockfile through the
+# proc-macro graph, so the cost is one target-side compile of syn.
+syn         = { version = "2", default-features = false, features = ["full", "parsing", "visit"] }
+proc-macro2 = { version = "1", default-features = false }
 # R0004-0080: canonical (NFC) normalization for the ONE comparison form
 # `profile::section_key` / `glossary_key` derive. Consumed by transync-core
 # only — `transync-syntax` compiles to wasm32 and takes nothing new (ADR-0019).

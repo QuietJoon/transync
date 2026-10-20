@@ -91,10 +91,32 @@ name `AlreadyTarget` explicitly, so "I could not tell" cannot be misread as "no
 translation needed". A flat three-variant enum would put that mistake one
 careless match arm away.
 
+**The input domain is the modelled languages** (DCR-0063). Both halves of the
+gate are closed-set: the script test knows the scripts `Language`'s sixteen
+write, and the backend can name only those sixteen. A verdict is meaningful
+for text in one of them; text in another language can come back
+`AlreadyTarget`, which is the direction that cancels a run. Cyrillic, the
+Arabic script and Devanagari are exclusive only within that set, so for a
+Russian, Arabic or Hindi target any letter the target's orthography never uses
+(Ukrainian `ї`, Persian `ی`, Marathi `ळ`) answers `Translate` with
+`Reason::ForeignOrthography`, before both the script shortcut and the backend
+hand-off. The screen narrows the exposure without closing it: Bulgarian reads
+as Russian, and Nepali, Sanskrit and most Marathi as Hindi. On every
+target the backend decides — each Latin one and Chinese — a language it does
+not model can read as its nearest modelled neighbour (Catalan as Spanish,
+Norwegian as Swedish, Cantonese as Chinese). Hangul and Kana are
+near-exclusive, not exclusive: Jeju, Ainu and the Ryukyuan languages read as
+Korean or Japanese. The crate doc and `Gate::verdict` carry the same statement.
+
 ## Consequences
 
 * Good, because the separation survives people who have not read this record —
   it is checked by the compiler and by `containment`, not by memory.
+  `containment` parses every module under `src/` and holds `whichlang` to
+  function bodies in `backend.rs` (R0012-0021, DCR-0063).
+* Bad, because a caller whose input can fall outside the modelled languages
+  cannot treat `AlreadyTarget` as proof. The gate cannot tell it what language
+  its input is in; only the domain statement above warns it.
 * Good, because the gate can be published, versioned and reasoned about without
   touching the pipeline's contract at all.
 * Bad, because a caller that wants *both* answers must call two things and

@@ -180,3 +180,121 @@ fn iso_codes_round_trip_and_reject_region_subtags() {
     assert_eq!(Language::from_iso639("ko-KR"), None);
     assert_eq!(Language::from_iso639("klingon"), None);
 }
+
+/// Identifier soup of the kind an agent's answer carries around its prose.
+/// Three copies push any of the one-sentence samples below into the
+/// `Minority` band — the script present but under a fifth of the letters —
+/// which is the band the script count hands to the backend.
+const IDENTIFIERS: &str = "getUserAccountBalanceFromDatabase parseIncomingRequestHeaders \
+                           validateCustomerPaymentInformation";
+
+fn diluted(prose: &str) -> String {
+    format!("{prose} {}", [IDENTIFIERS; 3].join(" "))
+}
+
+/// Ukrainian (і U+0456, ї U+0457), written in Cyrillic.
+const UKRAINIAN: &str = "Це український текст, який потрібно перекласти.";
+/// Persian (ی U+06CC, ک U+06A9), written in the Arabic script.
+const PERSIAN: &str = "این یک متن فارسی است که باید ترجمه شود.";
+/// Marathi carrying ळ U+0933, written in Devanagari.
+const MARATHI: &str = "सकाळी शाळेत जाताना मला वेळ मिळाला नाही, म्हणून मी घरीच अभ्यास केला.";
+/// Russian, including ё U+0451 — a letter of the Russian alphabet.
+const RUSSIAN: &str = "Это русский текст, который уже переведён на нужный язык.";
+/// Arabic, with Arabic yeh U+064A and alef maqsura U+0649.
+const ARABIC: &str = "هذا نص عربي تمت ترجمته بالفعل إلى اللغة المطلوبة.";
+/// Hindi.
+const HINDI: &str = "यह हिंदी में लिखा गया पाठ है जिसका अनुवाद पहले ही हो चुका है।";
+
+/// R0012-0014. Cyrillic, the Arabic script and Devanagari are exclusive only
+/// *within the backend's set*; Ukrainian, Persian and Marathi write them too.
+/// Each sample carries a letter its target's orthography never uses, so the
+/// gate must not call it the target — and calling it the target is the one
+/// unsafe direction, because `AlreadyTarget` cancels the run.
+#[test]
+fn another_language_in_the_targets_script_is_not_the_target() {
+    let wrong: Vec<String> = [
+        (Language::Russian, UKRAINIAN),
+        (Language::Arabic, PERSIAN),
+        (Language::Hindi, MARATHI),
+    ]
+    .into_iter()
+    .map(|(target, text)| (target, text, Gate::new(target).verdict(text)))
+    .filter(|(_, _, v)| *v != Verdict::Translate(Reason::ForeignOrthography))
+    .map(|(target, text, v)| format!("{target:?} gate, {text:?}: {v:?}"))
+    .collect();
+    assert!(
+        wrong.is_empty(),
+        "each sample carries a letter its target never uses, so none is the target: {wrong:#?}"
+    );
+}
+
+/// The same samples diluted into the `Minority` band. The backend sees only
+/// 128-codepoint block buckets outside ASCII, so it names Russian, Arabic
+/// and Hindi for them; the letter screen has to run before that hand-off,
+/// not only before the `Dominant` shortcut.
+#[test]
+fn a_foreign_letter_is_decisive_before_the_backend_is_asked() {
+    let wrong: Vec<String> = [
+        (Language::Russian, UKRAINIAN),
+        (Language::Arabic, PERSIAN),
+        (Language::Hindi, MARATHI),
+    ]
+    .into_iter()
+    .map(|(target, prose)| (target, prose, Gate::new(target).verdict(&diluted(prose))))
+    .filter(|(_, _, v)| *v != Verdict::Translate(Reason::ForeignOrthography))
+    .map(|(target, prose, v)| format!("{target:?} gate, {prose:?} among identifiers: {v:?}"))
+    .collect();
+    assert!(
+        wrong.is_empty(),
+        "a foreign letter must settle the verdict before the backend is asked: {wrong:#?}"
+    );
+}
+
+/// The controls: the screens must not cost the target language itself, on
+/// either path. Pure text is still settled by the script count; diluted text
+/// still reaches the backend and is still named the target.
+#[test]
+fn the_shared_script_targets_still_recognize_their_own_language() {
+    for (target, text) in [
+        (Language::Russian, RUSSIAN),
+        (Language::Arabic, ARABIC),
+        (Language::Hindi, HINDI),
+    ] {
+        assert_eq!(
+            Gate::new(target).verdict(text),
+            Verdict::AlreadyTarget(Basis::ExclusiveScript),
+            "{text:?} is {target:?}"
+        );
+        assert_eq!(
+            Gate::new(target).verdict(&diluted(text)),
+            Verdict::AlreadyTarget(Basis::Backend),
+            "{target:?} prose among identifiers is still {target:?}, and the backend says so"
+        );
+    }
+}
+
+/// The residual misses the input-domain statement names (DCR-0063), pinned so
+/// the statement stays true: a language writing the target's script without
+/// a letter the target never uses still reads as the target. If this starts
+/// failing because a screen grew, the crate doc, `Gate::verdict` and
+/// ADR-0028 change with it.
+#[test]
+fn the_documented_residual_misses_are_still_misses() {
+    // Bulgarian writes a subset of the Russian alphabet.
+    let bulgarian = "Това е български текст, който трябва да бъде преведен.";
+    // Nepali writes no letter Hindi lacks.
+    let nepali = "यो नेपाली भाषामा लेखिएको पाठ हो।";
+    // Marathi carrying no screened letter: the documented "most Marathi".
+    let marathi = "मी घरी जातो.";
+    for (target, text) in [
+        (Language::Russian, bulgarian),
+        (Language::Hindi, nepali),
+        (Language::Hindi, marathi),
+    ] {
+        assert_eq!(
+            Gate::new(target).verdict(text),
+            Verdict::AlreadyTarget(Basis::ExclusiveScript),
+            "{text:?} is outside the gate's input domain and documented as read as {target:?}"
+        );
+    }
+}
