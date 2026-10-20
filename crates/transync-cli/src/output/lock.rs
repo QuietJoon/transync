@@ -27,7 +27,12 @@
 //! same path and lock that instead, while a waiting run still held the old
 //! one — two "exclusive" holders at once. Both directory guards
 //! (`super::preflight::scan_bundle_dir`, [`super::preflight::ensure_out_dir_replaceable`]) list it
-//! as a transync file, so it is never mistaken for foreign content.
+//! as a transync file, so it is never mistaken for foreign content. For the
+//! same reason its name is **reserved** (R0012-0005): an output — or a
+//! directory a run creates on the way to one — at the marker's path would be
+//! renamed over the inode that run holds the lock on, handing the lock to the
+//! next run to open the path. [`is_publish_lock_name`] refuses the name and
+//! [`is_publish_lock_marker`] the spellings a volume folds onto it.
 //!
 //! One caller does unlink a marker: the rollback of a directory level a failed
 //! publication created and left empty, which would otherwise leave a directory
@@ -59,14 +64,73 @@
 //! TRACE: contracts.md §6
 
 use super::Notify;
+use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
 
 /// The zero-byte marker file transync locks in every directory it publishes
 /// into. Recognized by the `--html-out` and `--out-dir` guards as a transync
-/// file, never as foreign content.
+/// file, never as foreign content — and reserved: no output, and no directory
+/// a run creates on the way to one, may take this name ([`is_publish_lock_name`],
+/// [`is_publish_lock_marker`]; R0012-0005).
 pub const PUBLISH_LOCK_NAME: &str = ".transync-publish.lock";
+
+/// Whether `name` spells [`PUBLISH_LOCK_NAME`] in any ASCII letter case.
+///
+/// Case-insensitive because the default APFS and NTFS volumes resolve
+/// `.TRANSYNC-PUBLISH.LOCK` to the marker's own directory entry; on a
+/// case-sensitive volume the wider refusal costs a name nobody needs. Byte-wise,
+/// so a name that is not UTF-8 is simply not this one. Spellings a filesystem
+/// folds beyond ASCII are [`is_publish_lock_marker`]'s to catch.
+pub(super) fn is_publish_lock_name(name: &OsStr) -> bool {
+    name.as_encoded_bytes()
+        .eq_ignore_ascii_case(PUBLISH_LOCK_NAME.as_bytes())
+}
+
+/// Whether the entry at `path` **is** the publish-lock marker of the directory
+/// holding it, compared by filesystem identity (`dev` + `ino`, the link itself
+/// rather than what it points at) instead of by name (R0012-0005).
+///
+/// The backstop behind [`is_publish_lock_name`]. A filesystem decides which
+/// spellings name one entry, and some fold past ASCII: HFS+ ignores a
+/// zero-width non-joiner, case-insensitive APFS folds the KELVIN SIGN to `k`
+/// and the LONG S to `s`. Each of those reaches the marker the run is about to
+/// lock, and a rename onto it would replace the very inode the lock is held on
+/// — after which the next run locks the *replacement* while this one still has
+/// renames to do: two "exclusive" publishers of one directory, which no waiter
+/// revalidation ([`lock_marker`]) can see, because the inode it checks is the
+/// one at the path. A hard link to the marker is the same file under another
+/// name and answers `true` too; no output is the lock file.
+///
+/// `false` when either entry cannot be read: a destination that does not exist
+/// yet names no file, and a directory with no marker has none to be.
+#[cfg(unix)]
+pub(super) fn is_publish_lock_marker(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    if path.file_name().is_none() {
+        return false;
+    }
+    let holder = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let (Ok(entry), Ok(marker)) = (
+        fs::symlink_metadata(path),
+        fs::symlink_metadata(holder.join(PUBLISH_LOCK_NAME)),
+    ) else {
+        return false;
+    };
+    entry.dev() == marker.dev() && entry.ino() == marker.ino()
+}
+
+/// No portable file identity in `std` off Unix (see [`same_file`]), so the
+/// identity backstop is a no-op there and [`is_publish_lock_name`] is the whole
+/// reservation — the exposure being a spelling the volume folds beyond ASCII.
+#[cfg(not(unix))]
+pub(super) fn is_publish_lock_marker(_path: &Path) -> bool {
+    false
+}
 
 /// An exclusive hold on every directory of one publication, released when the
 /// value is dropped (or when the process dies).

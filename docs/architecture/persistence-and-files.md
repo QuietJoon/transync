@@ -98,7 +98,11 @@ level it sits in — and only after taking that marker's lock itself, so the
 sentence before this one stays true. It is a transync file, so neither the
 `--html-out` nor the
 `--out-dir` guard treats it as foreign content, and both directory listings
-below may contain it. The kernel releases the lock when the holding process
+below may contain it. Its name is also **reserved** (R0012-0005): an output,
+or a directory a run creates on the way to one, at the marker's path would
+replace or block the inode that run holds the lock on, so any destination
+path component spelling it (in any ASCII case, or folded onto it by the
+filesystem) is refused with exit 4. The kernel releases the lock when the holding process
 exits — `SIGKILL` included — so a crashed run cannot block later ones.
 
 That leaves one hole a lock *holder* cannot see, and the waiter closes it

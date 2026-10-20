@@ -10,7 +10,7 @@
 //! TRACE: EXT-2026-07 P1-6
 //! TRACE: DCR-0021
 
-use super::destination::destination_file_name;
+use super::destination::{destination_file_name, refuse_lock_marker_alias};
 use super::fileset::{
     claim_anchor, fsync_created_levels, missing_ancestors, rollback_created_dirs,
 };
@@ -57,11 +57,21 @@ pub(super) const OUT_DIR_ENTRIES: &[&str] = &[
 /// is read by nobody — its *presence* is the whole signal — so the body is
 /// there to answer "what is this and what happens if I delete it?" in the
 /// place the question gets asked.
+///
+/// It has to describe the guard as it is (R0012-0020): every `--out-dir`
+/// publication writes the complete set, and the complete-set fallback in
+/// [`ensure_out_dir_replaceable`] replaces such a directory without `--force`
+/// whether or not this file is still in it. So the body never offers deleting
+/// it as a way to keep the output.
 pub(super) const OUT_DIR_MARKER_BODY: &[u8] = b"transync --out-dir publication marker.\n\
 \n\
-This directory was published by `transync translate --out-dir` and will be\n\
-replaced WHOLESALE by the next such publication into it. Deleting this file\n\
-makes transync refuse to replace the directory without --force.\n";
+This directory was published by `transync translate --out-dir`. The next such\n\
+publication into it replaces it WHOLESALE without --force, as long as it holds\n\
+only transync's own files. Deleting this file does not protect it: while the\n\
+complete output set (alignment.json, validation-report.json, html/, and out.md\n\
+or out.html) is still here, transync replaces the directory without --force all\n\
+the same. To keep this output, move or rename the directory, or publish to a\n\
+different --out-dir.\n";
 
 /// Publish the complete `--out-dir` output set with a staged fileset commit
 /// at directory granularity (EXT-2026-07 P1-6).
@@ -101,6 +111,14 @@ makes transync refuse to replace the directory without --force.\n";
 /// guard know transync published this directory instead of inferring it from
 /// the file names (ti `66339b`, OI-0036).
 ///
+/// The target may not be the parent's publication-lock marker, nor run through
+/// one (R0012-0005): the swap would rename the locked inode aside and leave a
+/// directory where every later publication into the parent opens its lock.
+/// [`out_dir_name`] refuses the reserved name before anything is created, and
+/// [`refuse_lock_marker_alias`] asks by identity once the parent's levels exist
+/// and again once the locks are held — the second before the guard, because
+/// `--force` waives the guard and not this.
+///
 /// Foreign-file preflight does not apply *inside* the staged dir — we own it
 /// wholly. It applies to the *target*: an existing target that transync did
 /// not publish, or that holds entries outside [`OUT_DIR_ENTRIES`], requires
@@ -126,6 +144,13 @@ pub fn publish_out_dir(
     force: bool,
     notify: Notify<'_>,
 ) -> io::Result<()> {
+    // The name every sibling is derived from, asked before anything is
+    // created: a target this writer may not name — not UTF-8 (R0004-0066), or
+    // through the publication-lock marker's reserved name anywhere on its path
+    // (R0012-0005) — creates no level and takes no lock, and refuses with the
+    // sentence the preflight gives rather than whatever a half-made
+    // publication would trip over first.
+    let name = out_dir_name(target)?;
     // staging + backup are siblings of `target`, so every rename below stays
     // within one directory (one filesystem) and is a cheap atomic metadata op.
     // That directory is also the one this publish locks, so it has to exist
@@ -154,7 +179,13 @@ pub fn publish_out_dir(
     // [`rollback_created_dirs`] unlink its own marker at all (R0003-0001); and
     // the removal is empty-only (R0002-0002), so a swap that failed with the
     // previous output preserved under `backup` keeps the level that holds it.
-    if let Err(e) = publish_into_parent(target, &parent, anchor, files, force, notify) {
+    //
+    // R0012-0005: a level just created may have landed on the lock-marker path
+    // of the level holding it, under a spelling the volume folds; asked before
+    // locking, which would otherwise open a directory.
+    let published = refuse_lock_marker_alias(target)
+        .and_then(|()| publish_into_parent(target, name, &parent, anchor, files, force, notify));
+    if let Err(e) = published {
         rollback_created_dirs(&created_dirs, notify);
         return Err(e);
     }
@@ -184,6 +215,7 @@ pub fn publish_out_dir(
 /// therefore always on the far side of the release.
 fn publish_into_parent(
     target: &Path,
+    name: &str,
     parent: &Path,
     anchor: PathBuf,
     files: &[(PathBuf, &[u8])],
@@ -199,13 +231,19 @@ fn publish_into_parent(
     // snapshot (see [`lock_publication_tree`]).
     let _lock = lock_publication_tree(anchor, parent, target, notify)?;
 
+    // Taking the lock created the parent's marker if it had none, so a target
+    // that named nothing a moment ago can name that marker now under a folded
+    // spelling — and the swap would rename the locked inode aside and leave a
+    // directory at its path (R0012-0005). Before the guard, because `--force`
+    // waives the guard and does not waive this.
+    refuse_lock_marker_alias(target)?;
+
     // Under the lock, and before anything is staged: a target this run may not
     // replace costs no translation output being written. It is asked once more
     // just before the swap, because the lock alone does not make this verdict
     // keep — see the second call for which writers it does not reach.
     ensure_out_dir_replaceable(target, force, notify)?;
 
-    let name = out_dir_name(target)?;
     // Under the lock, before this run picks its own name: reclaim the staging
     // trees of a crashed predecessor whose pid the OS handed back to us.
     reclaim_own_staging(parent, name, notify);
@@ -565,9 +603,10 @@ fn lock_publication_tree(
 /// The final component of a `--out-dir` target, which every sibling name is
 /// derived from — the same question [`destination_file_name`] asks of a
 /// files-mode destination, and answered by the same code so the two modes
-/// refuse the same input with the same sentence (R0004-0066). Asked in
+/// refuse the same input with the same sentence (R0004-0066), the
+/// publication-lock marker's reserved name included (R0012-0005). Asked in
 /// [`super::preflight_out_dir`] too, so a target this writer cannot name costs no
-/// provider call.
+/// provider call, and first thing in [`publish_out_dir`], so it creates nothing.
 pub(super) fn out_dir_name(target: &Path) -> io::Result<&str> {
     destination_file_name(target)
 }
@@ -694,6 +733,50 @@ mod tests {
         assert!(
             marker.is_file(),
             "the marker must survive the swap that replaces the tree"
+        );
+    }
+
+    /// R0012-0020: the marker's body is the one place an operator reads what
+    /// deleting it does, and it promised a `--force` refusal that a normal
+    /// publication never gets. Every `--out-dir` run writes the complete set,
+    /// so with the marker gone the guard's complete-set fallback (ADR-0029,
+    /// OI-0036 action 3) still replaces the directory without a flag. The
+    /// behaviour is pinned first, because it is what the prose has to
+    /// describe; the prose assertions are about its meaning, not its wording.
+    #[test]
+    fn the_marker_body_does_not_promise_a_refusal_the_guard_does_not_make() {
+        let root = scratch_dir("marker-body");
+        let target = root.join("published");
+        let owned = out_dir_payloads(b'A');
+        let files: Vec<(PathBuf, &[u8])> = owned
+            .iter()
+            .map(|(p, b)| (p.clone(), b.as_slice()))
+            .collect();
+
+        publish_out_dir(&target, &files, false, &silent).expect("first publish");
+        let marker = target.join(OUT_DIR_MARKER_NAME);
+        assert_eq!(
+            fs::read(&marker).ok(),
+            Some(OUT_DIR_MARKER_BODY.to_vec()),
+            "the published marker carries the body"
+        );
+        fs::remove_file(&marker).expect("what the old body told the operator to do");
+        publish_out_dir(&target, &files, false, &silent)
+            .expect("a complete set republishes without its marker, and without --force");
+
+        let body = std::str::from_utf8(OUT_DIR_MARKER_BODY).expect("the body is prose");
+        let flat = body.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            !flat.contains("makes transync refuse"),
+            "the body must not promise a refusal a complete set never gets: {body}"
+        );
+        assert!(
+            flat.contains("complete") && flat.contains("--force"),
+            "the body must name the complete-set exception: {body}"
+        );
+        assert!(
+            flat.contains("move") || flat.contains("rename"),
+            "the body must say what does keep the output: {body}"
         );
     }
 

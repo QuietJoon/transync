@@ -982,6 +982,64 @@ fn cli_out_dir_refuses_foreign_file_nested_in_html() {
     assert_no_staging_residue(&workdir, "published");
 }
 
+/// R0012-0001, end to end: an unmarked `--out-dir` target whose one entry is
+/// a regular file named `html` used to read as "no output at all" — the guard
+/// recorded `html` only when it was a directory — so the run exited 0 and the
+/// file went with the backup it removed. It is content: exit 4 before the
+/// provider is called, the file intact, and `--force` still replaces it.
+#[cfg(feature = "test-stub-provider")]
+#[test]
+fn cli_out_dir_refuses_a_non_directory_html_entry() {
+    let workdir = ScratchDir::new("transync-cli-outdir-file-bundle-entry");
+    let out_dir = workdir.join("published");
+    std::fs::create_dir(&out_dir).unwrap();
+    let entry = out_dir.join("html");
+    std::fs::write(&entry, b"the only copy").unwrap();
+
+    let run = |force: bool| {
+        let mut cmd = translate_command();
+        cmd.arg("translate")
+            .arg("--input")
+            .arg(fixture_path())
+            .arg("--out-dir")
+            .arg(&out_dir)
+            .arg("--target-language")
+            .arg("ko");
+        if force {
+            cmd.arg("--force");
+        }
+        cmd.output().expect("transync binary must run")
+    };
+
+    let out = run(false);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "a file named html is content, so the replace is refused: {stderr}"
+    );
+    assert!(
+        stderr.contains("which is not a directory"),
+        "the refusal must name the entry's shape: {stderr}"
+    );
+    assert!(
+        !stderr.contains("html block"),
+        "the refusal was learned after the paid run: {stderr}"
+    );
+    assert_eq!(
+        std::fs::read(&entry).ok(),
+        Some(b"the only copy".to_vec()),
+        "the refused run must leave the operator's file in place"
+    );
+
+    assert!(run(true).status.success(), "--force still replaces it");
+    assert!(
+        out_dir.join("html").is_dir(),
+        "the bundle directory is published"
+    );
+    assert_no_staging_residue(&workdir, "published");
+}
+
 /// OI-0023 item 1: `--force` overwrite semantics for the `--html-out` bundle
 /// directory. A foreign (non-bundle) file makes the directory unsafe to
 /// overwrite: the publish REFUSES without `--force` (exit 4 — WriteFailure —
@@ -2331,6 +2389,9 @@ fn cli_refuses_a_foreign_html_out_before_translating() {
 /// - R0004-0066: a destination whose final component is not UTF-8 is one no
 ///   staging name can be built from — and the old refusal blamed a missing
 ///   file name the path did not lack.
+/// - R0012-0005: a destination path running through `.transync-publish.lock`
+///   would replace or block the marker the run locks, so the name is
+///   reserved in either mode.
 #[cfg(feature = "test-stub-provider")]
 #[test]
 fn cli_refuses_the_remaining_destination_faults_before_translating() {
@@ -2405,6 +2466,63 @@ fn cli_refuses_the_remaining_destination_faults_before_translating() {
                 raw.join("out.json").as_os_str(),
             ],
             "not valid UTF-8",
+        );
+    }
+
+    // R0012-0005: the publication-lock marker's name is reserved, in either
+    // mode and on a directory the run would create on the way to a
+    // destination — before the paid run, and whatever `--force` says.
+    let reserved = ScratchDir::new("transync-cli-reserved-lock-name");
+    let lock_name = ".transync-publish.lock";
+    refuse(
+        "an --output named like the lock marker",
+        &[
+            "--output".as_ref(),
+            reserved.join(lock_name).as_os_str(),
+            "--map".as_ref(),
+            reserved.join("out.json").as_os_str(),
+        ],
+        "publication-lock marker",
+    );
+    refuse(
+        "an --out-dir named like the lock marker, forced",
+        &[
+            "--out-dir".as_ref(),
+            reserved.join("published").join(lock_name).as_os_str(),
+            "--force".as_ref(),
+        ],
+        "publication-lock marker",
+    );
+    refuse(
+        "an --html-out named like the lock marker",
+        &[
+            "--output".as_ref(),
+            reserved.join("out.md").as_os_str(),
+            "--map".as_ref(),
+            reserved.join("out.json").as_os_str(),
+            "--html-out".as_ref(),
+            reserved.join(lock_name).as_os_str(),
+        ],
+        "publication-lock marker",
+    );
+    refuse(
+        "a directory on the way to --output named like the lock marker",
+        &[
+            "--output".as_ref(),
+            reserved
+                .join("new")
+                .join(lock_name)
+                .join("out.md")
+                .as_os_str(),
+            "--map".as_ref(),
+            reserved.join("out.json").as_os_str(),
+        ],
+        "publication-lock marker",
+    );
+    for leftover in ["out.json", "out.md", "new", "published", lock_name] {
+        assert!(
+            !reserved.join(leftover).exists(),
+            "a refused run leaves nothing behind: {leftover}"
         );
     }
 }

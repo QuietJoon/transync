@@ -10,7 +10,7 @@
 //! TRACE: contracts.md §6
 //! TRACE: DCR-0011
 
-use super::destination::vet_destinations;
+use super::destination::{refuse_lock_marker_alias, vet_destinations};
 use super::fileset::tmp_pid_suffix;
 use super::lock::PUBLISH_LOCK_NAME;
 use super::publish::{HTML_SUBDIR, OUT_DIR_ENTRIES, out_dir_name};
@@ -40,11 +40,15 @@ pub fn preflight_html_out(dir: &Path, force: bool, notify: Notify<'_>) -> io::Re
 ///
 /// The name check ahead of it is not advisory in the same way — a target whose
 /// final component is not UTF-8 is one this writer can never build its staging
-/// and backup siblings from, whatever the filesystem does next (R0004-0066).
+/// and backup siblings from, whatever the filesystem does next (R0004-0066),
+/// and a path through the publication-lock marker's reserved name is one no
+/// publication may take (R0012-0005). The identity half of that reservation is
+/// asked here of what exists now, and again by the publication.
 ///
 /// TRACE: contracts.md §6
 pub fn preflight_out_dir(target: &Path, force: bool, notify: Notify<'_>) -> io::Result<()> {
     out_dir_name(target)?;
+    refuse_lock_marker_alias(target)?;
     ensure_out_dir_replaceable(target, force, notify)
 }
 
@@ -57,8 +61,9 @@ pub fn html_bundle_paths(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// Reject a destination set that names one file twice, nests one destination
-/// inside another, or names a file this writer cannot build a staging name
-/// for, before anything is written (R0008-0005, R0004-0066, R0004-0067) — and,
+/// inside another, names a file this writer cannot build a staging name for,
+/// or runs through the publication-lock marker, before anything is written
+/// (R0008-0005, R0004-0066, R0004-0067, R0012-0005) — and,
 /// for a CLI run, before the provider is called (R0002-0029).
 /// [`super::write_fileset_atomic`] repeats the checks on the set it is actually
 /// given; this is the same rule asked early. See [`vet_destinations`] for what
@@ -356,7 +361,10 @@ fn ensure_bundle_dir_shape(dir: &Path) -> io::Result<()> {
 ///    else's subtree, ti `cbbc4e`), or a name in [`OUT_DIR_ENTRIES`] with the
 ///    expected shape — `out.md`, `alignment.json` and `validation-report.json`
 ///    as regular files, an `html` directory holding only the six-file demo
-///    bundle ([`HTML_BUNDLE_ENTRIES`]). The nested check is load-bearing:
+///    bundle ([`HTML_BUNDLE_ENTRIES`]). Every one of those names in the wrong
+///    shape is refused, `html` included: a regular file or a symlink at that
+///    name is content, so it can never leave the target reading as one that
+///    holds no output (R0012-0001). The nested check is load-bearing:
 ///    without it a user file inside `html/` — or hidden under a directory
 ///    masquerading as one of the file names, the marker names included — would
 ///    be silently destroyed (EXT-2026-07 review-fix; the marker names since the
@@ -436,38 +444,47 @@ pub(super) fn ensure_out_dir_replaceable(
             ));
         };
         if expected == HTML_SUBDIR {
-            // Normally the six-file bundle directory — recurse one level with
-            // the bundle allow-list. A non-directory `html` (regular file /
-            // symlink) carries a transync name and holds no nested user data,
-            // so it needs no recursion — and does not count toward the
-            // complete published set either.
-            if file_type.is_dir() {
-                let mut nested = StagingSweep::default();
-                let scan = scan_bundle_dir(&entry.path(), &mut nested)?;
-                nested.note(&entry.path(), notify);
-                match scan {
-                    BundleScan::Clean => {}
-                    BundleScan::NonUtf8 => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::AlreadyExists,
-                            format!(
-                                "--out-dir {} contains a non-UTF-8 entry under html/; pass --force to replace",
-                                target.display()
-                            ),
-                        ));
-                    }
-                    BundleScan::Foreign(nested) => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::AlreadyExists,
-                            format!(
-                                "--out-dir {} contains non-transync file html/{nested} (not a transync out-dir); pass --force to replace",
-                                target.display()
-                            ),
-                        ));
-                    }
-                }
-                published.insert(expected);
+            // The six-file bundle directory, and only a directory: recurse one
+            // level with the bundle allow-list. Anything else wearing the name
+            // — a regular file, a symlink (judged as the link, ti `cbbc4e`) —
+            // is content of the wrong shape, refused like a directory named
+            // `out.md`. Letting it pass unrecorded is what made a target
+            // holding only a file called `html` read as "no output at all"
+            // and lose that file to the backup removal (R0012-0001).
+            if !file_type.is_dir() {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!(
+                        "--out-dir {} contains {name:?} which is not a directory (not a transync out-dir); pass --force to replace",
+                        target.display()
+                    ),
+                ));
             }
+            let mut nested = StagingSweep::default();
+            let scan = scan_bundle_dir(&entry.path(), &mut nested)?;
+            nested.note(&entry.path(), notify);
+            match scan {
+                BundleScan::Clean => {}
+                BundleScan::NonUtf8 => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        format!(
+                            "--out-dir {} contains a non-UTF-8 entry under html/; pass --force to replace",
+                            target.display()
+                        ),
+                    ));
+                }
+                BundleScan::Foreign(nested) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AlreadyExists,
+                        format!(
+                            "--out-dir {} contains non-transync file html/{nested} (not a transync out-dir); pass --force to replace",
+                            target.display()
+                        ),
+                    ));
+                }
+            }
+            published.insert(expected);
         } else if file_type.is_file() {
             published.insert(expected);
         } else {
@@ -977,6 +994,123 @@ mod tests {
         assert!(
             !out_dir_sibling_exists(&root),
             "the staged tree must be removed when the second pass refuses"
+        );
+    }
+
+    /// R0012-0001: a non-directory `html` is content, never "no output at
+    /// all". The `html` branch recorded the entry only when it was a
+    /// directory, so a target whose one entry was a regular file named `html`
+    /// left the published set empty and took the empty-target exception — and
+    /// the replace moved it aside and `remove_dir_all`ed the backup, with no
+    /// `--force`. Question 1 does not depend on ownership, so a marker beside
+    /// it changes nothing.
+    ///
+    /// The scratch label carries no `html`, so the message assertion cannot
+    /// pass on the directory path the refusal also names.
+    #[test]
+    fn a_non_directory_html_is_content_not_an_empty_target() {
+        let dir = scratch_dir("non-directory-bundle-entry");
+        let entry = dir.join(HTML_SUBDIR);
+        fs::write(&entry, b"the operator's notes").expect("a regular file named html");
+
+        let err = ensure_out_dir_replaceable(&dir, false, &silent)
+            .expect_err("a file named html is content, not an empty target");
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists, "{err}");
+        assert!(
+            err.to_string()
+                .contains("\"html\" which is not a directory"),
+            "the refusal must name the entry and its shape: {err}"
+        );
+        assert_eq!(
+            fs::read(&entry).ok(),
+            Some(b"the operator's notes".to_vec()),
+            "a refusal leaves the entry as it was"
+        );
+        ensure_out_dir_replaceable(&dir, true, &silent).expect("--force still replaces it");
+
+        fs::write(dir.join(OUT_DIR_MARKER_NAME), OUT_DIR_MARKER_BODY).expect("plant the marker");
+        assert!(
+            ensure_out_dir_replaceable(&dir, false, &silent).is_err(),
+            "a marked tree is still not a licence to delete an entry of the wrong shape"
+        );
+    }
+
+    /// The same rule for a symlink named `html`, judged as the link
+    /// (`symlink_metadata`) — the discipline ti `cbbc4e` applies to the bundle
+    /// files and the markers. What the replace took here was only the link
+    /// (`remove_dir_all` does not follow one), but a link to a directory is not
+    /// the bundle directory a publication writes, marked tree or not.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_html_is_refused_like_any_misshapen_entry() {
+        let root = scratch_dir("symlinked-bundle-entry");
+        let target = root.join("published");
+        let elsewhere = root.join("elsewhere");
+        fs::create_dir(&target).expect("the target");
+        fs::create_dir(&elsewhere).expect("the linked-to directory");
+        fs::write(elsewhere.join("notes.md"), b"somebody's work").expect("data behind the link");
+        let link = target.join(HTML_SUBDIR);
+        std::os::unix::fs::symlink(&elsewhere, &link).expect("symlink html");
+
+        let err = ensure_out_dir_replaceable(&target, false, &silent)
+            .expect_err("a symlink is not the bundle directory");
+        assert!(
+            err.to_string()
+                .contains("\"html\" which is not a directory"),
+            "the refusal must name the entry and its shape: {err}"
+        );
+
+        for (rel, bytes) in out_dir_payloads(b'p') {
+            if !rel.starts_with(HTML_SUBDIR) {
+                fs::write(target.join(rel), bytes).expect("the rest of a published set");
+            }
+        }
+        fs::write(target.join(OUT_DIR_MARKER_NAME), OUT_DIR_MARKER_BODY).expect("the marker");
+        assert!(
+            ensure_out_dir_replaceable(&target, false, &silent).is_err(),
+            "a marked tree carrying a symlinked html is refused too"
+        );
+        assert!(
+            fs::symlink_metadata(&link).is_ok_and(|meta| meta.file_type().is_symlink()),
+            "the link survives the refusal"
+        );
+        assert_eq!(
+            fs::read(elsewhere.join("notes.md")).ok(),
+            Some(b"somebody's work".to_vec()),
+            "and so does what it points at"
+        );
+    }
+
+    /// R0012-0001, the destructive path the finding names: the publish that
+    /// followed the guard's "nothing here" moved the target aside, swapped the
+    /// staged tree in, and removed the backup — the operator's file with it.
+    /// After the swap `html` is the staged bundle *directory*, so reading the
+    /// original bytes back is what tells the refusal from the loss; the
+    /// sibling check alone passes either way, because a successful swap
+    /// removes its backup too.
+    #[test]
+    fn a_publish_refuses_a_target_whose_only_entry_is_a_file_named_html() {
+        let root = scratch_dir("non-directory-bundle-publish");
+        let target = root.join("published");
+        fs::create_dir(&target).expect("the target");
+        fs::write(target.join(HTML_SUBDIR), b"the only copy").expect("a regular file named html");
+
+        let owned = out_dir_payloads(b'N');
+        let files: Vec<(PathBuf, &[u8])> = owned
+            .iter()
+            .map(|(p, b)| (p.clone(), b.as_slice()))
+            .collect();
+        let err = publish_out_dir(&target, &files, false, &silent)
+            .expect_err("a file named html is content the publish may not replace");
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists, "{err}");
+        assert_eq!(
+            fs::read(target.join(HTML_SUBDIR)).ok(),
+            Some(b"the only copy".to_vec()),
+            "the refused publish must leave the operator's file in place"
+        );
+        assert!(
+            !out_dir_sibling_exists(&root),
+            "a refusal before staging leaves no sibling behind"
         );
     }
 

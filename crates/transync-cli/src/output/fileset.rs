@@ -9,7 +9,7 @@
 //! TRACE: persistence-and-files.md §staged-fileset-commit
 //! TRACE: ADR-0006
 
-use super::destination::{destination_file_name, vet_destinations};
+use super::destination::{destination_file_name, refuse_lock_marker_alias, vet_destinations};
 use super::lock::{self, PUBLISH_LOCK_NAME, PublishLock};
 use super::{AFTER_A_FAILED_PUBLICATION, Notify, fsync_dir, note_cleanup_residue};
 use std::collections::HashSet;
@@ -33,7 +33,11 @@ use std::process;
 /// (R0001-0034): a *concurrent* run cannot interleave its renames with this
 /// one, so the "mixed set" exposure above is a crash/IO-error window, not a
 /// concurrency one. The lock is taken after the destination parents exist,
-/// because the lock marker lives in them.
+/// because the lock marker lives in them. That exclusion holds only while the
+/// marker stays the inode locked, so no destination — and no level created on
+/// the way to one — may be the marker (R0012-0005): its name is refused up
+/// front, and its identity is asked again after the levels exist and once the
+/// locks are held.
 ///
 /// TRACE: persistence-and-files.md §staged-fileset-commit
 /// TRACE: contracts.md §6
@@ -54,7 +58,12 @@ pub fn write_fileset_atomic(
     // by name is excluded on (ti `40e2a5`). Where the destination already
     // exists this resolves to the destination itself and nothing changes.
     let mut lock_dirs: Vec<PathBuf> = dirs.iter().map(|dir| claim_anchor(dir)).collect();
-    if let Err(e) = create_destination_parents(&dirs, &mut created_dirs) {
+    // R0012-0005: a level this call just created may have landed on the
+    // lock-marker path of the level holding it, under a spelling the volume
+    // folds; asked before locking, which would otherwise open a directory.
+    if let Err(e) = create_destination_parents(&dirs, &mut created_dirs)
+        .and_then(|()| refuse_marker_aliases(files))
+    {
         rollback_created_dirs(&created_dirs, notify);
         return Err(e);
     }
@@ -66,6 +75,15 @@ pub fn write_fileset_atomic(
             return Err(e);
         }
     };
+    // And once more under the lock: taking it created the marker in every
+    // destination directory that had none, so a destination that named
+    // nothing a moment ago can name the marker now — and the rename pass would
+    // replace the inode this lock is held on (R0012-0005).
+    if let Err(e) = refuse_marker_aliases(files) {
+        drop(lock);
+        rollback_created_dirs(&created_dirs, notify);
+        return Err(e);
+    }
 
     let mut staged: Vec<(std::path::PathBuf, &std::path::PathBuf)> =
         Vec::with_capacity(files.len());
@@ -85,6 +103,13 @@ pub fn write_fileset_atomic(
     }
 
     commit_staged_renames(&staged, &created_dirs, notify)
+}
+
+/// [`refuse_lock_marker_alias`] over every destination of the set.
+fn refuse_marker_aliases(files: &[(PathBuf, &[u8])]) -> io::Result<()> {
+    files
+        .iter()
+        .try_for_each(|(path, _)| refuse_lock_marker_alias(path))
 }
 
 /// The directory each destination lands in, one entry per file (duplicates

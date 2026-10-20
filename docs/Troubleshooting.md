@@ -529,6 +529,8 @@ read as foreign, and the leftover goes with the tree the publish replaces.
   the way you ignore `.DS_Store`; it does not need to be copied when you
   publish a bundle to a web server. Deleting it by hand is safe only
   when no transync run is active, and it will come back on the next run.
+  Its name is reserved: an output path running through
+  `.transync-publish.lock` (any letter case) exits 4 before translating.
 - `*.tmp.<pid>` is a **staging temp**. A run sweeps up leftovers
   carrying its *own* pid; one carrying a different pid is deliberately
   preserved, because it may belong to a live run whose staging deleting

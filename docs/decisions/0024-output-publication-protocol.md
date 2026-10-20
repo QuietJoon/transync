@@ -85,6 +85,15 @@ old one, and both are then "exclusive". The file is zero bytes and both
 directory guards recognize it, so leaving it is cheap and correct
 (R0004-0061, R0004-0064).
 
+**The marker's name is reserved.** A surviving marker excludes only while it
+stays the inode a run locked, and an output at its path would be renamed over
+exactly that inode — the next run then locks the replacement while the first is
+still renaming. So no destination, and no directory a run creates on the way to
+one, may take the name in any ASCII case, in either mode, `--force` or not; a
+spelling the filesystem folds onto the marker beyond ASCII is refused by
+`dev`+`ino` identity, asked again once the lock is held, because taking the
+lock is what creates the marker (R0012-0005, DCR-0063).
+
 **A granted waiter revalidates the inode.** A marker can still leave its
 path — a failed run's rollback unlinks the marker of an empty directory level
 it created, and an `--out-dir` replace deliberately renames a locked target
@@ -134,7 +143,7 @@ carries the reasoning.
 
 * Good, because the crash-recovery question is answered by the kernel, so the
   protocol has no TTL, no steal, and no clock dependence.
-* Good, because every one of the seven decisions above has a written reason, so
+* Good, because every one of the eight decisions above has a written reason, so
   a future round that re-raises one is answered by citation rather than by
   re-derivation — which is what the previous twelve findings cost.
 * Bad, because two of them are visible residue a user can trip over: a marker

@@ -335,6 +335,34 @@ finally enumerates is decided per item, not by this preamble.
   U+FFF0..U+FFF8 the review did not name. **Visible:** such a payload is
   retried, then falls back, so its row reads `fallback_source` and the report
   gains a rejection; a cached one is evicted on its next hit.
+- **An `--out-dir` target holding a file named `html` is no longer replaced
+  as if it were empty** (R0012-0001). The guard recorded `html` only as a
+  directory, so an unmarked target whose one entry was a regular file or a
+  symlink named `html` read as holding no output: the run replaced it without
+  `--force` and removed the backup, file included. A non-directory `html` is
+  now refused like any misshapen entry. **Visible:** such a target exits 4
+  before the provider call, and so does a marked tree carrying one, which
+  transync never writes; `--force` replaces either.
+- **An output can no longer take the publication lock's own name**
+  (R0012-0005, DCR-0063). A destination named `.transync-publish.lock` was
+  renamed over the marker its run had just locked, so the next run locked the
+  replacement while this one was still renaming: two publishers in one
+  directory. `--out-dir --force` left a directory at the marker path, after
+  which no publication into the parent could lock it, and a directory created
+  at that name on the way to an output did the same to the level holding it.
+  Every path component spelling the name, in any ASCII case, is refused in
+  both modes before the provider call, `--force` or not. A spelling the volume
+  folds onto the marker beyond ASCII (HFS+ ignores a zero-width non-joiner,
+  APFS folds the KELVIN SIGN) is refused by `dev`+`ino` identity — at
+  publication when the marker does not exist yet, and not at all off Unix.
+  **Visible:** new exit-4 refusals naming the publication-lock marker.
+- **The `.transync-out-dir` marker no longer says deleting it protects the
+  directory** (R0012-0020). Every `--out-dir` publication is a complete set,
+  which republishes without `--force` with or without the marker, so following
+  the advice lost the output it promised to keep. The body now says so and
+  says to move or rename the directory instead. **Visible:** the marker's
+  bytes change; it is still recognized by name and file type alone
+  (ADR-0029), so markers written earlier keep working.
 
 - **An impossible Gemini output ceiling exits `2` instead of `5`** (DCR-0061).
   `transync-google` refuses a `[batching].target_output_tokens` above
