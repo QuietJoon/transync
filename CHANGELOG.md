@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The decision gate over independent reviews **0010** and **0011** (188 findings
-between them). 63 were routed `fix` and applied here; 3 were recorded as ADRs
-(0029–0031); 4 are tracked as open issues (OI-0050…OI-0053), two of them
-waiting on a breaking window; the rest were rejected or dropped, most of them
-against a record that already ruled on the question.
+Two review gates land in this section. The one over independent reviews
+**0010** and **0011** (188 findings between them) routed 63 to `fix` and
+applied them here; 3 were recorded as ADRs (0029–0031); 4 are tracked as open
+issues (OI-0050…OI-0053), two of them waiting on a breaking window; the rest
+were rejected or dropped, most of them against a record that already ruled on
+the question. The one over reviews **0012** and **0013** (38 findings, six high)
+accepted and fixed every finding here: DCR-0063 records each contract delta and
+what a caller, operator or cache sees, and ADR-0032 records the language gate's
+input domain. None of the 38 is breaking.
 
 **Two breaking changes are sitting in this section, and they now have a
 window.** v0.5.0 closed the sanctioned window it had carried since 2026-08-24,
@@ -76,8 +80,9 @@ finally enumerates is decided per item, not by this preamble.
 - **`--google-auth api-key` reaches Vertex AI in express mode** (DCR-0060):
   an API key from `GOOGLE_API_KEY` instead of ADC, addressing the publisher
   model with no project or location. Only the flag selects it; a key in the
-  environment never does. The `x-goog-api-key` header form awaits its first
-  live run (`scripts/smoke-live-gate.sh google-vertex-express`).
+  environment never does. The `x-goog-api-key` header form passed its live
+  leg (`scripts/smoke-live-gate.sh google-vertex-express`; the live-gate run
+  below).
 - **`transync_html::MAX_NESTING_DEPTH` (512) and `nesting_ceiling_breach`,
   `transync_syntax::intake::html::check_nesting_depth`, and
   `ParseError::HtmlTooDeeplyNested { offset, limit }`** (R0013-0002, DCR-0063).
@@ -277,8 +282,9 @@ finally enumerates is decided per item, not by this preamble.
   instead of asking. It now returns `MalformedResponse`: the row is `Failed`,
   the CLI prints `auto-glossary: extraction failed (…)`, and nothing is filed.
   `{"terms": []}` is still a real empty answer. A non-strict endpoint behind
-  `--base-url` now warns and pays the preflight on every run. A record an
-  earlier build filed this way still replays until the cache is cleared.
+  `--base-url` that replies without `terms` now warns and pays the preflight on
+  every run. A record an earlier build filed this way still replays until the
+  cache is cleared.
 - **A section-scoped glossary entry no longer keeps its term out of the
   auto-glossary** (R0012-0013, DCR-0063). The extraction request listed every
   static source term as pinned, so a compliant extractor withheld the global
@@ -736,6 +742,10 @@ surfaces still unverified are alternative credential paths into
   reports zero — which is that accessor's one guarantee. Validating a domain
   would break an infallible builder to catch a mistake that already announces
   itself. (R0011-0075.)
+- **ADR-0032 — the language gate answers only for the languages it models.**
+  One letter a Russian, Arabic or Hindi target never writes answers
+  `Translate`; a verdict is meaningful only for text in the sixteen modelled
+  languages, and the misses that remain are named. (R0012-0014.)
 
 ### Tracked, not fixed
 

@@ -140,6 +140,12 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 /// loopback rule and `MAX_TOKENS` remediation, each of which is an interface
 /// rule a caller has to be able to read.
 ///
+/// DCR-0063, the fix pass over reviews 0012 and 0013, paid for five, and they
+/// are the same kind: `contracts.md`'s new refusals and rules, the
+/// `CHANGELOG.md` entries that say what each fix makes visible, and the
+/// developer guide, troubleshooting page and module map entries for the
+/// scripts' read-side guard, the snapshot-checking hook and `refmap`.
+///
 /// The 2026-10-13 live-endpoint run paid for one more, and it is the kind of
 /// growth this gate is meant to allow: evidence about the shipped artifact.
 /// `CHANGELOG.md` records which provider surfaces answered a real request and
@@ -155,20 +161,22 @@ const BUDGET_SLACK: u64 = 8 * 1024;
 /// owner's stated v0.6.0 release condition and for the recorded deferral on
 /// `v050-live-gate-unrun` — interface rules again, not history: the header
 /// now has to say that its counts are **not** a gate verdict, and an entry
-/// the owner set aside has to carry the trigger that would wake it.
+/// the owner set aside has to carry the trigger that would wake it. It came
+/// down again on 2026-10-21, when the reviews entry DCR-0063's gate settled
+/// left for the archive.
 const BUDGETS: &[(&str, u64)] = &[
     ("CLAUDE.md", 23_552), // wave 1 done; the rest is rules, not history; +1 KiB DCR-0060's `--google-auth` selector and the manifest version line
     ("docs/index.md", 27_648), // wave 1 landed, → 22_528 not reached; +1 KiB DCR-0061
-    ("docs/architecture/contracts.md", 321_536), // wave 4 landed, → 163_840 not reached; +2 KiB DCR-0061's §9 corrections, +3 KiB DCR-0063 (R0013-0002), +3 KiB DCR-0063 (R0012-0015), +3 KiB DCR-0063 (R0013-0003), +1 KiB DCR-0063 (R0012-0010, R0012-0018, R0012-0024), +1 KiB DCR-0063 (R0012-0001, R0012-0005), +1 KiB DCR-0063 (R0012-0002, R0013-0001, R0013-0006), +1 KiB DCR-0063 (R0012-0026, R0013-0010)
+    ("docs/architecture/contracts.md", 321_536), // wave 4 landed, → 163_840 not reached; +2 KiB DCR-0061's §9 corrections, +13 KiB DCR-0063 (the HTML nesting refusal, the panes' author-id rule, document-wide reference resolution and its fourth reparse scan, the table merge and report order, the publication refusals by name, identity and staging name, and the narrowed coalescing and cache-integrity promises)
     ("docs/project/status.md", 24_576),          // wave 2 done; ~2 KiB of working room
     ("docs/project/release-checklist.md", 48_128), // wave 2; +1 KiB DCR-0058
     ("docs/project/phase-state.yaml", 7_168),    // wave 2 done; +1 KiB DCR-0054..DCR-0060 roster
     ("docs/project/open-issues.md", 49_152), // wave 2 done; lowered on 2026-10-14 when OI-0041 moved verbatim to the archive under the Register rule
-    ("docs/backlog.md", 113_664), // wave 2 done; lowered to 102 KiB on 2026-10-13 when three entries archived in one day, then +3 KiB the same day for v0.6.0's stated release condition and the recorded deferral its gate verdict depends on, +4 KiB on 2026-10-14 for the two 4B-verdicted claims the agreement rule adopts, +2 KiB when the reviews entry was corrected: a Type 1 filed on a false premise became a Type 2 carrying why, which is the growth a register is for
-    ("CHANGELOG.md", 129_024), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes, +1 KiB DCR-0063 (R0012-0004, R0012-0007, R0012-0008, R0012-0009), +1 KiB DCR-0063 (R0013-0002), +2 KiB DCR-0063 (R0012-0015), +2 KiB DCR-0063 (R0013-0003), +2 KiB DCR-0063 (R0012-0006, R0012-0012, R0012-0013, R0012-0025), +2 KiB DCR-0063 (R0012-0010, R0012-0018, R0012-0024), +2 KiB DCR-0063 (R0012-0011, R0013-0005, R0013-0004), +2 KiB DCR-0063 (R0012-0001, R0012-0005, R0012-0020), +2 KiB DCR-0063 (R0012-0002, R0013-0001, R0013-0006), +1 KiB DCR-0063 (R0012-0014), +2 KiB DCR-0063 (R0012-0003, R0012-0016, R0012-0017, R0012-0027), +1 KiB DCR-0063 (R0012-0026, R0013-0010)
-    ("docs/Developer_Guide.md", 97_280), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9, +1 KiB SMOOTHING_FACTOR is a per-elapsed-ms lerp (R0011-0094, ti 336bf0c6), +2 KiB DCR-0063 (R0012-0003, R0012-0016, R0012-0017, R0012-0027)
-    ("docs/Troubleshooting.md", 43_008), // wave 3, +2 KiB DCR-0063 (R0012-0016)
-    ("docs/implementation/module-map.md", 43_008), // wave 3; +1 KiB DCR-0058, +1 KiB DCR-0063 (R0013-0003), +1 KiB DCR-0063 (R0012-0003, R0012-0016, R0012-0017)
+    ("docs/backlog.md", 105_472), // wave 2 done; lowered to 102 KiB on 2026-10-13 when three entries archived in one day, then +3 KiB the same day for v0.6.0's stated release condition and the recorded deferral its gate verdict depends on, +4 KiB on 2026-10-14 for the two 4B-verdicted claims the agreement rule adopts, +2 KiB when the reviews entry was corrected: a Type 1 filed on a false premise became a Type 2 carrying why, which is the growth a register is for; lowered to 103 KiB on 2026-10-21 when that entry, settled by the gate DCR-0063 records, moved verbatim to the archive, and the 2026-10-14 census with it
+    ("CHANGELOG.md", 130_048), // wave 3 done; +1 KiB DCR-0058, +1 KiB DCR-0055..0057, +1 KiB DCR-0059, DCR-0060, ti f17fc9, +5 KiB the 2026-10-13 live-gate roster, +4 KiB DCR-0061's four fixes, +21 KiB DCR-0063 (the `[Unreleased]` entries for reviews 0012 and 0013's thirty-eight fixes, each saying what it makes visible, the preamble that names their gate, and ADR-0032's decision line)
+    ("docs/Developer_Guide.md", 97_280), // wave 3; +6 KiB DCR-0058, +3 KiB DCR-0055, DCR-0057, DCR-0059, DCR-0060, ti f17fc9, +1 KiB SMOOTHING_FACTOR is a per-elapsed-ms lerp (R0011-0094, ti 336bf0c6), +2 KiB DCR-0063 (the scripts' read-side workdir guard, the snapshot-checking pre-commit hook and the live gate's exact, per-leg checks)
+    ("docs/Troubleshooting.md", 43_008), // wave 3; +2 KiB DCR-0063 (the pre-commit hook's NOT CHECKABLE refusal and its repairs)
+    ("docs/implementation/module-map.md", 43_008), // wave 3; +1 KiB DCR-0058, +2 KiB DCR-0063 (`refmap`, and the scripts' read-side guard, commit-snapshot guard and exact live-gate legs)
 ];
 
 /// `docs/project/open-issues.md` is a live register: a resolved entry belongs

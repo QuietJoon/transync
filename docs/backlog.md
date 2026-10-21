@@ -9,7 +9,7 @@ generated:
 ---
 # Backlog — WIP / deferred / open items
 
-Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-10-14** (the Type 1 section emptied: its one entry completed and archived with its open-issue entry, and the census re-counted; earlier in-place passes 2026-10-13 the live-endpoint gate, 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit, 2026-09-12, 2026-10-10).
+Maintained by the `/reopen` sweep. Last `/reopen` sweep: **2026-09-12** (full sweep — six new entries, six tickets filed; the previous full sweep was 2026-08-26); last in-place update: **2026-10-21** (the reviews 0012/0013 entry settled by its gate and archived, and the census re-counted; earlier in-place passes 2026-10-14 the Type 1 section emptying, 2026-10-13 the live-endpoint gate, 2026-09-05 `e5512b5`, 2026-09-06 `22f4efe`, 2026-09-07 `086ca35`, 2026-09-08 the documentation drift audit, 2026-09-12, 2026-10-10).
 The 2026-08-07 refresh was derived from
 `ti list --all` and `git log`, not from this file's own previous text — the review-0001
 arc produced several tickets whose root cause was one document restating another, and the
@@ -64,15 +64,15 @@ as much as the census that answers it, which is why every entry below has to be 
 three states — counting, deferred-with-a-recorded-condition, or resolved/historical — and
 why an entry that is in none of them is a defect in this file, not an ambiguity.
 
-**Census (2026-10-14) — a count, not a sweep, and this is the current one.** Re-derived from
-`ti list --open --json` and the section headings of this file; `docs/project/open-issues.md` was
-re-read for its own figures, which moved today. No other source was re-scanned, so the last full
-sweep is still the 2026-09-12 one. **44 entries; 43 are live** — each carrying at least one open
-TicGit ticket. By section: **Type 1 is empty**, Type 2 holds 21 and all 21 are live, Type 3 holds
+**Census (2026-10-21) — a count, not a sweep, and this is the current one.** Re-derived from
+TicGit's open tickets and the section headings of this file; `docs/project/open-issues.md` was
+re-read for its own figures, which did not move. No other source was re-scanned, so the last full
+sweep is still the 2026-09-12 one. **43 entries; 42 are live** — each carrying at least one open
+TicGit ticket. By section: **Type 1 is empty**, Type 2 holds 20 and all 20 are live, Type 3 holds
 23 of which **22 are live**. The one entry carrying no open ticket is
 `phrasing-extension-list-for-custom-elements`, which cites only a closed one. **The two registers
-still do not agree in both directions.** TicGit holds **76 open tickets** (22 new, 54 blocked, none
-in progress). Forty-three are cited by an entry and **33 have no entry here**; those 33 were all
+still do not agree in both directions.** TicGit holds **107 open tickets** (54 new, 53 blocked, none
+in progress). Forty-two are cited by an entry and **65 have no entry here**; those 65 were all
 filed after the 2026-09-12 sweep, and the next sweep adopts them. Until it runs, the queue is
 `ti list --open`, not this file. The open-issue register holds **eight** issues: **4 OPEN** (OI-0051
 through OI-0054), **1 DEFERRED** (OI-0049) and three marked RESOLVED (OI-0040, OI-0046, OI-0048)
@@ -83,30 +83,23 @@ header says why. The **v0.6.0 breaking window is open** since that day (DCR-0062
 separate thing: the window says what may ride the release, the condition says whether it may
 happen.
 
-**What moved since 2026-10-13b, and it is the Type 1 section emptying.**
-`pre-network-recomputation (OI-0041)` is **COMPLETED** and moved verbatim to
-`docs/backlog-archive.md`: Required Action 1's `greedy_plan` per-row re-encode hoist landed in
-`314d43f` with split points proved unchanged, closing ti `b3e8d80c` and the last thing that entry
-owed. Its open-issue entry moved the same way, to `docs/project/open-issues-archive.md`, so the
-register drops from nine issues to eight and from four RESOLVED-but-held-back entries to three.
-That is the whole of the entry movement; the Type 1 section is now empty, and an entry reaches it
-only when its fix shape is settled and nothing must land first.
-
-**The ticket count moved for a second reason, and it is not entry movement.** Six documentation
-drift tickets were verified and closed in `1d18bef` — `a641c5e0`, `1e24db08`, `2dc23c07`,
-`66023fa9`, `9d6dd34c` and `9f746aac`, each a Type 1 item the `/reopen` 4B pass had confirmed with
-the wrong side identified. None had an entry here, which is why the figures above move without any
-section changing. One new ticket was filed from the same verification, `98410989`: the CLI's
-oversize-unit warning tells the operator to lower `--output-expansion-factor`, which only silences
-the preflight. It is a shipped user-visible string and needs a decision, so it is a ticket rather
-than a drift repair, and it is one of the 33 with no entry here.
+**What moved since 2026-10-14, and it is the review gate over rounds 0012 and 0013.**
+`reviews-0012-0013-ungated` is **RESOLVED** and moved verbatim to `docs/backlog-archive.md`: the
+owner took its first option, `indy-review-gate` fixed all 38 findings, and DCR-0063 records the
+pass. That is the whole of the entry movement: Type 2 drops from 21 to 20 and the total from 44 to
+43. The entry's ticket `56dd1140` closed with it, which takes the cited tickets from 43 to 42, and so
+did `45ca7e2f`, an earlier ticket for the same two rounds that no entry here cited. The gate also
+filed thirty-three follow-up tickets — the five DCR-0063 names (`9a675d87`, `4b8827c4`, `f9a94236`,
+`1e902c74`, `8d73916b`) and twenty-eight more tagged `follow-up,indy-review` — and none has an entry
+here yet, so the tickets with no entry go from 33 to 65: thirty-three arrive and `45ca7e2f` leaves.
+The 38 per-finding tickets the gate opened were all closed by it, so they move no figure.
 
 Re-derive these figures on each sweep rather than trusting them — an entry counts unless it
 carries a resolution or a dated deferral line. The release-side half of this rule is
 `docs/project/release-checklist.md` step 2a, which is where a release actually consults
 the census. Each census replaces the previous one (release-checklist step 20b): the superseded
-censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut), 2026-09-08, 2026-09-12, 2026-10-10 and
-2026-10-13b, and
+censuses of 2026-08-26, 2026-09-05 (the v0.5.0 cut), 2026-09-08, 2026-09-12, 2026-10-10,
+2026-10-13b and 2026-10-14, and
 the TicGit snapshots of 2026-08-08 and 2026-08-24, are kept verbatim in
 `docs/backlog-archive.md`. An entry moves there too, under its own heading, once its resolution is
 verified against code or a shipped artifact.
@@ -117,7 +110,12 @@ adoption agency — residual measured at `sec4a:break-nested` 8 per 10,000 gener
 `reserved:dom-only` **0**; re-triggers on the census rising above 8 on an unchanged `ATOMS`
 alphabet, on any `reserved:dom-only` case at all, or on a route in this family being found by
 hand rather than by the oracle) and ti `16721e` (`noscript` read as markup; re-triggers on the
-oracle measuring a §4a break or anchor loss on a `noscript` route). OI-0049 (Review 0010's
+oracle measuring a §4a break or anchor loss on a `noscript` route). **ti `525bef`'s baseline is
+restated:** DCR-0063 re-blessed the oracle on a larger `ATOMS` alphabet, where the same residual
+measures **9** per 10,000 and `reserved:dom-only` stays **0**, so the re-trigger now reads *rising
+above 9 on that alphabet*. The fixed crate's corpus over the old alphabet is byte-identical to the
+pre-fix one, so the move from 8 is new draws rather than growth, and the trigger has not fired.
+OI-0049 (Review 0010's
 sixteen non-blocking survivors) is likewise explicitly deferred; its three-way re-trigger is
 recorded on the entry in `docs/project/open-issues.md`.
 
@@ -927,65 +925,6 @@ accept the divergence, or build the missing guard first. `manual/log.md` separat
 already out of sync with its own `synced_hash` values, and nothing outside `manual/` reads that field — a
 declared re-sync mechanism with no in-repo verifier.
 
-## reviews-0012-0013-ungated
-
-- **Type:** 2
-- **Verified:** yes — reopen verified 2026-10-14 first-hand, and the first framing was **wrong**.
-  `ls reviews/.gating/` returns 0009, 0010, 0011 only, while `ls reviews/.claims/` returns 0009..0013:
-  rounds 0012 and 0013 were claimed and written but **never gated**. `git ls-files reviews/` returns
-  `README.md` and nine paths under `reviews/reviewed/` — every tracked round file is an *archived* one.
-  Finding counts verified mechanically: 27 distinct `R0012-` ids and 11 distinct `R0013-`, matching each
-  file's `### ` header count. `grep -rl -E 'R0012-|R0013-' docs crates CHANGELOG.md` exits 1 with zero hits.
-- **Sources:** ticgit:56dd1140, reviews/0012.md, reviews/0013.md, reviews/README.md,
-  docs/project/status.md (the 2026-08-08 owner decision)
-- **First seen:** 2026-10-14 · **Last seen:** 2026-10-14
-
-### Description
-
-Two independent review rounds read `STATUS: COMPLETED` and carry **38 substantiated findings** — 27
-(4 high) and 11 (2 High). Neither has been gated: `reviews/.gating/` stops at 0011, `reviews/README.md`'s
-round table stops at 0011, and `CHANGELOG.md` records the last gate as covering rounds 0010 and 0011. No
-`R0012-` or `R0013-` id is cited anywhere in `docs/`, `crates/` or the CHANGELOG. They have been in that
-state since 2026-09-19/20.
-
-### Background
-
-**This entry was filed as Type 1 on a false premise and is corrected here.** The original reading was that
-the two files are untracked "by omission, not by design", inferred from `git check-ignore` exiting 1, and
-that the obvious unblocked step was to commit them before a `git clean -fd` destroyed them.
-
-Not gitignored is not the same as not deliberate. `docs/project/status.md` records an **owner decision of
-2026-08-08**: under `reviews/`, the registry and the archived rounds in `reviews/reviewed/` are tracked,
-"only the in-flight round files and the `.claims/` / `.gating/` state are not." The tracked-file listing
-shows exactly that shape, and the lifecycle it implies is claimed → written at `reviews/NNNN.md`,
-untracked → gated → archived into `reviews/reviewed/NNNN.md`, tracked and registered, which is what commit
-`cc20f4f` did for 0010 and 0011. Rounds 0012 and 0013 sit at the ungated step, so their untracked state is
-the recorded design rather than a defect, and committing them in place would contravene that decision and
-assert a lifecycle position they have not reached.
-
-The exposure is real but it is an **accepted** consequence of that design: an ungated round lives
-untracked, so it is lost if the working tree is cleaned. That trade was made on 2026-08-08.
-
-What survives is a gating backlog, not a tracking defect — and it is Type 2 because the choice is the
-owner's and nothing an agent can settle: run `indy-review-gate` over the two rounds and disposition 38
-findings, or declare them not owed and record that in `reviews/README.md` so the next reader does not
-rediscover them. Sizing matters to the choice: the gate over rounds 0010 and 0011 covered 188 findings and
-produced the `[Unreleased]` decision block, so 38 is a substantial but far smaller piece of work.
-
-### Options
-
-**Gate them** *(source: the lifecycle `reviews/README.md` and `cc20f4f` establish)* — runs
-`indy-review-gate` over both rounds, dispositions each finding, then archives them to `reviews/reviewed/`
-and registers them so their ids resolve. The only route that produces evidence about the 38 findings.
-
-**Declare them not owed and archive the rounds** *(proposed by reopen)* — cheaper and honest if the
-findings have been overtaken; needs the decision written into `reviews/README.md`, or the next sweep
-rediscovers two completed rounds nobody has dispositioned.
-
-**Leave them ungated** *(the status quo)* — costs nothing today and keeps the 38 findings one `git clean`
-from deletion, which is the exposure the 2026-08-08 decision accepted for in-flight rounds but which
-compounds the longer a *completed* round sits at that step.
-
 # Type 3 — Blocked
 
 Type-3 entries retired from this register are kept verbatim in
@@ -1060,6 +999,10 @@ DCR-0051 collapsed the crate's two open-element stacks into one and closed five 
 taking the oracle's agreement from 7,697 to 8,619 of 10,000 and `sec4a:break-nested` from 1,358 to
 **8**. Those 8 are this ticket, and `contracts.md` §4b records the residual as accepted rather than
 unnoticed. `open@input:order` is a divergence mechanism the census had never carried before.
+DCR-0063's larger alphabet measures the same residual at **9** of 10,000: its one new key,
+`open@input:both-ways open@balanced:dom-has-more sec4a:break-nested`, is this ticket's reconstructed
+formatting element behind an adoption-agency `<b><div></b></div>`. The old-alphabet corpus is
+unchanged, so 9 is the baseline on the new alphabet, not growth.
 
 ## noscript-read-as-markup
 

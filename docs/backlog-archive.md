@@ -2837,3 +2837,114 @@ its own.
 **RESOLVED** and archived: the owner made the next version v0.6, which opens the window the entry
 existed for (DCR-0062, ti `2d616b6a`). Nothing replaces it, which is why the entry total drops by
 one here while the live-gate pair above left it unchanged.
+
+## reviews-0012-0013-ungated
+
+**Settled by DCR-0063 (2026-10-21), which records the gate this entry asked for.** The
+owner took the entry's first option: `indy-review-gate` ran over both rounds, accepted all 38
+findings and fixed them in `2c9ff70`..`3f2e5cc`, and ADR-0032 records the language gate's input
+domain, the one finding that needed a decision record (R0012-0014). The gate's archive step
+moves the two rounds to `reviews/reviewed/` and registers them in `reviews/README.md`, so their
+finding ids resolve. Ticket `56dd1140` closes with this entry, and so does `45ca7e2f`, an earlier
+ticket for the same two rounds. Entry verbatim below.
+
+- **Type:** 2
+- **Verified:** yes — reopen verified 2026-10-14 first-hand, and the first framing was **wrong**.
+  `ls reviews/.gating/` returns 0009, 0010, 0011 only, while `ls reviews/.claims/` returns 0009..0013:
+  rounds 0012 and 0013 were claimed and written but **never gated**. `git ls-files reviews/` returns
+  `README.md` and nine paths under `reviews/reviewed/` — every tracked round file is an *archived* one.
+  Finding counts verified mechanically: 27 distinct `R0012-` ids and 11 distinct `R0013-`, matching each
+  file's `### ` header count. `grep -rl -E 'R0012-|R0013-' docs crates CHANGELOG.md` exits 1 with zero hits.
+- **Sources:** ticgit:56dd1140, reviews/0012.md, reviews/0013.md, reviews/README.md,
+  docs/project/status.md (the 2026-08-08 owner decision)
+- **First seen:** 2026-10-14 · **Last seen:** 2026-10-14
+
+### Description
+
+Two independent review rounds read `STATUS: COMPLETED` and carry **38 substantiated findings** — 27
+(4 high) and 11 (2 High). Neither has been gated: `reviews/.gating/` stops at 0011, `reviews/README.md`'s
+round table stops at 0011, and `CHANGELOG.md` records the last gate as covering rounds 0010 and 0011. No
+`R0012-` or `R0013-` id is cited anywhere in `docs/`, `crates/` or the CHANGELOG. They have been in that
+state since 2026-09-19/20.
+
+### Background
+
+**This entry was filed as Type 1 on a false premise and is corrected here.** The original reading was that
+the two files are untracked "by omission, not by design", inferred from `git check-ignore` exiting 1, and
+that the obvious unblocked step was to commit them before a `git clean -fd` destroyed them.
+
+Not gitignored is not the same as not deliberate. `docs/project/status.md` records an **owner decision of
+2026-08-08**: under `reviews/`, the registry and the archived rounds in `reviews/reviewed/` are tracked,
+"only the in-flight round files and the `.claims/` / `.gating/` state are not." The tracked-file listing
+shows exactly that shape, and the lifecycle it implies is claimed → written at `reviews/NNNN.md`,
+untracked → gated → archived into `reviews/reviewed/NNNN.md`, tracked and registered, which is what commit
+`cc20f4f` did for 0010 and 0011. Rounds 0012 and 0013 sit at the ungated step, so their untracked state is
+the recorded design rather than a defect, and committing them in place would contravene that decision and
+assert a lifecycle position they have not reached.
+
+The exposure is real but it is an **accepted** consequence of that design: an ungated round lives
+untracked, so it is lost if the working tree is cleaned. That trade was made on 2026-08-08.
+
+What survives is a gating backlog, not a tracking defect — and it is Type 2 because the choice is the
+owner's and nothing an agent can settle: run `indy-review-gate` over the two rounds and disposition 38
+findings, or declare them not owed and record that in `reviews/README.md` so the next reader does not
+rediscover them. Sizing matters to the choice: the gate over rounds 0010 and 0011 covered 188 findings and
+produced the `[Unreleased]` decision block, so 38 is a substantial but far smaller piece of work.
+
+### Options
+
+**Gate them** *(source: the lifecycle `reviews/README.md` and `cc20f4f` establish)* — runs
+`indy-review-gate` over both rounds, dispositions each finding, then archives them to `reviews/reviewed/`
+and registers them so their ids resolve. The only route that produces evidence about the 38 findings.
+
+**Declare them not owed and archive the rounds** *(proposed by reopen)* — cheaper and honest if the
+findings have been overtaken; needs the decision written into `reviews/README.md`, or the next sweep
+rediscovers two completed rounds nobody has dispositioned.
+
+**Leave them ungated** *(the status quo)* — costs nothing today and keeps the 38 findings one `git clean`
+from deletion, which is the exposure the 2026-08-08 decision accepted for in-flight rounds but which
+compounds the longer a *completed* round sits at that step.
+
+## docs/backlog.md header — superseded census (2026-10-14)
+
+**Superseded by the 2026-10-21 census**, which stays in the `backlog.md` header
+(release-checklist step 20b: each census replaces the previous one). Moved from the
+`docs/backlog.md` header on 2026-10-21. Three paragraphs verbatim below, in their original
+order: the census, and the two paragraphs that recorded what had moved beside it.
+
+**Census (2026-10-14) — a count, not a sweep, and this is the current one.** Re-derived from
+`ti list --open --json` and the section headings of this file; `docs/project/open-issues.md` was
+re-read for its own figures, which moved today. No other source was re-scanned, so the last full
+sweep is still the 2026-09-12 one. **44 entries; 43 are live** — each carrying at least one open
+TicGit ticket. By section: **Type 1 is empty**, Type 2 holds 21 and all 21 are live, Type 3 holds
+23 of which **22 are live**. The one entry carrying no open ticket is
+`phrasing-extension-list-for-custom-elements`, which cites only a closed one. **The two registers
+still do not agree in both directions.** TicGit holds **76 open tickets** (22 new, 54 blocked, none
+in progress). Forty-three are cited by an entry and **33 have no entry here**; those 33 were all
+filed after the 2026-09-12 sweep, and the next sweep adopts them. Until it runs, the queue is
+`ti list --open`, not this file. The open-issue register holds **eight** issues: **4 OPEN** (OI-0051
+through OI-0054), **1 DEFERRED** (OI-0049) and three marked RESOLVED (OI-0040, OI-0046, OI-0048)
+that stay in the register because each still has an open ticket against it. **What counts against a
+gate is still the owner's to state**, and on 2026-10-13 a v0.6.0 condition was stated — complete
+*and verified* — but its scope is not pinned, so **none of these figures is a gate verdict**; the
+header says why. The **v0.6.0 breaking window is open** since that day (DCR-0062), which is a
+separate thing: the window says what may ride the release, the condition says whether it may
+happen.
+
+**What moved since 2026-10-13b, and it is the Type 1 section emptying.**
+`pre-network-recomputation (OI-0041)` is **COMPLETED** and moved verbatim to
+`docs/backlog-archive.md`: Required Action 1's `greedy_plan` per-row re-encode hoist landed in
+`314d43f` with split points proved unchanged, closing ti `b3e8d80c` and the last thing that entry
+owed. Its open-issue entry moved the same way, to `docs/project/open-issues-archive.md`, so the
+register drops from nine issues to eight and from four RESOLVED-but-held-back entries to three.
+That is the whole of the entry movement; the Type 1 section is now empty, and an entry reaches it
+only when its fix shape is settled and nothing must land first.
+
+**The ticket count moved for a second reason, and it is not entry movement.** Six documentation
+drift tickets were verified and closed in `1d18bef` — `a641c5e0`, `1e24db08`, `2dc23c07`,
+`66023fa9`, `9d6dd34c` and `9f746aac`, each a Type 1 item the `/reopen` 4B pass had confirmed with
+the wrong side identified. None had an entry here, which is why the figures above move without any
+section changing. One new ticket was filed from the same verification, `98410989`: the CLI's
+oversize-unit warning tells the operator to lower `--output-expansion-factor`, which only silences
+the preflight. It is a shipped user-visible string and needs a decision, so it is a ticket rather
+than a drift repair, and it is one of the 33 with no entry here.
