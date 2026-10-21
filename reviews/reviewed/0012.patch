@@ -1,0 +1,889 @@
+# STATUS: COMPLETED
+# CLAIM_TOKEN: 04C197FC-D0BE-499D-82B5-F5BA75BE2037
+# CLAIMED_AT: 2026-09-19T23:18:44Z
+# COMPLETED_AT: 2026-09-19T23:56:44Z
+# Hand-authored proposal from source inspection; NOT applied, compiled, tested,
+# formatted, linted, benchmarked, or checked with git apply.
+# Summary:
+# - Guard destructive destinations and live-wrapper read-side inputs.
+# - Preserve explicit HTML prompt overrides and correct HTML text/attribute states.
+# - Repair table-window whitespace/CR handling and glossary request/response policy.
+# - Price escaped input, bound snippet allocation, and order windows numerically.
+# - Tighten live-test selection and correct stale documentation.
+# Affected files:
+# - crates/transync-cli/src/output/preflight.rs
+# - crates/transync-cli/src/output/destination.rs
+# - crates/transync-cli/src/translate_cmd/input.rs
+# - crates/transync-syntax/src/render/html_pane.rs
+# - crates/transync-html/src/lib.rs
+# - crates/transync-core/src/batch.rs
+# - crates/transync-core/src/llm/prompt.rs
+# - crates/transync-core/src/pipeline.rs
+# - crates/transync-core/src/unit/context.rs
+# - crates/transync-cli/src/output/publish.rs
+# - crates/transync-syntax/src/regen.rs
+# - crates/transync-core/src/unit/split.rs
+# - crates/transync-core/src/pipeline/report.rs
+# - crates/transync-core/src/profile.rs
+# - scripts/smoke-live-gate.sh
+# - scripts/smoke-live.sh
+# - docs/investigation/codebase/web.md
+# - docs/investigation/codebase/transync-wasm.md
+# - docs/architecture/contracts.md
+# - docs/project/design-change-records/DCR-0057-sections-coalesce-into-batches.md
+# Issue mapping:
+# - R0012-0001: An unmarked directory containing a foreign file named html is treated as empty
+# - R0012-0003: The live wrapper deletes inputs located in its selected work directory
+# - R0012-0005: An output can overwrite the publication lock that currently protects it
+# - R0012-0006: HTML runs silently ignore CLI system-prompt overrides
+# - R0012-0007: Pane annotation mistakes a slash inside an unquoted attribute for self-closing syntax
+# - R0012-0008: A literal slash on an HTML template bypasses text suppression
+# - R0012-0009: A valueless first encoding attribute loses to a duplicate
+# - R0012-0010: Valid whitespace around translated table windows breaks reassembly
+# - R0012-0011: Input token packing counts source payload before its JSON escaping
+# - R0012-0012: An extraction response without terms is cached as a successful empty glossary
+# - R0012-0013: Section-scoped glossary entries prevent global automatic terms from being requested
+# - R0012-0017: A renamed live test can leave the paid smoke gate reporting PASS with zero tests
+# - R0012-0018: Lone-CR tables cannot use the row-window strategy
+# - R0012-0019: A bounded neighbor snippet allocates and scans the full neighboring block
+# - R0012-0020: The ownership marker gives incorrect instructions for preventing replacement
+# - R0012-0022: The web investigation describes the retired format-only JS gate
+# - R0012-0023: The WASM investigation promises validation that ADR-0023 intentionally omits
+# - R0012-0024: Validation-report window order becomes lexical after window 99
+# - R0012-0025: Sequential prompt replacement reinterprets an inserted source label
+# - R0012-0026: The coalescing contract incorrectly claims byte-identical complete requests
+# - R0012-0027: Single-surface smoke runs reject configuration for unused providers
+# The six remaining findings require the design/scope choices described in the report.
+# Downstream validation is still required. Added regression tests are proposals only.
+
+diff --git a/crates/transync-cli/src/output/preflight.rs b/crates/transync-cli/src/output/preflight.rs
+--- a/crates/transync-cli/src/output/preflight.rs
++++ b/crates/transync-cli/src/output/preflight.rs
+@@ -435,39 +435,43 @@
+                 ),
+             ));
+         };
+-        if expected == HTML_SUBDIR {
+-            // Normally the six-file bundle directory — recurse one level with
+-            // the bundle allow-list. A non-directory `html` (regular file /
+-            // symlink) carries a transync name and holds no nested user data,
+-            // so it needs no recursion — and does not count toward the
+-            // complete published set either.
+-            if file_type.is_dir() {
+-                let mut nested = StagingSweep::default();
+-                let scan = scan_bundle_dir(&entry.path(), &mut nested)?;
+-                nested.note(&entry.path(), notify);
+-                match scan {
+-                    BundleScan::Clean => {}
+-                    BundleScan::NonUtf8 => {
+-                        return Err(io::Error::new(
+-                            io::ErrorKind::AlreadyExists,
+-                            format!(
+-                                "--out-dir {} contains a non-UTF-8 entry under html/; pass --force to replace",
+-                                target.display()
+-                            ),
+-                        ));
+-                    }
+-                    BundleScan::Foreign(nested) => {
+-                        return Err(io::Error::new(
+-                            io::ErrorKind::AlreadyExists,
+-                            format!(
+-                                "--out-dir {} contains non-transync file html/{nested} (not a transync out-dir); pass --force to replace",
+-                                target.display()
+-                            ),
+-                        ));
+-                    }
+-                }
+-                published.insert(expected);
+-            }
++        if expected == HTML_SUBDIR {
++            // A non-directory html entry is not a prior bundle, and must not
++            // disappear from the empty-directory decision below.
++            if !file_type.is_dir() {
++                return Err(io::Error::new(
++                    io::ErrorKind::AlreadyExists,
++                    format!(
++                        "--out-dir {} contains html which is not a directory; pass --force to replace",
++                        target.display()
++                    ),
++                ));
++            }
++            let mut nested = StagingSweep::default();
++            let scan = scan_bundle_dir(&entry.path(), &mut nested)?;
++            nested.note(&entry.path(), notify);
++            match scan {
++                BundleScan::Clean => {}
++                BundleScan::NonUtf8 => {
++                    return Err(io::Error::new(
++                        io::ErrorKind::AlreadyExists,
++                        format!(
++                            "--out-dir {} contains a non-UTF-8 entry under html/; pass --force to replace",
++                            target.display()
++                        ),
++                    ));
++                }
++                BundleScan::Foreign(nested) => {
++                    return Err(io::Error::new(
++                        io::ErrorKind::AlreadyExists,
++                        format!(
++                            "--out-dir {} contains non-transync file html/{nested} (not a transync out-dir); pass --force to replace",
++                            target.display()
++                        ),
++                    ));
++                }
++            }
++            published.insert(expected);
+         } else if file_type.is_file() {
+             published.insert(expected);
+         } else {
+
+diff --git a/crates/transync-cli/src/output/destination.rs b/crates/transync-cli/src/output/destination.rs
+--- a/crates/transync-cli/src/output/destination.rs
++++ b/crates/transync-cli/src/output/destination.rs
+@@ -99,7 +99,19 @@
+             ),
+         ));
+     };
+-    name.to_str().ok_or_else(|| {
++    if name
++        .to_str()
++        .is_some_and(|n| n.eq_ignore_ascii_case(super::lock::PUBLISH_LOCK_NAME))
++    {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            format!(
++                "output destination {} uses the reserved publication lock name",
++                path.display()
++            ),
++        ));
++    }
++    name.to_str().ok_or_else(|| {
+         io::Error::new(
+             io::ErrorKind::InvalidInput,
+             format!(
+
+diff --git a/crates/transync-cli/src/translate_cmd/input.rs b/crates/transync-cli/src/translate_cmd/input.rs
+--- a/crates/transync-cli/src/translate_cmd/input.rs
++++ b/crates/transync-cli/src/translate_cmd/input.rs
+@@ -219,13 +219,20 @@
+         None => default_profile(),
+     };
+ 
+-    if let Some(text) = system_prompt {
+-        profile.prompt_body = text.to_string();
+-    } else if let Some(path) = system_prompt_file {
+-        let text = read_capped(path, AUX_READ_LIMIT)
+-            .map_err(|e| aux_read_error(e, "--system-prompt-file", path))?;
+-        profile.prompt_body = text;
+-    }
++    let override_text = if let Some(text) = system_prompt {
++        Some(text.to_string())
++    } else if let Some(path) = system_prompt_file {
++        Some(
++            read_capped(path, AUX_READ_LIMIT)
++                .map_err(|e| aux_read_error(e, "--system-prompt-file", path))?,
++        )
++    } else {
++        None
++    };
++    if let Some(text) = override_text {
++        profile.prompt_html = Some(text.clone());
++        profile.prompt_body = text;
++    }
+ 
+     Ok(profile)
+ }
+
+diff --git a/crates/transync-syntax/src/render/html_pane.rs b/crates/transync-syntax/src/render/html_pane.rs
+--- a/crates/transync-syntax/src/render/html_pane.rs
++++ b/crates/transync-syntax/src/render/html_pane.rs
+@@ -267,11 +267,23 @@
+                 .map_or(only.content_end.max(only.open.1), |c| c.1);
+             if only.open.0 == 0 && coverage_end == trimmed.len() {
+                 let (_, open_end) = only.open;
+-                let insert_at = if trimmed[..open_end].ends_with("/>") {
+-                    open_end - 2
+-                } else {
+-                    open_end - 1
+-                };
++                let self_closing = transync_html::scan_tags(&trimmed[..open_end])
++                    .into_iter()
++                    .any(|token| {
++                        matches!(
++                            token,
++                            transync_html::TagToken::Open {
++                                span: (0, end),
++                                self_closing: true,
++                                ..
++                            } if end == open_end
++                        )
++                    });
++                let insert_at = if self_closing {
++                    open_end - 2
++                } else {
++                    open_end - 1
++                };
+                 let injected = format!(
+                     "{}{}{}",
+                     &trimmed[..insert_at],
+
+diff --git a/crates/transync-html/src/lib.rs b/crates/transync-html/src/lib.rs
+--- a/crates/transync-html/src/lib.rs
++++ b/crates/transync-html/src/lib.rs
+@@ -281,9 +281,9 @@
+     let settings = rewriter_settings(
+         vec![element!("*", move |el| {
+             let name = el.tag_name().to_ascii_lowercase();
+-            // spec §3.2 step 6: never push void/self-closing tags — they get
+-            // no end tag, and would poison later labels.
+-            if is_void(&name) || el.is_self_closing() {
++            // A literal /> does not close a nonvoid HTML element. Let the
++            // rewriter decide whether this element can receive an end tag.
++            if !el.can_have_content() {
+                 return Ok(());
+             }
+             let stack_end = stack_e.clone();
+@@ -2620,9 +2620,11 @@
+     let mut out = None;
+     walk_attrs(html, span, |attr| {
+         if out.is_none() && attr.name.eq_ignore_ascii_case(wanted) {
+-            out = attr
+-                .value
+-                .map(|(a, b)| htmlize::unescape_attribute(&html[a..b]).into_owned());
++            // A present, valueless first attribute has the empty value.
++            // It must still prevent a later duplicate from taking precedence.
++            out = Some(attr.value.map_or_else(String::new, |(a, b)| {
++                htmlize::unescape_attribute(&html[a..b]).into_owned()
++            }));
+         }
+     });
+     out
+
+diff --git a/crates/transync-core/src/batch.rs b/crates/transync-core/src/batch.rs
+--- a/crates/transync-core/src/batch.rs
++++ b/crates/transync-core/src/batch.rs
+@@ -448,16 +448,16 @@
+     batches
+ }
+ 
+-/// Input + estimated-output token cost of one unit, computed in a single
+-/// encoder pass. Encoding is the hot cost, so `source_payload` and `unit_id`
+-/// are each encoded exactly once and reused for both sides (D1).
++/// Input + estimated-output token cost of one unit. The raw payload cost
++/// is reused for input when JSON escaping leaves it unchanged; otherwise
++/// input must price the escaped wire body separately from output expansion.
+ struct UnitEstimate {
+     input: usize,
+     output: usize,
+ }
+ 
+-/// Estimate both the input and the response-side token cost of a unit in one
+-/// pass.
++/// Estimate input from its wire representation and response cost from the
++/// raw payload's configured expansion.
+ ///
+ /// Input side (unchanged from pre-D1): the system prompt + glossary the
+ /// provider also sees, and the assembled instruction envelope, are fixed per
+@@ -496,7 +496,13 @@
+     bpe: &CoreBPE,
+     output_expansion_factor: f64,
+ ) -> UnitEstimate {
+-    let payload_tokens = bpe.encode_with_special_tokens(&unit.source_payload).len();
++    let payload_tokens = bpe.encode_with_special_tokens(&unit.source_payload).len();
++    let payload_wire = crate::llm::prompt::label_wire_text(&unit.source_payload);
++    let input_payload_tokens = if payload_wire == unit.source_payload {
++        payload_tokens
++    } else {
++        bpe.encode_with_special_tokens(&payload_wire).len()
++    };
+     let id_tokens = bpe.encode_with_special_tokens(&unit.unit_id.0).len();
+     let kind_tokens = bpe
+         .encode_with_special_tokens(unit.block_kind.wire_str())
+@@ -525,7 +531,7 @@
+         bpe.encode_with_special_tokens(&advisory_json).len()
+     };
+ 
+-    let input = payload_tokens
++    let input = input_payload_tokens
+         + id_tokens
+         + kind_tokens
+         + context_tokens
+
+diff --git a/crates/transync-core/src/llm/prompt.rs b/crates/transync-core/src/llm/prompt.rs
+--- a/crates/transync-core/src/llm/prompt.rs
++++ b/crates/transync-core/src/llm/prompt.rs
+@@ -1004,11 +1004,10 @@
+     })
+ }
+ 
+-#[derive(Deserialize)]
+-struct ApiGlossaryExtraction {
+-    #[serde(default)]
+-    terms: Vec<ApiGlossaryTerm>,
+-}
++#[derive(Deserialize)]
++struct ApiGlossaryExtraction {
++    terms: Vec<ApiGlossaryTerm>,
++}
+ 
+ #[derive(Deserialize)]
+ struct ApiGlossaryTerm {
+
+diff --git a/crates/transync-core/src/pipeline.rs b/crates/transync-core/src/pipeline.rs
+--- a/crates/transync-core/src/pipeline.rs
++++ b/crates/transync-core/src/pipeline.rs
+@@ -978,11 +978,14 @@
+         source_truncated,
+         source_language: opts.source_language.clone(),
+         target_language: opts.target_language.clone(),
+-        existing_terms: raw_profile
+-            .glossary
+-            .iter()
+-            .map(|e| e.source_term.clone())
+-            .collect(),
++        existing_terms: raw_profile
++            .glossary
++            .iter()
++            .filter(|e| {
++                matches!(e.scope, crate::llm::GlossaryScope::GlobalAcrossDocument)
++            })
++            .map(|e| e.source_term.clone())
++            .collect(),
+         max_terms: DEFAULT_MAX_AUTO_GLOSSARY_TERMS,
+     };
+ 
+
+diff --git a/crates/transync-core/src/unit/context.rs b/crates/transync-core/src/unit/context.rs
+--- a/crates/transync-core/src/unit/context.rs
++++ b/crates/transync-core/src/unit/context.rs
+@@ -181,8 +181,8 @@
+ /// context that says nothing rather than one that lies in markup.
+ fn heading_plain_text(doc: &Document, b: &Block) -> String {
+     match b.spelling {
+-        crate::id::Spelling::Markdown => inline_plain_text(&text_from_range(doc, b), &doc.ref_defs),
+-        crate::id::Spelling::Html { .. } => transync_html::extract(&text_from_range(doc, b))
++        crate::id::Spelling::Markdown => inline_plain_text(text_from_range(doc, b), &doc.ref_defs),
++        crate::id::Spelling::Html { .. } => transync_html::extract(text_from_range(doc, b))
+             .map(|segs| segs.texts.join(" ").trim().to_string())
+             .unwrap_or_default(),
+     }
+@@ -236,7 +236,7 @@
+     }
+ }
+ 
+-fn text_from_range(doc: &Document, block: &Block) -> String {
++fn text_from_range<'a>(doc: &'a Document, block: &Block) -> &'a str {
+     let mut start = block.source_range.start.min(doc.source_text.len());
+     let mut end = block.source_range.end.min(doc.source_text.len()).max(start);
+     // R0006-0031: same defensive UTF-8 char-boundary snap as
+@@ -249,17 +249,12 @@
+     while end > start && !doc.source_text.is_char_boundary(end) {
+         end -= 1;
+     }
+-    doc.source_text[start..end].trim().to_string()
++    doc.source_text[start..end].trim()
+ }
+ 
+-fn text_from_range_truncated(doc: &Document, block: &Block, max_chars: usize) -> String {
+-    let raw = text_from_range(doc, block);
+-    if raw.chars().count() <= max_chars {
+-        raw
+-    } else {
+-        raw.chars().take(max_chars).collect()
+-    }
+-}
++fn text_from_range_truncated(doc: &Document, block: &Block, max_chars: usize) -> String {
++    text_from_range(doc, block).chars().take(max_chars).collect()
++}
+ 
+ /// R0001-0022 / R0001-0023: heading context is the parsed heading's inline
+ /// text. Markers vanish because the parser consumed them; content that looks
+
+diff --git a/crates/transync-cli/src/output/publish.rs b/crates/transync-cli/src/output/publish.rs
+--- a/crates/transync-cli/src/output/publish.rs
++++ b/crates/transync-cli/src/output/publish.rs
+@@ -59,9 +59,11 @@
+ /// place the question gets asked.
+ pub(super) const OUT_DIR_MARKER_BODY: &[u8] = b"transync --out-dir publication marker.\n\
+ \n\
+-This directory was published by `transync translate --out-dir` and will be\n\
+-replaced WHOLESALE by the next such publication into it. Deleting this file\n\
+-makes transync refuse to replace the directory without --force.\n";
++This directory was published by `transync translate --out-dir` and may be\n\
++replaced WHOLESALE by the next such publication into it. Deleting this file\n\
++removes the ownership shortcut, but a complete prior output set remains\n\
++replaceable without --force. Move this directory out of the selected output\n\
++path if you want to preserve it.\n";
+ 
+ /// Publish the complete `--out-dir` output set with a staged fileset commit
+ /// at directory granularity (EXT-2026-07 P1-6).
+
+diff --git a/crates/transync-syntax/src/regen.rs b/crates/transync-syntax/src/regen.rs
+--- a/crates/transync-syntax/src/regen.rs
++++ b/crates/transync-syntax/src/regen.rs
+@@ -262,10 +262,9 @@
+ /// options, as exactly one table and nothing else. The verdict is comrak's,
+ /// not a line-shape guess: the payload must produce a single top-level
+ /// `Table` node, and the number of lines the slicing finds must equal the
+-/// number of rows comrak counted plus the header and delimiter. That second
+-/// check is what makes the function safe on payloads whose line endings this
+-/// slicing does not model (a lone-`\r` document splits into fewer lines than
+-/// comrak saw, and is refused rather than mis-sliced).
++/// number of rows comrak counted plus the header and delimiter. Slicing
++/// recognizes LF and lone CR boundaries and retains the CR of a CRLF pair
++/// on its row, so existing CRLF windows keep their byte representation.
+ ///
+ /// Pure over strings + comrak, like every other function in this module: it
+ /// knows nothing about units, budgets, or windows, and the caller decides how
+@@ -304,7 +303,16 @@
+     // payload belongs to it — a blank line would have ended the table and
+     // produced a second top-level node. So the table's lines are exactly the
+     // span between the first and last non-blank line.
+-    let lines: Vec<&str> = source.split('\n').collect();
++    let bytes = source.as_bytes();
++    let mut lines = Vec::new();
++    let mut start = 0;
++    for (i, byte) in bytes.iter().enumerate() {
++        if *byte == b'\n' || (*byte == b'\r' && bytes.get(i + 1) != Some(&b'\n')) {
++            lines.push(&source[start..i]);
++            start = i + 1;
++        }
++    }
++    lines.push(&source[start..]);
+     let first = lines.iter().position(|l| !l.trim().is_empty())?;
+     let last = lines.iter().rposition(|l| !l.trim().is_empty())?;
+     let span = &lines[first..=last];
+@@ -324,53 +332,44 @@
+ /// Reassemble one GFM table from the translated row windows
+ /// [`split_table_rows`] made possible (DCR-0026 §4).
+ ///
+-/// Window 0 is taken verbatim — its translated header and delimiter are the
+-/// table's — and every later window contributes only the lines *after* its
+-/// delimiter row. Later windows' headers were context for the model
+-/// (architectural invariant 3's header-carrying shape), so a divergent header
+-/// translation across windows cannot reach the output.
++/// Window 0 supplies the translated header and delimiter. Later windows
++/// contribute only body rows. Surrounding blank lines are discarded so a
++/// valid fragment's whitespace cannot split or reshape the merged table.
++/// Later windows' headers remain context and never reach the output.
+ ///
+ /// A one-element call returns that element unchanged, which is exactly what
+ /// the whole-block path wants and what this function did as STUB-017's
+ /// identity placeholder.
+ ///
+-/// Purely textual, and safe to be so: every input has already passed fragment
+-/// reparse as a single table, and the caller re-inspects the merged result
+-/// against the source table's column count, alignment, and row total before
+-/// it is accepted (DCR-0026 §3).
++/// Every input has passed fragment reparse as a single table. Row slicing
++/// reuses `split_table_rows`; an unexpected slicing failure returns an empty
++/// candidate so the caller's merged-shape check takes the source fallback.
++/// That check still verifies columns, alignment, and row total (DCR-0026 §3).
+ ///
+ /// TRACE: SCN-02
+ /// TRACE: SCN-03
+ /// TRACE: DCR-0026
+-pub fn regenerate_table(windows: &[&str]) -> String {
+-    let mut out = String::new();
+-    for (i, window) in windows.iter().enumerate() {
+-        let contribution = if i == 0 {
+-            *window
+-        } else {
+-            body_rows_of(window)
+-        };
+-        if contribution.is_empty() {
+-            continue;
+-        }
+-        if !out.is_empty() && !out.ends_with('\n') {
+-            out.push('\n');
+-        }
+-        out.push_str(contribution);
+-    }
+-    out
+-}
+-
+-/// Everything after a window's delimiter row — i.e. past its second newline.
+-/// A window with fewer than two line breaks carries no body rows at all and
+-/// contributes nothing.
+-fn body_rows_of(window: &str) -> &str {
+-    let mut breaks = window.match_indices('\n');
+-    match (breaks.next(), breaks.next()) {
+-        (Some(_), Some((delimiter_end, _))) => &window[delimiter_end + 1..],
+-        _ => "",
+-    }
+-}
++pub fn regenerate_table(windows: &[&str]) -> String {
++    if let [only] = windows {
++        return (*only).to_string();
++    }
++    let mut out = String::new();
++    for (i, window) in windows.iter().enumerate() {
++        let Some(rows) = split_table_rows(window) else {
++            return String::new();
++        };
++        if i == 0 {
++            out.push_str(&rows.header);
++            out.push('\n');
++            out.push_str(&rows.delimiter);
++        }
++        for row in rows.body {
++            out.push('\n');
++            out.push_str(&row);
++        }
++    }
++    out
++}
+ 
+ /// Re-wrap a fenced code block: extract the body from `payload` (which may
+ /// include the original fence and info string), then call
+@@ -796,17 +795,28 @@
+                 "| a |\n|---|\n| 1 |\n\ntail paragraph",
+             ),
+             ("a heading", "# not a table"),
+-            (
+-                // Lone-CR line endings: comrak counts three rows, this
+-                // slicing sees one line. Refused, not mis-sliced.
+-                "lone-CR line endings",
+-                "| a | b |\r|---|---|\r| 1 | 2 |",
+-            ),
+         ] {
+             assert_eq!(split_table_rows(src), None, "{name} must not slice");
+         }
+-    }
+-}
++    }
++
++    #[test]
++    fn lone_cr_tables_slice_at_commonmark_line_boundaries() {
++        let rows = split_table_rows("| a | b |\r|---|---|\r| 1 | 2 |").expect("one table");
++        assert_eq!(rows.header, "| a | b |");
++        assert_eq!(rows.delimiter, "|---|---|");
++        assert_eq!(rows.body, ["| 1 | 2 |"]);
++    }
++
++    #[test]
++    fn translated_window_whitespace_does_not_split_the_merged_table() {
++        let merged = regenerate_table(&[
++            "\n| name |\n|---|\n| first |\n\n",
++            "\n  \n| name |\n|---|\n| second |\n\n",
++        ]);
++        assert_eq!(merged, "| name |\n|---|\n| first |\n| second |");
++    }
++}
+ 
+ // ti `457e51`: an indented code block's splice.
+ //
+
+diff --git a/crates/transync-core/src/unit/split.rs b/crates/transync-core/src/unit/split.rs
+--- a/crates/transync-core/src/unit/split.rs
++++ b/crates/transync-core/src/unit/split.rs
+@@ -273,7 +273,13 @@
+         return None;
+     }
+     Some(BlockId(parent.to_string()))
+-}
++}
++
++/// The numeric suffix used to order report rows within their parent table.
++pub(crate) fn window_ordinal_of(id: &BlockId) -> Option<u32> {
++    parent_id_of(id)?;
++    id.0.rsplit_once(".w")?.1.parse().ok()
++}
+ 
+ // DCR-0026 SL-102. The gate (does anything split at all?), the boundaries
+ // (where do the cuts fall?), and the shape of what comes out.
+
+diff --git a/crates/transync-core/src/pipeline/report.rs b/crates/transync-core/src/pipeline/report.rs
+--- a/crates/transync-core/src/pipeline/report.rs
++++ b/crates/transync-core/src/pipeline/report.rs
+@@ -169,9 +169,9 @@
+         .collect();
+     // DCR-0026: a row-window unit is not a block, so it has no index of its
+     // own — it ranks at its PARENT's, which lists a table's windows directly
+-    // under it (the id-string tiebreak below then orders `t-0007` before
+-    // `t-0007.w01` before `t-0007.w02`). The convention is parsed by
+-    // `unit::split::parent_id_of`, the same module that writes it.
++    // under it. The numeric suffix keeps window 100 after window 99;
++    // minimum-width string padding does not establish numeric order.
++    // Both readers live beside the writer in `unit::split`.
+     let rank = |id: &BlockId| {
+         doc_order.get(id).copied().unwrap_or_else(|| {
+             crate::unit::split::parent_id_of(id)
+@@ -180,11 +180,13 @@
+         })
+     };
+ 
+-    report.per_unit.sort_by(|a, b| {
+-        rank(&a.unit_id)
+-            .cmp(&rank(&b.unit_id))
+-            .then_with(|| a.unit_id.0.cmp(&b.unit_id.0))
+-    });
++    report.per_unit.sort_by(|a, b| {
++        let ordinal = |id: &BlockId| crate::unit::split::window_ordinal_of(id).unwrap_or(0);
++        rank(&a.unit_id)
++            .cmp(&rank(&b.unit_id))
++            .then_with(|| ordinal(&a.unit_id).cmp(&ordinal(&b.unit_id)))
++            .then_with(|| a.unit_id.0.cmp(&b.unit_id.0))
++    });
+     report
+         .full_reparse_fallbacks
+         .sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.0.cmp(&b.0)));
+
+diff --git a/crates/transync-core/src/profile.rs b/crates/transync-core/src/profile.rs
+--- a/crates/transync-core/src/profile.rs
++++ b/crates/transync-core/src/profile.rs
+@@ -1360,10 +1360,23 @@
+         } else {
+             source_language
+         };
+-        let mut body = profile
+-            .prompt_body
+-            .replace("{{source_language}}", source_label)
+-            .replace("{{target_language}}", target_language);
++        let mut body = String::new();
++        let mut template = profile.prompt_body.as_str();
++        while let Some(start) = template.find("{{") {
++            body.push_str(&template[..start]);
++            template = &template[start..];
++            if let Some(rest) = template.strip_prefix("{{source_language}}") {
++                body.push_str(source_label);
++                template = rest;
++            } else if let Some(rest) = template.strip_prefix("{{target_language}}") {
++                body.push_str(target_language);
++                template = rest;
++            } else {
++                body.push_str("{{");
++                template = &template[2..];
++            }
++        }
++        body.push_str(template);
+         for section in &sections {
+             append_prompt_section(&mut body, section);
+         }
+
+diff --git a/scripts/smoke-live-gate.sh b/scripts/smoke-live-gate.sh
+--- a/scripts/smoke-live-gate.sh
++++ b/scripts/smoke-live-gate.sh
+@@ -118,33 +118,46 @@
+   require_key ANTHROPIC_API_KEY
+ fi
+ 
+-# Checked for every surface, not per leg: these are the knobs an operator edits
+-# once and forgets, and naming a bad one now is free whichever leg reads it.
+-require_unpadded TRANSYNC_LIVE_SMOKE_CHAT_MODEL
+-require_unpadded TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL
+-require_unpadded TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL
+-require_http_url TRANSYNC_OPENAI_BASE_URL
+-require_http_url TRANSYNC_ANTHROPIC_BASE_URL
++# Validate only the configuration this invocation will consume.
++case "$SURFACE" in
++  chat|all) require_unpadded TRANSYNC_LIVE_SMOKE_CHAT_MODEL ;;
++esac
++case "$SURFACE" in
++  responses|all) require_unpadded TRANSYNC_LIVE_SMOKE_RESPONSES_MODEL ;;
++esac
++if [[ $NEEDS_OPENAI -eq 1 ]]; then
++  require_http_url TRANSYNC_OPENAI_BASE_URL
++fi
++if [[ $NEEDS_ANTHROPIC -eq 1 ]]; then
++  require_unpadded TRANSYNC_LIVE_SMOKE_ANTHROPIC_MODEL
++  require_http_url TRANSYNC_ANTHROPIC_BASE_URL
++fi
+ 
+ echo "[smoke-live-gate] running gated live smoke (${SURFACE}) — this spends real API tokens"
+ 
+ # --test-threads=1 keeps the live calls sequential (politeness towards the
+ # endpoint + deterministic --nocapture logs). The repo-wide --test-threads=4
+ # rule is a cap, so 1 is compliant.
+-run_leg() {
+-  local package="$1" filter="$2"
+-  TRANSYNC_LIVE_SMOKE=1 cargo test -p "$package" --test live_smoke ${filter:+"$filter"} \
+-    -- --ignored --test-threads=1 --nocapture
+-}
++run_leg() {
++  local package="$1" filter="$2" listed
++  listed="$(cargo test -p "$package" --test live_smoke "$filter" -- --ignored --exact --list)"
++  if ! grep -Fxq "$filter: test" <<<"$listed"; then
++    echo "[smoke-live-gate] FAIL: expected ignored live test $filter is missing from $package" >&2
++    exit 1
++  fi
++  TRANSYNC_LIVE_SMOKE=1 cargo test -p "$package" --test live_smoke "$filter" \
++    -- --ignored --exact --test-threads=1 --nocapture
++}
+ 
+ case "$SURFACE" in
+   chat)      run_leg transync-openai    live_chat_surface_round_trip ;;
+   responses) run_leg transync-openai    live_responses_surface_round_trip ;;
+-  anthropic) run_leg transync-anthropic "" ;;
+-  all)
+-    run_leg transync-openai    ""
+-    run_leg transync-anthropic ""
+-    ;;
++  anthropic) run_leg transync-anthropic live_messages_api_round_trip ;;
++  all)
++    run_leg transync-openai    live_chat_surface_round_trip
++    run_leg transync-openai    live_responses_surface_round_trip
++    run_leg transync-anthropic live_messages_api_round_trip
++    ;;
+ esac
+ 
+ echo "[smoke-live-gate] PASS — live round-trip validated."
+
+diff --git a/scripts/smoke-live.sh b/scripts/smoke-live.sh
+--- a/scripts/smoke-live.sh
++++ b/scripts/smoke-live.sh
+@@ -139,8 +139,41 @@
+ # marker file. A typo'd TRANSYNC_LIVE_WORKDIR can't take down a real
+ # directory, and (R0001-0002) a 'transync-' basename no longer excuses
+ # one that lives outside every temp root.
+-transync_guard_workdir smoke-live TRANSYNC_LIVE_WORKDIR "$WORKDIR"
+-rm -rf "$WORKDIR"
++transync_guard_workdir smoke-live TRANSYNC_LIVE_WORKDIR "$WORKDIR"
++
++# Resolve both the pathname the caller uses and any final symlink targets.
++# Deleting either can make an otherwise readable input disappear.
++guard_read_side() {
++  local candidate="$1" parent resolved link hop
++  [[ -n "$candidate" && -n "$read_workdir" ]] || return 0
++  for ((hop = 0; hop < 40; hop++)); do
++    parent="$(_transync_canonical_dir "$(dirname "$candidate")")"
++    [[ -n "$parent" ]] || {
++      echo "[smoke-live] cannot resolve read-side path before cleanup: $candidate" >&2
++      exit 1
++    }
++    resolved="${parent%/}/$(basename "$candidate")"
++    if [[ "$resolved" == "$read_workdir" || "$resolved" == "$read_workdir/"* ]]; then
++      echo "[smoke-live] refusing to delete workdir containing read-side path: $candidate" >&2
++      exit 1
++    fi
++    [[ -L "$resolved" ]] || return 0
++    link="$(readlink "$resolved")" || exit 1
++    case "$link" in
++      /*) candidate="$link" ;;
++      *) candidate="$parent/$link" ;;
++    esac
++  done
++  echo "[smoke-live] too many read-side symlinks to safely clean $WORKDIR" >&2
++  exit 1
++}
++
++read_workdir="$(_transync_canonical_dir "$WORKDIR")"
++guard_read_side "$REPO_ROOT"
++guard_read_side "$INPUT"
++guard_read_side "${TRANSYNC_LIVE_PROFILE:-}"
++guard_read_side "${TRANSYNC_LIVE_SYSTEM_PROMPT_FILE:-}"
++rm -rf "$WORKDIR"
+ mkdir -p "$WORKDIR"
+ transync_mark_workdir "$WORKDIR"
+ 
+
+diff --git a/docs/investigation/codebase/web.md b/docs/investigation/codebase/web.md
+--- a/docs/investigation/codebase/web.md
++++ b/docs/investigation/codebase/web.md
+@@ -24,7 +24,7 @@
+ 
+ ### Module Dependencies
+ 
+-- **Biome**: Provides the repository's format-only JavaScript formatter; lint and assist rules remain disabled by configuration.
++- **Biome**: Provides JavaScript formatting and the adopted lint gate; the pre-commit hook runs lint with `--error-on-warnings` (DCR-0056). Assist configuration is separate from that lint policy.
+ - **DOMPurify**: Vendored UMD sanitizer required before fetched annotated HTML is mounted.
+ - **Playwright**: Provides the browser-only development dependency and headless suites for the emitted static bundle, synchronization engine, and WASM demo.
+ - **transync-wasm**: Supplies generated wasm-bindgen glue and the Rust-owned render/rebuild boundary consumed by the optional demo.
+
+diff --git a/docs/investigation/codebase/transync-wasm.md b/docs/investigation/codebase/transync-wasm.md
+--- a/docs/investigation/codebase/transync-wasm.md
++++ b/docs/investigation/codebase/transync-wasm.md
+@@ -14,8 +14,8 @@
+ 
+ | Name | Type | Description |
+ |------|------|-------------|
+-| Alignment-bound pair rendering | Function/Module | `engine::render_pair_impl` parses source and translated Markdown through `transync-syntax`, verifies that the supplied alignment map belongs to the source document and covers compatible blocks, and returns paired annotated HTML. |
+-| Browser edit rebuild | Function/Module | `engine::rebuild_impl` accepts source Markdown, payload/status JSON, and language metadata, validates known translatable IDs and status/payload coherence, regenerates target Markdown, rebuilds alignment, and renders a fresh pair for the browser edit loop. |
++| Alignment-driven pair rendering | Function/Module | `engine::render_pair_impl` parses source and alignment JSON and delegates to the syntax renderer's duplicate-row, coverage, and range checks. The caller owns source/map semantic coherence (ADR-0023). |
++| Browser edit rebuild | Function/Module | `engine::rebuild_impl` accepts source Markdown, payload/status JSON, and language metadata, rejects unknown block IDs, regenerates target Markdown, rebuilds alignment, and renders a fresh pair. The caller owns payload/status coherence (ADR-0023). |
+ | Thin wasm-bindgen boundary | Crate Boundary | `lib.rs` exposes JSON-string and string arguments through wasm-bindgen while all parsing, validation, regeneration, and rendering logic remains in host-testable plain Rust under `engine.rs`. |
+ | WASM size-controlled build target | Package | The non-published `cdylib` is a leaf over `transync-syntax`; it deliberately excludes `transync-core` and is built into the gitignored `web/wasm/` directory by `scripts/build-wasm.sh`. |
+ 
+@@ -29,7 +29,7 @@
+ 
+ ### Key Data Structures
+ 
+-- **EngineError** (Enum): Invalid JSON, unknown IDs, contradictory statuses/payloads, alignment mismatch, parse, regeneration, rendering, and serialization failure surface.
++- **EngineError** (Enum): JSON decoding, unknown-ID, parse, rendering, and serialization failures; semantic ownership and payload/status agreement are caller responsibilities.
+ - **PairOutput** (Struct): Source and target annotated HTML returned by view-mode rendering.
+ - **Rebuild input maps** (JSON Objects): Block-ID-keyed payload and fallback-status selections supplied by the editor.
+ - **RebuildOutput** (Struct): Rebuilt source/target panes, translated Markdown, serialized alignment map, and optional structure warning returned by edit mode.
+@@ -39,13 +39,13 @@
+ | Endpoint | Method | Description |
+ |----------|--------|-------------|
+ | `rebuild(...)` | wasm-bindgen function | Rebuilds translated Markdown, a schema-1.3 Markdown-format map, paired browser artifacts, and an advisory topology warning from source Markdown plus edited per-block payload/status JSON. |
+-| `render_pair(...)` | wasm-bindgen function | Renders an existing source/target Markdown pair against a supplied alignment map after source binding and coverage checks. |
++| `render_pair(...)` | wasm-bindgen function | Renders a caller-supplied source/target Markdown pair against an alignment map, subject to renderer coverage, duplicate-row, and range checks. |
+ | `schema_version()` | wasm-bindgen function | Returns the alignment schema version understood by the module. |
+ 
+ ### Error Handling Mechanisms
+ 
+-- **Alignment ownership checks:** View-mode rendering rejects maps that do not match the parsed source identity, contain duplicate rows, omit required blocks, or disagree with source kinds.
+-- **JSON boundary validation:** Malformed payload, status, or alignment JSON becomes a returned JavaScript error rather than a panic.
+-- **Rebuild consistency checks:** Unknown/non-translatable IDs, missing payloads for translated states, contradictory fallback states, and unsupported status values are rejected before regeneration.
++- **Renderer checks:** Duplicate rows, omitted required blocks, and unusable ranges are rejected. Source-document identity and semantic kind agreement are not authenticated (ADR-0023).
++- **JSON boundary validation:** Malformed payload, status, or alignment JSON, including unsupported status enum values, becomes a returned JavaScript error.
++- **Rebuild ID checks:** Unknown payload/status keys are rejected. Known non-translatable IDs and payload/status coherence remain the caller's responsibility; an absent payload uses source bytes.
+ - **Thin-wrapper conversion:** `lib.rs` converts typed engine failures to `JsValue`; the logic layer contains no wasm-bindgen types and remains host-testable.
+ - **Topology degradation warning:** An edit that changes top-level Markdown shape still rebuilds, but returns a structure warning so the browser can disclose degraded node pairing.
+
+diff --git a/docs/architecture/contracts.md b/docs/architecture/contracts.md
+--- a/docs/architecture/contracts.md
++++ b/docs/architecture/contracts.md
+@@ -711,7 +711,7 @@
+ 
+ **One fallback has no rejecting layer (ADR-0018 / DCR-0016).** An html unit whose splice **engine** fails *after* the model's payload was accepted is not a model fault, so it takes a direct fallback: no retry is burned and nothing is written to the cache. Its report row therefore has `final_status: fallback_source` with `rejected_by` **and** `rejection_reason` both `None`. Consumers auditing why a unit fell back MUST join `final_status` with the report's **warnings** channel — `rejected_by` alone does not account for every `fallback_source`. A failed **row-window merge** (below) takes the same shape, for the same reason.
+ 
+-**Packing is section-coherent (DCR-0027, DCR-0057).** Before any packing, `unit::build_batches` partitions the unit list into **sections**: a new section starts at unit index 0 and at every heading unit, of any level 1–6, and **a heading belongs to the section it opens** (the parser stamps a heading's own `section_path` excluding itself, so grouping by raw path equality would dangle every heading off the section it closes). The units before the first heading are the preamble section; a document with no heading is one section, and packs bit-identically to the pre-DCR-0027 behavior. Sections are then packed by the same greedy dual-budget sequential packer (§2), and by default **adjacent whole sections share a batch when they fit** (DCR-0057). A batch is therefore one of exactly two shapes: *N consecutive whole sections* whose combined estimates fit all three caps — token budget, output ceiling, unit cap — or *a fragment of one oversize section*, split by that same packer, all such fragments confined to their own section. Nothing else ever separates one section's units, and nothing is reordered. Two consecutive sections coalesce only when they agree on **both** admission terms, because a batch is one provider request carrying one compiled system prompt and one assembled instruction: their effective glossary cohort (§2), which makes the compiled `prompt_body` byte-identical, and their `DocumentFacts` (`has_html_unit` / `has_row_window_unit` / `html_document`), because `llm::prompt::build_user_prompt` assembles the instruction from `InstructionVariant::for_batch`, i.e. the batch's **own** membership. An oversize section coalesces in **neither** direction — it cannot join the batch before it, and its trailing fragment cannot host the section after it, which is what would put a section boundary inside a fragment. Nothing re-keys: the two terms pin exactly the batch-scoped `CacheKey` axes (§5a) — the cohort pins `profile_prompt_hash` and `glossary_hash`, `DocumentFacts` pins `instruction_hash` — so a coalesced batch's request is byte-identical to the one its sections would have received alone and no cache entry is orphaned. `[batching].coalesce_sections = false` (§2) restores DCR-0027 P2 exactly: **every batch's units come from exactly one section and no batch straddles a section boundary**, so a document of many small sections dispatches one batch per section — the setting to reach for when a short, heading-dense document needs the `max_concurrent_batches` dispatch slots more than it needs the round-trips coalescing saves. The partition is a pure function of the unit list, runs exactly once per run — after the row-window split below, so a window inherits its parent table's section by construction — and nothing downstream re-partitions: a retry round re-packs *within* a batch, whose membership the partition and the two admission terms already fixed, so packing stays deterministic across rounds the way R0001-0012 assumes.
++**Packing is section-coherent (DCR-0027, DCR-0057).** Before any packing, `unit::build_batches` partitions the unit list into **sections**: a new section starts at unit index 0 and at every heading unit, of any level 1–6, and **a heading belongs to the section it opens** (the parser stamps a heading's own `section_path` excluding itself, so grouping by raw path equality would dangle every heading off the section it closes). The units before the first heading are the preamble section; a document with no heading is one section, and packs bit-identically to the pre-DCR-0027 behavior. Sections are then packed by the same greedy dual-budget sequential packer (§2), and by default **adjacent whole sections share a batch when they fit** (DCR-0057). A batch is therefore one of exactly two shapes: *N consecutive whole sections* whose combined estimates fit all three caps — token budget, output ceiling, unit cap — or *a fragment of one oversize section*, split by that same packer, all such fragments confined to their own section. Nothing else ever separates one section's units, and nothing is reordered. Two consecutive sections coalesce only when they agree on **both** admission terms, because a batch is one provider request carrying one compiled system prompt and one assembled instruction: their effective glossary cohort (§2), which makes the compiled `prompt_body` byte-identical, and their `DocumentFacts` (`has_html_unit` / `has_row_window_unit` / `html_document`), because `llm::prompt::build_user_prompt` assembles the instruction from `InstructionVariant::for_batch`, i.e. the batch's **own** membership. An oversize section coalesces in **neither** direction — it cannot join the batch before it, and its trailing fragment cannot host the section after it, which is what would put a section boundary inside a fragment. Nothing re-keys: the two terms pin exactly the batch-scoped `CacheKey` axes (§5a) — the cohort pins `profile_prompt_hash` and `glossary_hash`, `DocumentFacts` pins `instruction_hash` — so the compiled system prompt, instruction variant, and per-unit cache identity are unchanged and no cache entry is orphaned. The complete request changes because its units array has different membership; live provider output equivalence is not guaranteed. `[batching].coalesce_sections = false` (§2) restores DCR-0027 P2 exactly: **every batch's units come from exactly one section and no batch straddles a section boundary**, so a document of many small sections dispatches one batch per section — the setting to reach for when a short, heading-dense document needs the `max_concurrent_batches` dispatch slots more than it needs the round-trips coalescing saves. The partition is a pure function of the unit list, runs exactly once per run — after the row-window split below, so a window inherits its parent table's section by construction — and nothing downstream re-partitions: a retry round re-packs *within* a batch, whose membership the partition and the two admission terms already fixed, so packing stays deterministic across rounds the way R0001-0012 assumes.
+ 
+ **A row-window split is packing, not retrying (DCR-0026).** When `[constraints].default_table_strategy` is `row-window-first` (§2) and a table's estimated response exceeds the effective output ceiling, `unit::build_batches` replaces that table with header-carrying row-window units (§1) **before round one**. That is the same kind of act as deciding batch boundaries: it consumes no budget, changes no in-flight unit, and happens exactly once per run. There is **no re-split** — no failure, provider signal, or retry round ever changes a unit's scope after packing — so ADR-0009's verbatim-resubmission rule is untouched rather than amended, and packing stays deterministic across rounds the way R0001-0012's re-packing rules assume.
+ 
+
+diff --git a/docs/project/design-change-records/DCR-0057-sections-coalesce-into-batches.md b/docs/project/design-change-records/DCR-0057-sections-coalesce-into-batches.md
+--- a/docs/project/design-change-records/DCR-0057-sections-coalesce-into-batches.md
++++ b/docs/project/design-change-records/DCR-0057-sections-coalesce-into-batches.md
+@@ -48,12 +48,11 @@
+ *admissible* with one another. Shipped **on**; `[batching].coalesce_sections =
+ false` restores DCR-0027 P2 exactly.
+ 
+-On by default rather than opt-in — the deviation from OQ-A's recommendation —
+-because the relaxation is invisible to every consumer of the output. It changes
+-how many requests a document costs and nothing else: not a rendered byte, not
+-an alignment row, not a cache key (see *Identity*). A knob defaulting to the
+-more expensive shape would mean most runs keep paying for a property that no
+-longer buys them anything.
++On by default rather than opt-in — the deviation from OQ-A's recommendation —
++to reduce requests for adjacent small sections while preserving per-unit cache
++identity (see *Identity*) and the validation/alignment contracts. Batch membership
++does change the complete provider request, so live translations and their rendered
++bytes can differ. The opt-out retains the prior packing policy.
+ 
+ ## Admission: two terms, not one
+ 
+@@ -114,12 +113,13 @@
+ | `CohortDigest` | Hashes `prompt_body` + `glossary`; term 1 makes them byte-identical across the run |
+ | `InstructionDigest` | Derived from `DocumentFacts`; term 2 makes them equal across the run |
+ 
+-Every other field of the key is per-unit. So a coalesced batch's request is
+-byte-identical to the one its sections would have received alone, and no cache
+-entry written by a pre-DCR-0057 run is orphaned. `pipeline::run_level_tests::
+-coalescing_moves_no_cache_key` pins this directly: it digests every unit under
+-both settings, over a fixture that deliberately carries a raw-HTML block so
+-that dropping term 2 would fail it.
++Every other field of the key is per-unit. The compiled system prompt and
++instruction variant are unchanged, and no cache entry written by a pre-DCR-0057
++run is orphaned. The full user request changes with the units array; unchanged
++keys do not prove identical live provider output. `pipeline::run_level_tests::
++coalescing_moves_no_cache_key` pins the key invariant directly: it digests every
++unit under both settings over a fixture carrying a raw-HTML block, so dropping
++term 2 would fail it.
+ 
+ No schema version moves. `ALIGNMENT_SCHEMA_VERSION`,
+ `VALIDATION_SCHEMA_VERSION`, `VALIDATION_REPORT_SCHEMA_VERSION` and
+

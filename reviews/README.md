@@ -90,6 +90,8 @@ false "mis-cited id" report before it was noticed.
 | `R0009` | 2026-08-24 | 91 (6 high, 43 medium, 42 low) | `reviews/reviewed/0009.md`, with `reviews/reviewed/0009.patch`. **Claimed as `0002` and renumbered before any citation existed** — see the note in the file's header and rule 4 above, with its 2026-09-03 note. |
 | `R0010` | 2026-09-04 | 93 (1 critical, 9 high, 65 medium, 18 low) | `reviews/reviewed/0010.md`, with `reviews/reviewed/0010.patch`. Gated and archived 2026-09-06. |
 | `R0011` | 2026-09-05 | 95 (6 high, 42 medium, 47 low) | `reviews/reviewed/0011.md`, with `reviews/reviewed/0011.patch`. Gated and archived 2026-09-06 in the same round as `R0010`. |
+| `R0012` | 2026-09-19 | 27 (4 high, 13 medium, 10 low) | `reviews/reviewed/0012.md`, with `reviews/reviewed/0012.patch`. Gated and archived 2026-10-21; DCR-0063 records the fix pass. |
+| `R0013` | 2026-09-20 | 11 (2 high, 3 medium, 6 low) | `reviews/reviewed/0013.md`, with `reviews/reviewed/0013.patch`. Gated and archived 2026-10-21 in the same round as `R0012`. |
 
 `bb93b68` ("reviews: remove archived reviews 0001-0005 (findings preserved)")
 is the commit that took rounds `0001`–`0005` off disk; `bb93b68^` is therefore

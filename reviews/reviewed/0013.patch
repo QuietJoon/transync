@@ -1,0 +1,277 @@
+# STATUS: COMPLETED
+# CLAIM_TOKEN: EBAFEAD6-3A43-455B-9395-456A0553EAB5
+# CLAIMED_AT: 2026-09-20T02:06:47Z
+# COMPLETED_AT: 2026-09-20T02:40:41Z
+# Hand-authored proposal. Not applied, built, tested, benchmarked, or patch-checked.
+# Summary:
+# - Vet final and temporary publication paths together.
+# - Retain one ordinal per open HTML container.
+# - Reject shorthand-only invisible text and restore pending request order.
+# - Remove discarded batch clones and input-only work from output estimates.
+# - Reuse the raw-text closing prefix and correct cache/API documentation.
+# Affected files:
+# - crates/transync-cli/src/output/fileset.rs
+# - crates/transync-syntax/src/intake/html.rs
+# - crates/transync-core/src/validate/text_presence.rs
+# - crates/transync-core/src/pipeline/dispatch.rs
+# - crates/transync-core/src/batch.rs
+# - crates/transync-html/src/lib.rs
+# - crates/transync-core/src/cache/disk.rs
+# - docs/decisions/0021-disk-cache-jsonl-log-and-document-metadata.md
+# - docs/investigation/codebase/transync-syntax.md
+# - docs/investigation/codebase/transync-html.md
+# Finding mapping:
+# - R0013-0001: fileset.rs; writer-side fix, early CLI preflight remains.
+# - R0013-0002: intake/html.rs; intermediate-path memory fix only, scope scans remain.
+# - R0013-0004: text_presence.rs; assigned shorthand-control range.
+# - R0013-0005: dispatch.rs; pending units sorted by original batch positions.
+# - R0013-0007: dispatch.rs; explicit fields replace discarded full-batch clone.
+# - R0013-0008: batch.rs; existing output-only estimator reused.
+# - R0013-0009: transync-html/lib.rs; allocate closing prefix on state entry.
+# - R0013-0010: disk.rs and ADR-0021; narrow the corruption-detection guarantee.
+# - R0013-0011: two investigation shards; current module paths and visibility.
+# No hunks for R0013-0003 / R0013-0006: representation/protocol choices in report.
+
+diff --git a/crates/transync-cli/src/output/fileset.rs b/crates/transync-cli/src/output/fileset.rs
+--- a/crates/transync-cli/src/output/fileset.rs
++++ b/crates/transync-cli/src/output/fileset.rs
+@@ -41,7 +41,12 @@
+     files: &[(std::path::PathBuf, &[u8])],
+     notify: Notify<'_>,
+ ) -> io::Result<()> {
+-    vet_destinations(files.iter().map(|(path, _)| path.as_path()))?;
++    let mut reserved = Vec::new();
++    for (path, _) in files {
++        reserved.push(path.clone());
++        reserved.push(staging_path(path)?);
++    }
++    vet_destinations(reserved.iter().map(PathBuf::as_path))?;
+ 
+     // Directories this call creates, so a staging (phase-1) failure leaves
+     // no directory residue (R0008-0041). Phase-2 (rename) failures keep the
+@@ -230,15 +235,17 @@
+     }
+ }
+ 
++fn staging_path(path: &Path) -> io::Result<PathBuf> {
++    // Preserve the full name so same-stem outputs have distinct staging names.
++    let file_name = destination_file_name(path)?;
++    Ok(path.with_file_name(format!("{file_name}.tmp.{}", process::id())))
++}
++
+ /// Stage one payload as `<path>.tmp.<pid>`, fsynced. The destination
+ /// directory already exists — [`create_destination_parents`] made it before
+ /// the publish lock was taken.
+ fn stage_one_file(path: &Path, bytes: &[u8], notify: Notify<'_>) -> io::Result<std::path::PathBuf> {
+-    // Append to the FULL file name (`out.md.tmp.<pid>`) rather than replacing
+-    // the extension — `with_extension` would collide same-stem siblings
+-    // (`out.md` and `out.json` both staging as `out.tmp.<pid>`) in one fileset.
+-    let file_name = destination_file_name(path)?;
+-    let tmp = path.with_file_name(format!("{file_name}.tmp.{}", process::id()));
++    let tmp = staging_path(path)?;
+     // `create_new` refuses a pre-existing temp, so a hostile or stale symlink
+     // planted at that name cannot redirect the write and truncate an
+     // unrelated file (R0008-0006).
+
+diff --git a/crates/transync-syntax/src/intake/html.rs b/crates/transync-syntax/src/intake/html.rs
+--- a/crates/transync-syntax/src/intake/html.rs
++++ b/crates/transync-syntax/src/intake/html.rs
+@@ -182,5 +182,5 @@
+     end: usize,
+-    /// The container's own `ast_path` (ancestors' child ordinals + its own).
+-    path: Vec<usize>,
++    /// This container's child ordinal; ancestors remain in the open stack.
++    ordinal: usize,
+     /// Whether the source closed it with a real end tag.
+     explicitly_closed: bool,
+@@ -599,32 +599,33 @@
+     /// The child-index convention that mirrors comrak's (spec §4): every
+     /// emitted block and every entered container takes the next ordinal at
+     /// its level, so an `<li>`'s path is its list container's path plus the
+     /// item ordinal — `walk::normalize_top_level`'s prefix collapse stays
+     /// total and adjacent lists can never merge.
+-    fn next_child_path(&mut self) -> Vec<usize> {
++    fn next_child_ordinal(&mut self) -> usize {
+         let counter = self
+             .child_counts
+             .last_mut()
+             .expect("the root level always exists");
+         let ordinal = *counter;
+         *counter += 1;
+-        let mut path = self
+-            .containers
+-            .last()
+-            .map(|c| c.path.clone())
+-            .unwrap_or_default();
++        ordinal
++    }
++
++    fn next_child_path(&mut self) -> Vec<usize> {
++        let ordinal = self.next_child_ordinal();
++        let mut path: Vec<usize> = self.containers.iter().map(|c| c.ordinal).collect();
+         path.push(ordinal);
+         path
+     }
+ 
+     fn enter_container(&mut self, name: &str, end: usize, explicitly_closed: bool) {
+-        let path = self.next_child_path();
++        let ordinal = self.next_child_ordinal();
+         self.containers.push(Container {
+             name: name.to_string(),
+             end,
+-            path,
++            ordinal,
+             explicitly_closed,
+         });
+         self.child_counts.push(0);
+     }
+ 
+
+diff --git a/crates/transync-core/src/validate/text_presence.rs b/crates/transync-core/src/validate/text_presence.rs
+--- a/crates/transync-core/src/validate/text_presence.rs
++++ b/crates/transync-core/src/validate/text_presence.rs
+@@ -107,7 +107,8 @@
+         | '\u{feff}'                // ZERO WIDTH NO-BREAK SPACE (BOM)
+         | '\u{ffa0}'                // HALFWIDTH HANGUL FILLER
+         | '\u{fff9}'..='\u{fffb}'   // interlinear annotation controls
++        | '\u{1bca0}'..='\u{1bca3}' // shorthand format controls
+         | '\u{1d173}'..='\u{1d17a}' // musical symbol format controls
+         | '\u{e0000}'..='\u{e0fff}' // tag chars, variation selectors supplement
+     )
+ }
+
+diff --git a/crates/transync-core/src/pipeline/dispatch.rs b/crates/transync-core/src/pipeline/dispatch.rs
+--- a/crates/transync-core/src/pipeline/dispatch.rs
++++ b/crates/transync-core/src/pipeline/dispatch.rs
+@@ -256,7 +256,10 @@
+                 .filter(|u| cached_ids.contains(&u.unit_id))
+                 .cloned()
+                 .collect(),
+-            ..batch.clone()
++            source_language: batch.source_language.clone(),
++            target_language: batch.target_language.clone(),
++            glossary: batch.glossary.clone(),
++            profile: batch.profile.clone(),
+         };
+         let validated = crate::validate::validate_batch(&synth_batch, &synth, ref_defs);
+         // OI-0031: the synthetic batch is built 1:1 from the cached rows
+@@ -311,7 +314,16 @@
+             dispatched_provider_call: false,
+         });
+     }
+ 
++    // Rejected hits were appended after misses; restore the packer's order.
++    let source_order: HashMap<&BlockId, usize> = batch
++        .units
++        .iter()
++        .enumerate()
++        .map(|(position, unit)| (&unit.unit_id, position))
++        .collect();
++    pending_units.sort_by_key(|unit| source_order[&unit.unit_id]);
++
+     // R0001-0012: the packing budget this batch's units were grouped under,
+     // rebuilt here so a retry round can be packed by the *same* budget rather
+     // than shipping as one unbounded batch. `unit::build_batches` resolved it
+
+diff --git a/crates/transync-core/src/batch.rs b/crates/transync-core/src/batch.rs
+--- a/crates/transync-core/src/batch.rs
++++ b/crates/transync-core/src/batch.rs
+@@ -600,7 +600,12 @@
+     bpe: &CoreBPE,
+     output_expansion_factor: f64,
+ ) -> usize {
+-    estimate_unit(unit, bpe, output_expansion_factor).output
++    estimate_payload_output_tokens(
++        &unit.source_payload,
++        &unit.unit_id.0,
++        bpe,
++        output_expansion_factor,
++    )
+ }
+ 
+ /// Resolve a profile's optional expansion factor to a usable value: a finite,
+
+diff --git a/crates/transync-html/src/lib.rs b/crates/transync-html/src/lib.rs
+--- a/crates/transync-html/src/lib.rs
++++ b/crates/transync-html/src/lib.rs
+@@ -900,13 +900,12 @@
+             i += 1;
+             continue;
+         }
+-        if let Some(close_name) = &raw_until {
++        if let Some(want) = &raw_until {
+             // Only the matching close tag ends raw-text state. The probe
+             // compares BYTES: `html[i..][..want.len()]` would panic when a
+             // multibyte char straddles the window. HTML also requires a
+             // delimiter right after the name, otherwise `</scripty>` would
+             // end a `<script>` body (and get deleted as an orphan close).
+-            let want = format!("</{close_name}");
+             let rest = &bytes[i..];
+             let delimited = matches!(
+                 bytes.get(i + want.len()),
+@@ -1363,7 +1362,7 @@
+             // all of it in HTML content — and the fix is narrower than the
+             // rule it refines, not a revert of it.
+             if parent_mode == ContentMode::Html && is_raw_text(&name) {
+-                raw_until = Some(name.clone());
++                raw_until = Some(format!("</{name}"));
+             }
+ 
+             // HTML honours the self-closing flag in exactly two places:
+
+diff --git a/crates/transync-core/src/cache/disk.rs b/crates/transync-core/src/cache/disk.rs
+--- a/crates/transync-core/src/cache/disk.rs
++++ b/crates/transync-core/src/cache/disk.rs
+@@ -291,7 +291,7 @@
+ ///
+-/// None of this can put a bad entry into the output. Every cache hit is
+-/// re-validated through the per-unit layers on reuse (ADR-0015), and a failing
+-/// hit is evicted and re-dispatched — so a flipped bit in a payload is a
+-/// re-translation, not a corrupted document. That existing gate is why this
+-/// format carries no checksums.
++/// Every cache hit is re-validated through the per-unit layers on reuse
++/// (ADR-0015); failures are evicted and re-dispatched. This catches malformed
++/// or invariant-breaking payloads, not all byte corruption: changes to ordinary
++/// prose can remain structurally valid and be replayed. The format carries no
++/// checksums, so it does not guarantee semantic integrity of stored translations.
+ ///
+
+diff --git a/docs/decisions/0021-disk-cache-jsonl-log-and-document-metadata.md b/docs/decisions/0021-disk-cache-jsonl-log-and-document-metadata.md
+--- a/docs/decisions/0021-disk-cache-jsonl-log-and-document-metadata.md
++++ b/docs/decisions/0021-disk-cache-jsonl-log-and-document-metadata.md
+@@ -123,7 +123,7 @@
+ 
+ * Good, because a clean checkout still builds with zero new dependencies, and
+-  the entire failure surface of persistence is "a line or file was skipped,
+-  loudly" — every path degrades to re-translation and none can corrupt output
+-  (ADR-0015's hit revalidation catches a damaged-but-parseable payload like
+-  any stale entry).
++  unreadable records degrade to re-translation with diagnostics. Hit
++  revalidation (ADR-0015) also rejects payloads that break enforced
++  invariants. Same-shape corruption of translated prose can still be replayed;
++  the no-checksum format does not provide a semantic-integrity guarantee.
+ * Good, because the cache identity contract crosses the process boundary
+
+diff --git a/docs/investigation/codebase/transync-syntax.md b/docs/investigation/codebase/transync-syntax.md
+--- a/docs/investigation/codebase/transync-syntax.md
++++ b/docs/investigation/codebase/transync-syntax.md
+@@ -20,2 +20,2 @@
+-| GFM parsing | Function/Module | `parser::intake` applies the shared nesting/NUL guard before `parser::parse` uses canonical Comrak GFM options to build a source-preserving Markdown `Document` IR with semantic kinds, per-block spelling, byte ranges, hashes, AST paths, section paths, reference-definition text, and visible warnings. Raw-HTML islands remain semantic `Html` blocks but carry `Spelling::Html` with their CommonMark block type; unsupported top-level nodes remain anchored `Skipped` blocks. |
++| GFM parsing | Function/Module | `intake::markdown::intake` applies the shared nesting/NUL guard before `intake::markdown::parse` uses canonical Comrak GFM options to build a source-preserving Markdown `Document` IR with semantic kinds, per-block spelling, byte ranges, hashes, AST paths, section paths, reference-definition text, and visible warnings. Raw-HTML islands remain semantic `Html` blocks but carry `Spelling::Html` with their CommonMark block type; unsupported top-level nodes remain anchored `Skipped` blocks. |
+ | HTML document intake | Function/Module | `intake::html::parse` normalizes NUL, walks the shared scanner/extents, classifies title, heading, paragraph, table, code, list-item, blockquote, image, and fallback HTML blocks, applies one global ID order and the shared heading-section stack, preserves gap bytes, and produces a source-identical empty-payload regeneration. Malformed markup force-closes conservatively and records warnings rather than panicking. |
+@@ -25,2 +25,2 @@
+-| Reference-definition pooling | Function/Module | `parser::refdefs` recovers CommonMark link-reference definitions from inter-block gaps and makes them available to fragment rendering and inline validation without turning definitions into sync blocks. |
++| Reference-definition pooling | Function/Module | `intake::markdown::refdefs` recovers CommonMark link-reference definitions from inter-block gaps for inline validation without turning definitions into sync blocks. Pane rendering uses a whole-document parse. |
+ | Source-format and spelling model | Data/Policy | `SourceFormat` labels the Markdown or HTML document intake and `Spelling` independently records whether each semantic block was written as Markdown or HTML. HTML-document blocks are HTML-spelled without CommonMark block types; Markdown documents can mix Markdown spelling with typed raw-HTML islands. `BlockKind::Title` carries translatable, non-pane page-title semantics. |
+@@ -67,2 +67,2 @@
+-| `parser::{intake, parse, comrak_options}` | Rust functions | Applies the shared nesting/NUL guard, produces the Markdown syntax IR, and exposes the single canonical GFM configuration used by downstream reparses. |
++| `intake::markdown::{intake, parse, comrak_options}` | Rust functions | Applies the shared nesting/NUL guard, produces the Markdown syntax IR, and exposes the single canonical GFM configuration used by downstream reparses. |
+ | `regen::{regenerate, regenerate_code_block, regenerate_code_fence}` | Rust functions | Splices translated payloads into either source format and safely rewraps translated fenced Markdown code blocks. |
+
+diff --git a/docs/investigation/codebase/transync-html.md b/docs/investigation/codebase/transync-html.md
+--- a/docs/investigation/codebase/transync-html.md
++++ b/docs/investigation/codebase/transync-html.md
+@@ -47,2 +47,2 @@
+-| `scan` / `scan_with_memory_cap` | Rust functions | Streams retained text nodes with parent labels under the default or caller-selected rewriter memory ceiling. |
++| `scan` / `scan_with_memory_cap` | Crate-private Rust helpers | Streams retained text nodes with parent labels for internal extraction/splice work. External callers use `extract` / `splice`; these helpers do not expose a public memory-ceiling setting. |
+ | `scan_tags` / `tag_inventory` | Rust functions | Tokenizes tag-shaped regions and projects a lowercase open/close-name sequence for validation. |
