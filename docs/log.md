@@ -4,6 +4,15 @@ Newest-first journal of changes to the `docs/` bundle itself. Changes to what
 the documents *say* belong in the documents; this file records the shape of the
 bundle — files added, removed, retired, or re-typed.
 
+## 2026-10-21
+
+* **DCR-0063 and ADR-0032 added**, from the decision gate over independent
+  reviews 0012 and 0013: `project/design-change-records/DCR-0063-review-0012-0013-fix-pass.md`
+  records every contract delta of that gate's fix pass, and
+  `decisions/0032-the-language-gate-answers-only-for-the-languages-it-models.md`
+  records the language gate's input domain (R0012-0014). The bundle index links
+  both.
+
 ## 2026-10-13
 
 * **DCR-0061 and DCR-0062 added** under `project/design-change-records/`: the

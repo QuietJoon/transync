@@ -94,6 +94,20 @@ spelling the filesystem folds onto the marker beyond ASCII is refused by
 `dev`+`ino` identity, asked again once the lock is held, because taking the
 lock is what creates the marker (R0012-0005, DCR-0063).
 
+**The staging names are reserved too.** A files-mode output is staged at
+`<final component>.tmp.<pid>` beside its destination and renamed into place.
+Left unreserved, another destination at exactly that name is a path the run's
+own staging writes and renames away: staged first, its bytes would be published
+under the other's name, neither destination would hold its own output, and the
+run would exit 0. A destination inside that name would only fail, at staging
+and after the provider call, because a directory on its path takes the name the
+other output's temp needs. So the staging name has one derivation, and every
+destination is vetted against every other destination's staging name for this
+run's pid, in either order, before the provider call and again in both passes
+of the fileset commit; once the temps exist, a destination that is by
+`dev`+`ino` a temp staged for another destination is refused before the first
+rename, on Unix (R0013-0001, DCR-0063).
+
 **A granted waiter revalidates the inode.** A marker can still leave its
 path — a failed run's rollback unlinks the marker of an empty directory level
 it created, and an `--out-dir` replace deliberately renames a locked target
@@ -143,7 +157,7 @@ carries the reasoning.
 
 * Good, because the crash-recovery question is answered by the kernel, so the
   protocol has no TTL, no steal, and no clock dependence.
-* Good, because every one of the eight decisions above has a written reason, so
+* Good, because every one of the nine decisions above has a written reason, so
   a future round that re-raises one is answered by citation rather than by
   re-derivation — which is what the previous twelve findings cost.
 * Bad, because two of them are visible residue a user can trip over: a marker

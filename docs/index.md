@@ -71,6 +71,7 @@ Four things sit outside the rule on purpose, because they are not this index's t
 - [ADR 0029 — The out-dir ownership marker is a name, not a credential](decisions/0029-the-out-dir-marker-is-a-name-not-a-credential.md) — filename and file type decide; its body is documentation and is never compared (R0011-0003).
 - [ADR 0030 — The WASM publish lock fails closed, and the remedy is a human](decisions/0030-the-wasm-publish-lock-fails-closed.md) — no automatic stale-owner recovery: only `SIGKILL` can strand the lock (R0011-0016).
 - [ADR 0031 — A provider request budget is taken verbatim](decisions/0031-a-provider-request-budget-is-taken-verbatim.md) — no floor or clamp; `Duration::ZERO` fails every request (R0011-0075).
+- [ADR 0032 — The language gate answers only for the languages it models](decisions/0032-the-language-gate-answers-only-for-the-languages-it-models.md) — a letter ru/ar/hi never write answers `Translate`; the misses left are named (R0012-0014).
 
 ## Design change records (DCRs)
 
@@ -112,6 +113,7 @@ Archived records — DCR-0001–0004, 0006, 0007, 0010, 0011, 0013–0015, 0017�
 - [DCR-0060 — Vertex AI express mode is a third Google surface](project/design-change-records/DCR-0060-vertex-express-mode.md) — `--google-auth api-key` with `GOOGLE_API_KEY`; an ambient key never selects it.
 - [DCR-0062 — The v0.6.0 breaking window is open](project/design-change-records/DCR-0062-v060-breaking-window-opens.md) — the two parked changes may ship; the three queued items are eligible, not required.
 - [DCR-0061 — Five corrections to the Gemini adapter, and what the first live call settled](project/design-change-records/DCR-0061-gemini-review-fix-pass.md) — an impossible ceiling is exit 2, the `MAX_TOKENS` advice stops being circular, `[::1]` is loopback again, and express mode's header form is live-verified.
+- [DCR-0063 — Reviews 0012 and 0013's fix pass, and the contract each of its thirty-eight findings moved](project/design-change-records/DCR-0063-review-0012-0013-fix-pass.md) — scanner states, a nesting ceiling, per-pane ids, document-wide references, identity-checked destinations, the gate's input domain.
 
 ## Project state
 

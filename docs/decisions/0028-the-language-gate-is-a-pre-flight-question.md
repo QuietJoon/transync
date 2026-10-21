@@ -91,7 +91,7 @@ name `AlreadyTarget` explicitly, so "I could not tell" cannot be misread as "no
 translation needed". A flat three-variant enum would put that mistake one
 careless match arm away.
 
-**The input domain is the modelled languages** (DCR-0063). Both halves of the
+**The input domain is the modelled languages** (DCR-0063, ADR-0032). Both halves of the
 gate are closed-set: the script test knows the scripts `Language`'s sixteen
 write, and the backend can name only those sixteen. A verdict is meaningful
 for text in one of them; text in another language can come back
